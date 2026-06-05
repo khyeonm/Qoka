@@ -162,9 +162,9 @@ export class AgentHostSessionListController extends Disposable implements IChatS
 			}
 		}));
 
-		// Re-fetch the session list whenever the set of VS Code workspace
+		// Re-fetch the session list whenever the set of Aria workspace
 		// folders changes, since filtering depends on it. The agent host
-		// itself doesn't know which workspace this VS Code window has open,
+		// itself doesn't know which workspace this Aria window has open,
 		// so we have to drive the refresh from this side.
 		this._register(this._workspaceContextService.onDidChangeWorkspaceFolders(() => {
 			this._cacheValid = false;
@@ -303,8 +303,8 @@ export class AgentHostSessionListController extends Disposable implements IChatS
 
 	/**
 	 * Returns `true` if a session with the given working directory belongs
-	 * to the current VS Code workspace. When the window has no workspace
-	 * folders open (e.g. the Agents window, or an empty VS Code window),
+	 * to the current Aria workspace. When the window has no workspace
+	 * folders open (e.g. the Agents window, or an empty Aria window),
 	 * filtering is disabled and every session is considered in-scope.
 	 *
 	 * Sessions without a working directory are excluded when a workspace

@@ -41,7 +41,7 @@ export interface IProtocolAdapter {
 	readonly name: string;
 
 	/**
-	 * Parse the incoming request body and convert to VS Code format
+	 * Parse the incoming request body and convert to Aria format
 	 */
 	parseRequest(body: string): IParsedRequest;
 

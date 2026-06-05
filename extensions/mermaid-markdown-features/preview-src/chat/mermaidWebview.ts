@@ -440,7 +440,7 @@ export async function initializeMermaidWebview(vscode: VsCodeApi, options?: PanZ
 	content.appendChild(diagram);
 	wrapper.appendChild(content);
 
-	// Run mermaid using the selected VS Code-themed config
+	// Run mermaid using the selected Aria-themed config
 	const config: MermaidConfig = buildMermaidConfig(loadExtensionConfig(), themeTracker);
 	mermaid.initialize(config);
 	try {
@@ -469,7 +469,7 @@ export async function initializeMermaidWebview(vscode: VsCodeApi, options?: PanZ
 		}
 	});
 
-	// Re-render when the active VS Code theme changes. The tracker watches DOM mutations on the
+	// Re-render when the active Aria theme changes. The tracker watches DOM mutations on the
 	// body (theme class / data attributes) and the document element (inline CSS variable updates
 	// from `workbench.colorCustomizations`), and only fires when the resolved colors actually
 	// change.

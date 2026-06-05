@@ -32,14 +32,14 @@ import { createChangesets } from '../../copilotChatSessions/browser/copilotChatS
 import { IMarkdownString } from '../../../../../base/common/htmlContent.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 
-/** Local session type — in-process VS Code chat, no background agent or worktree. */
+/** Local session type — in-process Aria chat, no background agent or worktree. */
 export const LocalSessionType: ISessionType = {
 	id: 'local',
 	label: localize('localSession', "Local"),
 	icon: Codicon.vm,
 };
 
-/** Setting key controlling whether Local VS Code chat sessions are available in the Agents app. */
+/** Setting key controlling whether Local Aria chat sessions are available in the Agents app. */
 export const LOCAL_SESSION_ENABLED_SETTING = 'sessions.chat.localAgent.enabled';
 
 const LOCAL_PROVIDER_ID = 'local-chat';

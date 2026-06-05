@@ -1,9 +1,9 @@
 {
-  "name": "code-oss-dev",
+  "name": "aria-dev",
   "version": "1.123.0",
   "distro": "6a5606319f079b27f14d9a4947bf9cd2bff41528",
   "author": {
-    "name": "Microsoft Corporation"
+    "name": "Aria"
   },
   "license": "MIT",
   "main": "./out/main.js",
@@ -269,10 +269,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/microsoft/vscode.git"
+    "url": "https://github.com/khyeonm/aria-vscode.git"
   },
   "bugs": {
-    "url": "https://github.com/microsoft/vscode/issues"
+    "url": "https://github.com/khyeonm/aria-vscode/issues"
   },
   "optionalDependencies": {
     "windows-foreground-love": "0.6.1"

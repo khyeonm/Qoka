@@ -101,7 +101,7 @@ export const COPILOT_AGENT_HOST_SYSTEM_MESSAGE = {
 	sections: {
 		identity: {
 			action: 'replace',
-			content: 'You are an AI assistant using Copilot CLI runtime in VS Code. You help users with software engineering tasks. When asked about your identity, you must state that you are an AI assistant using Copilot CLI runtime in VS Code.',
+			content: 'You are an AI assistant using Copilot CLI runtime in Aria. You help users with software engineering tasks. When asked about your identity, you must state that you are an AI assistant using Copilot CLI runtime in Aria.',
 		},
 	},
 } satisfies NonNullable<ResumeSessionConfig['systemMessage']>;
@@ -476,7 +476,7 @@ export class CopilotAgent extends Disposable implements IAgent {
 		const clientStarting = (async () => {
 			this._logService.info('[Copilot] Starting CopilotClient... (with token)');
 
-			// Build a clean env for the CLI subprocess, stripping Electron/VS Code vars
+			// Build a clean env for the CLI subprocess, stripping Electron/Aria vars
 			// that can interfere with the Node.js process the SDK spawns.
 			const env: Record<string, string | undefined> = Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' });
 			delete env['NODE_OPTIONS'];
@@ -499,7 +499,7 @@ export class CopilotAgent extends Disposable implements IAgent {
 			// FileAccess.asFileUri('') points to the `out/` directory; node_modules is one level up.
 			const cliPath = URI.joinPath(FileAccess.asFileUri(''), '..', 'node_modules', '@github', 'copilot', 'index.js').fsPath;
 
-			// Add VS Code's built-in ripgrep to PATH so the CLI subprocess can find it.
+			// Add Aria's built-in ripgrep to PATH so the CLI subprocess can find it.
 			const resolvedRgDiskPath = await rgDiskPath();
 			const rgDir = dirname(resolvedRgDiskPath);
 			// On Windows the env key is typically "Path" (not "PATH"). Since we copied

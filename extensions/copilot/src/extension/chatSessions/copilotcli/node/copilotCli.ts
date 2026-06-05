@@ -533,7 +533,7 @@ export class CopilotCLISDK implements ICopilotCLISDK {
 			// Ensure the node-pty and ripgrep shims exist before importing the SDK (required for CLI sessions)
 			await this._ensureShimsPromise;
 			// The SDK's sandbox auto-detection looks for `mxc-bin/<arch>/wxc-exec.exe` (and the
-			// Linux/macOS equivalents) under `MXC_BIN_DIR`. VS Code core ships the MXC
+			// Linux/macOS equivalents) under `MXC_BIN_DIR`. Aria core ships the MXC
 			// sandbox binaries at `<appRoot>/node_modules/@microsoft/mxc-sdk/bin/<arch>/`, so
 			// point `MXC_BIN_DIR` there. The @github/copilot package's own `mxc-bin/` is excluded
 			// from the product build (see build/.moduleignore).

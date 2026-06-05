@@ -6,7 +6,7 @@ This document describes the layout structure and concepts for the Agents Window 
 
 ## 1. Overview
 
-The Agents Window workbench (`Workbench` in `sessions/browser/workbench.ts`) provides a simplified, fixed layout optimized for agent session workflows. Unlike the default VS Code workbench, this layout:
+The Agents Window workbench (`Workbench` in `sessions/browser/workbench.ts`) provides a simplified, fixed layout optimized for agent session workflows. Unlike the default Aria workbench, this layout:
 
 - Does **not** support settings-based customization
 - Has **fixed** part positions

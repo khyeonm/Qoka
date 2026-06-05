@@ -293,7 +293,7 @@ export class ProtocolServerHandler extends Disposable {
 					return;
 				}
 
-				// The VS Code upgrade request rides on the same transport but
+				// The Aria upgrade request rides on the same transport but
 				// is callable pre-`initialize`: by definition we get here when
 				// the client's protocol version was rejected, so the client
 				// never managed to complete the handshake.
@@ -385,7 +385,7 @@ export class ProtocolServerHandler extends Disposable {
 			const data: UnsupportedProtocolVersionErrorDataEx = {
 				supportedVersions: [`^${PROTOCOL_VERSION}`],
 				// Only advertise the in-band upgrade method when the agent
-				// host was spawned by a VS Code CLI that is listening for
+				// host was spawned by a Aria CLI that is listening for
 				// management requests (presence of the env var). Otherwise
 				// there is no supervisor to actually act on it, so don't
 				// lie to the client.
@@ -476,7 +476,7 @@ export class ProtocolServerHandler extends Disposable {
 	}
 
 	/**
-	 * Forwards a client's upgrade request to the hosting VS Code CLI's
+	 * Forwards a client's upgrade request to the hosting Aria CLI's
 	 * HTTP management API (advertised via the {@link VSCODE_AGENT_HOST_MANAGEMENT_SOCKET_ENV}).
 	 * Returns the CLI's parsed response verbatim so the client can render
 	 * a meaningful status (already up-to-date, restart scheduled, etc.).
@@ -1015,7 +1015,7 @@ export class ProtocolServerHandler extends Disposable {
 			return;
 		}
 
-		// VS Code extension methods (not in the typed protocol maps yet)
+		// Aria extension methods (not in the typed protocol maps yet)
 		const extensionResult = this._handleExtensionRequest(method, params);
 		if (extensionResult) {
 			extensionResult.then(result => {
@@ -1031,7 +1031,7 @@ export class ProtocolServerHandler extends Disposable {
 	}
 
 	/**
-	 * Handle VS Code extension methods that are not yet part of the typed
+	 * Handle Aria extension methods that are not yet part of the typed
 	 * protocol. Returns a Promise if the method was recognized, undefined
 	 * otherwise.
 	 */

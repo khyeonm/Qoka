@@ -90,7 +90,7 @@ interface McSharedState {
 	mcSdkSession: Session;
 	/** Dispose function for the persistent on('*') listener for MC events. */
 	mcEventListenerDispose: (() => void) | undefined;
-	/** VS Code session resource URI for routing steering through the chat UI. */
+	/** Aria session resource URI for routing steering through the chat UI. */
 	mcSessionResource: import('vscode').Uri;
 }
 const mcStateBySessionId = new Map<string, McSharedState>();
@@ -2475,7 +2475,7 @@ export class CopilotCLISession extends DisposableStore implements ICopilotCLISes
 					}
 					case 'user_message':
 					default: {
-						// Route steering messages through the VS Code chat UI so
+						// Route steering messages through the Aria chat UI so
 						// they appear in the chat panel with proper rendering.
 						const vsCodeApi = require('vscode') as typeof import('vscode');
 						getMissionControlPendingCommandCompletionIds(state).add(cmd.id);

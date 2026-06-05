@@ -470,7 +470,7 @@ export function getAvailableModels(
 		})
 		.filter((m): m is ILanguageModelChatMetadataAndIdentifier => !!m);
 
-	// For 'local' sessions (in-process VS Code chat), use general-purpose
+	// For 'local' sessions (in-process Aria chat), use general-purpose
 	// models (those without a targetChatSessionType) since no extension
 	// registers models specifically targeting the 'local' session type.
 	if (session.sessionType === SessionType.Local) {

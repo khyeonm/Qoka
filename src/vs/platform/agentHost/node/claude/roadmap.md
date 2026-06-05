@@ -166,7 +166,7 @@ interface ICopilotApiService {
 
 **Learnings from implementation:**
 
-1. **VS Code DI constructor ordering:** `GetLeadingNonServiceArgs` strips
+1. **Aria DI constructor ordering:** `GetLeadingNonServiceArgs` strips
    `BrandedService`-decorated params from the **end** of the tuple, so
    non-service params (like `fetchFn`) must come **first** in the constructor.
    Putting them after service params causes `createInstance` to select the
@@ -1285,34 +1285,34 @@ from a path the user supplies (`chat.agentHost.claudeAgent.path` setting →
 That mechanism unblocked development but is **not shippable**: it requires
 every user to install the SDK locally and configure a path.
 
-**Direction:** distribute the SDK as a versioned VS Code extension so users
+**Direction:** distribute the SDK as a versioned Aria extension so users
 get it through the normal install flow.
 
 1. **Agent Host gains marketplace-install capability.** Today the agent
    host is a closed utility process; it cannot fetch or install
    extensions. Add the IPC + extension-management surface needed for the
-   agent host to install / update / load extensions from the VS Code
+   agent host to install / update / load extensions from the Aria
    marketplace (or a registry it trusts).
 2. **Publish a Claude SDK packaging extension to the marketplace.** A
    thin extension whose only job is to ship a vetted version of
    `@anthropic-ai/claude-agent-sdk` (and any native deps) and expose its
    load path to the agent host. Versioned on the marketplace so SDK
-   upgrades become extension updates, not VS Code releases.
+   upgrades become extension updates, not Aria releases.
 3. **Agent host loads the SDK from the installed extension** instead of
    from `AgentHostClaudeSdkPathEnvVar`. The env-var path stays as a dev
    override. The setting `chat.agentHost.claudeAgent.path` is repurposed
    (or removed) for end users.
 
 **Why this shape:**
-- SDK upgrades ship out-of-band from VS Code (no need to bundle a
-  specific SDK version into every VS Code release).
+- SDK upgrades ship out-of-band from Aria (no need to bundle a
+  specific SDK version into every Aria release).
 - The native-dependency packaging burden moves to the extension's
-  publishing pipeline, which is already a solved problem for VS Code
+  publishing pipeline, which is already a solved problem for Aria
   extensions across `win32-x64`, `darwin-x64`, `darwin-arm64`,
   `linux-x64`.
 - Multiple SDK-packaging extensions could coexist (e.g. an `@stable`
   extension and a `@preview` extension), letting the user opt into
-  newer SDKs without a VS Code update.
+  newer SDKs without a Aria update.
 - Other agent SDKs (future Anthropic / OpenAI / etc. providers) follow
   the same model.
 
@@ -1332,7 +1332,7 @@ This phase replaces the previous "upgrade the bundled SDK to a newer
 dependency. That assumption no longer holds now that the SDK ships
 native binaries.
 
-Exit criteria: a fresh VS Code install can use the Claude agent without
+Exit criteria: a fresh Aria install can use the Claude agent without
 manually installing the SDK or setting any path. SDK upgrades arrive as
 marketplace extension updates.
 

@@ -48,7 +48,7 @@ interface WriteBuffer {
 }
 
 /**
- * Populates the Chronicle session store from VS Code session lifecycle events.
+ * Populates the Chronicle session store from Aria session lifecycle events.
  *
  * Optimizations:
  * 1. **Write batching**: All writes are buffered and flushed every 3s in a single transaction.

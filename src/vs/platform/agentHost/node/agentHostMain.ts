@@ -168,7 +168,7 @@ async function startAgentHost(): Promise<void> {
 		// The Claude agent provider is opt-in. Gated on the
 		// `chat.agentHost.claudeAgent.path` workbench setting being non-empty,
 		// forwarded by the agent host starters as `VSCODE_AGENT_HOST_CLAUDE_SDK_PATH`.
-		// The SDK is intentionally not bundled with VS Code; the env var holds the
+		// The SDK is intentionally not bundled with Aria; the env var holds the
 		// absolute path to a locally-installed `@anthropic-ai/claude-agent-sdk` package.
 		if (process.env[AgentHostClaudeSdkPathEnvVar]) {
 			agentService.registerProvider(instantiationService.createInstance(ClaudeAgent));

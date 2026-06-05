@@ -78,7 +78,7 @@ export class NodeAgentHostStarter extends Disposable implements IAgentHostStarte
 		// The Claude agent is opt-in: enabled when the user points the SDK path
 		// setting at a locally-installed `@anthropic-ai/claude-agent-sdk` package,
 		// or when the env var is already set on the parent process (developer
-		// override). The SDK itself is intentionally not bundled with VS Code.
+		// override). The SDK itself is intentionally not bundled with Aria.
 		const claudeSdkPath = this._configurationService.getValue<string>(AgentHostClaudeAgentSdkPathSettingId)
 			|| process.env[AgentHostClaudeSdkPathEnvVar]
 			|| '';

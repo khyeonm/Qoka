@@ -218,7 +218,7 @@
 
 						return () => {
 							if (acquired && !${allowMultipleAPIAcquire}) {
-								throw new Error('An instance of the VS Code API has already been acquired');
+								throw new Error('An instance of the Aria API has already been acquired');
 							}
 							acquired = true;
 							return Object.freeze({
@@ -257,7 +257,7 @@
 				.then(async registration => {
 					if (navigator.serviceWorker.controller) {
 						// A previous SW is already controlling. Force an update
-						// check so we don't serve stale resources after a VS Code
+						// check so we don't serve stale resources after a Aria
 						// update. register() resolves before the update check
 						// completes, so we must call update() explicitly to wait
 						// for the download + byte-comparison to finish.
@@ -589,7 +589,7 @@
 		 */
 		const handleInnerKeydown = (e) => {
 			// If the keypress would trigger a browser event, such as copy or paste,
-			// make sure we block the browser from dispatching it. Instead VS Code
+			// make sure we block the browser from dispatching it. Instead Aria
 			// handles these events and will dispatch a copy/paste back to the webview
 			// if needed
 			if (isUndoRedo(e) || isPrint(e) || isFindEvent(e) || isSaveEvent(e)) {

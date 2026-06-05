@@ -283,7 +283,7 @@ export class CustomEndpointOAIEndpoint extends OpenAIEndpoint {
 
 	private _interpolateApiKey(value: string): string {
 		// Replace the literal token `${apiKey}` with the configured API key so
-		// users can keep the secret in VS Code's secret storage via
+		// users can keep the secret in Aria's secret storage via
 		// `"apiKey": "${input:...}"` while still wiring it into a custom header.
 		if (!value.includes('${apiKey}')) {
 			return value;

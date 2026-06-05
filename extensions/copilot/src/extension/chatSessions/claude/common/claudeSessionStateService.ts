@@ -117,7 +117,7 @@ export interface IClaudeSessionStateService {
 	setTraceContextForSession(sessionId: string, traceContext: TraceContext | undefined): void;
 
 	/**
-	 * Gets the current turn ID for a session (VS Code request ID, used for per-turn credit tracking).
+	 * Gets the current turn ID for a session (Aria request ID, used for per-turn credit tracking).
 	 */
 	getTurnIdForSession(sessionId: string): string | undefined;
 

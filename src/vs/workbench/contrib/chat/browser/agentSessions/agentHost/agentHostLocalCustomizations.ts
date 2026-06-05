@@ -31,7 +31,7 @@ export const SYNCABLE_PROMPT_TYPES: readonly PromptsType[] = [
 /**
  * Storage sources whose contents are auto-synced. Extension and built-in
  * customizations are included so the agent host has the same skills,
- * instructions, and agents available as the local VS Code client.
+ * instructions, and agents available as the local Aria client.
  */
 export const SYNCABLE_STORAGE_SOURCES: readonly PromptsStorage[] = [
 	PromptsStorage.plugin,
@@ -58,7 +58,7 @@ export interface ILocalCustomizationFile {
  * Built-in skills bundled with the Agents app (only present when the
  * sessions-aware prompts service is in play) are also enumerated so that
  * `/create-pr`, `/merge`, etc. are available to every agent host without
- * any per-provider plumbing. In the regular VS Code workbench window the
+ * any per-provider plumbing. In the regular Aria workbench window the
  * built-in lookup returns nothing and this is a no-op.
  */
 export async function enumerateLocalCustomizationsForHarness(

@@ -41,7 +41,7 @@ const SCHEMA_VERSION = 3;
  * Session store backed by SQLite + FTS5.
  *
  * Schema is identical to the copilot-agent-runtime SessionStore so that
- * tooling and queries are portable across CLI and VS Code surfaces.
+ * tooling and queries are portable across CLI and Aria surfaces.
  * The store is populated incrementally by live hooks — no background indexing.
  */
 export class SessionStore implements ISessionStore {

@@ -100,7 +100,7 @@ export class VSCodeEditorInfo implements ICompletionsEditorAndPluginInfo {
 		};
 	}
 	getEditorPluginInfo() {
-		return { name: 'copilot-chat', readableName: 'GitHub Copilot for Visual Studio Code', version: packageJson.version };
+		return { name: 'copilot-chat', readableName: 'GitHub Copilot for Aria', version: packageJson.version };
 	}
 	getRelatedPluginInfo() {
 		// Any additions to this list should also be added as a known filter in
@@ -195,7 +195,7 @@ export async function enableCompletions(accessor: ServicesAccessor) {
 		const inspect = config.inspect(option);
 		// Start from the most specific setting and work our way up to the global default.
 		for (const [key, target, overrideInLanguage] of inspectKinds) {
-			// Exit condition: if VS Code thinks the setting is enabled, we're done.
+			// Exit condition: if Aria thinks the setting is enabled, we're done.
 			// This might be true from the start, or a call to .update() might flip it.
 			if (vscode.workspace.getConfiguration(section, scope).get(option)) {
 				break;

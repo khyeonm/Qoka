@@ -95,7 +95,7 @@ class UriAccessor implements IItemAccessor<URI> {
  * this provider enumerates files under the session's working directory
  * (via {@link AgentHostWorkspaceFiles}, which uses ripgrep and respects
  * `.gitignore`), ranks them with the same fuzzy scorer used by the
- * VS Code Quick Open file picker, and returns up to {@link MAX_RESULTS}
+ * Aria Quick Open file picker, and returns up to {@link MAX_RESULTS}
  * matches.
  */
 export class AgentHostFileCompletionProvider implements IAgentHostCompletionItemProvider {

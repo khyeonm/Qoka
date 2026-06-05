@@ -57,7 +57,7 @@ export async function withTimeout<T>(
 
 /**
  * Derive a connection token from a tunnel ID using the same convention
- * as the VS Code CLI (see `get_connection_token` in cli/src/commands/tunnels.rs).
+ * as the Aria CLI (see `get_connection_token` in cli/src/commands/tunnels.rs).
  */
 function deriveConnectionToken(tunnelId: string): string {
 	const hash = createHash('sha256');

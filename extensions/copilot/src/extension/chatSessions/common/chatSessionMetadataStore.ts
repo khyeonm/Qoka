@@ -39,12 +39,12 @@ export interface StoredModeInstructions {
 }
 
 export interface RequestDetails {
-	/** VS Code request ID — always available, serves as primary key. */
+	/** Aria request ID — always available, serves as primary key. */
 	readonly vscodeRequestId: string;
 	/** Copilot SDK request ID — may not be available until the request completes. */
 	copilotRequestId?: string;
 	/**
-	 * Map of tool call id to VS Code edit id, used to correlate edits to the tool call that created them.
+	 * Map of tool call id to Aria edit id, used to correlate edits to the tool call that created them.
 	 */
 	toolIdEditMap: { [copilotToolId: string]: string };
 
@@ -151,7 +151,7 @@ export interface IChatSessionMetadataStore {
 	updateRequestDetails(sessionId: string, details: (Partial<RequestDetails> & { vscodeRequestId: string })[]): Promise<void>;
 	getSessionAgent(sessionId: string): Promise<string | undefined>;
 	/**
-	 * Copy all VS Code-specific metadata (workspace info, request details, etc.) from
+	 * Copy all Aria-specific metadata (workspace info, request details, etc.) from
 	 * an existing session to a newly forked session, overriding the custom title.
 	 */
 	storeForkedSessionMetadata(sourceSessionId: string, targetSessionId: string, customTitle: string): Promise<void>;

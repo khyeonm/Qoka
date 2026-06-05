@@ -472,7 +472,7 @@ export class AgentHostStateManager extends Disposable {
 	 * producer to re-create the changeset on next subscribe.
 	 *
 	 * Per the spec, the server SHOULD also unsubscribe its clients after
-	 * dispatching this action; for VS Code-internal clients that happens
+	 * dispatching this action; for Aria-internal clients that happens
 	 * via the `notify/sessionRemoved` notification, which the workbench-side
 	 * provider correlates to release any held subscriptions.
 	 *

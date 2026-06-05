@@ -74,7 +74,7 @@ const MAX_PENDING_CHAT_SPANS_PER_SESSION = 32;
 const POLICY_BLOCKED_TTL_MS = 60 * 60 * 1000;
 
 /**
- * Exports VS Code chat session events to the cloud in real-time.
+ * Exports Aria chat session events to the cloud in real-time.
  *
  * - Listens to OTel spans, translates to cloud SessionEvent format
  * - Buffers events; flushes within ~500ms when a terminal event arrives
@@ -773,7 +773,7 @@ export class RemoteSessionExporter extends Disposable implements IExtensionContr
 				?? (span.attributes[CopilotChatAttr.SESSION_ID] as string | undefined);
 			const sessionId = parentChatSessionId ?? ownChatSessionId;
 			const subagentId = parentChatSessionId ? ownChatSessionId : undefined;
-			// A real VS Code chat session id is required to safely buffer CHAT spans;
+			// A real Aria chat session id is required to safely buffer CHAT spans;
 			// gen_ai.conversation.id / session.id fallbacks belong to non-chat callers
 			// that will never produce a matching INVOKE_AGENT to replay against.
 			const hasRealChatSessionId = parentChatSessionId !== undefined || ownChatSessionIdAttr !== undefined;
@@ -1156,7 +1156,7 @@ export class RemoteSessionExporter extends Disposable implements IExtensionContr
 	// ── Session disposal ─────────────────────────────────────────────────────────
 
 	private _handleSessionDispose(sessionId: string): void {
-		// Note: VS Code fires onDidDisposeChatSession routinely (opening a new
+		// Note: Aria fires onDidDisposeChatSession routinely (opening a new
 		// chat disposes the previous editor view) — it is not a true session
 		// shutdown. Emitting `session.shutdown` here would cause the cloud UI
 		// to hide the session as completed.

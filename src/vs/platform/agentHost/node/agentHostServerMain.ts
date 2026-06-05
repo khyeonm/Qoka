@@ -102,7 +102,7 @@ function parseServerOptions(): IServerOptions {
 	// locally-installed `@anthropic-ai/claude-agent-sdk` package via the CLI
 	// flag or the shared env var (the env var is what the agent host starters
 	// use when the `chat.agentHost.claudeAgent.path` workbench setting is set).
-	// The SDK is intentionally not bundled with VS Code.
+	// The SDK is intentionally not bundled with Aria.
 	const sdkPathIdx = argv.indexOf('--claude-sdk-path');
 	const claudeSdkPath = (sdkPathIdx >= 0 ? argv[sdkPathIdx + 1] : process.env[AgentHostClaudeSdkPathEnvVar]) ?? '';
 	const quiet = argv.includes('--quiet');

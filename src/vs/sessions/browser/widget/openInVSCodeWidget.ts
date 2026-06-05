@@ -13,7 +13,7 @@ import { IHoverService } from '../../../platform/hover/browser/hover.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
 
 /**
- * Renders the "Open in VS Code" titlebar entry as an icon-only button that
+ * Renders the "Open in Aria" titlebar entry as an icon-only button that
  * expands to reveal a label on hover / keyboard focus.
  */
 export class OpenInVSCodeTitleBarWidget extends BaseActionViewItem {
@@ -41,7 +41,7 @@ export class OpenInVSCodeTitleBarWidget extends BaseActionViewItem {
 		}
 
 		const label = this.action.label;
-		const hoverText = localize('openInVSCodeHover', "Open in VS Code Editor Window");
+		const hoverText = localize('openInVSCodeHover', "Open in Aria Editor Window");
 		container.setAttribute('aria-label', hoverText);
 		this._register(this.hoverService.setupManagedHover(getDefaultHoverDelegate('element'), container, hoverText));
 

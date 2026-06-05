@@ -138,7 +138,7 @@ function renderPickerTrigger(slot: HTMLElement, disabled: boolean, disposables: 
 	return trigger;
 }
 
-// Track whether auto-approve warnings have been shown this VS Code session
+// Track whether auto-approve warnings have been shown this Aria session
 const shownAutoApproveWarnings = new Set<string /* enum value */>();
 
 function hasShownAutoApproveWarning(value: string): boolean {

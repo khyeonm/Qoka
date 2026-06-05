@@ -139,7 +139,7 @@ export interface IAICustomizationWorkspaceService {
 	getStorageSourceFilter(type: PromptsType): IStorageSourceFilter;
 
 	/**
-	 * Whether this is a sessions window (vs core VS Code).
+	 * Whether this is a sessions window (vs core Aria).
 	 */
 	readonly isSessionsWindow: boolean;
 

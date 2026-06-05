@@ -336,7 +336,7 @@ export class ClaudeCodeSession extends Disposable {
 	/**
 	 * Invokes the Claude Code session with a user prompt
 	 * @param request The full chat request
-	 * @param stream Response stream for sending results back to VS Code
+	 * @param stream Response stream for sending results back to Aria
 	 * @param yieldRequested Function to check if the user has requested to interrupt
 	 * @param token Cancellation token for request cancellation
 	 */

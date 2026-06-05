@@ -1,12 +1,12 @@
 # Protocol versioning instructions
 
-This directory contains the VS Code-facing wrappers around the Agent Host
+This directory contains the Aria-facing wrappers around the Agent Host
 Protocol (AHP) state model. Read this before modifying protocol types.
 
 ## Overview
 
 - `sessionState.ts`, `sessionActions.ts`, `sessionReducers.ts`, and
-  `sessionProtocol.ts` are VS Code-facing wrappers and re-exports.
+  `sessionProtocol.ts` are Aria-facing wrappers and re-exports.
 - `protocol/**` is generated from the sibling `agent-host-protocol` repo by
   `scripts/sync-agent-host-protocol.ts`. Generated files carry a `DO NOT EDIT`
   banner; update the source protocol repo and sync the copy into VS Code.
@@ -30,13 +30,13 @@ The generated protocol includes the Changesets model:
   helpers.
 - Session teardown uses `changeset/cleared` plus the corresponding
   session-level lifecycle notification. There is no separate `changeset/disposed`
-  action in the VS Code protocol copy.
+  action in the Aria protocol copy.
 
 ## Updating generated protocol types
 
 1. Update the source files in the sibling `agent-host-protocol` repo.
-2. Run `npx tsx scripts/sync-agent-host-protocol.ts` from the VS Code repo.
-3. If VS Code consumers need short aliases or type guards, update the wrapper
+2. Run `npx tsx scripts/sync-agent-host-protocol.ts` from the Aria repo.
+3. If Aria consumers need short aliases or type guards, update the wrapper
    files in this directory after the sync.
 4. Compile. The generated registry catches missing action/notification version
    map entries.
@@ -58,7 +58,7 @@ action types by leaving reducer state unchanged.
    `protocol/version/registry.ts` through the generated sync.
 3. Add the reducer case in the source protocol repo and sync it into
    `protocol/reducers.ts`.
-4. Re-export the new action from `sessionActions.ts` when VS Code callers need
+4. Re-export the new action from `sessionActions.ts` when Aria callers need
    the type directly.
 5. Update `../../../protocol.md` and any affected AHP docs.
 

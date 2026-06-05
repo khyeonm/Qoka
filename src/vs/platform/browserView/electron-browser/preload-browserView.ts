@@ -307,8 +307,8 @@ function findCommonVisibleAncestor(candidates: readonly (Node | null | undefined
  */
 class ElementPicker {
 	private static readonly _DRAG_THRESHOLD_PX = 4;
-	private static readonly _CURSOR_DEFAULT = '/* VS Code injected style */ * { cursor: default !important; }';
-	private static readonly _CURSOR_CROSSHAIR = '/* VS Code injected style */ * { cursor: crosshair !important; }';
+	private static readonly _CURSOR_DEFAULT = '/* Aria injected style */ * { cursor: default !important; }';
+	private static readonly _CURSOR_CROSSHAIR = '/* Aria injected style */ * { cursor: crosshair !important; }';
 
 	private _selectionActive = false;
 	private _continuous = false;
@@ -783,7 +783,7 @@ class ElementPicker {
  */
 class AreaPicker {
 	private static readonly _MIN_AREA_PX = 4;
-	private static readonly _CURSOR_CROSSHAIR = '/* VS Code injected style */ * { cursor: crosshair !important; }';
+	private static readonly _CURSOR_CROSSHAIR = '/* Aria injected style */ * { cursor: crosshair !important; }';
 
 	private _selectionActive = false;
 

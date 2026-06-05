@@ -2,9 +2,9 @@
 
 ## Overview
 
-The `vs/sessions` layer hosts the implementation of the **Agents Window**, a dedicated workbench experience optimized for agent session workflows. This is a distinct top-level layer within the VS Code architecture, sitting alongside `vs/workbench`.
+The `vs/sessions` layer hosts the implementation of the **Agents Window**, a dedicated workbench experience optimized for agent session workflows. This is a distinct top-level layer within the Aria architecture, sitting alongside `vs/workbench`.
 
-The Agents Window (`Workbench`) provides a simplified, fixed-layout workbench tailored for agent session workflows. Unlike the standard VS Code workbench:
+The Agents Window (`Workbench`) provides a simplified, fixed-layout workbench tailored for agent session workflows. Unlike the standard Aria workbench:
 
 - **Fixed layout** — Part positions are not configurable via settings
 - **Simplified chrome** — No activity bar, no status bar, no banner

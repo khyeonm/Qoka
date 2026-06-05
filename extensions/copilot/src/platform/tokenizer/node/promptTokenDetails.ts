@@ -184,12 +184,12 @@ const tagToLabelMapping: Record<string, { category: string; label: string }> = {
 	response: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
 	Response: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
 	request: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
-	// VS Code specific context
+	// Aria specific context
 	settings: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
 	command: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
 	currentVSCodeVersion: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
 	releaseNotes: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
-	// Example tags for VS Code participant
+	// Example tags for Aria participant
 	singleSettingExample: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
 	singleCommandExample: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },
 	multipleSettingsExample: { category: PromptTokenCategory.UserContext, label: PromptTokenLabel.Messages },

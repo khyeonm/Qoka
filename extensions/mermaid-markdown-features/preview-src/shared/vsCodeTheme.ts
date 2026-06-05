@@ -8,12 +8,12 @@ import { MermaidExtensionConfig } from './config';
 import { IDisposable } from './disposable';
 
 /**
- * Identifier for the custom Mermaid theme that is derived from the current VS Code color theme.
+ * Identifier for the custom Mermaid theme that is derived from the current Aria color theme.
  */
 export const vsCodeMermaidTheme = 'vscode';
 
 /**
- * Returns `true` when the active VS Code theme is a dark (or non-light high contrast) theme.
+ * Returns `true` when the active Aria theme is a dark (or non-light high contrast) theme.
  */
 function isDarkVsCodeTheme(): boolean {
 	return document.body.classList.contains('vscode-dark')
@@ -74,7 +74,7 @@ function readCssVar(name: string): string {
 }
 
 /**
- * The Mermaid `themeVariables` derived from the active VS Code color theme, plus a string
+ * The Mermaid `themeVariables` derived from the active Aria color theme, plus a string
  * fingerprint that changes whenever any of the resolved colors change.
  */
 export interface VsCodeMermaidThemeVariables {
@@ -83,7 +83,7 @@ export interface VsCodeMermaidThemeVariables {
 }
 
 /**
- * Resolves and caches Mermaid `themeVariables` derived from the active VS Code color theme.
+ * Resolves and caches Mermaid `themeVariables` derived from the active Aria color theme.
  *
  * Each consumer should construct one tracker, read {@link value} when initializing mermaid, and
  * subscribe to {@link onDidChange} (or call {@link refresh} after a theme-change signal) to keep
@@ -95,7 +95,7 @@ export class VsCodeMermaidThemeTracker {
 	private readonly _listeners = new Set<() => void>();
 
 	/**
-	 * The Mermaid theme variables derived from the active VS Code theme. Computed lazily on
+	 * The Mermaid theme variables derived from the active Aria theme. Computed lazily on
 	 * first access and memoized until {@link refresh} or {@link invalidate} is called.
 	 */
 	get value(): VsCodeMermaidThemeVariables {
@@ -138,8 +138,8 @@ export class VsCodeMermaidThemeTracker {
 
 	/**
 	 * Resolves the Mermaid `theme` / `themeVariables` pair for the given extension config,
-	 * picking the dark or light slot based on the active VS Code theme and translating the
-	 * `'vscode'` sentinel into mermaid's `base` theme plus VS Code-derived variables.
+	 * picking the dark or light slot based on the active Aria theme and translating the
+	 * `'vscode'` sentinel into mermaid's `base` theme plus Aria-derived variables.
 	 */
 	resolveMermaidTheme(extensionConfig: MermaidExtensionConfig): Pick<MermaidConfig, 'theme' | 'themeVariables'> {
 		const themeName = isDarkVsCodeTheme()
@@ -224,7 +224,7 @@ function computeVsCodeMermaidThemeVariables(): VsCodeMermaidThemeVariables {
 	set('edgeLabelBackground', '--vscode-editor-background');
 
 	// Pie / palette slots — mermaid uses pie1..pie12 for pie chart slices and cScale0..cScale11
-	// as the accent palette for various diagram types. Map to the VS Code chart accent colors.
+	// as the accent palette for various diagram types. Map to the Aria chart accent colors.
 	const chartPalette = [
 		'--vscode-charts-blue',
 		'--vscode-charts-green',

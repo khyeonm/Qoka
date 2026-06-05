@@ -9,7 +9,7 @@ import { GithubRepoId } from '../../../platform/git/common/gitService';
 import { PullRequestSearchItem, SessionInfo } from '../../../platform/github/common/githubAPI';
 
 /**
- * Identifies a cloud session from a VS Code URI. Two shapes are supported so the
+ * Identifies a cloud session from a Aria URI. Two shapes are supported so the
  * provider can transition from Jobs API (PR-based) to Task API (task-based).
  */
 export type CloudSessionIdentity =

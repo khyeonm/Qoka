@@ -13,7 +13,7 @@ const FILE_NAME = 'cloudSessions.json';
  * JSON-backed store for cloud session ID mappings.
  *
  * Persists `{ localSessionId → { cloudSessionId, cloudTaskId } }` to a JSON
- * file in globalStorageUri so that mappings survive across VS Code restarts.
+ * file in globalStorageUri so that mappings survive across Aria restarts.
  * This store is always available regardless of the `chat.localIndex.enabled`
  * setting (unlike the SQLite session store).
  *

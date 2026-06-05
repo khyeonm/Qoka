@@ -64,7 +64,7 @@ export function extractToolParameters(toolName: string, input: unknown): ToolPar
 		attrs[GitHubCopilotAttr.TOOL_PARAM_SKILL_NAME] = skillName;
 	}
 
-	// MCP-style tool names: VS Code emits `mcp_<server>_<tool>`; Anthropic-style
+	// MCP-style tool names: Aria emits `mcp_<server>_<tool>`; Anthropic-style
 	// references use `mcp__<server>__<tool>`. Accept both.
 	if (toolName.startsWith('mcp__')) {
 		const rest = toolName.slice('mcp__'.length);

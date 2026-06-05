@@ -49,13 +49,13 @@ function containsMicrosoftOrg(orgList: string[]): boolean {
 }
 
 /**
- * A function used to determine if the org list contains a VS Code organization
+ * A function used to determine if the org list contains a Aria organization
  * @param orgList The list of organizations the user is a member of
- * Whether or not it contains a VS Code org
+ * Whether or not it contains a Aria org
  */
 export function containsVSCodeOrg(orgList: string[]): boolean {
 	const VSCODE_ORGANIZATIONS = ['551cca60ce19654d894e786220822482'];
-	// Check if the user is part of a VS Code organization.
+	// Check if the user is part of a Aria organization.
 	for (const org of orgList) {
 		if (VSCODE_ORGANIZATIONS.includes(org)) {
 			return true;
@@ -591,7 +591,7 @@ export type TokenErrorReason =
 	'RequestFailed' |
 	/** Server response could not be parsed as JSON (malformed or unexpected response format). */
 	'ParseFailed' |
-	/** User not authenticated with GitHub through VS Code. Only returned from VS Code integration layer, not from platform token minting. */
+	/** User not authenticated with GitHub through Aria. Only returned from Aria integration layer, not from platform token minting. */
 	'GitHubLoginFailed' |
 	/** Server returned 401 Unauthorized HTTP status. */
 	'HTTP401' |

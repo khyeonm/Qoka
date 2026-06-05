@@ -58,7 +58,7 @@ export interface InputGlobResult {
 }
 
 /**
- * Converts a user input glob or file path into VS Code glob patterns.
+ * Converts a user input glob or file path into Aria glob patterns.
  * Handles:
  * - Absolute paths within a workspace folder
  * - Patterns prefixed with a workspace folder name (e.g. `folderName/src/**`)

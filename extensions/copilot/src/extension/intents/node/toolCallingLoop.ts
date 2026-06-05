@@ -87,7 +87,7 @@ export interface IToolCallingLoopOptions {
 	 */
 	request: ChatRequest;
 	/**
-	 * A getter that returns true if VS Code has requested the extension to
+	 * A getter that returns true if Aria has requested the extension to
 	 * gracefully yield. When set, it's likely that the editor will immediately
 	 * follow up with a new request in the same conversation.
 	 */
@@ -767,7 +767,7 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 				return ctx;
 			})();
 
-		// Get the VS Code chat session ID from the CapturingToken (same mechanism as old debug panel)
+		// Get the Aria chat session ID from the CapturingToken (same mechanism as old debug panel)
 		const chatSessionId = getCurrentCapturingToken()?.chatSessionId;
 		const parentChatSessionId = getCurrentCapturingToken()?.parentChatSessionId;
 		const debugLogLabel = getCurrentCapturingToken()?.debugLogLabel;
@@ -953,7 +953,7 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 				}
 			}
 
-			// Check if VS Code has requested we gracefully yield before starting the next iteration.
+			// Check if Aria has requested we gracefully yield before starting the next iteration.
 			// In autopilot mode, don't yield until the task is actually complete.
 			if (lastResult && this.options.yieldRequested?.()) {
 				if (this.options.request.permissionLevel !== 'autopilot' || this.taskCompleted) {

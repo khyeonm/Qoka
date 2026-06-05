@@ -60,18 +60,18 @@ export class ExtensionContributedChatTokenizer implements ITokenizer {
 		if (!text) {
 			return 0;
 		}
-		// Use the VS Code language model API to count tokens
+		// Use the Aria language model API to count tokens
 		return this.languageModel.countTokens(text);
 	}
 
 	async countMessageTokens(message: Raw.ChatMessage): Promise<number> {
-		// Convert to VS Code message format and use the language model's countTokens
+		// Convert to Aria message format and use the language model's countTokens
 		const apiMessages = convertToApiChatMessage([message]);
 		if (apiMessages.length === 0) {
 			return 0;
 		}
 
-		// Count tokens for the message using VS Code API
+		// Count tokens for the message using Aria API
 		const messageTokens = await this.languageModel.countTokens(apiMessages[0]);
 		return BaseTokensPerMessage + messageTokens;
 	}

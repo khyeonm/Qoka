@@ -15,7 +15,7 @@ import picomatch from 'picomatch';
 export type SessionIndexingLevel = 'local' | 'user' | 'repo_and_user';
 
 /**
- * Manages user preferences for session indexing via VS Code settings.
+ * Manages user preferences for session indexing via Aria settings.
  *
  * Two settings control behavior:
  * - `chat.localIndex.enabled` (ExP) — enables local

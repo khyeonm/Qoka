@@ -2,7 +2,7 @@
 
 **File:** `src/vs/sessions/contrib/providers/localChatSessions/browser/localChatSessionsProvider.ts`
 
-The local sessions provider, registered with ID `'local-chat'`. Wraps local in-process VS Code chat sessions (created via `IChatService.startNewLocalSession()`) into the extensible sessions provider model. Owns its own session list — does not rely on the chat history APIs at runtime.
+The local sessions provider, registered with ID `'local-chat'`. Wraps local in-process Aria chat sessions (created via `IChatService.startNewLocalSession()`) into the extensible sessions provider model. Owns its own session list — does not rely on the chat history APIs at runtime.
 
 ## Identity
 
