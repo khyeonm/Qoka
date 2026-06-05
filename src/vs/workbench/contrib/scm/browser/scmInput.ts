@@ -847,6 +847,7 @@ registerAction2(class extends Action2 {
 			menu: {
 				id: MenuId.SCMInputBox,
 				when: ContextKeyExpr.and(
+					ContextKeyExpr.has('config.chat.disableAIFeatures').negate(),
 					ChatContextKeys.Setup.hidden.negate(),
 					ChatContextKeys.Setup.disabledInWorkspace.negate(),
 					ChatContextKeys.Setup.completed.negate(),

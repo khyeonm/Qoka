@@ -317,7 +317,8 @@ class AttachSelectionToChatAction extends Action2 {
 						ResourceContextKey.Scheme.isEqualTo(Schemas.vscodeRemote),
 						ResourceContextKey.Scheme.isEqualTo(Schemas.untitled),
 						ResourceContextKey.Scheme.isEqualTo(Schemas.vscodeUserData)
-					)
+					),
+					ContextKeyExpr.has('config.chat.disableAIFeatures').negate(),
 				)
 			}, {
 				id: MenuId.InlineChatEditorAffordance,

@@ -42,7 +42,8 @@ const inlineChatContextKey = ContextKeyExpr.and(
 	ContextKeyExpr.or(inlineChatNotebooksOldEnabled, CTX_INLINE_CHAT_V2_ENABLED),
 	CTX_INLINE_CHAT_POSSIBLE,
 	EditorContextKeys.writable,
-	EditorContextKeys.editorSimpleInput.negate()
+	EditorContextKeys.editorSimpleInput.negate(),
+	ContextKeyExpr.has('config.chat.disableAIFeatures').negate(),
 );
 
 export class StartSessionAction extends Action2 {
