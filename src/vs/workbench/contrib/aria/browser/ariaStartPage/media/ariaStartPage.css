@@ -1,0 +1,173 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.aria-start-page {
+	padding: 40px 60px;
+	font-family: var(--vscode-font-family);
+	color: var(--vscode-foreground);
+	overflow: auto;
+	height: 100%;
+	box-sizing: border-box;
+}
+
+.aria-start-page h1 {
+	font-size: 32px;
+	font-weight: 300;
+	margin: 0 0 8px 0;
+}
+
+.aria-start-page h2 {
+	font-size: 16px;
+	font-weight: 600;
+	margin: 32px 0 12px 0;
+	color: var(--vscode-foreground);
+	opacity: 0.85;
+}
+
+.aria-start-page .subtitle {
+	font-size: 14px;
+	opacity: 0.7;
+	margin: 0 0 24px 0;
+}
+
+/* Mode toggle (segmented control) */
+.aria-mode-toggle {
+	display: inline-flex;
+	border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, transparent));
+	border-radius: 6px;
+	overflow: hidden;
+	margin-bottom: 16px;
+}
+
+.aria-mode-toggle .aria-mode-btn {
+	background: transparent;
+	color: var(--vscode-foreground);
+	border: none;
+	padding: 10px 24px;
+	font-size: 14px;
+	font-family: inherit;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.aria-mode-toggle .aria-mode-btn:hover:not(.active) {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.aria-mode-toggle .aria-mode-btn.active {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	font-weight: 600;
+	box-shadow: inset 0 0 0 2px var(--vscode-focusBorder, var(--vscode-button-background));
+}
+
+.aria-mode-toggle .aria-mode-check {
+	font-weight: 700;
+	margin-right: 4px;
+}
+
+.aria-mode-status {
+	font-size: 13px;
+	margin: 12px 0 0 0;
+	opacity: 0.7;
+}
+
+.aria-mode-status.active {
+	color: var(--vscode-charts-green, var(--vscode-foreground));
+	opacity: 1;
+	font-weight: 500;
+}
+
+.aria-mode-toggle .aria-mode-btn + .aria-mode-btn {
+	border-left: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, transparent));
+}
+
+/* Feature cards */
+.aria-features {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.aria-feature {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 12px;
+	background: transparent;
+	border: none;
+	color: var(--vscode-textLink-foreground);
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 14px;
+	text-align: left;
+	border-radius: 4px;
+}
+
+.aria-feature:hover {
+	background: var(--vscode-list-hoverBackground);
+	color: var(--vscode-textLink-activeForeground);
+}
+
+.aria-feature .codicon {
+	color: var(--vscode-foreground);
+	opacity: 0.7;
+	font-size: 18px;
+}
+
+.aria-feature .aria-feature-title {
+	font-weight: 500;
+}
+
+.aria-feature .aria-feature-detail {
+	opacity: 0.6;
+	font-size: 13px;
+	margin-left: 6px;
+}
+
+/* Recent list */
+.aria-recent-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.aria-recent-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 12px;
+	background: transparent;
+	border: none;
+	color: var(--vscode-textLink-foreground);
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 13px;
+	text-align: left;
+	border-radius: 4px;
+}
+
+.aria-recent-item:hover {
+	background: var(--vscode-list-hoverBackground);
+	color: var(--vscode-textLink-activeForeground);
+}
+
+.aria-recent-item .codicon {
+	opacity: 0.7;
+}
+
+.aria-recent-item .aria-recent-path {
+	opacity: 0.55;
+	font-size: 12px;
+	margin-left: 6px;
+}
+
+.aria-empty-state {
+	opacity: 0.5;
+	font-size: 13px;
+	padding: 6px 12px;
+}
