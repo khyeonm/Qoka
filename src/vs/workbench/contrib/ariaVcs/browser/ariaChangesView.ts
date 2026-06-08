@@ -99,18 +99,19 @@ export class AriaChangesView extends ViewPane {
 
 		const bannerText = append(banner, $('div'));
 		bannerText.style.marginBottom = '6px';
-		bannerText.style.fontSize = '13px';
+		bannerText.style.fontSize = '12px';
 		if (!status || !status.isRepo) {
 			bannerText.textContent = localize('aria.vcs.notInitialized', "No snapshots yet — your first Save will set things up.");
 		} else if (status.unsavedChanges > 0) {
-			bannerText.textContent = localize('aria.vcs.unsavedCount', "📝 {0} unsaved change{1}", status.unsavedChanges, status.unsavedChanges === 1 ? '' : 's');
+			bannerText.textContent = localize('aria.vcs.unsavedCount', "{0} unsaved change{1}", status.unsavedChanges, status.unsavedChanges === 1 ? '' : 's');
 		} else {
-			bannerText.textContent = localize('aria.vcs.allSaved', "✓ All changes saved.");
+			bannerText.textContent = localize('aria.vcs.allSaved', "All changes saved.");
 		}
 
 		const saveBtn = append(banner, $('button')) as HTMLButtonElement;
 		saveBtn.style.width = '100%';
-		saveBtn.style.padding = '8px 12px';
+		saveBtn.style.padding = '6px 10px';
+		saveBtn.style.fontSize = '12px';
 		saveBtn.style.cursor = 'pointer';
 		saveBtn.style.background = 'var(--vscode-button-background)';
 		saveBtn.style.color = 'var(--vscode-button-foreground)';
@@ -120,13 +121,13 @@ export class AriaChangesView extends ViewPane {
 
 		const updateSaveLabel = () => {
 			if (this.selectedPaths === undefined) {
-				saveBtn.textContent = localize('aria.vcs.save', "💾 Save Snapshot");
+				saveBtn.textContent = localize('aria.vcs.save', "Save Snapshot");
 				saveBtn.disabled = false;
 				saveBtn.style.opacity = '1';
 				saveBtn.style.cursor = 'pointer';
 			} else {
 				const n = this.selectedPaths.size;
-				saveBtn.textContent = localize('aria.vcs.saveSelected', "💾 Save Snapshot ({0} selected)", n);
+				saveBtn.textContent = localize('aria.vcs.saveSelected', "Save Snapshot ({0} selected)", n);
 				saveBtn.disabled = n === 0;
 				saveBtn.style.opacity = n === 0 ? '0.5' : '1';
 				saveBtn.style.cursor = n === 0 ? 'not-allowed' : 'pointer';
@@ -193,7 +194,7 @@ export class AriaChangesView extends ViewPane {
 		masterCheckbox.style.flexShrink = '0';
 
 		const masterLabel = append(masterRow, $('span')) as HTMLElement;
-		masterLabel.style.fontSize = '11px';
+		masterLabel.style.fontSize = '12px';
 		masterLabel.style.opacity = '0.75';
 		masterLabel.style.cursor = 'pointer';
 		masterLabel.style.userSelect = 'none';
@@ -203,16 +204,19 @@ export class AriaChangesView extends ViewPane {
 		spacer.style.flex = '1';
 
 		const refreshBtn = append(masterRow, $('button')) as HTMLButtonElement;
-		refreshBtn.textContent = localize('aria.vcs.refresh', "⟳");
 		refreshBtn.title = localize('aria.vcs.refreshTooltip', "Refresh");
-		refreshBtn.style.padding = '1px 8px';
-		refreshBtn.style.fontSize = '12px';
+		refreshBtn.style.padding = '2px 4px';
 		refreshBtn.style.background = 'transparent';
 		refreshBtn.style.color = 'var(--vscode-foreground)';
-		refreshBtn.style.border = '1px solid var(--vscode-widget-border, transparent)';
+		refreshBtn.style.border = 'none';
 		refreshBtn.style.borderRadius = '3px';
 		refreshBtn.style.cursor = 'pointer';
 		refreshBtn.style.flexShrink = '0';
+		refreshBtn.style.display = 'inline-flex';
+		refreshBtn.style.alignItems = 'center';
+		// VS Code's standard refresh icon (codicon font ships with the workbench).
+		const refreshIcon = append(refreshBtn, $('span.codicon.codicon-refresh'));
+		refreshIcon.style.fontSize = '14px';
 		refreshBtn.onclick = () => this.refresh();
 
 		const updateMasterState = () => {

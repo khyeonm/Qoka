@@ -41,11 +41,16 @@ export interface FileChange {
  */
 export function injectAriaVcsStyles(): void {
 	const ATTR = 'data-aria-vcs-styles';
-	if (document.head.querySelector(`style[${ATTR}]`)) {
-		return;
+	// Reuse the existing <style> tag when present so iterating on the
+	// stylesheet at dev time doesn't require closing the window — a
+	// Reload Window is enough to re-evaluate this function and rewrite
+	// the textContent.
+	let style = document.head.querySelector(`style[${ATTR}]`) as HTMLStyleElement | null;
+	if (!style) {
+		style = document.createElement('style');
+		style.setAttribute(ATTR, 'true');
+		document.head.appendChild(style);
 	}
-	const style = document.createElement('style');
-	style.setAttribute(ATTR, 'true');
 	style.textContent = `
 		.aria-vcs-scroll::-webkit-scrollbar {
 			width: 10px;
@@ -73,8 +78,8 @@ export function injectAriaVcsStyles(): void {
 			display: flex;
 			align-items: center;
 			gap: 4px;
-			padding: 3px 8px;
-			font-size: 13px;
+			padding: 2px 8px;
+			font-size: 12px;
 			border-radius: 3px;
 		}
 		.aria-vcs-row:hover {
@@ -87,9 +92,12 @@ export function injectAriaVcsStyles(): void {
 			text-transform: uppercase;
 			letter-spacing: 0.5px;
 			opacity: 0.85;
-			min-width: 52px;
 			text-align: left;
 			flex-shrink: 0;
+			/* No min-width: badge hugs its text. The row's 4px flex gap
+			   plus this 4px margin gives an 8px gap total — roughly
+			   three space-bar widths between the badge and filename. */
+			margin-right: 4px;
 		}
 
 		.aria-vcs-filename {
@@ -104,6 +112,61 @@ export function injectAriaVcsStyles(): void {
 			opacity: 0.7;
 			font-size: 11px;
 			flex-shrink: 0;
+		}
+
+		/* Custom checkbox styled to match VS Code's settings UI:
+		   square with a thin border using the theme's checkbox tokens,
+		   filled with the focus colour and a white check mark when on. */
+		.aria-vcs-row input[type="checkbox"] {
+			-webkit-appearance: none;
+			appearance: none;
+			width: 14px;
+			height: 14px;
+			margin: 0;
+			background: var(--vscode-checkbox-background);
+			border: 1px solid var(--vscode-checkbox-border, var(--vscode-contrastBorder, transparent));
+			border-radius: 3px;
+			position: relative;
+			cursor: pointer;
+			flex-shrink: 0;
+			transition: background 0.1s, border-color 0.1s;
+		}
+
+		.aria-vcs-row input[type="checkbox"]:hover {
+			border-color: var(--vscode-focusBorder);
+		}
+
+		.aria-vcs-row input[type="checkbox"]:checked {
+			background: var(--vscode-checkbox-selectBackground, var(--vscode-focusBorder));
+			border-color: var(--vscode-checkbox-selectBorder, var(--vscode-focusBorder));
+		}
+
+		.aria-vcs-row input[type="checkbox"]:checked::after {
+			content: "";
+			position: absolute;
+			left: 3px;
+			top: 0;
+			width: 4px;
+			height: 8px;
+			border: solid var(--vscode-checkbox-foreground, white);
+			border-width: 0 1.5px 1.5px 0;
+			transform: rotate(45deg);
+		}
+
+		.aria-vcs-row input[type="checkbox"]:indeterminate {
+			background: var(--vscode-checkbox-selectBackground, var(--vscode-focusBorder));
+			border-color: var(--vscode-checkbox-selectBorder, var(--vscode-focusBorder));
+		}
+
+		.aria-vcs-row input[type="checkbox"]:indeterminate::after {
+			content: "";
+			position: absolute;
+			left: 2px;
+			right: 2px;
+			top: 50%;
+			height: 1.5px;
+			margin-top: -0.75px;
+			background: var(--vscode-checkbox-foreground, white);
 		}
 	`;
 	document.head.appendChild(style);

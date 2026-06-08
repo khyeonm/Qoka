@@ -108,10 +108,9 @@ export class AriaSnapshotsView extends ViewPane {
 		const row = append(container, $('.aria-vcs-row')) as HTMLElement;
 		row.style.cursor = 'pointer';
 
-		const arrow = append(row, $('span'));
-		arrow.style.width = '12px';
-		arrow.style.fontSize = '10px';
-		arrow.style.opacity = '0.6';
+		const arrow = append(row, $('span.codicon')) as HTMLElement;
+		arrow.style.fontSize = '14px';
+		arrow.style.opacity = '0.7';
 		arrow.style.flexShrink = '0';
 
 		const time = append(row, $('span'));
@@ -133,7 +132,8 @@ export class AriaSnapshotsView extends ViewPane {
 		let loaded = false;
 
 		const applyExpanded = (expanded: boolean): void => {
-			arrow.textContent = expanded ? '▼' : '▶';
+			arrow.classList.toggle('codicon-chevron-down', expanded);
+			arrow.classList.toggle('codicon-chevron-right', !expanded);
 			if (expanded) {
 				this.expandedSnapshots.add(snapshot.hash);
 				if (!details) {
@@ -157,13 +157,13 @@ export class AriaSnapshotsView extends ViewPane {
 		applyExpanded(this.expandedSnapshots.has(snapshot.hash));
 
 		row.onclick = () => {
-			applyExpanded(arrow.textContent !== '▼');
+			applyExpanded(!arrow.classList.contains('codicon-chevron-down'));
 		};
 	}
 
 	private async renderSnapshotDetails(details: HTMLElement, snapshot: Snapshot): Promise<void> {
 		const restoreBtn = append(details, $('button')) as HTMLButtonElement;
-		restoreBtn.textContent = localize('aria.vcs.goBack', "↶ Go back to this version");
+		restoreBtn.textContent = localize('aria.vcs.goBack', "Go back to this version");
 		restoreBtn.style.padding = '4px 10px';
 		restoreBtn.style.fontSize = '12px';
 		restoreBtn.style.cursor = 'pointer';
