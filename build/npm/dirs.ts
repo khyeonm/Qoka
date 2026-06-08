@@ -18,8 +18,6 @@ export const dirs = [
 	'extensions/configuration-editing',
 	'extensions/css-language-features',
 	'extensions/css-language-features/server',
-	'extensions/debug-auto-launch',
-	'extensions/debug-server-ready',
 	'extensions/emmet',
 	'extensions/extension-editing',
 	'extensions/git',

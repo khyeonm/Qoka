@@ -68,9 +68,30 @@ export class VcsService {
 
 	async initRepo(workspacePath: string): Promise<void> {
 		await execAsync('git init', { cwd: workspacePath });
-		// Set up a default identity so commits work without external config.
-		await execAsync('git config user.email "aria@localhost"', { cwd: workspacePath }).catch(() => { });
-		await execAsync('git config user.name "Aria User"', { cwd: workspacePath }).catch(() => { });
+		// Make sure commits will succeed without any user setup. If the user
+		// already has user.name / user.email configured globally we keep
+		// using those — only fall back to an Aria-local identity when no
+		// global config is found, so we don't override the user's real
+		// name on shared / multi-tool machines.
+		await this.ensureLocalIdentity(workspacePath);
+	}
+
+	private async ensureLocalIdentity(workspacePath: string): Promise<void> {
+		const hasGlobalIdentity = async (key: string): Promise<boolean> => {
+			try {
+				const { stdout } = await execAsync(`git config --global ${key}`, { cwd: workspacePath });
+				return stdout.trim().length > 0;
+			} catch {
+				return false;
+			}
+		};
+
+		if (!(await hasGlobalIdentity('user.email'))) {
+			await execAsync('git config user.email "aria@localhost"', { cwd: workspacePath }).catch(() => { });
+		}
+		if (!(await hasGlobalIdentity('user.name'))) {
+			await execAsync('git config user.name "Aria User"', { cwd: workspacePath }).catch(() => { });
+		}
 	}
 
 	async saveSnapshot(workspacePath: string, message: string, paths?: readonly string[]): Promise<Snapshot | undefined> {

@@ -276,13 +276,15 @@ import './contrib/scm/browser/scm.contribution.js';
 import './contrib/scm/browser/quickDiff.contribution.js';
 import './contrib/scm/browser/scm.service.contribution.js';
 
-// Debug
-import './contrib/debug/browser/debug.contribution.js';
-import './contrib/debug/browser/debugEditorContribution.js';
-import './contrib/debug/browser/breakpointEditorContribution.js';
-import './contrib/debug/browser/callStackEditorContribution.js';
-import './contrib/debug/browser/repl.js';
-import './contrib/debug/browser/debugViewlet.js';
+// Debug — UI removed in Aria. The IDebugService is registered as a null
+// implementation so any extension that still imports `vscode.debug` can
+// activate without crashing; its calls just no-op. Same pattern that
+// `src/vs/sessions/sessions.common.main.ts` uses.
+import { IDebugService } from './contrib/debug/common/debug.js';
+import { IDebugVisualizerService } from './contrib/debug/common/debugVisualizers.js';
+import { NullDebugService, NullDebugVisualizerService } from './contrib/debug/common/nullDebugService.js';
+registerSingleton(IDebugService, NullDebugService, InstantiationType.Delayed);
+registerSingleton(IDebugVisualizerService, NullDebugVisualizerService, InstantiationType.Delayed);
 
 // Markers
 import './contrib/markers/browser/markers.contribution.js';
