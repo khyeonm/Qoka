@@ -1,0 +1,59 @@
+{
+	"name": "aria-vcs",
+	"displayName": "Aria Versions",
+	"description": "Mercurial-style snapshot version control for Aria Easy mode.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {
+		"commands": [
+			{
+				"command": "aria.vcs.saveSnapshot",
+				"title": "Aria: Save Snapshot"
+			},
+			{
+				"command": "aria.vcs.getRecent",
+				"title": "Aria: Get Recent Snapshots"
+			},
+			{
+				"command": "aria.vcs.restoreSnapshot",
+				"title": "Aria: Restore Snapshot"
+			},
+			{
+				"command": "aria.vcs.getStatus",
+				"title": "Aria: Get Status"
+			},
+			{
+				"command": "aria.vcs.getChanges",
+				"title": "Aria: Get Unsaved Changes"
+			},
+			{
+				"command": "aria.vcs.openDiff",
+				"title": "Aria: Open Diff for File"
+			},
+			{
+				"command": "aria.vcs.getSnapshotChanges",
+				"title": "Aria: Get Files Changed in Snapshot"
+			},
+			{
+				"command": "aria.vcs.openSnapshotDiff",
+				"title": "Aria: Open Diff for File in Snapshot"
+			}
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "20.x",
+		"@types/vscode": "^1.123.0"
+	}
+}

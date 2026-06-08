@@ -98,7 +98,11 @@ viewsRegistry.registerViews([{
 	canMoveView: true,
 	weight: 20,
 	order: 0,
-	when: ContextKeyExpr.and(ContextKeyExpr.has('scm.providerCount'), ContextKeyExpr.notEquals('scm.providerCount', 0)),
+	when: ContextKeyExpr.and(
+		ContextKeyExpr.notEquals('aria.mode', 'easy'),
+		ContextKeyExpr.has('scm.providerCount'),
+		ContextKeyExpr.notEquals('scm.providerCount', 0),
+	),
 	// readonly when = ContextKeyExpr.or(ContextKeyExpr.equals('config.scm.alwaysShowProviders', true), ContextKeyExpr.and(ContextKeyExpr.notEquals('scm.providerCount', 0), ContextKeyExpr.notEquals('scm.providerCount', 1)));
 	containerIcon: sourceControlViewIcon
 }], viewContainer);
@@ -113,6 +117,7 @@ viewsRegistry.registerViews([{
 	canMoveView: true,
 	weight: 40,
 	order: 1,
+	when: ContextKeyExpr.notEquals('aria.mode', 'easy'),
 	containerIcon: sourceControlViewIcon,
 	openCommandActionDescriptor: {
 		id: viewContainer.id,
@@ -138,6 +143,7 @@ viewsRegistry.registerViews([{
 	weight: 40,
 	order: 2,
 	when: ContextKeyExpr.and(
+		ContextKeyExpr.notEquals('aria.mode', 'easy'),
 		ContextKeyExpr.has('scm.historyProviderCount'),
 		ContextKeyExpr.notEquals('scm.historyProviderCount', 0),
 	),

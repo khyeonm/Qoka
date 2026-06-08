@@ -46,6 +46,34 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 	private update(): void {
 		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
 		this.modeKey.set(mode);
+		void this.syncGitEnabledFor(mode);
+	}
+
+	/**
+	 * Aria's two modes drive the built-in Git extension's visibility:
+	 *  - Easy mode    → `git.enabled = false` so the Source Control view
+	 *                   and all git UI disappear. The on-disk `.git/` is
+	 *                   untouched; Aria's own Versions view is what the
+	 *                   user sees instead.
+	 *  - Advanced mode → `git.enabled = true` so Source Control / Git
+	 *                    commands behave exactly like upstream VS Code.
+	 *  - Unset mode    → leave whatever the user has; we only flip the
+	 *                    setting on an explicit choice.
+	 */
+	private async syncGitEnabledFor(mode: AriaMode): Promise<void> {
+		if (mode !== 'easy' && mode !== 'advanced') {
+			return;
+		}
+		const desired = mode === 'advanced';
+		const current = this.configurationService.getValue<boolean>('git.enabled');
+		if (current === desired) {
+			return;
+		}
+		try {
+			await this.configurationService.updateValue('git.enabled', desired, ConfigurationTarget.USER);
+		} catch {
+			// Best-effort: silent on failure (e.g. read-only settings).
+		}
 	}
 }
 
