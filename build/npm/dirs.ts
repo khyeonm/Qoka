@@ -14,6 +14,7 @@ export const dirs = [
 	'build/rspack',
 	'build/vite',
 	'extensions',
+	'extensions/aria-autopipe',
 	'extensions/aria-vcs',
 	'extensions/configuration-editing',
 	'extensions/css-language-features',

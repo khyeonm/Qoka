@@ -4,8 +4,16 @@
 <head>
 	<meta charset="UTF-8">
 
+	<!-- The CSP must list the sha256 of this file's inline `<script
+	     type="module">` block. The original VS Code 1.123 hash
+	     (q+WTr+fBXpLLE3…) no longer matches because the script content
+	     drifted somewhere in Aria's branding/build pipeline; we add the
+	     recomputed sha256 (jEIALMBg…) alongside it so both the original
+	     and the current variant are accepted. Without this, every
+	     extension webview (including Claude Code's chat) renders blank
+	     because the bootstrap script is CSP-blocked. -->
 	<meta http-equiv="Content-Security-Policy"
-		content="default-src 'none'; script-src 'sha256-q+WTr+fBXpLLE3++yWNaxT6BTWQtsKscoeIlynBRk4E=' 'self'; frame-src 'self'; style-src 'unsafe-inline';">
+		content="default-src 'none'; script-src 'sha256-q+WTr+fBXpLLE3++yWNaxT6BTWQtsKscoeIlynBRk4E=' 'sha256-jEIALMBgNpfGSB0QssqKdoQAmS/VUaX5HyMORuWH/ew=' 'self'; frame-src 'self'; style-src 'unsafe-inline';">
 
 	<!-- Disable pinch zooming -->
 	<meta name="viewport"
