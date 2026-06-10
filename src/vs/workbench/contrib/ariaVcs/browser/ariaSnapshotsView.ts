@@ -17,7 +17,7 @@ import { IViewDescriptorService } from '../../../common/views.js';
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { FileChange, Snapshot, basename, formatRelativeTime, injectAriaVcsStyles, markerFor } from './ariaVcsCommon.js';
+import { FileChange, Snapshot, basename, formatRelativeTime, injectAriaVcsStyles, markerFor, onDidChangeSnapshots, notifySnapshotsChanged } from './ariaVcsCommon.js';
 
 /**
  * Snapshots view — bottom half of the Versions container. Lists recent
@@ -49,6 +49,9 @@ export class AriaSnapshotsView extends ViewPane {
 		injectAriaVcsStyles();
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.refresh()));
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.refresh()));
+		// Refresh when a snapshot is saved in the Changes view (or restored here)
+		// so the newly saved snapshot shows up without a window reload.
+		this._register(onDidChangeSnapshots(() => this.refresh()));
 	}
 
 	protected override renderBody(container: HTMLElement): void {
@@ -175,7 +178,8 @@ export class AriaSnapshotsView extends ViewPane {
 		restoreBtn.onclick = async (e) => {
 			e.stopPropagation();
 			await this.commandService.executeCommand('aria.vcs.restoreSnapshot', snapshot.hash);
-			this.refresh();
+			// A restore rewrites the working tree, so refresh both views.
+			notifySnapshotsChanged();
 		};
 
 		let files: FileChange[] = [];

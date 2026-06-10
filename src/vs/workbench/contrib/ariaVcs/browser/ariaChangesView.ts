@@ -17,7 +17,7 @@ import { IViewDescriptorService } from '../../../common/views.js';
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { FileChange, StatusInfo, basename, injectAriaVcsStyles, markerFor } from './ariaVcsCommon.js';
+import { FileChange, StatusInfo, basename, injectAriaVcsStyles, markerFor, onDidChangeSnapshots, notifySnapshotsChanged } from './ariaVcsCommon.js';
 
 /**
  * Changes view — top half of the Versions container in Easy mode. Shows the
@@ -49,6 +49,9 @@ export class AriaChangesView extends ViewPane {
 		injectAriaVcsStyles();
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.refresh()));
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.refresh()));
+		// A restore in the Snapshots view rewrites the working tree, so keep the
+		// unsaved-changes list here in sync via the shared snapshot signal.
+		this._register(onDidChangeSnapshots(() => this.refresh()));
 	}
 
 	protected override renderBody(container: HTMLElement): void {
@@ -141,7 +144,9 @@ export class AriaChangesView extends ViewPane {
 			}
 			await this.commandService.executeCommand('aria.vcs.saveSnapshot', undefined, paths);
 			this.selectedPaths = undefined;
-			this.refresh();
+			// Refresh both the Changes list and the Snapshots graph so the newly
+			// saved snapshot appears immediately.
+			notifySnapshotsChanged();
 		};
 
 		if (status && status.isRepo && status.unsavedChanges > 0) {

@@ -4,6 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+
+/**
+ * Fired whenever the snapshot history changes — a snapshot was saved (Changes
+ * view) or restored (Snapshots view). The two views are independent sibling
+ * ViewPanes with no reference to each other, so this app-lifetime emitter is
+ * how an action in one view tells the other to re-read git and refresh.
+ */
+const _onDidChangeSnapshots = new Emitter<void>();
+export const onDidChangeSnapshots: Event<void> = _onDidChangeSnapshots.event;
+export function notifySnapshotsChanged(): void { _onDidChangeSnapshots.fire(); }
 
 /** Mirrors the same-named type in the aria-vcs extension. */
 export interface Snapshot {
