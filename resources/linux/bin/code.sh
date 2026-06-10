@@ -59,5 +59,20 @@ fi
 
 ELECTRON="$VSCODE_PATH/@@APPNAME@@"
 CLI="$VSCODE_PATH/resources/app/out/cli.js"
+
+# Korean IME workaround. Electron's direct ibus integration on Linux
+# drops keystrokes mid-composition, leaving the user unable to type
+# Korean at all. Forcing xim mode (with ibus acting as the underlying
+# XIM server) restores input. IBUS_ENABLE_SYNC_MODE smooths the
+# remaining space/composition timing bug. Only applies when the user
+# is actually on ibus; otherwise their environment is left untouched.
+# Users can override via GTK_IM_MODULE_OVERRIDE / QT_IM_MODULE_OVERRIDE
+# if they want a different IME path.
+if [ -n "$IBUS_ADDRESS" ] || printf '%s' "$XMODIFIERS" | grep -q "ibus"; then
+	export GTK_IM_MODULE="${GTK_IM_MODULE_OVERRIDE:-xim}"
+	export QT_IM_MODULE="${QT_IM_MODULE_OVERRIDE:-xim}"
+	export IBUS_ENABLE_SYNC_MODE="${IBUS_ENABLE_SYNC_MODE:-1}"
+fi
+
 ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI" "$@"
 exit $?

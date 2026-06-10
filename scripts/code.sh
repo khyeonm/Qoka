@@ -43,6 +43,19 @@ function code() {
 	export ELECTRON_ENABLE_STACK_DUMPING=1
 	export ELECTRON_ENABLE_LOGGING=1
 
+	# Korean IME workaround — same logic as resources/linux/bin/code.sh
+	# (the release-wrapper). Electron's direct ibus integration drops
+	# keystrokes mid-composition, leaving the user unable to type Korean
+	# at all. Forcing xim mode (with ibus as the underlying XIM server)
+	# restores input. IBUS_ENABLE_SYNC_MODE smooths the remaining
+	# space/composition timing bug. Only applies when the user is
+	# actually on ibus; non-ibus locales are left untouched.
+	if [ -n "$IBUS_ADDRESS" ] || printf '%s' "$XMODIFIERS" | grep -q "ibus"; then
+		export GTK_IM_MODULE="${GTK_IM_MODULE_OVERRIDE:-xim}"
+		export QT_IM_MODULE="${QT_IM_MODULE_OVERRIDE:-xim}"
+		export IBUS_ENABLE_SYNC_MODE="${IBUS_ENABLE_SYNC_MODE:-1}"
+	fi
+
 	DISABLE_TEST_EXTENSION="--disable-extension=vscode.vscode-api-tests"
 	if [[ "$@" == *"--extensionTestsPath"* ]]; then
 		DISABLE_TEST_EXTENSION=""
