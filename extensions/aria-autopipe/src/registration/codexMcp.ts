@@ -41,6 +41,38 @@ async function resolveCodexBinary(): Promise<string | null> {
 export interface RegistrationResult {
 	ok: boolean;
 	message: string;
+	/**
+	 * True when this run actually (re)wrote the registration; false when it was
+	 * skipped because Codex already pointed at our live port.
+	 */
+	changed: boolean;
+}
+
+/**
+ * Read the port Codex currently has registered for `autopipe`, or null when it
+ * isn't registered / can't be read. Codex exposes no `mcp get`, so we parse
+ * `codex mcp list` for the autopipe entry (excluding the legacy name) and pull
+ * the 127.0.0.1 port from it or the couple of lines that follow.
+ */
+async function readCodexRegisteredPort(codex: string): Promise<number | null> {
+	try {
+		const out = await execAsync(`${quoteArg(codex)} mcp list`, { timeout: 10000 });
+		const lines = out.stdout.split('\n');
+		for (let i = 0; i < lines.length; i++) {
+			const t = lines[i].trim();
+			if (/(^|[^a-z-])autopipe([^a-z-]|$)/i.test(t) && !/aria-autopipe/i.test(t)) {
+				for (let j = i; j < Math.min(i + 3, lines.length); j++) {
+					const m = lines[j].match(/127\.0\.0\.1:(\d+)/);
+					if (m) {
+						return parseInt(m[1], 10);
+					}
+				}
+			}
+		}
+		return null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -62,6 +94,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 		console.error('[aria-autopipe] Codex CLI not found in PATH or candidate locations');
 		return {
 			ok: false,
+			changed: false,
 			message: 'Codex CLI not found on PATH or known install locations. '
 				+ 'Make sure the Codex extension is installed; it ships the CLI. '
 				+ 'If installed, ensure your shell PATH includes the directory containing the codex binary.',
@@ -74,6 +107,15 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 	// the /sse endpoint Claude Code uses.
 	const url = `http://127.0.0.1:${port}/mcp`;
 	const q = quoteArg(codex);
+
+	// Skip the rewrite (and the "reload the window" nudge) when Codex already
+	// points at our live port. A different port means a stale entry from a
+	// previous run; this port means it already targets the server we started.
+	const existingPort = await readCodexRegisteredPort(codex);
+	if (existingPort === port) {
+		console.log(`[aria-autopipe] Codex already registered on port ${port}; skipping re-registration`);
+		return { ok: true, changed: false, message: `Already registered -> ${url}` };
+	}
 
 	// Best-effort removal of prior entries — including the legacy name —
 	// so the next add lands clean. Codex doesn't expose per-scope MCP
@@ -99,7 +141,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 	} catch (err) {
 		const stderr = (err as { stderr?: string }).stderr ?? String(err);
 		console.error('[aria-autopipe] codex mcp add failed:', stderr);
-		return { ok: false, message: `codex mcp add failed: ${stderr.trim()}` };
+		return { ok: false, changed: false, message: `codex mcp add failed: ${stderr.trim()}` };
 	}
 
 	// Verify via `codex mcp list`. A successful add should be reflected
@@ -111,6 +153,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 		if (!listOut.stdout.includes(MCP_NAME)) {
 			return {
 				ok: false,
+				changed: true,
 				message: `Registered with no error but "${MCP_NAME}" missing from \`codex mcp list\`. Output: ${listOut.stdout.trim().slice(0, 300)}`,
 			};
 		}
@@ -118,7 +161,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 		console.warn('[aria-autopipe] codex mcp list verification failed:', err);
 	}
 
-	return { ok: true, message: `Registered ${MCP_NAME} -> ${url}` };
+	return { ok: true, changed: true, message: `Registered ${MCP_NAME} -> ${url}` };
 }
 
 /** Remove Aria's MCP registration from Codex during deactivate(). */

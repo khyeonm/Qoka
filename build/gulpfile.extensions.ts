@@ -51,6 +51,14 @@ function onExtensionCompilationEnd(): void {
 // 	ignore: ['**/out/**', '**/node_modules/**']
 // });
 const compilations = [
+	// Aria's own extensions — built from src/ -> out/ like any other extension,
+	// so the standard watch-extensions / compile-extensions tasks keep them in
+	// sync. Without these entries gulp never compiles them and their out/ goes
+	// stale, silently shipping old code.
+	'extensions/aria-autopipe/tsconfig.json',
+	'extensions/aria-skills/tsconfig.json',
+	'extensions/aria-paper-search/tsconfig.json',
+	'extensions/aria-vcs/tsconfig.json',
 	'extensions/configuration-editing/tsconfig.json',
 	'extensions/css-language-features/client/tsconfig.json',
 	'extensions/css-language-features/server/tsconfig.json',

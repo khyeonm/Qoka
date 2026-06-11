@@ -45,6 +45,28 @@ async function resolveClaudeBinary(): Promise<string | null> {
 export interface RegistrationResult {
 	ok: boolean;
 	message: string;
+	/**
+	 * True when this run actually (re)wrote the registration; false when it was
+	 * skipped because the client already pointed at our live port.
+	 */
+	changed: boolean;
+}
+
+/**
+ * Read the port the client currently has registered for `autopipe`, or null
+ * when it isn't registered / can't be read. Lets us skip a redundant
+ * remove+add when the existing entry already points at our live server.
+ */
+async function readClaudeRegisteredPort(claude: string): Promise<number | null> {
+	try {
+		const out = await execAsync(`${quoteArg(claude)} mcp get ${MCP_NAME}`, { timeout: 10000 });
+		const m = out.stdout.match(/127\.0\.0\.1:(\d+)/);
+		return m ? parseInt(m[1], 10) : null;
+	} catch {
+		// Not registered, or this CLI lacks `mcp get` — treat as unknown so the
+		// caller registers (never skip when we're unsure).
+		return null;
+	}
 }
 
 /**
@@ -59,12 +81,22 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	const claude = await resolveClaudeBinary();
 	if (!claude) {
 		console.error('[aria-autopipe] Claude CLI not found in PATH or candidate locations');
-		return { ok: false, message: 'Claude CLI not found on PATH or known install locations.' };
+		return { ok: false, changed: false, message: 'Claude CLI not found on PATH or known install locations.' };
 	}
 	console.log(`[aria-autopipe] Claude CLI resolved to: ${claude}`);
 
 	const url = `http://127.0.0.1:${port}/sse`;
 	const q = quoteArg(claude);
+
+	// Skip the (expensive) remove+add when the client already points at our
+	// live port. The port is the discriminator: an entry on a *different* port
+	// is stale (a previous run, or the standalone autopipe-app holding 3748),
+	// and one on *this* port already targets the server we just started.
+	const existingPort = await readClaudeRegisteredPort(claude);
+	if (existingPort === port) {
+		console.log(`[aria-autopipe] Claude Code already registered on port ${port}; skipping re-registration`);
+		return { ok: true, changed: false, message: `Already registered -> ${url}` };
+	}
 
 	// Best-effort removal across all three scopes. `claude mcp add`
 	// defaults to "local" (per-project) — that's what tied the previous
@@ -96,7 +128,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	} catch (err) {
 		const stderr = (err as { stderr?: string }).stderr ?? String(err);
 		console.error(`[aria-autopipe] claude mcp add failed:`, stderr);
-		return { ok: false, message: `claude mcp add failed: ${stderr.trim()}` };
+		return { ok: false, changed: false, message: `claude mcp add failed: ${stderr.trim()}` };
 	}
 
 	// Verify by reading `claude mcp list`. A successful add command doesn't
@@ -109,6 +141,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 		if (!listOut.stdout.includes(MCP_NAME)) {
 			return {
 				ok: false,
+				changed: true,
 				message: `Registered with no error but "${MCP_NAME}" missing from \`claude mcp list\`. Output: ${listOut.stdout.trim().slice(0, 300)}`,
 			};
 		}
@@ -116,7 +149,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 		console.warn(`[aria-autopipe] claude mcp list verification failed:`, err);
 	}
 
-	return { ok: true, message: `Registered ${MCP_NAME} -> ${url}` };
+	return { ok: true, changed: true, message: `Registered ${MCP_NAME} -> ${url}` };
 }
 
 /**

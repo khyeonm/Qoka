@@ -1,0 +1,53 @@
+{
+	"name": "aria-paper-search",
+	"displayName": "Aria Paper Library",
+	"description": "Manage the user's saved-paper library. Exposes save_paper / list_saved_papers as MCP tools for Claude Code and Codex; the sidebar tab handles delete / note / tag edits locally. Built into Aria.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished",
+		"onView:aria.paperSearch.main"
+	],
+	"contributes": {
+		"commands": [
+			{
+				"command": "aria.paperSearch.list",
+				"title": "Aria: List Saved Papers"
+			},
+			{
+				"command": "aria.paperSearch.delete",
+				"title": "Aria: Delete Saved Paper"
+			},
+			{
+				"command": "aria.paperSearch.updateNote",
+				"title": "Aria: Update Paper Note"
+			},
+			{
+				"command": "aria.paperSearch.updateTags",
+				"title": "Aria: Update Paper Tags"
+			},
+			{
+				"command": "aria.paperSearch.openUrl",
+				"title": "Aria: Open Paper URL"
+			},
+			{
+				"command": "aria.paperSearch.copyToClipboard",
+				"title": "Aria: Copy to Clipboard"
+			}
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"@types/vscode": "^1.123.0",
+		"typescript": "^5.6.2"
+	}
+}

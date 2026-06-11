@@ -385,6 +385,9 @@ import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
 // Aria
 import './contrib/aria/browser/aria.contribution.js';
 import './contrib/ariaAutopipe/browser/ariaAutopipe.contribution.js';
+import './contrib/ariaSkills/browser/ariaSkills.contribution.js';
+import './contrib/ariaPaperSearch/browser/ariaPaperSearch.contribution.js';
+import './contrib/ariaFirstRunOverlay/browser/ariaFirstRunOverlay.contribution.js';
 import './contrib/ariaVcs/browser/ariaVcs.contribution.js';
 import './contrib/welcomeViews/common/viewsWelcome.contribution.js';
 import './contrib/welcomeViews/common/newFile.contribution.js';

@@ -15,6 +15,8 @@ export const dirs = [
 	'build/vite',
 	'extensions',
 	'extensions/aria-autopipe',
+	'extensions/aria-skills',
+	'extensions/aria-paper-search',
 	'extensions/aria-vcs',
 	'extensions/configuration-editing',
 	'extensions/css-language-features',

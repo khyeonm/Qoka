@@ -16,6 +16,7 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { localize } from '../../../../nls.js';
+import { ensureAriaPaneScrollbarStyle } from '../../ariaSkills/browser/ariaSkillsView.js';
 
 interface AiProviderState {
 	kind: 'claude-code' | 'codex';
@@ -100,7 +101,9 @@ export class AriaAutopipeView extends ViewPane {
 
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
+		ensureAriaPaneScrollbarStyle();
 		const root = append(container, $('div'));
+		root.classList.add('aria-themed-scrollable');
 		root.style.padding = '12px';
 		root.style.fontSize = '12px';
 		root.style.lineHeight = '1.55';

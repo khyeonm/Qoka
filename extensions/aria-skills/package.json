@@ -1,0 +1,68 @@
+{
+	"name": "aria-skills",
+	"displayName": "Aria Skills",
+	"description": "Manage Claude skills, environment variables, and the skill installation experience. Built into Aria.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {
+		"commands": [
+			{
+				"command": "aria.skills.getState",
+				"title": "Aria: Skills State (internal)"
+			},
+			{
+				"command": "aria.skills.openEnvFile",
+				"title": "Aria: Open Skills .env File"
+			},
+			{
+				"command": "aria.skills.openAddWizard",
+				"title": "Aria: Add Skill from GitHub..."
+			},
+			{
+				"command": "aria.skills.addSkillStub",
+				"title": "Aria: Add Skill (legacy alias)"
+			},
+			{
+				"command": "aria.skills.configureKeys",
+				"title": "Aria: Configure Skill Keys"
+			},
+			{
+				"command": "aria.skills.editEnvVar",
+				"title": "Aria: Edit Environment Variable"
+			},
+			{
+				"command": "aria.skills.toggleAutoApprove",
+				"title": "Aria: Toggle Skill Auto-Approve"
+			},
+			{
+				"command": "aria.skills.runFirstRunWizard",
+				"title": "Aria: Run First-Run Setup"
+			},
+			{
+				"command": "aria.skills.showLog",
+				"title": "Aria: Show Skills Log"
+			},
+			{
+				"command": "aria.skills.uninstallSkill",
+				"title": "Aria: Uninstall Skill"
+			}
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"@types/vscode": "^1.123.0",
+		"typescript": "^5.6.2"
+	}
+}
