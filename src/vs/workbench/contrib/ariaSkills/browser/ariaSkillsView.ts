@@ -486,17 +486,12 @@ export class AriaSkillsView extends ViewPane {
 		card.style.flexDirection = 'column';
 		card.style.gap = '4px';
 
-		// Title row: skill name on the left, lock/unlock permission badge
-		// on the right. We mount the permission control here (not at the
-		// bottom of the card) so it sits at the right edge of the same
-		// horizontal line as the title, matching the design direction
-		// from the user.
+		// Title row: skill name on the left, Uninstall button on the right
+		// (user skills only — defaults can't be uninstalled because the
+		// first-run wizard would just re-clone them).
 		//
-		// `flex-wrap: wrap` makes the badge drop to a new row when the
-		// pane is too narrow to fit it on the title line — otherwise
-		// flexbox shrinks the badge and clips its label ("Manual" →
-		// "Mar"). The name field stays on the first line because it
-		// claims the available width with flex-grow.
+		// `flex-wrap: wrap` lets the button drop to a new row when the
+		// pane is too narrow, instead of clipping its label.
 		const titleRow = append(card, $('div'));
 		titleRow.style.display = 'flex';
 		titleRow.style.alignItems = 'center';
@@ -513,7 +508,25 @@ export class AriaSkillsView extends ViewPane {
 		name.style.whiteSpace = 'nowrap';
 		name.textContent = skill.name;
 
-		this.renderPermissionBadge(titleRow, skill);
+		if (skill.type === 'user') {
+			const uninstallBtn = append(titleRow, $('button')) as HTMLButtonElement;
+			uninstallBtn.textContent = 'Uninstall';
+			uninstallBtn.style.background = 'transparent';
+			uninstallBtn.style.color = 'rgb(220, 100, 100)';
+			uninstallBtn.style.border = '1px solid rgba(220, 100, 100, 0.4)';
+			uninstallBtn.style.padding = '2px 8px';
+			uninstallBtn.style.borderRadius = '3px';
+			uninstallBtn.style.cursor = 'pointer';
+			uninstallBtn.style.fontSize = '10.5px';
+			uninstallBtn.style.fontFamily = 'inherit';
+			uninstallBtn.style.flexShrink = '0';
+			uninstallBtn.style.whiteSpace = 'nowrap';
+			uninstallBtn.style.opacity = '0.85';
+			uninstallBtn.onclick = (e) => {
+				e.stopPropagation();
+				void this.commandService.executeCommand('aria.skills.uninstallSkill', skill.name);
+			};
+		}
 
 		const metaRow = append(card, $('div'));
 		metaRow.style.display = 'flex';
@@ -617,80 +630,8 @@ export class AriaSkillsView extends ViewPane {
 			};
 		}
 
-		// Per-card management buttons (uninstall). User skills get a
-		// trash icon; defaults don't (re-running the first-run wizard is
-		// the supported path for those).
-		if (skill.type === 'user') {
-			const manageRow = append(card, $('div'));
-			manageRow.style.display = 'flex';
-			manageRow.style.justifyContent = 'flex-end';
-			manageRow.style.marginTop = '4px';
-
-			const uninstallBtn = append(manageRow, $('button')) as HTMLButtonElement;
-			uninstallBtn.textContent = 'Uninstall';
-			uninstallBtn.style.background = 'transparent';
-			uninstallBtn.style.color = 'rgb(220, 100, 100)';
-			uninstallBtn.style.border = '1px solid rgba(220, 100, 100, 0.4)';
-			uninstallBtn.style.padding = '2px 8px';
-			uninstallBtn.style.borderRadius = '3px';
-			uninstallBtn.style.cursor = 'pointer';
-			uninstallBtn.style.fontSize = '10.5px';
-			uninstallBtn.style.opacity = '0.85';
-			uninstallBtn.onclick = (e) => {
-				e.stopPropagation();
-				void this.commandService.executeCommand('aria.skills.uninstallSkill', skill.name);
-			};
-		}
-	}
-
-	/**
-	 * Lock/unlock pill rendered at the right edge of each skill card's
-	 * title row. Click toggles between Manual (locked, gray) and Auto
-	 * (unlocked, green). The icon-plus-label combo carries the meaning
-	 * the previous long sentence used to spell out, in much less space.
-	 */
-	private renderPermissionBadge(parent: HTMLElement, skill: SkillRow): void {
-		const badge = append(parent, $('span'));
-		badge.style.cursor = 'pointer';
-		badge.style.fontSize = '10.5px';
-		badge.style.display = 'inline-flex';
-		badge.style.alignItems = 'center';
-		badge.style.gap = '4px';
-		badge.style.padding = '2px 8px';
-		badge.style.borderRadius = '4px';
-		badge.style.userSelect = 'none';
-		// Never shrink the badge — if the panel is too narrow, the
-		// parent's `flex-wrap: wrap` will drop the badge to a new
-		// row rather than clipping the label.
-		badge.style.flexShrink = '0';
-		badge.style.whiteSpace = 'nowrap';
-
-		let current = !!skill.autoApprove;
-		const paint = (): void => {
-			clearNode(badge);
-			const icon = append(badge, $(current
-				? 'span.codicon.codicon-unlock'
-				: 'span.codicon.codicon-lock')) as HTMLElement;
-			icon.style.fontSize = '12px';
-			const label = append(badge, $('span'));
-			label.textContent = current ? 'Auto' : 'Manual';
-			if (current) {
-				badge.style.background = 'rgba(80, 180, 100, 0.2)';
-				badge.style.color = 'rgb(80, 180, 100)';
-				badge.title = 'Auto-approved: Claude can use this skill without asking. Click to require approval.';
-			} else {
-				badge.style.background = 'rgba(127, 127, 127, 0.18)';
-				badge.style.color = 'var(--vscode-foreground)';
-				badge.title = 'Manual: Claude asks before using this skill. Click to auto-approve.';
-			}
-		};
-		paint();
-
-		badge.onclick = () => {
-			current = !current;
-			paint();
-			void this.commandService.executeCommand('aria.skills.toggleAutoApprove', skill.name);
-		};
+		// Uninstall button now lives on the title row (right side); no
+		// separate management strip at the bottom of the card.
 	}
 
 	private renderEnvVarRow(parent: HTMLElement, v: EnvVarRow): void {

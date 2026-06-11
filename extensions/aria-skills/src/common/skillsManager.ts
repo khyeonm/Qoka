@@ -15,6 +15,7 @@ import {
 	removeSkill as removeSkillFromManifest,
 	upsertSkill,
 } from './skillManifest';
+import { writeEnv } from './envManager';
 
 const execAsync = promisify(exec);
 
@@ -203,11 +204,51 @@ function hardRemove(target: string): void {
 	}
 }
 
-/** Remove a skill from disk AND from the manifest. Idempotent. */
+/**
+ * Remove a skill from disk AND from the manifest. Idempotent.
+ *
+ * Also prunes ~/.env: any env var the uninstalled skill declared that
+ * isn't referenced by another installed skill is removed from the file.
+ * Vars still claimed by another skill stay, so uninstalling one skill
+ * doesn't break a sibling that happens to share, say, NCBI_API_KEY.
+ *
+ * Order matters: we snapshot the leaving skill's vars BEFORE removing
+ * it from the manifest, then read the manifest AFTER removal to figure
+ * out which vars are still in use.
+ */
 export async function uninstall(name: string): Promise<void> {
+	const leaving = findSkill(name);
+	const leavingVars = leaving?.envVars?.map(v => v.name) ?? [];
+
 	const dir = skillPath(name);
 	hardRemove(dir);
 	removeSkillFromManifest(name);
+
+	if (leavingVars.length === 0) {
+		return;
+	}
+
+	const remainingVars = new Set<string>();
+	for (const skill of readManifest().skills) {
+		for (const v of skill.envVars ?? []) {
+			remainingVars.add(v.name);
+		}
+	}
+	const orphaned = leavingVars.filter(v => !remainingVars.has(v));
+	if (orphaned.length === 0) {
+		return;
+	}
+
+	try {
+		// writeEnv's removeKeys param already handles the "drop the
+		// line entirely, preserve the rest" case — see envManager.ts.
+		writeEnv({}, orphaned);
+	} catch (err) {
+		// Best-effort: if we can't write the env file, the manifest is
+		// already updated and the skill is gone. Surface the failure
+		// in the log so the user can clean up manually if they care.
+		console.error(`[aria-skills] failed to prune ~/.env after uninstalling ${name}: ${(err as Error).message}`);
+	}
 }
 
 /** Re-clone a skill by uninstalling + reinstalling. Used by Update flow. */

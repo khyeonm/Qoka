@@ -9,8 +9,9 @@ import { SkillInfo } from './common/types';
 import { runAddSkillWizard } from './wizards/addSkillWizard';
 import { runFirstRunWizardIfNeeded } from './wizards/firstRunWizard';
 import { initLogger, log, showLogger } from './common/logger';
-import { isSkillAutoApproved, setSkillAutoApprove, settingsPath } from './common/permissions';
+import { setSkillAutoApprove } from './common/permissions';
 import { ensureEnvFile } from './common/envManager';
+import { ensureAriaHook } from './common/ariaHooks';
 
 /**
  * Skills extension entry. Phase 2 replaces the central-area webview with
@@ -29,6 +30,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Touch ~/.env on startup so "Open ~/.env" always opens something.
 	ensureEnvFile();
+
+	// Register the Aria PreToolUse hook with Claude Code. The hook
+	// injects Aria's environment rules whenever Claude is about to run
+	// a shell command that touches .env files, pip/conda installs, or
+	// credential env vars — so skill SKILL.md instructions to "create a
+	// .env file" get overridden in favour of Aria's Skills tab.
+	ensureAriaHook();
 
 	setSkillsServices(buildDefaultServices());
 
@@ -82,17 +90,6 @@ export function activate(context: vscode.ExtensionContext): void {
 				return;
 			}
 			return editSingleEnvVar(name);
-		}),
-
-		// Per-skill auto-approve toggle. Updates BOTH the Aria manifest
-		// (so the sidebar's UI state is right) and Claude Code's
-		// settings file (so the actual permission gate trusts the
-		// skill). Returns the new flag so the caller can re-render.
-		vscode.commands.registerCommand('aria.skills.toggleAutoApprove', (skillName: unknown) => {
-			if (typeof skillName !== 'string') {
-				return;
-			}
-			return toggleAutoApprove(skillName);
 		}),
 
 		// Re-run the first-run wizard on demand. Wired to a command in
@@ -385,32 +382,6 @@ async function editSingleEnvVar(name: string): Promise<void> {
 	} catch (err) {
 		vscode.window.showErrorMessage(`Failed to save ${name}: ${(err as Error).message}`);
 	}
-}
-
-/**
- * Flip a skill's auto-approve flag and persist both sides:
- *  - Aria manifest gets the new boolean (drives the sidebar pill).
- *  - ~/.claude/settings.json gets `Skill(<name>)` added/removed from
- *    permissions.allow so Claude Code's actual prompt gate matches.
- */
-async function toggleAutoApprove(skillName: string): Promise<void> {
-	const svc = skillsServices();
-	const skill = svc.skills.listManaged().find(s => s.name === skillName);
-	if (!skill) {
-		vscode.window.showWarningMessage(`Skill "${skillName}" not found in the manifest.`);
-		return;
-	}
-	const next = !skill.autoApprove;
-	try {
-		setSkillAutoApprove(skillName, next);
-	} catch (err) {
-		vscode.window.showErrorMessage(
-			`Failed to update ${settingsPath()}: ${(err as Error).message}`,
-		);
-		return;
-	}
-	svc.manifest.updateSkill(skillName, { autoApprove: next });
-	log(`Auto-approve for "${skillName}" set to ${next}.`);
 }
 
 /** Show the unified post-startup summary. Receives the list the workbench
