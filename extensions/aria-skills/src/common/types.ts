@@ -72,17 +72,11 @@ export interface SkillsManifest {
 	firstRunCompleted: boolean;
 }
 
-/** Initial default categories the Skills tab offers. */
-export const DEFAULT_CATEGORIES: string[] = [
-	'Literature',
-	'Protein',
-	'Genomics',
-	'Chemistry',
-	'Clinical',
-	'Data',
-	'Visualization',
-	'Other',
-];
+/** Categories are fully user-defined now — the manifest starts with an
+ *  empty list and grows as the user adds skills or types a new value into
+ *  the Category pill. Keeping the export name so older imports compile,
+ *  but the array is intentionally empty. */
+export const DEFAULT_CATEGORIES: string[] = [];
 
 /** Manifest version — bump when the on-disk shape changes incompatibly. */
 export const MANIFEST_VERSION = 1;

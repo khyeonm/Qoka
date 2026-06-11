@@ -12,6 +12,7 @@ import { initLogger, log, showLogger } from './common/logger';
 import { setSkillAutoApprove } from './common/permissions';
 import { ensureEnvFile } from './common/envManager';
 import { ensureAriaHook } from './common/ariaHooks';
+import { reconcileCategories } from './common/skillManifest';
 
 /**
  * Skills extension entry. Phase 2 replaces the central-area webview with
@@ -39,6 +40,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	ensureAriaHook();
 
 	setSkillsServices(buildDefaultServices());
+
+	// Drop any leftover "Literature", "Protein"… entries that older
+	// builds seeded the manifest with. Categories are now fully
+	// user-driven and only ones a real skill claims should remain.
+	reconcileCategories();
 
 	context.subscriptions.push(
 		// Single read endpoint the sidebar calls on mount + after every
@@ -90,6 +96,23 @@ export function activate(context: vscode.ExtensionContext): void {
 				return;
 			}
 			return editSingleEnvVar(name);
+		}),
+
+		// Open an input box pre-filled with the skill's current category
+		// so the user can rename it. The view also exposes a direct
+		// `aria.skills.updateCategory` command (no prompt) for the × clear
+		// button on the category pill.
+		vscode.commands.registerCommand('aria.skills.editCategory', (skillName: unknown) => {
+			if (typeof skillName !== 'string') {
+				return;
+			}
+			return promptEditCategory(skillName);
+		}),
+		vscode.commands.registerCommand('aria.skills.updateCategory', (skillName: unknown, category: unknown) => {
+			if (typeof skillName !== 'string' || typeof category !== 'string') {
+				return;
+			}
+			return updateCategory(skillName, category);
 		}),
 
 		// Re-run the first-run wizard on demand. Wired to a command in
@@ -382,6 +405,51 @@ async function editSingleEnvVar(name: string): Promise<void> {
 	} catch (err) {
 		vscode.window.showErrorMessage(`Failed to save ${name}: ${(err as Error).message}`);
 	}
+}
+
+/**
+ * Open an input box pre-filled with the skill's current category so the
+ * user can rename it. Wired to the category pill's click handler in the
+ * sidebar. Empty input is treated as "clear" — the manifest stores an
+ * empty string, which the view renders as "+ Set category".
+ */
+async function promptEditCategory(skillName: string): Promise<void> {
+	const svc = skillsServices();
+	const skill = svc.skills.listManaged().find(s => s.name === skillName);
+	if (!skill) {
+		vscode.window.showWarningMessage(`Skill "${skillName}" not found in the manifest.`);
+		return;
+	}
+	const next = await vscode.window.showInputBox({
+		title: `Category for ${skillName}`,
+		prompt: 'Type a category name. Leave empty to clear.',
+		value: skill.category ?? '',
+		ignoreFocusOut: true,
+	});
+	if (next === undefined) {
+		return;
+	}
+	await updateCategory(skillName, next.trim());
+}
+
+/**
+ * Persist a category change to the manifest. Also adds the new value to
+ * the canonical category list so the dropdown filter picks it up on the
+ * next refresh, and pings the sidebar to repaint.
+ */
+async function updateCategory(skillName: string, category: string): Promise<void> {
+	const svc = skillsServices();
+	const skill = svc.skills.listManaged().find(s => s.name === skillName);
+	if (!skill) {
+		vscode.window.showWarningMessage(`Skill "${skillName}" not found in the manifest.`);
+		return;
+	}
+	svc.manifest.updateSkill(skillName, { category });
+	if (category) {
+		svc.manifest.addCategory(category);
+	}
+	log(`Category for "${skillName}" set to "${category}".`);
+	void vscode.commands.executeCommand('aria.skills.requestRefresh');
 }
 
 /** Show the unified post-startup summary. Receives the list the workbench

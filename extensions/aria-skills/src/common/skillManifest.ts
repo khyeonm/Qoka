@@ -7,7 +7,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-	DEFAULT_CATEGORIES,
 	MANIFEST_VERSION,
 	SkillInfo,
 	SkillsManifest,
@@ -34,7 +33,7 @@ function emptyManifest(): SkillsManifest {
 	return {
 		version: MANIFEST_VERSION,
 		skills: [],
-		categories: [...DEFAULT_CATEGORIES],
+		categories: [],
 		firstRunCompleted: false,
 	};
 }
@@ -56,9 +55,7 @@ export function readManifest(): SkillsManifest {
 		return {
 			version: typeof parsed.version === 'number' ? parsed.version : MANIFEST_VERSION,
 			skills: Array.isArray(parsed.skills) ? parsed.skills : [],
-			categories: Array.isArray(parsed.categories) && parsed.categories.length > 0
-				? parsed.categories
-				: [...DEFAULT_CATEGORIES],
+			categories: Array.isArray(parsed.categories) ? parsed.categories : [],
 			firstRunCompleted: parsed.firstRunCompleted === true,
 		};
 	} catch {
@@ -140,6 +137,27 @@ export function addCategory(category: string): SkillsManifest {
 		writeManifest(m);
 	}
 	return m;
+}
+
+/**
+ * Drop any category that no installed skill references. Aria used to seed
+ * the manifest with a fixed list (Literature, Protein, …) — leftover
+ * entries pollute the filter dropdown after we switched to user-driven
+ * categories. Called on every activation so older manifests self-heal.
+ */
+export function reconcileCategories(): void {
+	const m = readManifest();
+	const used = new Set<string>();
+	for (const s of m.skills) {
+		if (s.category) {
+			used.add(s.category);
+		}
+	}
+	const filtered = m.categories.filter(c => used.has(c));
+	if (filtered.length !== m.categories.length) {
+		m.categories = filtered;
+		writeManifest(m);
+	}
 }
 
 /** Mark the first-run wizard as completed so it doesn't replay. */

@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { analyzeSkillMd } from '../common/claudeAnalyzer';
 import { discoverSkillsInRepo, fetchSkillMd, fetchSkillMdAtPath } from '../common/skillFetcher';
 import { skillsServices } from '../common/services';
-import { DEFAULT_CATEGORIES, EnvVarRequirement, SkillDependency, SkillInfo } from '../common/types';
+import { EnvVarRequirement, SkillDependency, SkillInfo } from '../common/types';
 import {
 	cloneFromGithub,
 	deriveSkillName,
@@ -312,19 +312,18 @@ async function confirmName(initial: string): Promise<string | undefined> {
 
 async function pickCategory(suggested: string | undefined): Promise<string | undefined> {
 	const categories = skillsServices().manifest.readManifest().categories;
-	const seen = new Set<string>();
 	const items: vscode.QuickPickItem[] = [];
-	for (const c of [...categories, ...DEFAULT_CATEGORIES]) {
-		if (seen.has(c)) {
-			continue;
-		}
-		seen.add(c);
+	if (suggested && !categories.includes(suggested)) {
+		items.push({ label: suggested, description: '(suggested)' });
+	}
+	for (const c of categories) {
 		items.push({
 			label: c,
 			description: c === suggested ? '(suggested)' : undefined,
 		});
 	}
 	items.push({ label: '$(add) Custom...', description: 'Type a new category name' });
+	items.push({ label: '$(circle-slash) Skip', description: 'Leave the category blank' });
 
 	const pick = await vscode.window.showQuickPick(items, {
 		title: 'Add Skill — Step 3 of 6',
@@ -349,6 +348,9 @@ async function pickCategory(suggested: string | undefined): Promise<string | und
 			},
 		});
 		return custom?.trim();
+	}
+	if (pick.label.startsWith('$(circle-slash)')) {
+		return '';
 	}
 	return pick.label;
 }

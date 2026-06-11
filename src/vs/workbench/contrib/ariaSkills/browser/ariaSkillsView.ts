@@ -63,6 +63,13 @@ interface SkillRow {
 	type: 'default' | 'user';
 	envVars: { name: string; required: boolean }[];
 	autoApprove: boolean;
+	/** ISO timestamp recorded when Aria first installed (or last
+	 *  reinstalled) the skill. Surfaced inside Details. */
+	installedAt?: string;
+	/** Where the skill came from — GitHub URL for user skills, the
+	 *  upstream URL for defaults. Rendered as a clickable link in
+	 *  Details so the user can jump to the source. */
+	source?: string;
 	/** Set by the extension. How many declared env vars are still unset
 	 *  in ~/.env — drives the "Configure keys" affordance on the card. */
 	missingKeyCount?: number;
@@ -114,6 +121,10 @@ export class AriaSkillsView extends ViewPane {
 	// Last state pulled from the extension. Cached so filter changes
 	// can re-derive the list without another command round-trip.
 	private latestState: AriaSkillsState | undefined;
+	/** Skill names whose card is in expanded ("Details" open) mode.
+	 *  Persisting this in the view (not the manifest) keeps the toggle
+	 *  local to the user's session; it doesn't survive a window reload. */
+	private expandedSkills = new Set<string>();
 	private searchQuery = '';
 	private categoryFilter = '';
 
@@ -486,12 +497,15 @@ export class AriaSkillsView extends ViewPane {
 		card.style.flexDirection = 'column';
 		card.style.gap = '4px';
 
-		// Title row: skill name on the left, Uninstall button on the right
-		// (user skills only — defaults can't be uninstalled because the
-		// first-run wizard would just re-clone them).
+		const expanded = this.expandedSkills.has(skill.name);
+
+		// Title row: skill name on the left, key-status pill(s) on the
+		// right. Mirrors the paper card's title-row layout where the
+		// most important state-at-a-glance information sits opposite
+		// the title.
 		//
-		// `flex-wrap: wrap` lets the button drop to a new row when the
-		// pane is too narrow, instead of clipping its label.
+		// `flex-wrap: wrap` lets the pills drop to a new row when the
+		// pane is too narrow, instead of clipping their labels.
 		const titleRow = append(card, $('div'));
 		titleRow.style.display = 'flex';
 		titleRow.style.alignItems = 'center';
@@ -508,130 +522,244 @@ export class AriaSkillsView extends ViewPane {
 		name.style.whiteSpace = 'nowrap';
 		name.textContent = skill.name;
 
-		if (skill.type === 'user') {
-			const uninstallBtn = append(titleRow, $('button')) as HTMLButtonElement;
-			uninstallBtn.textContent = 'Uninstall';
-			uninstallBtn.style.background = 'transparent';
-			uninstallBtn.style.color = 'rgb(220, 100, 100)';
-			uninstallBtn.style.border = '1px solid rgba(220, 100, 100, 0.4)';
-			uninstallBtn.style.padding = '2px 8px';
-			uninstallBtn.style.borderRadius = '3px';
-			uninstallBtn.style.cursor = 'pointer';
-			uninstallBtn.style.fontSize = '10.5px';
-			uninstallBtn.style.fontFamily = 'inherit';
-			uninstallBtn.style.flexShrink = '0';
-			uninstallBtn.style.whiteSpace = 'nowrap';
-			uninstallBtn.style.opacity = '0.85';
-			uninstallBtn.onclick = (e) => {
-				e.stopPropagation();
-				void this.commandService.executeCommand('aria.skills.uninstallSkill', skill.name);
-			};
-		}
-
-		const metaRow = append(card, $('div'));
-		metaRow.style.display = 'flex';
-		metaRow.style.gap = '4px';
-		metaRow.style.flexWrap = 'wrap';
-		metaRow.style.alignItems = 'center';
-		metaRow.style.fontSize = '11px';
-
-		const catPill = append(metaRow, $('span'));
-		this.stylePill(catPill, false);
-		catPill.textContent = skill.category || 'Other';
-
-		// Required + optional get their own pills so the user can tell
-		// at a glance whether the skill is usable right now. Required
-		// pill turns green when every required key is filled (skill
-		// works); optional pill stays neutral because the skill still
-		// works without the extras.
 		const total = skill.totalKeyCount ?? skill.envVars.length;
 		const requiredCount = skill.requiredCount ?? skill.envVars.filter(v => v.required).length;
 		const optionalCount = skill.optionalCount ?? skill.envVars.filter(v => !v.required).length;
 		const requiredMissing = skill.requiredMissingCount ?? requiredCount;
 		const optionalMissing = skill.optionalMissingCount ?? optionalCount;
 
-		if (total === 0) {
-			const pill = append(metaRow, $('span'));
-			this.stylePill(pill, false);
-			pill.textContent = 'No key needed';
-		} else {
-			// Both pills read as "filled / total" so the fraction means
-			// the same thing on both sides. "0/1 required missing" is
-			// 0 of 1 filled (the user reads "0 done out of 1 needed").
-			if (requiredCount > 0) {
-				const reqPill = append(metaRow, $('span'));
-				const filledRequired = requiredCount - requiredMissing;
-				if (requiredMissing === 0) {
-					this.stylePill(reqPill, false);
-					reqPill.style.background = 'rgba(80, 180, 100, 0.18)';
-					reqPill.style.color = 'rgb(80, 180, 100)';
-					reqPill.textContent = `${filledRequired}/${requiredCount} required ✓`;
-				} else {
-					this.stylePill(reqPill, true);
-					reqPill.textContent = `${filledRequired}/${requiredCount} required missing`;
-				}
-			}
-			if (optionalCount > 0) {
-				const optPill = append(metaRow, $('span'));
-				this.stylePill(optPill, false);
-				const filledOptional = optionalCount - optionalMissing;
-				optPill.textContent = filledOptional === optionalCount
-					? `${filledOptional}/${optionalCount} optional ✓`
-					: `${filledOptional}/${optionalCount} optional`;
-			}
-		}
+		const statusContainer = append(titleRow, $('div'));
+		statusContainer.style.display = 'flex';
+		statusContainer.style.gap = '4px';
+		statusContainer.style.alignItems = 'center';
+		statusContainer.style.flexShrink = '0';
+		statusContainer.style.fontSize = '11px';
+		statusContainer.style.flexWrap = 'wrap';
+		statusContainer.style.justifyContent = 'flex-end';
+		this.renderKeyStatusPills(statusContainer, total, requiredCount, requiredMissing, optionalCount, optionalMissing);
 
-		// "Configure keys" affordance. Visible whenever the skill
-		// declares any env vars — the user might want to update an
-		// existing value, not just fill the first one.
-		const missing = requiredMissing + optionalMissing;
-		if (total > 0) {
-			const configBtn = append(metaRow, $('button')) as HTMLButtonElement;
-			configBtn.textContent = missing > 0 ? 'Enter keys' : 'Edit keys';
-			configBtn.style.background = 'transparent';
-			configBtn.style.color = 'var(--vscode-foreground)';
-			configBtn.style.border = '1px solid var(--vscode-button-border, var(--vscode-foreground))';
-			configBtn.style.padding = '2px 8px';
-			configBtn.style.borderRadius = '3px';
-			configBtn.style.cursor = 'pointer';
-			configBtn.style.fontSize = '10.5px';
-			configBtn.style.opacity = '0.85';
-			configBtn.onclick = (e) => {
-				e.stopPropagation();
-				void this.commandService.executeCommand('aria.skills.configureKeys', skill.name);
-			};
-		}
-
+		// Description (clamped to 3 lines while collapsed; fully shown
+		// inside Details). Hover tooltip mirrors the full text.
 		if (skill.description) {
 			const desc = append(card, $('div'));
 			desc.style.fontSize = '11.5px';
 			desc.style.opacity = '0.8';
-			desc.style.display = '-webkit-box';
-			desc.style.webkitLineClamp = '3';
-			(desc.style as unknown as Record<string, string>)['webkit-line-clamp'] = '3';
-			desc.style.webkitBoxOrient = 'vertical';
-			(desc.style as unknown as Record<string, string>)['-webkit-box-orient'] = 'vertical';
-			desc.style.overflow = 'hidden';
-			desc.style.cursor = 'pointer';
 			desc.title = skill.description;
 			desc.textContent = skill.description;
-			// Tap to expand the description in-place rather than forcing
-			// the user to read a hover tooltip on a narrow sidebar.
-			let expanded = false;
-			desc.onclick = () => {
-				expanded = !expanded;
-				if (expanded) {
-					desc.style.webkitLineClamp = 'unset';
-					(desc.style as unknown as Record<string, string>)['webkit-line-clamp'] = 'unset';
-				} else {
-					desc.style.webkitLineClamp = '3';
-					(desc.style as unknown as Record<string, string>)['webkit-line-clamp'] = '3';
-				}
+			if (!expanded) {
+				desc.style.display = '-webkit-box';
+				desc.style.webkitLineClamp = '3';
+				(desc.style as unknown as Record<string, string>)['webkit-line-clamp'] = '3';
+				desc.style.webkitBoxOrient = 'vertical';
+				(desc.style as unknown as Record<string, string>)['-webkit-box-orient'] = 'vertical';
+				desc.style.overflow = 'hidden';
+			}
+		}
+
+		// Action row: Details + Uninstall, side-by-side. Default skills
+		// don't get Uninstall (the first-run wizard would just re-clone
+		// them), so the row collapses to just Details in that case.
+		const actions = append(card, $('div'));
+		actions.style.display = 'flex';
+		actions.style.gap = '4px';
+		actions.style.marginTop = '4px';
+
+		const detailsBtn = append(actions, $('button')) as HTMLButtonElement;
+		detailsBtn.textContent = expanded ? 'Hide details' : 'Details';
+		this.styleSecondaryButton(detailsBtn);
+		detailsBtn.onclick = (e) => {
+			e.stopPropagation();
+			if (this.expandedSkills.has(skill.name)) {
+				this.expandedSkills.delete(skill.name);
+			} else {
+				this.expandedSkills.add(skill.name);
+			}
+			void this.refresh();
+		};
+
+		if (skill.type === 'user') {
+			const uninstallBtn = append(actions, $('button')) as HTMLButtonElement;
+			uninstallBtn.textContent = 'Uninstall';
+			uninstallBtn.style.background = 'transparent';
+			uninstallBtn.style.color = 'rgb(220, 100, 100)';
+			uninstallBtn.style.border = '1px solid rgba(220, 100, 100, 0.4)';
+			uninstallBtn.style.padding = '3px 9px';
+			uninstallBtn.style.borderRadius = '3px';
+			uninstallBtn.style.cursor = 'pointer';
+			uninstallBtn.style.fontSize = '10.5px';
+			uninstallBtn.style.fontFamily = 'inherit';
+			uninstallBtn.onclick = (e) => {
+				e.stopPropagation();
+				void this.commandService.executeCommand('aria.skills.uninstallSkill', skill.name);
 			};
 		}
 
-		// Uninstall button now lives on the title row (right side); no
-		// separate management strip at the bottom of the card.
+		if (expanded) {
+			this.renderExpandedSkillDetails(card, skill, total > 0);
+		}
+	}
+
+	/** Render the required / optional / no-key pills used in the
+	 *  title row. Logic identical to the previous metaRow rendering;
+	 *  factored out so a future header / hover tooltip can reuse it. */
+	private renderKeyStatusPills(
+		container: HTMLElement,
+		total: number,
+		requiredCount: number,
+		requiredMissing: number,
+		optionalCount: number,
+		optionalMissing: number,
+	): void {
+		if (total === 0) {
+			const pill = append(container, $('span'));
+			this.stylePill(pill, false);
+			pill.textContent = 'No key needed';
+			return;
+		}
+		if (requiredCount > 0) {
+			const reqPill = append(container, $('span'));
+			const filledRequired = requiredCount - requiredMissing;
+			if (requiredMissing === 0) {
+				this.stylePill(reqPill, false);
+				reqPill.style.background = 'rgba(80, 180, 100, 0.18)';
+				reqPill.style.color = 'rgb(80, 180, 100)';
+				reqPill.textContent = `${filledRequired}/${requiredCount} required ✓`;
+			} else {
+				this.stylePill(reqPill, true);
+				reqPill.textContent = `${filledRequired}/${requiredCount} required missing`;
+			}
+		}
+		if (optionalCount > 0) {
+			const optPill = append(container, $('span'));
+			this.stylePill(optPill, false);
+			const filledOptional = optionalCount - optionalMissing;
+			optPill.textContent = filledOptional === optionalCount
+				? `${filledOptional}/${optionalCount} optional ✓`
+				: `${filledOptional}/${optionalCount} optional`;
+		}
+	}
+
+	/** Expanded "Details" content rendered below the action row when
+	 *  the user has the card open. Category (editable), source link,
+	 *  installation date, and the env-var configure button live here
+	 *  so the collapsed view stays compact. */
+	private renderExpandedSkillDetails(card: HTMLElement, skill: SkillRow, hasKeys: boolean): void {
+		const details = append(card, $('div'));
+		details.style.marginTop = '6px';
+		details.style.paddingTop = '6px';
+		details.style.borderTop = '1px solid rgba(127, 127, 127, 0.18)';
+		details.style.display = 'flex';
+		details.style.flexDirection = 'column';
+		details.style.gap = '6px';
+		details.style.fontSize = '11.5px';
+
+		// Category — user-editable pill. Click to overwrite, X to clear.
+		// Empty category renders as a single "+ Set category" button.
+		const catRow = append(details, $('div'));
+		catRow.style.display = 'flex';
+		catRow.style.flexWrap = 'wrap';
+		catRow.style.alignItems = 'center';
+		catRow.style.gap = '4px';
+		const catLabel = append(catRow, $('span'));
+		catLabel.style.opacity = '0.6';
+		catLabel.textContent = 'Category:';
+
+		if (skill.category) {
+			const pill = append(catRow, $('span'));
+			pill.style.padding = '1px 6px';
+			pill.style.borderRadius = '8px';
+			pill.style.fontSize = '10.5px';
+			pill.style.background = 'rgba(127, 127, 127, 0.18)';
+			pill.style.cursor = 'pointer';
+			pill.title = 'Click to change';
+			pill.textContent = skill.category;
+			pill.onclick = (e) => {
+				e.stopPropagation();
+				void this.commandService.executeCommand('aria.skills.editCategory', skill.name);
+			};
+			const clear = append(catRow, $('span'));
+			clear.textContent = '×';
+			clear.title = 'Clear category';
+			clear.style.cursor = 'pointer';
+			clear.style.opacity = '0.6';
+			clear.style.padding = '0 4px';
+			clear.onclick = (e) => {
+				e.stopPropagation();
+				void this.commandService.executeCommand('aria.skills.updateCategory', skill.name, '');
+			};
+		} else {
+			const addBtn = append(catRow, $('button')) as HTMLButtonElement;
+			addBtn.textContent = '+ Set category';
+			this.styleSecondaryButton(addBtn);
+			addBtn.onclick = (e) => {
+				e.stopPropagation();
+				void this.commandService.executeCommand('aria.skills.editCategory', skill.name);
+			};
+		}
+
+		// Installation date.
+		if (skill.installedAt) {
+			const dateRow = append(details, $('div'));
+			dateRow.style.display = 'flex';
+			dateRow.style.gap = '6px';
+			const label = append(dateRow, $('span'));
+			label.style.opacity = '0.6';
+			label.textContent = 'Installed:';
+			const value = append(dateRow, $('span'));
+			value.textContent = formatInstalledDate(skill.installedAt);
+		}
+
+		// Source link — clickable so the user can open the upstream
+		// repo without re-typing it from memory.
+		if (skill.source) {
+			const sourceRow = append(details, $('div'));
+			sourceRow.style.display = 'flex';
+			sourceRow.style.gap = '6px';
+			sourceRow.style.alignItems = 'baseline';
+			const label = append(sourceRow, $('span'));
+			label.style.opacity = '0.6';
+			label.textContent = 'Source:';
+			const link = append(sourceRow, $('a')) as HTMLAnchorElement;
+			link.href = skill.source;
+			link.target = '_blank';
+			link.rel = 'noopener noreferrer';
+			link.style.color = 'var(--vscode-textLink-foreground)';
+			link.style.textDecoration = 'none';
+			link.style.overflow = 'hidden';
+			link.style.textOverflow = 'ellipsis';
+			link.style.whiteSpace = 'nowrap';
+			link.title = skill.source;
+			link.textContent = skill.source;
+		}
+
+		// Enter / Edit keys — kept inside Details so the collapsed
+		// card stays short. Only shown when the skill actually declares
+		// env vars (matches the previous configure-button behaviour).
+		if (hasKeys) {
+			const missing = (skill.requiredMissingCount ?? 0) + (skill.optionalMissingCount ?? 0);
+			const keyBtn = append(details, $('button')) as HTMLButtonElement;
+			keyBtn.textContent = missing > 0 ? 'Enter keys' : 'Edit keys';
+			this.styleSecondaryButton(keyBtn);
+			keyBtn.style.alignSelf = 'flex-start';
+			keyBtn.onclick = (e) => {
+				e.stopPropagation();
+				void this.commandService.executeCommand('aria.skills.configureKeys', skill.name);
+			};
+		}
+	}
+
+	/** Apply the standard "secondary" button styling shared with the
+	 *  paper card. Centralised so the look stays consistent. */
+	private styleSecondaryButton(btn: HTMLButtonElement): void {
+		btn.style.background = 'transparent';
+		btn.style.color = 'var(--vscode-foreground)';
+		btn.style.border = '1px solid var(--vscode-button-border, var(--vscode-foreground))';
+		btn.style.padding = '3px 9px';
+		btn.style.borderRadius = '3px';
+		btn.style.cursor = 'pointer';
+		btn.style.fontSize = '10.5px';
+		btn.style.fontFamily = 'inherit';
+		btn.style.opacity = '0.85';
 	}
 
 	private renderEnvVarRow(parent: HTMLElement, v: EnvVarRow): void {
@@ -814,5 +942,24 @@ export class AriaSkillsView extends ViewPane {
 		el.style.background = 'rgba(127,127,127,0.05)';
 		el.style.border = '1px dashed rgba(127,127,127,0.2)';
 		el.style.borderRadius = '4px';
+	}
+}
+
+/** Format an ISO timestamp as the locale's short date — "Jun 8, 2026"
+ *  on en-US, "2026. 6. 8." on ko-KR, etc. Falls back to the raw string
+ *  if parsing fails so a malformed manifest doesn't blank the field. */
+function formatInstalledDate(iso: string): string {
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) {
+		return iso;
+	}
+	try {
+		return d.toLocaleDateString(undefined, {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+		});
+	} catch {
+		return d.toISOString().slice(0, 10);
 	}
 }

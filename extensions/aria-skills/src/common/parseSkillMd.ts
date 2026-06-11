@@ -87,22 +87,10 @@ function extractDescription(frontmatter: string, content: string): string | unde
 	return undefined;
 }
 
-function inferCategoryFromText(content: string): string | undefined {
-	const lowered = content.toLowerCase();
-	const rules: Array<[string, RegExp]> = [
-		['Literature', /\b(pubmed|biorxiv|medrxiv|literature|paper|arxiv|preprint|europepmc)\b/],
-		['Protein', /\b(protein|uniprot|alphafold|pdb|structure|foldseek|msa)\b/],
-		['Genomics', /\b(genom|variant|clinvar|dbsnp|gnomad|gtex|ensembl|fastq|fasta)\b/],
-		['Chemistry', /\b(chembl|pubchem|compound|chemical|drug)\b/],
-		['Clinical', /\b(clinical|trial|fda|opentarget|disease)\b/],
-		['Visualization', /\b(pymol|visualization|viewer|render)\b/],
-		['Data', /\b(database|dataset|data analysis|warehouse)\b/],
-	];
-	for (const [category, pattern] of rules) {
-		if (pattern.test(lowered)) {
-			return category;
-		}
-	}
+function inferCategoryFromText(_content: string): string | undefined {
+	// Category is now fully user-driven — Aria no longer guesses one from
+	// keyword matches. Skill install leaves category blank; the user types
+	// whatever they want in the sidebar's Details pane.
 	return undefined;
 }
 
