@@ -10,6 +10,8 @@
 	overflow: auto;
 	height: 100%;
 	box-sizing: border-box;
+	max-width: 900px;
+	margin: 0 auto;
 }
 
 .aria-start-page h1 {
@@ -32,104 +34,120 @@
 	margin: 0 0 24px 0;
 }
 
-/* Mode toggle (segmented control) */
-.aria-mode-toggle {
-	display: inline-flex;
-	border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, transparent));
-	border-radius: 6px;
-	overflow: hidden;
-	margin-bottom: 16px;
+/* Mode section — side-by-side cards */
+.aria-mode-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 12px;
+	margin-bottom: 12px;
 }
 
-.aria-mode-toggle .aria-mode-btn {
-	background: transparent;
+.aria-mode-card {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 16px 18px;
+	background: var(--vscode-editorWidget-background, rgba(127, 127, 127, 0.06));
+	border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.2));
+	border-radius: 6px;
 	color: var(--vscode-foreground);
-	border: none;
-	padding: 10px 24px;
-	font-size: 14px;
-	font-family: inherit;
 	cursor: pointer;
+	font-family: inherit;
+	text-align: left;
+	transition: border-color 120ms ease, background 120ms ease;
+}
+
+.aria-mode-card:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.aria-mode-card.active {
+	border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.aria-mode-card-head {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 }
 
-.aria-mode-toggle .aria-mode-btn:hover:not(.active) {
-	background: var(--vscode-list-hoverBackground);
+.aria-mode-card-icon {
+	font-size: 20px;
 }
 
-.aria-mode-toggle .aria-mode-btn.active {
-	background: var(--vscode-button-background);
-	color: var(--vscode-button-foreground);
+.aria-mode-card-title {
+	margin: 0;
+	font-size: 16px;
 	font-weight: 600;
-	box-shadow: inset 0 0 0 2px var(--vscode-focusBorder, var(--vscode-button-background));
+	flex: 1;
 }
 
-.aria-mode-toggle .aria-mode-check {
+.aria-mode-card-check {
 	font-weight: 700;
-	margin-right: 4px;
+}
+
+.aria-mode-card-detail {
+	margin: 0;
+	font-size: 13px;
+	opacity: 0.85;
 }
 
 .aria-mode-status {
 	font-size: 13px;
-	margin: 12px 0 0 0;
+	margin: 4px 0 0 0;
 	opacity: 0.7;
 }
 
-.aria-mode-status.active {
-	color: var(--vscode-charts-green, var(--vscode-foreground));
-	opacity: 1;
-	font-weight: 500;
+/* Start section — action row with two big cards */
+.aria-start-action-row {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 12px;
+	margin-bottom: 24px;
 }
 
-.aria-mode-toggle .aria-mode-btn + .aria-mode-btn {
-	border-left: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, transparent));
-}
-
-/* Feature cards */
-.aria-features {
+.aria-start-card {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-}
-
-.aria-feature {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 8px 12px;
-	background: transparent;
-	border: none;
-	color: var(--vscode-textLink-foreground);
+	gap: 6px;
+	padding: 16px 18px;
+	background: var(--vscode-editorWidget-background, rgba(127, 127, 127, 0.06));
+	border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.2));
+	border-radius: 6px;
+	color: var(--vscode-foreground);
 	cursor: pointer;
 	font-family: inherit;
-	font-size: 14px;
 	text-align: left;
-	border-radius: 4px;
 }
 
-.aria-feature:hover {
+.aria-start-card:hover {
 	background: var(--vscode-list-hoverBackground);
-	color: var(--vscode-textLink-activeForeground);
 }
 
-.aria-feature .codicon {
-	color: var(--vscode-foreground);
-	opacity: 0.7;
-	font-size: 18px;
+.aria-start-card-icon {
+	font-size: 22px;
 }
 
-.aria-feature .aria-feature-title {
-	font-weight: 500;
+.aria-start-card-title {
+	font-size: 15px;
+	font-weight: 600;
 }
 
-.aria-feature .aria-feature-detail {
-	opacity: 0.6;
-	font-size: 13px;
-	margin-left: 6px;
+.aria-start-card-detail {
+	font-size: 12.5px;
+	opacity: 0.75;
 }
 
-/* Recent list */
+/* Recent projects */
+.aria-recent-heading {
+	font-size: 14px;
+	font-weight: 600;
+	margin: 0 0 8px 0;
+	opacity: 0.8;
+}
+
 .aria-recent-list {
 	display: flex;
 	flex-direction: column;
@@ -140,10 +158,10 @@
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	padding: 6px 12px;
+	padding: 8px 12px;
 	background: transparent;
 	border: none;
-	color: var(--vscode-textLink-foreground);
+	color: var(--vscode-foreground);
 	cursor: pointer;
 	font-family: inherit;
 	font-size: 13px;
@@ -153,17 +171,41 @@
 
 .aria-recent-item:hover {
 	background: var(--vscode-list-hoverBackground);
-	color: var(--vscode-textLink-activeForeground);
 }
 
 .aria-recent-item .codicon {
 	opacity: 0.7;
 }
 
+.aria-recent-item .aria-recent-name {
+	font-weight: 500;
+}
+
 .aria-recent-item .aria-recent-path {
 	opacity: 0.55;
 	font-size: 12px;
 	margin-left: 6px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.aria-recent-more {
+	background: transparent;
+	border: none;
+	color: var(--vscode-textLink-foreground);
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 12.5px;
+	text-align: left;
+	padding: 8px 12px;
+	margin-top: 4px;
+	border-radius: 4px;
+}
+
+.aria-recent-more:hover {
+	background: var(--vscode-list-hoverBackground);
+	color: var(--vscode-textLink-activeForeground);
 }
 
 .aria-empty-state {

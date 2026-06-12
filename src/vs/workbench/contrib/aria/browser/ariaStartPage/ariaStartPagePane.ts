@@ -19,10 +19,10 @@ import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { IEditorOptions } from '../../../../../platform/editor/common/editor.js';
 import { ARIA_MODE_SETTING, AriaMode } from '../../common/ariaConfiguration.js';
 import { ARIA_SET_MODE_COMMAND } from '../ariaModeManager.js';
-import { getFeaturesForMode } from './ariaStartFeatures.js';
 import { localize } from '../../../../../nls.js';
 import { basename } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 
 export class AriaStartPagePane extends EditorPane {
 
@@ -38,6 +38,7 @@ export class AriaStartPagePane extends EditorPane {
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IWorkspacesService private readonly workspacesService: IWorkspacesService,
+		@INotificationService private readonly notificationService: INotificationService,
 	) {
 		super(AriaStartPagePane.ID, group, telemetryService, themeService, storageService);
 
@@ -66,19 +67,16 @@ export class AriaStartPagePane extends EditorPane {
 
 		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
 
-		// Header — different per mode so the user sees the page change.
+		// Header
 		const { title, tagline } = this.headlineFor(mode);
 		append(this.container, $('h1', undefined, title));
 		append(this.container, $('p.subtitle', undefined, tagline));
 
-		// Mode selector — segmented toggle
-		this.renderModeToggle(this.container, mode);
+		// Mode section — two large cards with descriptions.
+		this.renderModeSection(this.container, mode);
 
-		// Features (New File / Open File / Open Folder)
-		this.renderFeatures(this.container, mode);
-
-		// Recent
-		await this.renderRecent(this.container);
+		// Start section — New Project / Open Project / Recent.
+		await this.renderStartSection(this.container);
 	}
 
 	private headlineFor(mode: AriaMode): { title: string; tagline: string } {
@@ -101,65 +99,108 @@ export class AriaStartPagePane extends EditorPane {
 		}
 	}
 
-	private renderModeToggle(parent: HTMLElement, currentMode: AriaMode): void {
+	private renderModeSection(parent: HTMLElement, currentMode: AriaMode): void {
 		append(parent, $('h2', undefined, localize('aria.startPage.mode', "Mode")));
 
-		const toggle = append(parent, $('.aria-mode-toggle'));
+		const grid = append(parent, $('.aria-mode-grid'));
 
-		const makeBtn = (mode: 'easy' | 'advanced', icon: string, label: string): HTMLButtonElement => {
-			const btn = append(toggle, $('button.aria-mode-btn')) as HTMLButtonElement;
+		const makeCard = (
+			mode: 'easy' | 'advanced',
+			icon: string,
+			label: string,
+			description: string,
+		): HTMLButtonElement => {
+			const card = append(grid, $('button.aria-mode-card')) as HTMLButtonElement;
 			if (currentMode === mode) {
-				btn.classList.add('active');
-				// Visible "selected" indicator inside the active button
-				btn.appendChild($('span.aria-mode-check', undefined, '✓'));
+				card.classList.add('active');
 			}
-			btn.appendChild($('span', undefined, icon));
-			btn.appendChild($('span', undefined, label));
-			btn.onclick = () => this.commandService.executeCommand(ARIA_SET_MODE_COMMAND, mode);
-			return btn;
+			const head = append(card, $('.aria-mode-card-head'));
+			append(head, $('span.aria-mode-card-icon', undefined, icon));
+			append(head, $('h3.aria-mode-card-title', undefined, label));
+			if (currentMode === mode) {
+				append(head, $('span.aria-mode-card-check', undefined, '✓'));
+			}
+			append(card, $('p.aria-mode-card-detail', undefined, description));
+			card.onclick = () => this.commandService.executeCommand(ARIA_SET_MODE_COMMAND, mode);
+			return card;
 		};
 
-		makeBtn('easy', '🧪', localize('aria.startPage.mode.easy', "Easy"));
-		makeBtn('advanced', '👩‍💻', localize('aria.startPage.mode.advanced', "Advanced"));
+		makeCard(
+			'easy',
+			'🌱',
+			localize('aria.startPage.mode.easy', "Easy"),
+			localize(
+				'aria.startPage.mode.easy.detail',
+				"Simplified UI focused on chat and the research side panels.",
+			),
+		);
+		makeCard(
+			'advanced',
+			'⚙️',
+			localize('aria.startPage.mode.advanced', "Advanced"),
+			localize(
+				'aria.startPage.mode.advanced.detail',
+				"Full IDE layout with drag-and-resize panels and every VS Code feature.",
+			),
+		);
 
-		// Status text below the toggle — makes the change unmistakable.
-		const status = append(parent, $('p.aria-mode-status'));
-		if (currentMode === 'easy') {
-			status.textContent = localize('aria.startPage.mode.status.easy', "✓ Easy mode is active");
-			status.classList.add('active');
-		} else if (currentMode === 'advanced') {
-			status.textContent = localize('aria.startPage.mode.status.advanced', "✓ Advanced mode is active");
-			status.classList.add('active');
-		} else {
-			status.textContent = localize('aria.startPage.mode.status.unset', "No mode chosen yet — pick Easy or Advanced above.");
+		if (currentMode === '') {
+			append(
+				parent,
+				$(
+					'p.aria-mode-status',
+					undefined,
+					localize(
+						'aria.startPage.mode.status.unset',
+						"No mode chosen yet — pick Easy or Advanced above.",
+					),
+				),
+			);
 		}
 	}
 
-	private renderFeatures(parent: HTMLElement, currentMode: AriaMode): void {
+	private async renderStartSection(parent: HTMLElement): Promise<void> {
 		append(parent, $('h2', undefined, localize('aria.startPage.start', "Start")));
 
-		// When mode is unset, fall back to easy's feature list so the page
-		// is not empty before the user picks a mode.
-		const mode: AriaMode = currentMode === '' ? 'easy' : currentMode;
-		const features = getFeaturesForMode(mode);
+		// Top row — New Project + Open Project... side by side.
+		const actionRow = append(parent, $('.aria-start-action-row'));
 
-		if (features.length === 0) {
-			append(parent, $('p.aria-empty-state', undefined, localize('aria.startPage.noFeatures', "No actions available.")));
-			return;
-		}
+		const newCard = append(actionRow, $('button.aria-start-card')) as HTMLButtonElement;
+		newCard.appendChild($('span.aria-start-card-icon', undefined, '⊕'));
+		newCard.appendChild($('span.aria-start-card-title', undefined, localize('aria.startPage.newProject', "New Project")));
+		newCard.appendChild($('span.aria-start-card-detail', undefined, localize(
+			'aria.startPage.newProject.detail',
+			"Start a fresh research project with AI guidance.",
+		)));
+		newCard.onclick = () => {
+			// Chat-driven new-project flow is not implemented yet — surface
+			// a brief notice instead of silently doing nothing.
+			this.notificationService.notify({
+				severity: Severity.Info,
+				message: localize(
+					'aria.startPage.newProject.comingSoon',
+					"New Project flow is coming soon. For now, use Open Project to load an existing folder.",
+				),
+			});
+		};
 
-		const list = append(parent, $('.aria-features'));
-		for (const feature of features) {
-			const btn = append(list, $('button.aria-feature')) as HTMLButtonElement;
-			btn.appendChild($(`span.codicon.codicon-${feature.icon}`));
-			btn.appendChild($('span.aria-feature-title', undefined, feature.title));
-			btn.appendChild($('span.aria-feature-detail', undefined, feature.detail));
-			btn.onclick = () => this.commandService.executeCommand(feature.command);
-		}
+		const openCard = append(actionRow, $('button.aria-start-card')) as HTMLButtonElement;
+		openCard.appendChild($('span.aria-start-card-icon', undefined, '📁'));
+		openCard.appendChild($('span.aria-start-card-title', undefined, localize('aria.startPage.openProject', "Open Project...")));
+		openCard.appendChild($('span.aria-start-card-detail', undefined, localize(
+			'aria.startPage.openProject.detail',
+			"Browse for a folder on your machine.",
+		)));
+		openCard.onclick = () => {
+			void this.commandService.executeCommand('workbench.action.files.openFolder');
+		};
+
+		// Recent projects.
+		await this.renderRecentProjects(parent);
 	}
 
-	private async renderRecent(parent: HTMLElement): Promise<void> {
-		append(parent, $('h2', undefined, localize('aria.startPage.recent', "Recent")));
+	private async renderRecentProjects(parent: HTMLElement): Promise<void> {
+		append(parent, $('h3.aria-recent-heading', undefined, localize('aria.startPage.recent', "Recent projects")));
 
 		let recents: IRecentlyOpened;
 		try {
@@ -169,11 +210,15 @@ export class AriaStartPagePane extends EditorPane {
 			return;
 		}
 
-		const items = recents.workspaces.slice(0, 8);
-		if (items.length === 0) {
+		// Cap the visible list at 5 — the rest are reachable through the
+		// standard "Open Recent" picker that VS Code already ships.
+		const VISIBLE_LIMIT = 5;
+		const all = recents.workspaces;
+		if (all.length === 0) {
 			append(parent, $('p.aria-empty-state', undefined, localize('aria.startPage.recent.empty', "No recent projects yet.")));
 			return;
 		}
+		const items = all.slice(0, VISIBLE_LIMIT);
 
 		const list = append(parent, $('.aria-recent-list'));
 		for (const item of items) {
@@ -189,10 +234,16 @@ export class AriaStartPagePane extends EditorPane {
 			const path = uri.fsPath;
 			const btn = append(list, $('button.aria-recent-item')) as HTMLButtonElement;
 			btn.appendChild($('span.codicon.codicon-folder'));
-			btn.appendChild($('span', undefined, name));
+			btn.appendChild($('span.aria-recent-name', undefined, name));
 			btn.appendChild($('span.aria-recent-path', undefined, path));
 			btn.title = path;
 			btn.onclick = () => this.commandService.executeCommand('vscode.openFolder', uri);
+		}
+
+		if (all.length > VISIBLE_LIMIT) {
+			const moreBtn = append(list, $('button.aria-recent-more')) as HTMLButtonElement;
+			moreBtn.textContent = localize('aria.startPage.recent.more', "Show more...");
+			moreBtn.onclick = () => this.commandService.executeCommand('workbench.action.openRecent');
 		}
 	}
 

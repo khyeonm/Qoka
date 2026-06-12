@@ -8,6 +8,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 
 /**
  * Full-screen "Aria is setting up" overlay. We mount a fixed div at the
@@ -40,8 +41,13 @@ const OVERLAY_ID = 'aria-startup-overlay';
 const POST_TRACKING_SETTLE_MS = 2000;
 
 /** Initial cushion: if no extension calls beginTracking within this
- *  window, assume there's nothing to set up and dismiss the overlay. */
-const INITIAL_SETTLE_MS = 8000;
+ *  window, assume there's nothing to set up and dismiss the overlay.
+ *  Sized generously so a slow-activating extension (e.g. autopipe on
+ *  onStartupFinished) has time to register before we declare done —
+ *  otherwise the overlay would fade out at 8s and our late-arrival
+ *  guard in beginTracking would leave the user staring at the bare
+ *  workbench while setup continues invisibly in the background. */
+const INITIAL_SETTLE_MS = 30000;
 
 /**
  * Minimum visible time after the FIRST beginTracking call. Without this,
@@ -53,6 +59,15 @@ const INITIAL_SETTLE_MS = 8000;
  * tracking call gives every reasonable extension a chance to register.
  */
 const MIN_DURATION_AFTER_FIRST_TRACK_MS = 5000;
+
+/** localStorage key for summaries that completed while the Started
+ *  overlay was up. Setup runs in the background during Started, but
+ *  the workbench-hide stylesheet that locks the screen also hides the
+ *  notification VS Code would have raised — so the toast we dispatched
+ *  would have been invisible. Instead we stash the summaries here, and
+ *  the next window (the project window that vscode.openFolder reloads
+ *  into) reads them on construction and shows the toast there. */
+const PENDING_SUMMARIES_KEY = 'aria.startup.pendingSummaries';
 
 interface SetupSummary {
 	name: string;
@@ -72,7 +87,10 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 	 *  MIN_DURATION_AFTER_FIRST_TRACK_MS so we don't flicker. */
 	private firstTrackAt: number | undefined;
 
-	constructor(@ICommandService private readonly commandService: ICommandService) {
+	constructor(
+		@ICommandService private readonly commandService: ICommandService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+	) {
 		super();
 
 		// Tracking-based commands — the canonical entry points.
@@ -106,27 +124,102 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			this.markComplete('aria-first-run-legacy', '', false);
 		});
 
-		// Auto-show on workbench mount. We deliberately don't wait for
-		// any extension trigger — the goal is to block interaction
-		// before the user can poke things mid-setup.
-		this.show();
+		// Show the overlay only when a workspace folder is open. The
+		// Started page (Aria Start Page editor) takes over the screen
+		// when no folder is loaded, so we don't need a separate blocker
+		// then — the page itself absorbs user input while setup runs.
+		// When a folder *is* open, the user expects the workbench to be
+		// usable immediately, so we keep the overlay up until setup
+		// finishes.
+		//
+		// In both cases we still run the settle timer so finish() fires
+		// and the summary toast is delivered when tracked extensions
+		// complete.
+		if (this.shouldShowOverlay()) {
+			// Project window — inherit any summaries the Started-window
+			// finish() persisted, so finish() here dispatches the toast
+			// with both the Started-window run and this window's run.
+			this.loadPendingSummaries();
+			this.show();
+		}
 		this.settleTimer = setTimeout(() => this.finish(), INITIAL_SETTLE_MS);
 	}
 
+	private loadPendingSummaries(): void {
+		let raw: string | null;
+		try {
+			raw = localStorage.getItem(PENDING_SUMMARIES_KEY);
+		} catch {
+			return;
+		}
+		if (!raw) {
+			return;
+		}
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw);
+		} catch {
+			// Corrupt payload — drop it so it doesn't keep failing.
+			try { localStorage.removeItem(PENDING_SUMMARIES_KEY); } catch { /* ignore */ }
+			return;
+		}
+		if (!Array.isArray(parsed)) {
+			return;
+		}
+		for (const entry of parsed) {
+			if (!entry || typeof entry !== 'object') {
+				continue;
+			}
+			const e = entry as Record<string, unknown>;
+			if (typeof e.name === 'string' && typeof e.summary === 'string' && e.summary) {
+				this.summaries.push({
+					name: e.name,
+					summary: e.summary,
+					changed: !!e.changed,
+				});
+			}
+		}
+	}
+
+	private savePendingSummaries(summaries: SetupSummary[]): void {
+		try {
+			localStorage.setItem(PENDING_SUMMARIES_KEY, JSON.stringify(summaries));
+		} catch {
+			// Storage unavailable — nothing we can do; the toast just
+			// won't appear in the next window. Not worth crashing over.
+		}
+	}
+
+	private clearPendingSummaries(): void {
+		try {
+			localStorage.removeItem(PENDING_SUMMARIES_KEY);
+		} catch {
+			// ignore
+		}
+	}
+
+	private shouldShowOverlay(): boolean {
+		// EMPTY workbench == no folder, no workspace file. Started page
+		// is shown in this case and serves as the "we're getting ready"
+		// surface.
+		return this.workspaceContextService.getWorkbenchState() !== WorkbenchState.EMPTY;
+	}
+
 	private beginTracking(name: string): void {
-		if (this.finished) {
-			// Late-arriving extension — bring the overlay back. This is
-			// rare (extensions normally beat the initial settle window)
-			// but resilient if it does happen.
-			this.finished = false;
-			this.show();
-		}
-		if (this.firstTrackAt === undefined) {
-			this.firstTrackAt = Date.now();
-		}
-		if (this.settleTimer) {
-			clearTimeout(this.settleTimer);
-			this.settleTimer = undefined;
+		// Once we've already finished and hidden the overlay, do NOT
+		// re-summon it. A late-arriving beginTracking used to flash the
+		// loading screen back on, producing the "loading appears,
+		// disappears, appears again" sequence the user sees on slow
+		// extension activations. The tracker still records the name so
+		// markComplete / the summary toast behave consistently.
+		if (!this.finished) {
+			if (this.firstTrackAt === undefined) {
+				this.firstTrackAt = Date.now();
+			}
+			if (this.settleTimer) {
+				clearTimeout(this.settleTimer);
+				this.settleTimer = undefined;
+			}
 		}
 		this.tracking.add(name);
 	}
@@ -181,9 +274,37 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// beginTracking starts a fresh round.
 		const drained = this.summaries;
 		this.summaries = [];
-		if (drained.length > 0) {
-			void this.commandService.executeCommand('aria.startup.showSummaryToast', drained);
+		if (drained.length === 0) {
+			return;
 		}
+
+		// Started-window path (EMPTY workspace): the toast would render
+		// behind the Started overlay's hide-workbench stylesheet and the
+		// user would never see it. Persist instead, so the next window
+		// (the project window vscode.openFolder reloads into) picks it
+		// up via loadPendingSummaries() and dispatches the toast there.
+		if (!this.shouldShowOverlay()) {
+			// Overwrite — each Aria launch's run is the freshest view of
+			// what the user should see when they finally open a project.
+			this.savePendingSummaries(drained);
+			return;
+		}
+
+		// Project-window path: clear the persisted handoff (we just
+		// merged it into `drained` at constructor time) and dispatch.
+		// Dedupe by name so identical entries from the Started run and
+		// this run don't double up; the current run's entry is the
+		// authoritative one because it reflects the latest tracking
+		// outcome — Map.set on a later iteration overwrites the
+		// previous insertion's value but preserves order, so the
+		// fresher result wins and the toast stays one-line-per-source.
+		this.clearPendingSummaries();
+		const byName = new Map<string, SetupSummary>();
+		for (const entry of drained) {
+			byName.set(entry.name, entry);
+		}
+		const deduped = [...byName.values()];
+		void this.commandService.executeCommand('aria.startup.showSummaryToast', deduped);
 	}
 
 	private show(): void {
