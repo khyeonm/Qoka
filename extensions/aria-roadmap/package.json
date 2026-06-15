@@ -1,0 +1,28 @@
+{
+	"name": "aria-roadmap",
+	"displayName": "Aria Roadmap",
+	"description": "New Project wizard: AI-guided research roadmap drafting backed by a local MCP server. Built into Aria.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {
+		"commands": [
+			{ "command": "aria.roadmap.openWizard", "title": "Aria: Open New Project Roadmap Wizard" }
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"typescript": "^5.6.2"
+	}
+}

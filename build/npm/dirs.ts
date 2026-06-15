@@ -18,6 +18,7 @@ export const dirs = [
 	'extensions/aria-skills',
 	'extensions/aria-paper-search',
 	'extensions/aria-vcs',
+	'extensions/aria-roadmap',
 	'extensions/configuration-editing',
 	'extensions/css-language-features',
 	'extensions/css-language-features/server',

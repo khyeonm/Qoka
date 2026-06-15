@@ -60,6 +60,14 @@ const INITIAL_SETTLE_MS = 30000;
  */
 const MIN_DURATION_AFTER_FIRST_TRACK_MS = 5000;
 
+/**
+ * Hard upper bound after the FIRST beginTracking call. If we are still
+ * waiting on a tracker by the time this elapses (e.g. an extension that
+ * began but never marked complete), give up and dispatch the summaries
+ * we already have so the user isn't trapped on the loading screen.
+ */
+const MAX_DURATION_AFTER_FIRST_TRACK_MS = 60000;
+
 /** localStorage key for summaries that completed while the Started
  *  overlay was up. Setup runs in the background during Started, but
  *  the workbench-hide stylesheet that locks the screen also hides the
@@ -68,6 +76,27 @@ const MIN_DURATION_AFTER_FIRST_TRACK_MS = 5000;
  *  the next window (the project window that vscode.openFolder reloads
  *  into) reads them on construction and shows the toast there. */
 const PENDING_SUMMARIES_KEY = 'aria.startup.pendingSummaries';
+
+/**
+ * The setup trackers that ship with Aria's vendored extensions and ALWAYS
+ * call `aria.startup.beginTracking` at activate time. We wait for every one
+ * of them to `markComplete` before we even consider dispatching the
+ * summary toast — independent of any millisecond timer — so the user
+ * never sees a partial "Setup complete" list because a slow MCP
+ * registration missed the cushion. After they're all done we still give
+ * `POST_TRACKING_SETTLE_MS` to catch any user-installed plugin that
+ * decided to participate (Option A' — known list + cushion for unknowns).
+ *
+ * Update this set whenever a new vendored extension/skill/MCP joins the
+ * boot sequence with its own `beginTracking` call.
+ */
+const KNOWN_TRACKERS: ReadonlySet<string> = new Set([
+	'aria-autopipe-mcp',
+	'aria-paper-search-mcp',
+	'aria-skills-firstrun',
+	'aria-roadmap-claude-code-install',
+	'aria-roadmap-mcp',
+]);
 
 interface SetupSummary {
 	name: string;
@@ -86,6 +115,11 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 	/** Wall-clock time of the first beginTracking. Used to enforce
 	 *  MIN_DURATION_AFTER_FIRST_TRACK_MS so we don't flicker. */
 	private firstTrackAt: number | undefined;
+	/** Known trackers that have not yet markComplete'd. We refuse to
+	 *  finish while this is non-empty (subject to MAX_DURATION as a
+	 *  buggy-extension safety net). Built from KNOWN_TRACKERS at
+	 *  construction so test setups can mutate the constant if needed. */
+	private readonly knownPending = new Set<string>(KNOWN_TRACKERS);
 
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
@@ -226,6 +260,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 
 	private markComplete(name: string, summary: string, changed: boolean): void {
 		this.tracking.delete(name);
+		this.knownPending.delete(name);
 		if (summary) {
 			this.summaries.push({ name, summary, changed });
 		}
@@ -245,6 +280,28 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 
 	private finish(): void {
 		if (this.finished) {
+			return;
+		}
+
+		// Two reasons to defer the dispatch:
+		//  1. A KNOWN_TRACKERS member hasn't markComplete'd yet — we wait
+		//     for the full vendored set so the toast never ships a
+		//     partial summary (Option A — known list).
+		//  2. An unknown/user-installed tracker is still in flight — we
+		//     give it the same post-tracking cushion (Option A' suffix —
+		//     unknown plugins are caught by the POST_TRACKING_SETTLE
+		//     period that markComplete schedules when tracking empties).
+		// Hard cap: once we've been open longer than
+		// MAX_DURATION_AFTER_FIRST_TRACK_MS, dispatch what we have so a
+		// buggy extension that begins but never completes can't strand
+		// the user on the loading screen.
+		const expired = this.firstTrackAt !== undefined
+			&& (Date.now() - this.firstTrackAt) >= MAX_DURATION_AFTER_FIRST_TRACK_MS;
+		if (!expired && (this.knownPending.size > 0 || this.tracking.size > 0)) {
+			if (this.settleTimer) {
+				clearTimeout(this.settleTimer);
+			}
+			this.settleTimer = setTimeout(() => this.finish(), POST_TRACKING_SETTLE_MS);
 			return;
 		}
 

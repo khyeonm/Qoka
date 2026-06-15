@@ -13,6 +13,8 @@ import { IWorkspacesService, IRecentlyOpened, isRecentFolder, isRecentWorkspace 
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IHostService } from '../../../services/host/browser/host.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { ROADMAP_SCHEME } from '../../ariaRoadmapWizard/browser/ariaRoadmapWizardCommon.js';
 import { URI } from '../../../../base/common/uri.js';
 import { basename } from '../../../../base/common/resources.js';
 import { ARIA_MODE_SETTING, AriaMode } from '../common/ariaConfiguration.js';
@@ -93,6 +95,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 	private overlay: HTMLDivElement | undefined;
 	private hideWorkbenchStyle: HTMLStyleElement | undefined;
+	/** True while the overlay is stood down because the roadmap wizard editor
+	 *  is open. We only auto-return the picker when WE hid it for that reason. */
+	private suppressedForRoadmap = false;
 
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
@@ -101,8 +106,15 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		@INotificationService private readonly notificationService: INotificationService,
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@IHostService private readonly hostService: IHostService,
+		@IEditorService private readonly editorService: IEditorService,
 	) {
 		super();
+
+		// The New Project wizard opens as a real editor. When it appears we
+		// step the picker aside so the wizard + Claude Code's aux-bar chat own
+		// the window; when it closes we bring the picker back (unless a project
+		// was just picked and a reload is imminent).
+		this._register(this.editorService.onDidEditorsChange(() => this.syncRoadmapEditor()));
 
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(ARIA_MODE_SETTING) && this.overlay) {
@@ -213,6 +225,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// Higher than firstRunOverlay (999999) so loading never leaks through.
 		overlay.style.zIndex = '1000000';
 		overlay.style.overflow = 'auto';
+		// Center the content box on screen. `display:flex` + `margin:auto` on the
+		// content (see render) centers it both axes and still scrolls when the
+		// content is taller than the viewport.
+		overlay.style.display = 'flex';
 		overlay.style.fontFamily = 'var(--vscode-font-family, system-ui, sans-serif)';
 
 		this.installFocusTrap(overlay);
@@ -232,6 +248,30 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		this.removeHideWorkbenchStyle();
 	}
 
+	/** React to the roadmap wizard editor opening / closing. */
+	private syncRoadmapEditor(): void {
+		const wizardOpen = this.editorService.editors.some(e => e.resource?.scheme === ROADMAP_SCHEME);
+		if (wizardOpen) {
+			// Editor is up — stand the picker down (only if we currently show it).
+			if (this.overlay) {
+				this.hide();
+				this.suppressedForRoadmap = true;
+			}
+			return;
+		}
+		// Editor gone — bring the picker back, but only if we were the ones who
+		// hid it and no project pick is mid-flight (Save triggers a reload).
+		if (this.suppressedForRoadmap) {
+			this.suppressedForRoadmap = false;
+			let justPicked = false;
+			try { justPicked = sessionStorage.getItem(JUST_PICKED_FLAG) === '1'; } catch { /* ignore */ }
+			if (!justPicked && !this.overlay) {
+				this.installHideWorkbenchStyle();
+				this.show();
+			}
+		}
+	}
+
 	private rerender(): void {
 		if (!this.overlay) {
 			return;
@@ -249,8 +289,12 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		const content = document.createElement('div');
 		content.style.maxWidth = '900px';
-		content.style.margin = '0 auto';
-		content.style.padding = '60px 40px';
+		content.style.width = '100%';
+		// `margin: auto` inside the flex overlay centers this box on both axes
+		// (and overrides flex stretch), while still allowing scroll when tall.
+		content.style.margin = 'auto';
+		content.style.padding = '40px';
+		content.style.boxSizing = 'border-box';
 		this.overlay.appendChild(content);
 
 		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
@@ -425,15 +469,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		makeCard(
 			'⊕',
 			'New Project',
-			'Start a fresh research project with AI guidance.',
+			'Pick a location and name, then draft the roadmap in the new project.',
 			() => {
-				// Chat-driven new-project flow not yet implemented. Surface
-				// a note and dismiss the overlay so the user is not trapped.
-				this.notificationService.notify({
-					severity: Severity.Info,
-					message: 'New Project flow is coming soon. For now, use Open Project to load an existing folder.',
-				});
-				this.pickAndDismiss(() => { /* no folder change */ });
+				// New Project first creates+opens the project folder, then the
+				// roadmap canvas auto-opens inside that window (see createNewProject).
+				void this.createNewProject();
 			},
 		);
 
@@ -466,6 +506,44 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		const folderUri = result[0];
 		this.pickAndDismiss(() => {
 			void this.hostService.openWindow([{ folderUri }], { forceReuseWindow: true });
+		});
+	}
+
+	/**
+	 * New Project: let the user choose a location + folder name (one save
+	 * dialog), create that folder with an empty `.aria/roadmap.json`, then open
+	 * it. A one-shot flag makes the roadmap canvas auto-open in the new window,
+	 * where the user drafts the roadmap with Claude Code.
+	 */
+	private async createNewProject(): Promise<void> {
+		const target = await this.fileDialogService.showSaveDialog({
+			title: 'New project — choose a location and folder name',
+			saveLabel: 'Create project',
+		});
+		if (!target) {
+			// User cancelled — keep the overlay up.
+			return;
+		}
+		// Create the folder + a fresh EMPTY roadmap file. We use createEmptyAt
+		// (not saveTo) so the new project never inherits a roadmap that might be
+		// in memory — each project's roadmap is independent.
+		try {
+			await this.commandService.executeCommand('aria.roadmap.createEmptyAt', target.fsPath);
+		} catch (e) {
+			this.notificationService.notify({
+				severity: Severity.Error,
+				message: `Could not create the project: ${(e as Error).message}`,
+			});
+			return;
+		}
+		try {
+			sessionStorage.setItem('aria.roadmap.autoOpenWizard', '1');
+		} catch {
+			// Storage unavailable — the user can still open the canvas from the
+			// Roadmap sidebar once the window loads.
+		}
+		this.pickAndDismiss(() => {
+			void this.hostService.openWindow([{ folderUri: target }], { forceReuseWindow: true });
 		});
 	}
 

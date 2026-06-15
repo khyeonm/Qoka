@@ -481,6 +481,20 @@ async function showStartupSummaryToast(raw: unknown): Promise<void> {
 		return;
 	}
 
+	// Standalone notification — only when an MCP was newly (re-)registered
+	// this run. Claude Code caches the active MCP server list at chat-
+	// session start, so an open chat won't see the new tools until the
+	// user starts a new conversation. We surface this on its own (NOT
+	// folded into the summary modal) so users who skip "Show summary"
+	// still get the heads-up. Fire-and-forget so it doesn't block the
+	// summary toast below.
+	const mcpNewlyRegistered = entries.some(e => e.name.endsWith('-mcp') && e.changed);
+	if (mcpNewlyRegistered) {
+		void vscode.window.showInformationMessage(
+			'A new MCP was registered with Claude Code. Start a new chat to use the new tools.',
+		);
+	}
+
 	// ✓ marks freshly-applied changes; ○ marks "already configured"
 	// (the task ran but didn't have to write anything).
 	const detail = entries

@@ -59,6 +59,7 @@ const compilations = [
 	'extensions/aria-skills/tsconfig.json',
 	'extensions/aria-paper-search/tsconfig.json',
 	'extensions/aria-vcs/tsconfig.json',
+	'extensions/aria-roadmap/tsconfig.json',
 	'extensions/configuration-editing/tsconfig.json',
 	'extensions/css-language-features/client/tsconfig.json',
 	'extensions/css-language-features/server/tsconfig.json',
