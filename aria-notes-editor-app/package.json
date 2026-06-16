@@ -1,0 +1,19 @@
+{
+  "name": "aria-notes-editor-app",
+  "version": "0.0.1",
+  "private": true,
+  "description": "BlockNote-based note editor bundled into a VS Code webview (isolated from the workbench deps).",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@blocknote/core": "0.51.4",
+    "@blocknote/mantine": "0.51.4",
+    "@blocknote/react": "0.51.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

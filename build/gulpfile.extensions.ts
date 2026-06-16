@@ -60,6 +60,11 @@ const compilations = [
 	'extensions/aria-paper-search/tsconfig.json',
 	'extensions/aria-vcs/tsconfig.json',
 	'extensions/aria-roadmap/tsconfig.json',
+	// NOTE: aria-notes is intentionally NOT here. It depends on ESM-only packages
+	// (@blocknote/server-util) that break when require()d from a tsc-compiled
+	// CommonJS extension. It self-bundles via esbuild instead — see
+	// extensions/aria-notes/build.mjs (`npm run compile` in that dir). Adding it
+	// back here would let gulp's tsc overwrite the esbuild bundle with broken output.
 	'extensions/configuration-editing/tsconfig.json',
 	'extensions/css-language-features/client/tsconfig.json',
 	'extensions/css-language-features/server/tsconfig.json',

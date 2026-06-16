@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 3 18 18" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- page body (open on the spiral side) -->
+  <path d="M7 4 H19 a2 2 0 0 1 2 2 V18 a2 2 0 0 1 -2 2 H7"/>
+  <!-- spine -->
+  <path d="M7 4 V20"/>
+  <!-- spiral binding rings crossing the spine -->
+  <path d="M5.5 6 H7.5"/>
+  <path d="M5.5 9.2 H7.5"/>
+  <path d="M5.5 12.4 H7.5"/>
+  <path d="M5.5 15.6 H7.5"/>
+  <path d="M5.5 18.8 H7.5"/>
+  <!-- text lines -->
+  <path d="M11 8 H17.5"/>
+  <path d="M11 11 H18"/>
+  <path d="M11 14 H18"/>
+  <path d="M11 17 H15.5"/>
+</svg>
