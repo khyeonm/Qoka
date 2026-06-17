@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 2 20 20" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- page (bottom-right left open for the pencil) -->
+  <path d="M16 4 H7 a2 2 0 0 0 -2 2 V18 a2 2 0 0 0 2 2 H10"/>
+  <path d="M18 12.5 V6 a2 2 0 0 0 -2 -2"/>
+  <!-- text lines -->
+  <path d="M8 8.5 H15"/>
+  <path d="M8 11.5 H15"/>
+  <path d="M8 14.5 H15"/>
+  <!-- pencil writing in the lower-right (kept inside the viewBox so the tip isn't clipped) -->
+  <path d="M18.7 13.6 a1.4 1.4 0 0 1 2 2 L15 20.3 l-2.5 0.7 0.7 -2.5 Z"/>
+</svg>

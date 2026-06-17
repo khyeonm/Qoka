@@ -141,7 +141,7 @@ const notesContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewC
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [NOTES_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: notesIcon,
-		order: 4,
+		order: 13,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
 const notesView: IViewDescriptor = {

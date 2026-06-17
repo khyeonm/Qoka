@@ -32,7 +32,7 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ARIA_VERSIONS_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: false }]),
 		hideIfEmpty: true,
 		icon: versionsIcon,
-		order: 2,
+		order: 15,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
 const easyOnly = ContextKeyExpr.equals('aria.mode', 'easy');

@@ -19,6 +19,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
+import { applyAriaScrollbar } from '../../aria/browser/ariaScrollbar.js';
 import { COLUMN_WIDTH, NodeInput, computeRoadmapLayout, layoutBounds } from './roadmapCanvasLayout.js';
 
 interface PersistedNode {
@@ -82,6 +83,7 @@ export class AriaRoadmapView extends ViewPane {
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		const root = append(container, $('.aria-roadmap-view'));
+		applyAriaScrollbar(root);
 		root.style.padding = '10px';
 		root.style.overflow = 'auto';
 		root.style.boxSizing = 'border-box';

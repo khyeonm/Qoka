@@ -14,6 +14,7 @@ import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
+import { applyAriaScrollbar } from '../../aria/browser/ariaScrollbar.js';
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
@@ -57,6 +58,7 @@ export class AriaSnapshotsView extends ViewPane {
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		const root = append(container, $('.aria-vcs-scroll'));
+		applyAriaScrollbar(root);
 		root.style.padding = '12px';
 		root.style.overflow = 'auto';
 		root.style.boxSizing = 'border-box';

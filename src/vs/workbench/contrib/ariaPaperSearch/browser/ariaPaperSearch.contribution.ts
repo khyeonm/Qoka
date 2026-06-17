@@ -67,7 +67,7 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ARIA_PAPER_SEARCH_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: paperSearchIcon,
-		order: 5,
+		order: 12,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
 const paperSearchView: IViewDescriptor = {

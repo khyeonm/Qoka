@@ -81,7 +81,7 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ARIA_SKILLS_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: skillsIcon,
-		order: 4,
+		order: 10,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
 const skillsView: IViewDescriptor = {

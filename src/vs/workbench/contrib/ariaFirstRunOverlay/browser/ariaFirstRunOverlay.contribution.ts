@@ -9,6 +9,7 @@ import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as 
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
+import { markAriaSetupReady } from '../../aria/browser/ariaSetupReady.js';
 
 /**
  * Full-screen "Aria is setting up" overlay. We mount a fixed div at the
@@ -96,6 +97,13 @@ const KNOWN_TRACKERS: ReadonlySet<string> = new Set([
 	'aria-skills-firstrun',
 	'aria-roadmap-claude-code-install',
 	'aria-roadmap-mcp',
+	// These two MCP servers register late; without them here the overlay used to
+	// clear before they were up, so the Claude chat session (which connects to
+	// MCP at spawn) would start with them "Failed" and need a manual /mcp
+	// reconnect. Holding the workbench (and thus the chat input) until they
+	// markComplete means the first session always spawns with MCP ready.
+	'aria-notes-mcp',
+	'aria-paper-mcp',
 ]);
 
 interface SetupSummary {
@@ -321,6 +329,9 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		}
 
 		this.finished = true;
+		// Setup is genuinely done (all known MCP trackers reported, or the hard
+		// cap elapsed) — let the Claude chat session start/connect to MCP now.
+		markAriaSetupReady();
 		if (this.settleTimer) {
 			clearTimeout(this.settleTimer);
 			this.settleTimer = undefined;

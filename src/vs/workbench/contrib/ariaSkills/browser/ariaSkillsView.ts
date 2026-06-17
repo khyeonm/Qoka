@@ -16,45 +16,11 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 
-/**
- * Inject a one-time stylesheet that gives any element marked with the
- * `aria-themed-scrollable` class the workbench-style scrollbar
- * (slim, theme-tracked, no track) instead of the default Chromium
- * appearance. Idempotent — the second call (e.g. when the Paper Library
- * view also imports this file) is a no-op. We use `var(--vscode-...)`
- * so light/dark theme switches keep the slider in sync without us
- * having to listen for theme changes.
- */
-export function ensureAriaPaneScrollbarStyle(): void {
-	if (document.getElementById('aria-themed-scrollbar-style')) {
-		return;
-	}
-	const style = document.createElement('style');
-	style.id = 'aria-themed-scrollbar-style';
-	style.textContent = `
-		.aria-themed-scrollable::-webkit-scrollbar {
-			width: 10px;
-			height: 10px;
-		}
-		.aria-themed-scrollable::-webkit-scrollbar-track {
-			background: transparent;
-		}
-		.aria-themed-scrollable::-webkit-scrollbar-thumb {
-			background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
-			border-radius: 0;
-		}
-		.aria-themed-scrollable::-webkit-scrollbar-thumb:hover {
-			background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
-		}
-		.aria-themed-scrollable::-webkit-scrollbar-thumb:active {
-			background: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4));
-		}
-		.aria-themed-scrollable::-webkit-scrollbar-corner {
-			background: transparent;
-		}
-	`;
-	document.head.appendChild(style);
-}
+// The themed-scrollbar helper now lives in a shared module so every Aria
+// surface can use it. Imported for local use and re-exported for back-compat
+// with the panes that already import it from this file (autopipe, paper search).
+import { ensureAriaPaneScrollbarStyle } from '../../aria/browser/ariaScrollbar.js';
+export { ensureAriaPaneScrollbarStyle };
 
 interface SkillRow {
 	name: string;

@@ -20,16 +20,15 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
-import { applyAriaScrollbar } from '../../aria/browser/ariaScrollbar.js';
 
 /**
- * Sidebar "Research Note" view: lists the project's notes (`notes/*.json`) by
- * title with a "New note" button. Clicking a title opens the BlockNote editor
- * in the editor area. Deleting is available per row.
+ * Sidebar "Paper Writer" view: lists the project's papers (`paper/<id>/`) with a
+ * "New paper" button. Clicking a paper opens the setup-form editor pane.
  */
-export class AriaNotesView extends ViewPane {
+export class AriaPaperWriterView extends ViewPane {
 
-	static readonly ID = 'workbench.view.aria.notes.list';
+	// Pinned, prefix-free id like the other working Aria views (Skills/Autopipe).
+	static readonly ID = 'aria.paperWriter.main';
 
 	private viewBody: HTMLElement | undefined;
 
@@ -49,55 +48,40 @@ export class AriaNotesView extends ViewPane {
 		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
-		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.refresh()));
-		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.refresh()));
+		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => void this.refresh()));
+		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => void this.refresh()));
 		this._register(this.fileService.onDidFilesChange(e => {
-			const dir = this.notesDirUri();
-			if (dir && e.affects(dir)) {
-				void this.refresh();
-			}
+			const dir = this.papersDir();
+			if (dir && e.affects(dir)) { void this.refresh(); }
 		}));
 	}
 
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
-		const root = append(container, $('.aria-notes-view'));
-		applyAriaScrollbar(root);
+		const root = append(container, $('.aria-paper-writer-view'));
 		root.style.padding = '8px 10px';
-		root.style.overflow = 'auto';
 		root.style.boxSizing = 'border-box';
-		root.style.width = '100%';
 		this.viewBody = root;
 		void this.refresh();
 	}
 
-	protected override layoutBody(height: number, width: number): void {
-		super.layoutBody(height, width);
-		if (this.viewBody) {
-			this.viewBody.style.height = `${height}px`;
-			this.viewBody.style.width = `${width}px`;
-		}
-	}
-
-	private notesDirUri(): URI | undefined {
+	private papersDir(): URI | undefined {
 		const folder = this.workspaceContextService.getWorkspace().folders[0];
-		return folder ? joinPath(folder.uri, 'notes') : undefined;
+		return folder ? joinPath(folder.uri, 'paper') : undefined;
 	}
 
 	private async refresh(): Promise<void> {
 		const root = this.viewBody;
-		if (!root) {
-			return;
-		}
+		if (!root) { return; }
 		clearNode(root);
 
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
-			this.renderEmpty(root, localize('aria.notes.noFolder', "Open a project to keep research notes."));
+			this.empty(root, localize('aria.paperWriter.noFolder', "Open a project folder to write papers."));
 			return;
 		}
 
 		const newBtn = append(root, $('button')) as HTMLButtonElement;
-		newBtn.textContent = localize('aria.notes.new', "+ New note");
+		newBtn.textContent = localize('aria.paperWriter.new', "+ New paper");
 		newBtn.style.width = '100%';
 		newBtn.style.padding = '6px 10px';
 		newBtn.style.marginBottom = '8px';
@@ -107,29 +91,26 @@ export class AriaNotesView extends ViewPane {
 		newBtn.style.border = 'none';
 		newBtn.style.background = 'var(--vscode-button-background)';
 		newBtn.style.color = 'var(--vscode-button-foreground)';
-		newBtn.onclick = () => void this.commandService.executeCommand('aria.notes.new');
+		newBtn.onclick = () => void this.commandService.executeCommand('aria.paperWriter.new');
 
-		const dir = this.notesDirUri();
-		let entries: URI[] = [];
+		const dir = this.papersDir();
+		let folders: URI[] = [];
 		if (dir) {
 			try {
 				const stat = await this.fileService.resolve(dir);
-				entries = (stat.children ?? [])
-					.filter(c => !c.isDirectory && c.name.endsWith('.json'))
-					.map(c => c.resource);
+				folders = (stat.children ?? []).filter(c => c.isDirectory).map(c => c.resource);
 			} catch {
-				entries = [];
+				folders = [];
 			}
 		}
 
-		if (entries.length === 0) {
-			this.renderEmpty(root, localize('aria.notes.empty', "No notes yet. Create one with New note."));
+		if (folders.length === 0) {
+			this.empty(root, localize('aria.paperWriter.empty', "No papers yet. Create one with New paper."));
 			return;
 		}
 
-		for (const uri of entries) {
-			const meta = await this.readMeta(uri);
-			const title = meta.title;
+		for (const folder of folders) {
+			const title = await this.readTitle(folder);
 			const row = append(root, $('div'));
 			row.style.display = 'flex';
 			row.style.alignItems = 'center';
@@ -139,8 +120,9 @@ export class AriaNotesView extends ViewPane {
 			row.style.cursor = 'pointer';
 			row.onmouseenter = () => { row.style.background = 'var(--vscode-list-hoverBackground, rgba(127,127,127,0.12))'; };
 			row.onmouseleave = () => { row.style.background = 'transparent'; };
+			row.onclick = () => void this.commandService.executeCommand('aria.paperWriter.open', folder);
 
-			const icon = append(row, $('span.codicon.codicon-note')) as HTMLElement;
+			const icon = append(row, $('span.codicon.codicon-output')) as HTMLElement;
 			icon.style.flexShrink = '0';
 			icon.style.opacity = '0.7';
 
@@ -151,81 +133,36 @@ export class AriaNotesView extends ViewPane {
 			label.style.textOverflow = 'ellipsis';
 			label.style.whiteSpace = 'nowrap';
 			label.style.fontSize = '13px';
-			row.onclick = () => void this.commandService.executeCommand('aria.notes.open', uri);
-
-			// Last-modified stamp, left of the rename button. Fixed width + the
-			// label's flex/ellipsis keep the title from overlapping it.
-			const stamp = formatStamp(meta.updatedAt);
-			if (stamp) {
-				const date = append(row, $('span')) as HTMLElement;
-				date.textContent = stamp;
-				date.title = meta.updatedAt ? new Date(meta.updatedAt).toLocaleString() : '';
-				date.style.flexShrink = '0';
-				date.style.fontSize = '11px';
-				date.style.opacity = '0.55';
-				date.style.fontVariantNumeric = 'tabular-nums';
-				date.style.marginRight = '2px';
-			}
-
-			const rename = append(row, $('span.codicon.codicon-edit')) as HTMLElement;
-			rename.title = localize('aria.notes.rename', "Rename note");
-			rename.style.flexShrink = '0';
-			rename.style.opacity = '0.6';
-			rename.style.cursor = 'pointer';
-			rename.onclick = (e) => {
-				e.stopPropagation();
-				void this.commandService.executeCommand('aria.notes.rename', uri);
-			};
 
 			const del = append(row, $('span.codicon.codicon-trash')) as HTMLElement;
-			del.title = localize('aria.notes.delete', "Delete note");
+			del.title = localize('aria.paperWriter.delete', "Delete paper");
 			del.style.flexShrink = '0';
 			del.style.opacity = '0.6';
 			del.style.cursor = 'pointer';
 			del.onclick = (e) => {
 				e.stopPropagation();
-				void this.commandService.executeCommand('aria.notes.delete', uri);
+				void this.commandService.executeCommand('aria.paperWriter.delete', folder);
 			};
 		}
 	}
 
-	private async readMeta(uri: URI): Promise<{ title: string; updatedAt?: string }> {
-		let title = basename(uri).replace(/\.json$/, '');
-		let updatedAt: string | undefined;
+	private async readTitle(folder: URI): Promise<string> {
 		try {
-			const content = await this.fileService.readFile(uri);
+			const content = await this.fileService.readFile(joinPath(folder, 'meta.json'));
 			const parsed = JSON.parse(content.value.toString());
 			if (typeof parsed.title === 'string' && parsed.title.trim()) {
-				title = parsed.title.trim();
-			}
-			if (typeof parsed.updatedAt === 'string') {
-				updatedAt = parsed.updatedAt;
+				return parsed.title.trim();
 			}
 		} catch {
-			// fall through to filename / no stamp
+			// fall through to folder name
 		}
-		return { title, updatedAt };
+		return basename(folder);
 	}
 
-	private renderEmpty(root: HTMLElement, text: string): void {
-		const empty = append(root, $('p'));
-		empty.style.opacity = '0.7';
-		empty.style.fontSize = '13px';
-		empty.textContent = text;
+	private empty(root: HTMLElement, text: string): void {
+		const p = append(root, $('p'));
+		p.style.opacity = '0.7';
+		p.style.fontSize = '13px';
+		p.textContent = text;
 	}
-}
-
-/** Compact last-modified stamp, e.g. "26/5/23 19:30" (YY/M/D). Empty if invalid. */
-function formatStamp(iso?: string): string {
-	if (!iso) {
-		return '';
-	}
-	const d = new Date(iso);
-	if (isNaN(d.getTime())) {
-		return '';
-	}
-	const yy = String(d.getFullYear()).slice(-2);
-	const hh = String(d.getHours()).padStart(2, '0');
-	const mm = String(d.getMinutes()).padStart(2, '0');
-	return `${yy}/${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
 }

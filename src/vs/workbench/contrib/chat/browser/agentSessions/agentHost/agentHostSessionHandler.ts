@@ -57,6 +57,7 @@ import { AgentHostSnapshotController } from './agentHostSnapshotController.js';
 import { toolDataToDefinition } from './agentHostToolUtils.js';
 import { IAgentHostUntitledProvisionalSessionService } from './agentHostUntitledProvisionalSessionService.js';
 import { activeTurnToProgress, completedToolCallToEditParts, completedToolCallToSerialized, finalizeToolInvocation, getTerminalContentUri, isSubagentTool, makeAhpTerminalToolSessionId, messageToVariableData, parseAhpTerminalToolSessionId, rawMarkdownToString, stringOrMarkdownToString, toolCallStateToInvocation, turnsToHistory, updateRunningToolSpecificData, usageInfoToChatUsage, type IToolCallFileEdit, type TurnModelLookup } from './stateToProgressAdapter.js';
+import { whenAriaSetupReady } from '../../../../aria/browser/ariaSetupReady.js';
 export { toolDataToDefinition };
 
 // =============================================================================
@@ -570,6 +571,12 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 		if (sessionResource.path.substring(1).startsWith('untitled-')) {
 			throw new Error(`Agent host chat sessions must be created by the sessions provider: ${sessionResource.toString()}`);
 		}
+
+		// Aria: don't connect/restore a session (which connects to MCP servers)
+		// until Aria's setup has finished booting those servers — otherwise a
+		// session restored on window load attaches before MCP is up and the
+		// servers show "Failed". Resolves immediately once setup is done.
+		await whenAriaSetupReady();
 
 		// For new sessions, defer backend session creation until the first request
 		// arrives so the user-selected model is available. The chat resource still
@@ -2481,6 +2488,8 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 
 	/** Creates a new backend session and subscribes to its state. */
 	private async _createAndSubscribe(sessionResource: URI, model: ModelSelection | undefined, fork?: { session: URI; turnIndex: number; turnId: string }, config?: Record<string, unknown>): Promise<URI> {
+		// Aria: gate session creation (which connects to MCP) on setup completion.
+		await whenAriaSetupReady();
 		const workingDirectory = this._resolveRequestedWorkingDirectory(sessionResource);
 		const requestedSession = fork ? undefined : this._resolveSessionUri(sessionResource);
 

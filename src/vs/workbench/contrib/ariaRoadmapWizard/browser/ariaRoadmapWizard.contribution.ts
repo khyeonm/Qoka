@@ -131,7 +131,7 @@ const roadmapContainer: ViewContainer = Registry.as<IViewContainersRegistry>(Vie
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ROADMAP_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: true,
 		icon: roadmapIcon,
-		order: 3,
+		order: 11,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
 const roadmapView: IViewDescriptor = {

@@ -1,0 +1,24 @@
+{
+	"name": "aria-paper",
+	"displayName": "Aria Paper Writer",
+	"description": "Paper-writing MCP: lets Claude Code draft, cite, and export scientific manuscripts (Markdown / DOCX / LaTeX via pandoc + citeproc). Built into Aria.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"typescript": "^5.6.2"
+	}
+}

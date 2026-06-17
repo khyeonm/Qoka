@@ -80,7 +80,7 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ARIA_AUTOPIPE_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: autopipeIcon,
-		order: 3,
+		order: 14,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
 const autopipeView: IViewDescriptor = {
