@@ -66,6 +66,10 @@ const compilations = [
 	// CommonJS extension. It self-bundles via esbuild instead — see
 	// extensions/aria-notes/build.mjs (`npm run compile` in that dir). Adding it
 	// back here would let gulp's tsc overwrite the esbuild bundle with broken output.
+	// NOTE: aria-memory is likewise excluded on purpose. It self-bundles via
+	// esbuild (extensions/aria-memory/build.mjs) so it can pull in the ESM-only
+	// mem0 client in a later phase without CJS interop breakage. Keep it out of
+	// this tsc list for the same reason as aria-notes.
 	'extensions/configuration-editing/tsconfig.json',
 	'extensions/css-language-features/client/tsconfig.json',
 	'extensions/css-language-features/server/tsconfig.json',

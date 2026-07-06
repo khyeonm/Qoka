@@ -67,6 +67,25 @@ export interface IBuildOptionsInput {
  * — both call sites pass a freshly-built `mcpServers` snapshot consumed
  * from the session's {@link SessionClientToolsDiff}.
  */
+/**
+ * Appended to the Claude Code system-prompt preset so the agent routes ALL
+ * long-term memory through Aria's `aria-memory` MCP tools instead of the
+ * built-in auto-memory (which we disable via `managedSettings.autoMemoryEnabled`).
+ * Without this, the native memory habit wins and the agent never touches our
+ * store — see the test where every "remember this" landed in ~/.claude.
+ */
+const ARIA_MEMORY_APPEND = [
+	'## Aria memory',
+	'This workbench manages long-term memory through the `aria-memory` MCP tools. The built-in auto-memory is disabled — those tools are your only memory store, so never write memory into MEMORY.md or any ~/.claude path.',
+	'There are two scopes, each with its own tools:',
+	'- PROJECT memory (this project only): `remember_project_memory`, `search_project_memory`, `project_memory_index`. For this project\'s decisions, architecture, data locations, experiment results, and project-specific terms.',
+	'- USER memory (cross-project): `remember_user_memory`, `recall_user_memory`. For facts about the user that stay true in ANY project — their preferences, working style, identity, favoured tools, and cross-cutting conventions.',
+	'Routing test for saving a fact: "Would this still be true and useful in a completely different project?" Yes → user memory. No (only meaningful in this project) → project memory. When unsure, prefer project memory.',
+	'Before answering something that may depend on what you know, recall first: `recall_user_memory` for the user, plus `search_project_memory` / `project_memory_index` for this project.',
+	'When the user states something durable and non-obvious — a decision, a fact, a data location, a preference, or a correction — save it to the matching scope. Reuse an existing project page title to update rather than duplicate. Before `remember_user_memory`, `recall_user_memory` first and skip storing a fact you already have.',
+	'Skip one-off task instructions, chit-chat, and anything already obvious from the code or git history. Only store what would still be useful in a later session.',
+].join('\n');
+
 export async function buildOptions(
 	input: IBuildOptionsInput,
 	proxyHandle: IClaudeProxyHandle,
@@ -75,6 +94,17 @@ export async function buildOptions(
 ): Promise<Options> {
 	const subprocessEnv = buildSubprocessEnv();
 	const resolvedRgDiskPath = await rgDiskPath();
+
+	// Redirect Claude's native auto-memory out of ~/.claude and INTO the open
+	// project, under `<workspace>/.aria/memory`. This is the storage backend
+	// for Aria's per-project memory ("LLM wiki"): the native memory engine
+	// keeps auto-writing/recalling MEMORY.md + per-fact pages, but now they
+	// live in the repo — so they are git-versioned with the project, visible
+	// and editable in the workbench, and travel when the repo is cloned.
+	// Keyed by workspace, so each project gets its own isolated memory. The SDK
+	// ignores this value if set in a checked-in .claude/settings.json (for
+	// security), which is exactly why we inject it here via `Options.settings`.
+	const autoMemoryDirectory = join(input.workingDirectory.fsPath, '.aria', 'memory');
 	const settingsEnv: Record<string, string> = {
 		ANTHROPIC_BASE_URL: proxyHandle.baseUrl,
 		ANTHROPIC_AUTH_TOKEN: `${proxyHandle.nonce}.${input.sessionId}`,
@@ -111,7 +141,18 @@ export async function buildOptions(
 		...(input.agent ? { agent: input.agent } : {}),
 		settingSources: ['user', 'project', 'local'],
 		settings: { env: settingsEnv },
-		systemPrompt: { type: 'preset', preset: 'claude_code' },
+		// Turn off Claude's native auto-memory via the MANAGED (policy) layer, not
+		// the flag layer. `settings.autoMemoryEnabled` sits in the user-controlled
+		// "flag settings" tier, which the loaded settingSources override — it had
+		// no effect in testing (native memory kept writing to ~/.claude).
+		// `managedSettings` is the policy tier that user/project settings cannot
+		// widen, and its doc names desktop-app embedding as the exact use case:
+		// enforce config on the spawned subprocess without writing files. With
+		// native memory off, the `aria-memory` MCP tools (steered by
+		// ARIA_MEMORY_APPEND) become the sole memory store. Applies to every Aria
+		// session; writes no files and does not affect the user's own `claude` CLI.
+		managedSettings: { autoMemoryEnabled: false },
+		systemPrompt: { type: 'preset', preset: 'claude_code', append: ARIA_MEMORY_APPEND },
 		stderr: logStderr,
 	};
 }

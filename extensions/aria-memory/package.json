@@ -1,0 +1,27 @@
+{
+	"name": "aria-memory",
+	"displayName": "Aria Memory",
+	"description": "Long-term memory for Aria: a per-project LLM wiki (and, later, a cross-project mem0 store) that Claude Code can read and write via a local MCP server. Built into Aria.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {},
+	"scripts": {
+		"compile": "node build.mjs",
+		"watch": "node build.mjs --watch",
+		"typecheck": "tsc -p ./ --noEmit"
+	},
+	"dependencies": {},
+	"devDependencies": {
+		"@types/node": "^20",
+		"esbuild": "^0.24.2",
+		"typescript": "^5.6.2"
+	}
+}

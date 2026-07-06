@@ -20,6 +20,7 @@ export const dirs = [
 	'extensions/aria-vcs',
 	'extensions/aria-roadmap',
 	'extensions/aria-notes',
+	'extensions/aria-memory',
 	'extensions/aria-paper',
 	'extensions/configuration-editing',
 	'extensions/css-language-features',

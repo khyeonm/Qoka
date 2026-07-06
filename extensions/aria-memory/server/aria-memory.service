@@ -1,0 +1,31 @@
+# systemd unit for the Aria memory (mem0) service — makes it always-on:
+# auto-starts on boot, auto-restarts on crash. Template; adjust User /
+# WorkingDirectory / paths to your server. Secrets come from EnvironmentFile
+# (~/.env), never from this committed file.
+#
+# Install on the server (e.g. gemma4):
+#   # create ~/.env with at least: PG_PASSWORD=...   (see .env.example)
+#   sudo cp aria-memory.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now aria-memory
+#   sudo systemctl status aria-memory
+#   journalctl -u aria-memory -f      # live logs
+#
+# Kill any nohup uvicorn on :8000 first so they don't collide.
+
+[Unit]
+Description=Aria memory (mem0) service
+After=network.target docker.service ollama.service
+Wants=ollama.service
+
+[Service]
+User=aria
+WorkingDirectory=/home/aria
+EnvironmentFile=/home/aria/.env
+Environment=MEM0_TELEMETRY=False
+ExecStart=/home/aria/aria-mem-venv/bin/uvicorn mem0_service:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

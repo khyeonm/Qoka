@@ -1,0 +1,2 @@
+# Real secrets / local config — never commit. Use .env.example as the template.
+.env
