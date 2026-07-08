@@ -2,6 +2,12 @@
 	"nameShort": "Aria",
 	"nameLong": "Aria",
 	"applicationName": "aria",
+	"trustedExtensionAuthAccess": {
+		"aria": [
+			"aria.aria-memory",
+			"aria.aria-authentication"
+		]
+	},
 	"dataFolderName": ".aria",
 	"extensionsGallery": {
 		"serviceUrl": "https://open-vsx.org/vscode/gallery",

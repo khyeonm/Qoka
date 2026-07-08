@@ -78,6 +78,30 @@ const MAX_DURATION_AFTER_FIRST_TRACK_MS = 60000;
  *  into) reads them on construction and shows the toast there. */
 const PENDING_SUMMARIES_KEY = 'aria.startup.pendingSummaries';
 
+/** localStorage flag: the "setting up" overlay has been shown once already, so
+ *  it should never block the screen again. The per-window MCP bootstrap still
+ *  runs (extensions call beginTracking/markComplete and finish() still fires
+ *  markAriaSetupReady()), but on every launch after the first the work happens
+ *  silently in the background rather than behind the overlay. Persisted across
+ *  restarts, so "first launch only" means the very first time Aria ever runs. */
+const FIRST_RUN_SHOWN_KEY = 'aria.firstRun.shownEver';
+
+function firstRunAlreadyShown(): boolean {
+	try {
+		return localStorage.getItem(FIRST_RUN_SHOWN_KEY) === '1';
+	} catch {
+		return false;
+	}
+}
+
+function markFirstRunShown(): void {
+	try {
+		localStorage.setItem(FIRST_RUN_SHOWN_KEY, '1');
+	} catch {
+		// Storage unavailable — the overlay may show again next launch; harmless.
+	}
+}
+
 /**
  * The setup trackers that ship with Aria's vendored extensions and ALWAYS
  * call `aria.startup.beginTracking` at activate time. We wait for every one
@@ -241,9 +265,14 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 	}
 
 	private shouldShowOverlay(): boolean {
-		// EMPTY workbench == no folder, no workspace file. Started page
-		// is shown in this case and serves as the "we're getting ready"
-		// surface.
+		// The "setting up" screen shows ONLY on the first-ever launch's project
+		// open. Later project opens run setup silently in the background (finish()
+		// still fires markAriaSetupReady()).
+		if (firstRunAlreadyShown()) {
+			return false;
+		}
+		// EMPTY workbench == no folder, no workspace file. Started page is shown in
+		// that case and serves as the "we're getting ready" surface.
 		return this.workspaceContextService.getWorkbenchState() !== WorkbenchState.EMPTY;
 	}
 
@@ -380,6 +409,10 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			return;
 		}
 
+		// Showing counts as the one-and-only first-run setup screen — record it so
+		// no future launch blocks the screen again.
+		markFirstRunShown();
+
 		const overlay = document.createElement('div');
 		overlay.id = OVERLAY_ID;
 		overlay.style.position = 'fixed';
@@ -397,6 +430,8 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		overlay.style.cursor = 'wait';
 		overlay.style.transition = 'opacity 200ms ease-in';
 		overlay.style.opacity = '0';
+		// Keep the window draggable while the loading overlay covers the title bar.
+		overlay.style.setProperty('-webkit-app-region', 'drag');
 
 		const spinner = document.createElement('div');
 		spinner.style.width = '44px';

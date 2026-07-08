@@ -21,6 +21,7 @@ export const dirs = [
 	'extensions/aria-roadmap',
 	'extensions/aria-notes',
 	'extensions/aria-memory',
+	'extensions/aria-authentication',
 	'extensions/aria-paper',
 	'extensions/configuration-editing',
 	'extensions/css-language-features',

@@ -19,8 +19,6 @@ import { ITelemetryService } from '../../../../platform/telemetry/common/telemet
 import { IWorkspaceTrustManagementService } from '../../../../platform/workspace/common/workspaceTrust.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { ITrustedDomainService } from './trustedDomainService.js';
-import { isURLDomainTrusted } from '../../../../platform/url/common/trustedDomains.js';
-import { configureOpenerTrustedDomainsHandler, readStaticTrustedDomains } from './trustedDomains.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 
 export class OpenerValidatorContributions implements IWorkbenchContribution {
@@ -51,7 +49,6 @@ export class OpenerValidatorContributions implements IWorkbenchContribution {
 			return true;
 		}
 
-		const originalResource = resource;
 		let resourceUri: URI;
 		if (typeof resource === 'string') {
 			resourceUri = URI.parse(resource);
@@ -62,23 +59,9 @@ export class OpenerValidatorContributions implements IWorkbenchContribution {
 		if (this._trustedDomainService.isValid(resourceUri)) {
 			return true;
 		} else {
-			const { scheme, authority, path, query, fragment } = resourceUri;
-			let formattedLink = `${scheme}://${authority}${path}`;
 
-			const linkTail = `${query ? '?' + query : ''}${fragment ? '#' + fragment : ''}`;
-
-
-			const remainingLength = Math.max(0, 60 - formattedLink.length);
-			const linkTailLengthToKeep = Math.min(Math.max(5, remainingLength), linkTail.length);
-
-			if (linkTailLengthToKeep === linkTail.length) {
-				formattedLink += linkTail;
-			} else {
-				// keep the first char ? or #
-				// add ... and keep the tail end as much as possible
-				formattedLink += linkTail.charAt(0) + '...' + linkTail.substring(linkTail.length - linkTailLengthToKeep + 1);
-			}
-
+			// Aria: show only the plain question — the raw URL line is intentionally
+			// omitted (no `detail`) so the dialog stays clean.
 			const { result } = await this._dialogService.prompt<boolean>({
 				type: Severity.Info,
 				message: localize(
@@ -86,43 +69,10 @@ export class OpenerValidatorContributions implements IWorkbenchContribution {
 					'Do you want {0} to open the external website?',
 					this._productService.nameShort
 				),
-				detail: typeof originalResource === 'string' ? originalResource : formattedLink,
 				buttons: [
 					{
 						label: localize({ key: 'open', comment: ['&& denotes a mnemonic'] }, '&&Open'),
 						run: () => true
-					},
-					{
-						label: localize({ key: 'copy', comment: ['&& denotes a mnemonic'] }, '&&Copy'),
-						run: () => {
-							this._clipboardService.writeText(typeof originalResource === 'string' ? originalResource : resourceUri.toString(true));
-							return false;
-						}
-					},
-					{
-						label: localize({ key: 'configureTrustedDomains', comment: ['&& denotes a mnemonic'] }, 'Configure &&Trusted Domains'),
-						run: async () => {
-							const { trustedDomains, } = this._instantiationService.invokeFunction(readStaticTrustedDomains);
-							const domainToOpen = `${scheme}://${authority}`;
-							const pickedDomains = await configureOpenerTrustedDomainsHandler(
-								trustedDomains,
-								domainToOpen,
-								resourceUri,
-								this._quickInputService,
-								this._storageService,
-								this._editorService,
-								this._telemetryService,
-							);
-							// Trust all domains
-							if (pickedDomains.indexOf('*') !== -1) {
-								return true;
-							}
-							// Trust current domain
-							if (isURLDomainTrusted(resourceUri, pickedDomains)) {
-								return true;
-							}
-							return false;
-						}
 					}
 				],
 				cancelButton: {

@@ -10,10 +10,12 @@ import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js'
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspacesService, IRecentlyOpened, isRecentFolder, isRecentWorkspace } from '../../../../platform/workspaces/common/workspaces.js';
+import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IAuthenticationService, AuthenticationSession } from '../../../services/authentication/common/authentication.js';
 import { ROADMAP_SCHEME } from '../../ariaRoadmapWizard/browser/ariaRoadmapWizardCommon.js';
 import { URI } from '../../../../base/common/uri.js';
 import { basename } from '../../../../base/common/resources.js';
@@ -41,7 +43,7 @@ import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
 		const style = document.createElement('style');
 		style.id = 'aria-started-hide-workbench';
 		style.textContent = `
-			body > *:not(#aria-started-overlay):not(style):not(script):not(link) {
+			body > *:not(#aria-started-overlay):not(#aria-login-gate-overlay):not(style):not(script):not(link) {
 				visibility: hidden !important;
 			}
 		`;
@@ -53,6 +55,19 @@ import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
 		installNow();
 	}
 })();
+
+/** Aria authentication provider id (see the aria-authentication extension). */
+const AUTH_ID = 'aria';
+
+/** Friendly, generic lines cycled under the spinner while a sign-in step runs,
+ *  so the wait doesn't feel dead. Not real status — just reassurance. */
+const LOADING_MESSAGES: readonly string[] = [
+	'Getting Aria ready…',
+	'Preparing sign-in…',
+	'Opening your browser…',
+	'Waiting for authorization…',
+	'Almost there…',
+];
 
 /** One-shot sessionStorage flag set right before vscode.openFolder
  *  reloads the workbench, and consumed on the next constructor run
@@ -99,6 +114,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 *  is open. We only auto-return the picker when WE hid it for that reason. */
 	private suppressedForRoadmap = false;
 
+	// Auth state — the overlay is also the sign-in gate. Until the first check
+	// resolves we show the loading spinner; then login (no session) or the
+	// signed-in banner + picker (session present).
+	private ariaSession: AuthenticationSession | undefined;
+	private authChecked = false;
+	private authLoading = false;
+	private cycleTimer: ReturnType<typeof setInterval> | undefined;
+
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
@@ -107,6 +130,8 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@IHostService private readonly hostService: IHostService,
 		@IEditorService private readonly editorService: IEditorService,
+		@IAuthenticationService private readonly authService: IAuthenticationService,
+		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 	) {
 		super();
 
@@ -127,6 +152,15 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// build's storage backend.
 		try { sessionStorage.removeItem('aria.started.picked'); } catch { /* ignore */ }
 		try { localStorage.removeItem(RECENT_PICK_KEY); } catch { /* ignore */ }
+
+		// This overlay (sign-in + picker) is only for an EMPTY workbench. A folder
+		// window — a just-picked reload or a restored project — shows the workbench
+		// directly; the login guard (ariaLoginGate) handles sign-in there.
+		if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY) {
+			try { sessionStorage.removeItem(JUST_PICKED_FLAG); } catch { /* ignore */ }
+			this.removeEarlyHideStyleByID();
+			return;
+		}
 
 		// During the openFolder reload, the very next workbench load
 		// must NOT re-show Started. We hand that off to a sessionStorage
@@ -153,6 +187,58 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// <style>/<script>/<link>).
 		this.installHideWorkbenchStyle();
 		this.show();
+
+		// The overlay doubles as the sign-in gate: re-check and re-render on every
+		// session change (login success dismisses login → banner + picker; sign
+		// out from the banner returns to the login view).
+		this._register(this.authService.onDidChangeSessions(e => {
+			if (e.providerId === AUTH_ID) {
+				this.authLoading = false;
+				void this.refreshAuth();
+			}
+		}));
+		void this.refreshAuth();
+	}
+
+	/** Read the current Aria session and re-render the overlay to match. */
+	private async refreshAuth(): Promise<void> {
+		try {
+			// activateImmediate=true wakes the aria-authentication extension so its
+			// provider is registered before we read sessions.
+			const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
+			this.ariaSession = sessions.length > 0 ? sessions[0] : undefined;
+		} catch {
+			this.ariaSession = undefined;
+		}
+		this.authChecked = true;
+		this.authLoading = false;
+		this.rerender();
+	}
+
+	private async signIn(provider: 'orcid' | 'google'): Promise<void> {
+		this.authLoading = true;
+		this.rerender();
+		try {
+			// The provider hint is passed as the scope; the aria-authentication
+			// extension reads it to skip its own provider QuickPick.
+			await this.authService.createSession(AUTH_ID, [provider]);
+			// Success fires onDidChangeSessions → refreshAuth → banner + picker.
+		} catch {
+			this.authLoading = false;
+			void this.refreshAuth();
+		}
+	}
+
+	private async signOut(): Promise<void> {
+		if (!this.ariaSession) {
+			return;
+		}
+		try {
+			await this.authService.removeSession(AUTH_ID, this.ariaSession.id);
+		} catch { /* ignore */ }
+		// onDidChangeSessions → refreshAuth → login view. Already in the picker
+		// (empty workspace), so no folder needs closing here.
+		void this.refreshAuth();
 	}
 
 
@@ -173,7 +259,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		const style = document.createElement('style');
 		style.id = 'aria-started-hide-workbench';
 		style.textContent = `
-			body > *:not(#aria-started-overlay):not(style):not(script):not(link) {
+			body > *:not(#aria-started-overlay):not(#aria-login-gate-overlay):not(style):not(script):not(link) {
 				visibility: hidden !important;
 			}
 		`;
@@ -230,6 +316,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// content is taller than the viewport.
 		overlay.style.display = 'flex';
 		overlay.style.fontFamily = 'var(--vscode-font-family, system-ui, sans-serif)';
+		// Allow dragging the window by the overlay background (covered title bar);
+		// the content box (render()) opts back out so its controls stay clickable.
+		overlay.style.setProperty('-webkit-app-region', 'drag');
 
 		this.installFocusTrap(overlay);
 
@@ -243,6 +332,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		if (!this.overlay) {
 			return;
 		}
+		this.stopMessageCycle();
 		this.overlay.remove();
 		this.overlay = undefined;
 		this.removeHideWorkbenchStyle();
@@ -295,7 +385,24 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		content.style.margin = 'auto';
 		content.style.padding = '40px';
 		content.style.boxSizing = 'border-box';
+		// The overlay background is a window-drag region (see show()); the content
+		// box opts out so its buttons / menus stay clickable.
+		content.style.setProperty('-webkit-app-region', 'no-drag');
 		this.overlay.appendChild(content);
+
+		// A prior render's loading-message cycle points at a now-removed node.
+		this.stopMessageCycle();
+
+		// Sign-in gate: until authenticated, this overlay shows login (or the
+		// loading spinner mid sign-in), NOT the project picker.
+		if (!this.authChecked || this.authLoading) {
+			this.renderLoadingSection(content);
+			return;
+		}
+		if (!this.ariaSession) {
+			this.renderLoginSection(content);
+			return;
+		}
 
 		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
 
@@ -319,9 +426,178 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		subtitle.style.margin = '0 0 32px 0';
 		content.appendChild(subtitle);
 
+		this.renderSignedInBanner(content);
 		this.renderModeSection(content, mode);
 		this.renderStartSection(content);
 		void this.renderRecentProjects(content);
+	}
+
+	// --- sign-in views (merged into the picker overlay) --------------------
+
+	private startMessageCycle(target: HTMLElement): void {
+		this.stopMessageCycle();
+		let i = 0;
+		target.textContent = LOADING_MESSAGES[0];
+		this.cycleTimer = setInterval(() => {
+			i = (i + 1) % LOADING_MESSAGES.length;
+			target.style.opacity = '0';
+			setTimeout(() => {
+				target.textContent = LOADING_MESSAGES[i];
+				target.style.opacity = '0.7';
+			}, 300);
+		}, 1900);
+	}
+
+	private stopMessageCycle(): void {
+		if (this.cycleTimer !== undefined) {
+			clearInterval(this.cycleTimer);
+			this.cycleTimer = undefined;
+		}
+	}
+
+	private renderLoadingSection(parent: HTMLElement): void {
+		const box = document.createElement('div');
+		box.style.display = 'flex';
+		box.style.flexDirection = 'column';
+		box.style.alignItems = 'center';
+		box.style.justifyContent = 'center';
+		box.style.gap = '22px';
+		box.style.minHeight = '220px';
+		parent.appendChild(box);
+
+		const spinner = document.createElement('div');
+		spinner.style.width = '42px';
+		spinner.style.height = '42px';
+		spinner.style.borderRadius = '50%';
+		spinner.style.border = '3px solid rgba(127, 127, 127, 0.25)';
+		spinner.style.borderTopColor = 'var(--vscode-foreground, #fff)';
+		spinner.style.animation = 'aria-started-spin 1.05s linear infinite';
+		this.ensureSpinnerKeyframes();
+		box.appendChild(spinner);
+
+		const msg = document.createElement('div');
+		msg.style.fontSize = '13.5px';
+		msg.style.opacity = '0.7';
+		msg.style.minHeight = '1.4em';
+		msg.style.transition = 'opacity 0.3s ease';
+		box.appendChild(msg);
+		this.startMessageCycle(msg);
+	}
+
+	private ensureSpinnerKeyframes(): void {
+		if (document.getElementById('aria-started-spin-kf')) {
+			return;
+		}
+		const style = document.createElement('style');
+		style.id = 'aria-started-spin-kf';
+		style.textContent = '@keyframes aria-started-spin { to { transform: rotate(360deg); } }';
+		document.head.appendChild(style);
+	}
+
+	private renderLoginSection(parent: HTMLElement): void {
+		// The picker content is left-aligned and wide; the sign-in column is short,
+		// so center it (vertically too) for a balanced, intentional login screen.
+		parent.style.display = 'flex';
+		parent.style.flexDirection = 'column';
+		parent.style.alignItems = 'center';
+		parent.style.textAlign = 'center';
+		parent.style.justifyContent = 'center';
+		parent.style.minHeight = '70vh';
+
+		const title = document.createElement('h1');
+		title.textContent = 'Aria';
+		title.style.fontSize = '32px';
+		title.style.fontWeight = '300';
+		title.style.margin = '0 0 8px 0';
+		parent.appendChild(title);
+
+		const sub = document.createElement('p');
+		sub.textContent = 'Sign in with ORCID or Google to continue.';
+		sub.style.fontSize = '14px';
+		sub.style.opacity = '0.7';
+		sub.style.margin = '0 0 28px 0';
+		parent.appendChild(sub);
+
+		const box = document.createElement('div');
+		box.style.display = 'flex';
+		box.style.flexDirection = 'column';
+		box.style.gap = '10px';
+		box.style.width = '300px';
+		parent.appendChild(box);
+
+		box.appendChild(this.makeLoginButton('Sign in with ORCID', () => void this.signIn('orcid')));
+		box.appendChild(this.makeLoginButton('Sign in with Google', () => void this.signIn('google')));
+	}
+
+	private makeLoginButton(text: string, onClick: () => void): HTMLButtonElement {
+		// Neutral, matching the Mode / Start cards — no brand accent colors.
+		const btn = document.createElement('button');
+		btn.textContent = text;
+		btn.style.width = '100%';
+		btn.style.padding = '13px 16px';
+		btn.style.fontSize = '14px';
+		btn.style.fontWeight = '600';
+		btn.style.cursor = 'pointer';
+		btn.style.border = '1px solid rgba(127, 127, 127, 0.2)';
+		btn.style.borderRadius = '6px';
+		btn.style.background = 'rgba(127, 127, 127, 0.06)';
+		btn.style.color = 'var(--vscode-foreground, #cccccc)';
+		btn.style.fontFamily = 'inherit';
+		btn.onmouseenter = () => { btn.style.background = 'rgba(127, 127, 127, 0.14)'; };
+		btn.onmouseleave = () => { btn.style.background = 'rgba(127, 127, 127, 0.06)'; };
+		btn.onclick = (e) => { e.stopPropagation(); onClick(); };
+		return btn;
+	}
+
+	private renderSignedInBanner(parent: HTMLElement): void {
+		const s = this.ariaSession;
+		if (!s) {
+			return;
+		}
+		const name = s.account?.label || 'Aria user';
+
+		const banner = document.createElement('div');
+		banner.style.display = 'flex';
+		banner.style.alignItems = 'center';
+		banner.style.gap = '12px';
+		banner.style.padding = '14px 18px';
+		banner.style.marginBottom = '28px';
+		banner.style.border = '1px solid rgba(127, 127, 127, 0.2)';
+		banner.style.borderRadius = '6px';
+		banner.style.background = 'rgba(127, 127, 127, 0.06)';
+		parent.appendChild(banner);
+
+		const who = document.createElement('div');
+		who.style.display = 'flex';
+		who.style.flexDirection = 'column';
+		who.style.gap = '2px';
+
+		const nameEl = document.createElement('div');
+		nameEl.style.fontSize = '14px';
+		nameEl.style.fontWeight = '600';
+		nameEl.textContent = name;
+		who.appendChild(nameEl);
+
+		const status = document.createElement('div');
+		status.textContent = '✓ Signed in';
+		status.style.fontSize = '12px';
+		status.style.opacity = '0.6';
+		who.appendChild(status);
+		banner.appendChild(who);
+
+		const out = document.createElement('button');
+		out.textContent = 'Sign out';
+		out.style.marginLeft = 'auto';
+		out.style.fontSize = '12.5px';
+		out.style.padding = '6px 12px';
+		out.style.cursor = 'pointer';
+		out.style.borderRadius = '7px';
+		out.style.border = '1px solid rgba(127, 127, 127, 0.35)';
+		out.style.background = 'transparent';
+		out.style.color = 'var(--vscode-foreground, #cccccc)';
+		out.style.fontFamily = 'inherit';
+		out.onclick = (e) => { e.stopPropagation(); void this.signOut(); };
+		banner.appendChild(out);
 	}
 
 	private renderModeSection(parent: HTMLElement, currentMode: AriaMode): void {

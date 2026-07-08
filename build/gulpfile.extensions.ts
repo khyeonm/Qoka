@@ -70,6 +70,8 @@ const compilations = [
 	// esbuild (extensions/aria-memory/build.mjs) so it can pull in the ESM-only
 	// mem0 client in a later phase without CJS interop breakage. Keep it out of
 	// this tsc list for the same reason as aria-notes.
+	// NOTE: aria-authentication also self-bundles via esbuild (build.mjs) — keep
+	// it out of this tsc list, same pattern as aria-notes / aria-memory.
 	'extensions/configuration-editing/tsconfig.json',
 	'extensions/css-language-features/client/tsconfig.json',
 	'extensions/css-language-features/server/tsconfig.json',
