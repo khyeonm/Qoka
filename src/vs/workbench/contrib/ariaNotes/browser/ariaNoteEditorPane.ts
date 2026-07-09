@@ -124,7 +124,7 @@ export class AriaNoteEditorPane extends EditorPane {
 		bar.style.fontFamily = 'var(--vscode-font-family, system-ui, sans-serif)';
 
 		const label = document.createElement('span');
-		label.textContent = localize('aria.notes.proposedBanner', "✦ Claude proposed changes — additions in yellow, removals struck through in red. Accept to apply, or Reject to discard.");
+		label.textContent = localize('aria.notes.proposedBanner', "✦ The AI proposed changes — additions in yellow, removals struck through in red. Accept to apply, or Reject to discard.");
 		label.style.fontSize = '12.5px';
 		label.style.flex = '1';
 		label.style.color = 'var(--vscode-foreground, #ccc)';

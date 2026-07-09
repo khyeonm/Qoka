@@ -379,10 +379,3 @@ function mergeDependencies(a: SkillDependency[], b: SkillDependency[]): SkillDep
 	}
 	return [...map.values()];
 }
-
-function shellQuote(s: string): string {
-	if (/^[A-Za-z0-9_./:@-]+$/.test(s)) {
-		return s;
-	}
-	return `'${s.replace(/'/g, "'\\''")}'`;
-}

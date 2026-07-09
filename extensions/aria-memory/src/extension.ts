@@ -7,9 +7,41 @@ import * as vscode from 'vscode';
 import { buildTools } from './mcp/tools';
 import { AriaMemoryMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
+import { registerWithCodex } from './registration/codexMcp';
 import { ensureNativeMemoryDisabled } from './nativeMemory';
 
 let mcpServer: AriaMemoryMcpServer | undefined;
+
+/**
+ * Register the memory MCP with every AI provider whose CLI is available
+ * (Claude Code, Codex, Gemini). The server serves /sse (Claude) and /mcp
+ * (Codex, Gemini) on the same port; each provider is pointed at the endpoint
+ * it understands. Missing CLIs are silently skipped.
+ */
+async function registerAllProviders(port: number): Promise<{ changed: boolean; summary: string }> {
+	const results = await Promise.allSettled([
+		registerWithClaudeCode(port),
+		registerWithCodex(port),
+	]);
+	const labels = ['Claude Code', 'Codex'];
+	const registered: string[] = [];
+	let changed = false;
+	results.forEach((r, i) => {
+		if (r.status === 'fulfilled') {
+			console.log(`[aria-memory] ${labels[i]}: ${r.value.message}`);
+			if (r.value.ok) {
+				registered.push(labels[i]);
+				if (r.value.changed) { changed = true; }
+			}
+		} else {
+			console.warn(`[aria-memory] ${labels[i]} registration threw:`, r.reason);
+		}
+	});
+	const summary = registered.length
+		? `Memory MCP registered with ${registered.join(', ')}`
+		: 'Memory MCP — no AI provider CLI found yet';
+	return { changed, summary };
+}
 
 /**
  * Aria Memory — boots a local MCP server so Claude Code (and, later, Codex)
@@ -35,23 +67,19 @@ export function activate(context: vscode.ExtensionContext): void {
 	const tools = buildTools();
 	mcpServer = new AriaMemoryMcpServer(tools);
 
+	let currentPort: number | undefined;
+
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-memory-mcp');
 		let summary = 'Memory MCP — already configured';
 		let changed = false;
 		try {
 			const port = await mcpServer!.start();
-			console.log(`[aria-memory] MCP up on ${port}; registering with Claude Code…`);
-			const reg = await registerWithClaudeCode(port);
-			console.log(`[aria-memory] Claude Code: ${reg.message}`);
+			currentPort = port;
+			console.log(`[aria-memory] MCP up on ${port}; registering with AI providers…`);
+			const reg = await registerAllProviders(port);
 			changed = reg.changed;
-			if (!reg.ok) {
-				summary = `Memory MCP registration failed: ${reg.message}`;
-			} else if (reg.changed) {
-				summary = 'Memory MCP registered with Claude Code';
-			} else {
-				summary = 'Memory MCP — already configured';
-			}
+			summary = reg.summary;
 		} catch (e) {
 			summary = `Memory MCP startup failed: ${(e as Error).message}`;
 			changed = false;
@@ -59,6 +87,16 @@ export function activate(context: vscode.ExtensionContext): void {
 			await vscode.commands.executeCommand('aria.startup.markComplete', 'aria-memory-mcp', summary, changed);
 		}
 	})();
+
+	// Re-register when provider extensions are installed/removed later, so a
+	// provider added after startup still gets the memory MCP wired up without
+	// a reload. Debounced because installs fire onDidChange rapidly.
+	let timer: NodeJS.Timeout | undefined;
+	context.subscriptions.push(vscode.extensions.onDidChange(() => {
+		if (currentPort === undefined) { return; }
+		if (timer) { clearTimeout(timer); }
+		timer = setTimeout(() => { void registerAllProviders(currentPort!); }, 800);
+	}));
 }
 
 export async function deactivate(): Promise<void> {

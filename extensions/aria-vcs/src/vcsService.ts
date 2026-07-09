@@ -276,7 +276,6 @@ export class VcsService {
 	async getSnapshotChanges(workspacePath: string, hash: string): Promise<FileChange[]> {
 		// What changed *in* this snapshot (relative to its parent). Used by
 		// the Versions view when the user expands a snapshot row.
-		const sep = '<<ARIA-NAMESTAT-SEP>>';
 		let stdout = '';
 		try {
 			// `--root` lets us still get output when the snapshot has no parent

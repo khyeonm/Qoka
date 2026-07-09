@@ -12,6 +12,8 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { revealAiProviderChat } from '../../aria/browser/aiProviderChat.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -61,8 +63,8 @@ const STEPS = ['Format', 'Sources', 'Focus', 'Outline', 'Write'];
 
 /**
  * Editor pane for a paper project — a 5-step wizard mirroring SPWA:
- * Format → Sources → Focus → Outline → Write. Each "✨ with Claude" button
- * auto-sends a prompt to the Claude chat; Claude writes back via the aria-paper
+ * Format → Sources → Focus → Outline → Write. Each "✨ with AI" button
+ * auto-sends a prompt to your AI chat; Claude writes back via the aria-paper
  * MCP (set_focus / set_outline / set_manuscript) and the form refreshes.
  */
 export class AriaPaperWriterEditorPane extends EditorPane {
@@ -100,6 +102,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		@IPathService private readonly pathService: IPathService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IDialogService private readonly dialogService: IDialogService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super(AriaPaperWriterEditorPane.ID, group, telemetryService, themeService, storageService);
 	}
@@ -201,14 +204,12 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	}
 
 	private async sendToChat(query: string): Promise<void> {
-		// Always copy (reliable) + best-effort auto-open the chat with the query.
+		// Copy (reliable) + reveal whichever AI provider chat the user installed
+		// (Claude / Codex / Gemini). Provider sidebars can't be injected with a
+		// query, so the clipboard is the real delivery path — the user pastes it.
 		await this.clipboardService.writeText(query);
-		try {
-			await this.commandService.executeCommand('workbench.action.chat.open', { query, isPartialQuery: false });
-		} catch {
-			// chat command unavailable — clipboard fallback below covers it.
-		}
-		this.notificationService.info(localize('aria.paperWriter.promptSent', "Prompt sent to Claude (and copied to clipboard — if the chat didn't auto-fill, paste it into the Claude chat)."));
+		await revealAiProviderChat(this.commandService, this.configurationService);
+		this.notificationService.info(localize('aria.paperWriter.promptSent', "Prompt copied — paste it into your AI chat (Ctrl/Cmd+V) and press Enter."));
 	}
 
 	// --- Rendering ----------------------------------------------------------
@@ -381,8 +382,8 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		if (items.length === 0) {
 			const e = append(box, $('div'));
 			e.textContent = kind === 'figure'
-				? localize('aria.paperWriter.noFigures', "No figures yet — add images Claude should reference as (Figure N).")
-				: localize('aria.paperWriter.noSources', "No supplementary files yet — add data, PDFs, or code Claude should draw facts from.");
+				? localize('aria.paperWriter.noFigures', "No figures yet — add images the AI should reference as (Figure N).")
+				: localize('aria.paperWriter.noSources', "No supplementary files yet — add data, PDFs, or code the AI should draw facts from.");
 			Object.assign(e.style, { fontSize: '13px', opacity: '0.55' });
 		} else {
 			for (const it of items) {
@@ -416,7 +417,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			'ghost', () => void this.addAssets(kind)));
 		const pending = items.filter(i => !i.summary).length;
 		if (pending > 0) {
-			tools.appendChild(this.button(localize('aria.paperWriter.summarize', "✨ Summarize {0} new with Claude", pending), 'ghost', () => void this.sendToChat(this.summarizePrompt())));
+			tools.appendChild(this.button(localize('aria.paperWriter.summarize', "✨ Summarize {0} new with AI", pending), 'ghost', () => void this.sendToChat(this.summarizePrompt())));
 		}
 	}
 
@@ -544,9 +545,9 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	private renderFocusStep(root: HTMLElement): void {
 		this.header(root, localize('aria.paperWriter.focusHeader', "③ Research focus"));
 		const hint = append(root, $('div'));
-		hint.textContent = localize('aria.paperWriter.focusHint', "Develop the focus with Claude (it asks one question at a time), or write/paste it directly. Problem, objectives, gap, and contribution.");
+		hint.textContent = localize('aria.paperWriter.focusHint', "Develop the focus with AI (it asks one question at a time), or write/paste it directly. Problem, objectives, gap, and contribution.");
 		Object.assign(hint.style, { fontSize: '13px', opacity: '0.7', lineHeight: '1.55', marginBottom: '8px' });
-		append(root, this.button(localize('aria.paperWriter.developFocus', "✨ Develop focus with Claude"), 'primary', () => void this.sendToChat(this.focusPrompt())));
+		append(root, this.button(localize('aria.paperWriter.developFocus', "✨ Develop focus with AI"), 'primary', () => void this.sendToChat(this.focusPrompt())));
 		const ta = append(root, $('textarea')) as HTMLTextAreaElement;
 		ta.value = this.meta!.focus ?? '';
 		ta.placeholder = localize('aria.paperWriter.focusPlaceholder', "- Problem: …\n- Objective: …\n- Gap / contribution: …");
@@ -561,11 +562,11 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	private renderOutlineStep(root: HTMLElement): void {
 		this.header(root, localize('aria.paperWriter.outlineHeader', "④ Outline"));
 		const hint = append(root, $('div'));
-		hint.textContent = localize('aria.paperWriter.outlineHint', "Let Claude propose sections + word budgets, or build them yourself. Add the key points each section should cover.");
+		hint.textContent = localize('aria.paperWriter.outlineHint', "Let the AI propose sections + word budgets, or build them yourself. Add the key points each section should cover.");
 		Object.assign(hint.style, { fontSize: '13px', opacity: '0.7', lineHeight: '1.55', marginBottom: '8px' });
 		const btnRow = append(root, $('div'));
 		Object.assign(btnRow.style, { display: 'flex', gap: '8px', flexWrap: 'wrap' });
-		btnRow.appendChild(this.button(localize('aria.paperWriter.generateOutline', "✨ Generate outline with Claude"), 'primary', () => void this.sendToChat(this.outlinePrompt())));
+		btnRow.appendChild(this.button(localize('aria.paperWriter.generateOutline', "✨ Generate outline with AI"), 'primary', () => void this.sendToChat(this.outlinePrompt())));
 		btnRow.appendChild(this.button(localize('aria.paperWriter.resetOutline', "Reset to default sections"), 'ghost', () => {
 			this.meta!.outline = this.defaultOutline();
 			void this.saveMeta().then(() => this.render());
@@ -662,7 +663,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			const banner = append(root, $('div'));
 			Object.assign(banner.style, { display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'space-between', border: '1px solid rgba(240,200,0,0.5)', background: 'rgba(240,200,0,0.12)', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px' });
 			const t = append(banner, $('span'));
-			t.textContent = localize('aria.paperWriter.proposalPending', "✦ Claude proposed edits to the manuscript — review and accept them.");
+			t.textContent = localize('aria.paperWriter.proposalPending', "✦ The AI proposed edits to the manuscript — review and accept them.");
 			t.style.fontSize = '13px';
 			banner.appendChild(this.button(localize('aria.paperWriter.openReview', "Review edits"), 'primary', () => {
 				if (this.folder) { void this.editorService.openEditor(new AriaManuscriptReviewInput(this.folder), { pinned: true }); }
@@ -675,7 +676,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const hint = append(root, $('div'));
 		hint.textContent = written
 			? localize('aria.paperWriter.writeDone', "Drafted ({0} words). Review it, re-write if needed, then export.", words)
-			: localize('aria.paperWriter.writeHint', "Claude combines your format, sources, focus, and outline to write the manuscript section by section.");
+			: localize('aria.paperWriter.writeHint', "The AI combines your format, sources, focus, and outline to write the manuscript section by section.");
 		Object.assign(hint.style, { fontSize: '13px', opacity: '0.7', lineHeight: '1.55', marginBottom: '12px' });
 
 		// One responsive row: [Re-write] [Revise] │ [Export MD] [DOCX] [LaTeX].
@@ -683,11 +684,11 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const bar = append(root, $('div'));
 		Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' });
 		bar.appendChild(this.button(
-			written ? localize('aria.paperWriter.rewrite', "✨ Re-write with Claude") : localize('aria.paperWriter.write', "✨ Write the paper with Claude"),
+			written ? localize('aria.paperWriter.rewrite', "✨ Re-write with AI") : localize('aria.paperWriter.write', "✨ Write the paper with AI"),
 			'primary', () => void this.onWrite()));
 
 		if (written) {
-			bar.appendChild(this.button(localize('aria.paperWriter.revise', "✦ Revise a part with Claude"), 'ghost', () => void this.sendToChat(this.revisePrompt())));
+			bar.appendChild(this.button(localize('aria.paperWriter.revise', "✦ Revise a part with AI"), 'ghost', () => void this.sendToChat(this.revisePrompt())));
 			const divider = append(bar, $('div'));
 			Object.assign(divider.style, { width: '1px', alignSelf: 'stretch', minHeight: '26px', background: 'rgba(127,127,127,0.4)', margin: '0 4px' });
 			bar.appendChild(this.button('Export MD', 'ghost', () => void this.export('markdown')));
@@ -726,7 +727,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		}
 	}
 
-	// --- Prompts (auto-sent to the Claude chat) -----------------------------
+	// --- Prompts (auto-sent to your AI chat) -----------------------------
 
 	/** Human-readable name of the paper's configured writing language. */
 	private langName(): string {

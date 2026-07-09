@@ -10,6 +10,7 @@ import { buildTools } from './mcp/tools';
 import { buildReviewTools, exportReviewPaper, ReviewExportFormat } from './reviews';
 import { AriaPaperMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
+import { registerWithCodex } from './registration/codexMcp';
 import { ExportFormat, exportPaper, getPandoc, setCacheDir, setResourceRoot } from './exporter';
 import { addAsset, addCitationCleanKey, PaperAsset, removeAsset, setAssetSummary, syncManuscriptTitle } from './papers';
 import { PAPER_MCP_INSTRUCTIONS } from './guide';
@@ -44,9 +45,39 @@ const FAMILY_SAMPLE: Record<string, string> = {
 let mcpServer: AriaPaperMcpServer | undefined;
 
 /**
- * Aria Paper Writer — boots a local MCP server so Claude Code can draft, cite,
- * and export scientific manuscripts. Reads/structure/export are deterministic;
- * the prose is written by the agent following get_writing_guide.
+ * Register the paper MCP with every AI provider whose CLI is available
+ * (Claude Code, Codex, Gemini). The server serves /sse (Claude) and /mcp
+ * (Codex, Gemini) on the same port; missing CLIs are silently skipped.
+ */
+async function registerAllProviders(port: number): Promise<{ changed: boolean; summary: string }> {
+	const results = await Promise.allSettled([
+		registerWithClaudeCode(port),
+		registerWithCodex(port),
+	]);
+	const labels = ['Claude Code', 'Codex'];
+	const registered: string[] = [];
+	let changed = false;
+	results.forEach((r, i) => {
+		if (r.status === 'fulfilled') {
+			console.log(`[aria-paper] ${labels[i]}: ${r.value.message}`);
+			if (r.value.ok) {
+				registered.push(labels[i]);
+				if (r.value.changed) { changed = true; }
+			}
+		} else {
+			console.warn(`[aria-paper] ${labels[i]} registration threw:`, r.reason);
+		}
+	});
+	const summary = registered.length
+		? `Paper MCP registered with ${registered.join(', ')}`
+		: 'Paper MCP — no AI provider CLI found yet';
+	return { changed, summary };
+}
+
+/**
+ * Aria Paper Writer — boots a local MCP server so an AI assistant can draft,
+ * cite, and export scientific manuscripts. Reads/structure/export are
+ * deterministic; the prose is written by the agent following get_writing_guide.
  */
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-paper] activate()');
@@ -118,23 +149,19 @@ export function activate(context: vscode.ExtensionContext): void {
 	const tools = buildTools().concat(buildReviewTools());
 	mcpServer = new AriaPaperMcpServer(tools, PAPER_MCP_INSTRUCTIONS);
 
+	let currentPort: number | undefined;
+
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-paper-mcp');
 		let summary = 'Paper MCP — already configured';
 		let changed = false;
 		try {
 			const port = await mcpServer!.start();
-			console.log(`[aria-paper] MCP up on ${port}; registering with Claude Code…`);
-			const reg = await registerWithClaudeCode(port);
-			console.log(`[aria-paper] Claude Code: ${reg.message}`);
+			currentPort = port;
+			console.log(`[aria-paper] MCP up on ${port}; registering with AI providers…`);
+			const reg = await registerAllProviders(port);
 			changed = reg.changed;
-			if (!reg.ok) {
-				summary = `Paper MCP registration failed: ${reg.message}`;
-			} else if (reg.changed) {
-				summary = 'Paper MCP registered with Claude Code';
-			} else {
-				summary = 'Paper MCP — already configured';
-			}
+			summary = reg.summary;
 		} catch (e) {
 			summary = `Paper MCP startup failed: ${(e as Error).message}`;
 			changed = false;
@@ -142,6 +169,16 @@ export function activate(context: vscode.ExtensionContext): void {
 			await vscode.commands.executeCommand('aria.startup.markComplete', 'aria-paper-mcp', summary, changed);
 		}
 	})();
+
+	// Re-register when provider extensions are installed/removed later, so a
+	// provider added after startup still gets the paper MCP wired up without a
+	// reload. Debounced because installs fire onDidChange rapidly.
+	let timer: NodeJS.Timeout | undefined;
+	context.subscriptions.push(vscode.extensions.onDidChange(() => {
+		if (currentPort === undefined) { return; }
+		if (timer) { clearTimeout(timer); }
+		timer = setTimeout(() => { void registerAllProviders(currentPort!); }, 800);
+	}));
 }
 
 export async function deactivate(): Promise<void> {

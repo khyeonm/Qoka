@@ -10,7 +10,7 @@ import { RoadmapState, RoadmapNode } from './state';
 import { buildTools } from './mcp/tools';
 import { AriaRoadmapMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
-import { ensureClaudeCodeInstalled } from './install/claudeCodeExtension';
+import { registerWithCodex } from './registration/codexMcp';
 import { registerWorkbenchCommands } from './commands';
 
 let mcpServer: AriaRoadmapMcpServer | undefined;
@@ -32,6 +32,36 @@ let finalized = false;
  * the very first launch and a "Setup complete" toast lists what
  * actually changed.
  */
+/**
+ * Register the roadmap MCP with every AI provider whose CLI is available
+ * (Claude Code, Codex, Gemini). The server serves /sse (Claude) and /mcp
+ * (Codex, Gemini) on the same port; missing CLIs are silently skipped.
+ */
+async function registerAllProviders(port: number): Promise<{ changed: boolean; summary: string }> {
+	const results = await Promise.allSettled([
+		registerWithClaudeCode(port),
+		registerWithCodex(port),
+	]);
+	const labels = ['Claude Code', 'Codex'];
+	const registered: string[] = [];
+	let changed = false;
+	results.forEach((r, i) => {
+		if (r.status === 'fulfilled') {
+			console.log(`[aria-roadmap] ${labels[i]}: ${r.value.message}`);
+			if (r.value.ok) {
+				registered.push(labels[i]);
+				if (r.value.changed) { changed = true; }
+			}
+		} else {
+			console.warn(`[aria-roadmap] ${labels[i]} registration threw:`, r.reason);
+		}
+	});
+	const summary = registered.length
+		? `Roadmap MCP registered with ${registered.join(', ')}`
+		: 'Roadmap MCP — no AI provider CLI found yet';
+	return { changed, summary };
+}
+
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-roadmap] activate()');
 
@@ -59,25 +89,29 @@ export function activate(context: vscode.ExtensionContext): void {
 	// — e.g. auto-opened on a fresh project window — renders the saved tree.
 	notify();
 
+	// Detect which AI assistant the user installed — do NOT force-install one.
+	// Aria works with Claude Code, Codex, or Gemini; installing a specific one
+	// (previously Claude) would fight a user who intentionally chose another.
+	// The onboarding surface guides installation when none is present.
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-roadmap-claude-code-install');
-		let installSummary = 'Claude Code — already installed';
-		let installChanged = false;
+		let summary = 'AI assistant ready';
 		try {
-			const result = await ensureClaudeCodeInstalled();
-			installSummary = result.summary;
-			installChanged = result.changed;
-		} catch (e) {
-			installSummary = `Claude Code install failed: ${(e as Error).message}`;
+			const providers = [
+				{ id: 'anthropic.claude-code', name: 'Claude Code' },
+				{ id: 'openai.chatgpt', name: 'Codex' },
+				{ id: 'Google.gemini-cli-vscode-ide-companion', name: 'Gemini CLI' },
+			];
+			const installed = providers.filter(p => !!vscode.extensions.getExtension(p.id));
+			summary = installed.length
+				? `AI assistant detected: ${installed.map(p => p.name).join(', ')}`
+				: 'No AI assistant installed yet — install Claude Code, Codex, or Gemini to use the chat.';
 		} finally {
-			await vscode.commands.executeCommand(
-				'aria.startup.markComplete',
-				'aria-roadmap-claude-code-install',
-				installSummary,
-				installChanged,
-			);
+			await vscode.commands.executeCommand('aria.startup.markComplete', 'aria-roadmap-claude-code-install', summary, false);
 		}
 	})();
+
+	let currentPort: number | undefined;
 
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-roadmap-mcp');
@@ -85,17 +119,11 @@ export function activate(context: vscode.ExtensionContext): void {
 		let changed = false;
 		try {
 			const port = await mcpServer!.start();
-			console.log(`[aria-roadmap] MCP up on ${port}; registering with Claude Code…`);
-			const reg = await registerWithClaudeCode(port);
-			console.log(`[aria-roadmap] Claude Code: ${reg.message}`);
+			currentPort = port;
+			console.log(`[aria-roadmap] MCP up on ${port}; registering with AI providers…`);
+			const reg = await registerAllProviders(port);
 			changed = reg.changed;
-			if (!reg.ok) {
-				summary = `Roadmap MCP registration failed: ${reg.message}`;
-			} else if (reg.changed) {
-				summary = 'Roadmap MCP registered with Claude Code';
-			} else {
-				summary = 'Roadmap MCP — already configured';
-			}
+			summary = reg.summary;
 		} catch (e) {
 			summary = `Roadmap MCP startup failed: ${(e as Error).message}`;
 			changed = false;
@@ -108,6 +136,16 @@ export function activate(context: vscode.ExtensionContext): void {
 			);
 		}
 	})();
+
+	// Re-register when provider extensions are installed/removed later, so a
+	// provider added after startup still gets the roadmap MCP wired up without a
+	// reload. Debounced because installs fire onDidChange rapidly.
+	let timer: NodeJS.Timeout | undefined;
+	context.subscriptions.push(vscode.extensions.onDidChange(() => {
+		if (currentPort === undefined) { return; }
+		if (timer) { clearTimeout(timer); }
+		timer = setTimeout(() => { void registerAllProviders(currentPort!); }, 800);
+	}));
 }
 
 /** Load `<workspace>/.aria/roadmap.json` into the in-memory state if present.

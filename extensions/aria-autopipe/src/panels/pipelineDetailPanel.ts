@@ -17,7 +17,7 @@ import { services } from '../common/services';
  * Each pipeline gets its own webview tab — the user can keep several
  * open side by side and switch between them like editor tabs.
  */
-const openPanels = new Map<number, vscode.WebviewPanel>();
+const openPanels = new Map<number | null, vscode.WebviewPanel>();
 
 export async function openPipelineDetailPanel(pipeline: Pipeline): Promise<void> {
 	const existing = openPanels.get(pipeline.pipeline_id);

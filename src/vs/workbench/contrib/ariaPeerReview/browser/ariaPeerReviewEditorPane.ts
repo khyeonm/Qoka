@@ -13,6 +13,8 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { revealAiProviderChat } from '../../aria/browser/aiProviderChat.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -45,7 +47,7 @@ const FORMAT_LABEL: Record<PaperFormat, string> = { markdown: 'Markdown (.md)', 
  * AI Peer Review tab.
  *  - new: pick ONE source (attach files, unclassified — the reviewer decides;
  *    or a Paper Writer manuscript via a dropdown), pick reviewers, copy the
- *    prompt into the Claude chat. When concerns land, the run opens.
+ *    prompt into your AI chat. When concerns land, the run opens.
  *  - run: two columns with sticky headers — the paper body on the left (with a
  *    Save-paper menu), per-reviewer Major/Minor Concern cards on the right, each
  *    with Suggest Revision → Accept (applies to the paper, marks the concern
@@ -100,6 +102,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		@IEditorService private readonly editorService: IEditorService,
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super(AriaPeerReviewEditorPane.ID, group, telemetryService, themeService, storageService);
 	}
@@ -379,13 +382,13 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		const rw = append(root, $('div'));
 		Object.assign(rw.style, { display: 'flex', flexDirection: 'column', gap: '6px' });
 		rw.appendChild(this.reviewerCheckbox('claude', 'Claude', true));
-		rw.appendChild(this.reviewerCheckbox('codex', localize('aria.peerReview.codexSoon', "Codex (coming soon)"), false));
+		rw.appendChild(this.reviewerCheckbox('codex', 'Codex', true));
 
 		// copy prompt
 		const bar = append(root, $('div'));
 		Object.assign(bar.style, { marginTop: '24px', display: 'flex', alignItems: 'center', gap: '10px' });
-		bar.appendChild(this.button(localize('aria.peerReview.copyPrompt', "Review with Claude"), 'primary', () => void this.startReview()));
-		const note = append(root, $('div')); note.textContent = localize('aria.peerReview.copyNote', "Paste it into the Claude chat and press Enter. When the reviewers finish, this tab opens the results.");
+		bar.appendChild(this.button(localize('aria.peerReview.copyPrompt', "Review with AI"), 'primary', () => void this.startReview()));
+		const note = append(root, $('div')); note.textContent = localize('aria.peerReview.copyNote', "Paste it into your AI chat and press Enter. When the reviewers finish, this tab opens the results.");
 		Object.assign(note.style, { fontSize: '12px', opacity: '0.6', marginTop: '8px' });
 	}
 
@@ -542,11 +545,12 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	}
 
 	private async sendToChat(query: string): Promise<void> {
-		// Copy-and-paste is the primary path: copy the prompt, reveal the Claude
-		// chat, and tell the user to paste it and press Enter.
+		// Copy-and-paste is the primary path: copy the prompt, reveal whichever
+		// AI provider chat the user installed (Claude / Codex / Gemini), and tell
+		// the user to paste it and press Enter.
 		await this.clipboardService.writeText(query);
-		try { await this.commandService.executeCommand('workbench.action.chat.open'); } catch { /* editor-side reveal only */ }
-		this.notificationService.info(localize('aria.peerReview.promptCopied', "Prompt copied — paste it into the Claude chat (Ctrl/Cmd+V) and press Enter."));
+		await revealAiProviderChat(this.commandService, this.configurationService);
+		this.notificationService.info(localize('aria.peerReview.promptCopied', "Prompt copied — paste it into your AI chat (Ctrl/Cmd+V) and press Enter."));
 	}
 
 	// --- run results (two columns, sticky headers) --------------------------
@@ -631,7 +635,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 			wait.textContent = localize('aria.peerReview.waiting', "Reviewing… concerns appear here when this reviewer finishes.");
 			const paste = append(rbody, $('div'));
 			Object.assign(paste.style, { fontSize: '12.5px', opacity: '0.6', lineHeight: '1.5' });
-			paste.textContent = localize('aria.peerReview.pasteToStart', "Paste the copied prompt into the Claude chat and press Enter to start.");
+			paste.textContent = localize('aria.peerReview.pasteToStart', "Paste the copied prompt into your AI chat and press Enter to start.");
 		} else {
 			const withIdx = rec.concerns.map((c, i) => ({ c, id: `${this.activeReviewer}#${i}` }));
 			const major = withIdx.filter(x => x.c.severity === 'major');

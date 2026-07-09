@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -47,6 +48,16 @@ const SETTINGS_PATH = path.join(os.homedir(), '.claude/settings.json');
  * owns if they open the file.
  */
 const ARIA_HOOK_COMMAND = `"$HOME/.config/aria/hooks/pre-tool-use.sh"`;
+
+/**
+ * Codex reads PreToolUse hooks and shares Claude's hookSpecificOutput
+ * envelope (so the default script needs no format arg). Written to a
+ * separate ~/.codex/hooks.json so we never risk corrupting config.toml.
+ * NOTE: the exact hooks-file location + shell-tool matcher are inferred
+ * from docs — verify a blocked `cat .env` under Codex before relying on it.
+ */
+const CODEX_HOOKS_PATH = path.join(os.homedir(), '.codex', 'hooks.json');
+const CODEX_EXTENSION_ID = 'openai.chatgpt';
 
 /**
  * The actual hook script. Kept inline so a single source-of-truth lives
@@ -252,6 +263,12 @@ export function ensureAriaHook(): void {
 	try {
 		writeHookScript();
 		registerHookInSettings();
+		// Register the same gate with Codex when its extension is present.
+		// (Codex shares the hookSpecificOutput envelope the default script emits
+		// and additionally sandboxes tool execution itself.)
+		if (vscode.extensions.getExtension(CODEX_EXTENSION_ID)) {
+			registerHookInCodex();
+		}
 	} catch (err) {
 		console.error('[aria-skills] ensureAriaHook failed:', (err as Error).message);
 	}
@@ -267,6 +284,8 @@ function writeHookScript(): void {
 interface HookEntry {
 	type?: string;
 	command?: string;
+	/** Codex shows this while the hook runs — used as a "hooks are loading" probe. */
+	statusMessage?: string;
 }
 
 interface MatcherGroup {
@@ -330,4 +349,54 @@ function registerHookInSettings(): void {
 	const tmpPath = `${SETTINGS_PATH}.tmp`;
 	fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2));
 	fs.renameSync(tmpPath, SETTINGS_PATH);
+}
+
+/**
+ * Register the credential-safety gate with Codex via ~/.codex/hooks.json.
+ * Codex shares Claude's hookSpecificOutput/permissionDecision envelope, so
+ * the default script (no format arg) works. Idempotent; a separate file so
+ * we never touch config.toml. Codex also sandboxes tool exec independently.
+ */
+function registerHookInCodex(): void {
+	fs.mkdirSync(path.dirname(CODEX_HOOKS_PATH), { recursive: true });
+
+	let settings: ClaudeSettings = {};
+	if (fs.existsSync(CODEX_HOOKS_PATH)) {
+		try {
+			const raw = fs.readFileSync(CODEX_HOOKS_PATH, 'utf8');
+			settings = raw.trim() ? JSON.parse(raw) as ClaudeSettings : {};
+		} catch (err) {
+			const backup = `${CODEX_HOOKS_PATH}.bak.${Date.now()}`;
+			fs.copyFileSync(CODEX_HOOKS_PATH, backup);
+			console.warn(`[aria-skills] ~/.codex/hooks.json was unparseable (${(err as Error).message}); backed up to ${backup}`);
+			settings = {};
+		}
+	}
+
+	settings.hooks ??= {};
+	settings.hooks.PreToolUse ??= [];
+	const preToolUse = settings.hooks.PreToolUse;
+
+	const already = preToolUse.find(group =>
+		Array.isArray(group.hooks) &&
+		group.hooks.some(h => typeof h.command === 'string' && h.command.includes('pre-tool-use.sh'))
+	);
+	if (already) {
+		// Codex's shell tool is named "Bash" (same canonical name as Claude),
+		// and the command reads .tool_input.command identically. Self-heal any
+		// older entry that used the wrong matcher.
+		if (already.matcher === 'Bash') {
+			return;
+		}
+		already.matcher = 'Bash';
+	} else {
+		preToolUse.push({
+			matcher: 'Bash',
+			hooks: [{ type: 'command', command: ARIA_HOOK_COMMAND, statusMessage: 'Aria: checking command for credential safety' }],
+		});
+	}
+
+	const tmpPath = `${CODEX_HOOKS_PATH}.tmp`;
+	fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2));
+	fs.renameSync(tmpPath, CODEX_HOOKS_PATH);
 }

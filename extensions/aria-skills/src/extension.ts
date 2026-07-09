@@ -12,6 +12,7 @@ import { initLogger, log, showLogger } from './common/logger';
 import { setSkillAutoApprove } from './common/permissions';
 import { ensureEnvFile } from './common/envManager';
 import { ensureAriaHook } from './common/ariaHooks';
+import { syncSkillsToProviders } from './common/skillsManager';
 import { reconcileCategories } from './common/skillManifest';
 
 /**
@@ -38,6 +39,16 @@ export function activate(context: vscode.ExtensionContext): void {
 	// credential env vars — so skill SKILL.md instructions to "create a
 	// .env file" get overridden in favour of Aria's Skills tab.
 	ensureAriaHook();
+
+	// Mirror installed skills into any non-Claude provider's skills dir so
+	// Codex / Gemini discover them too, and re-mirror when a provider is
+	// installed later (debounced — installs fire onDidChange rapidly).
+	syncSkillsToProviders();
+	let providerSyncTimer: NodeJS.Timeout | undefined;
+	context.subscriptions.push(vscode.extensions.onDidChange(() => {
+		if (providerSyncTimer) { clearTimeout(providerSyncTimer); }
+		providerSyncTimer = setTimeout(() => { syncSkillsToProviders(); ensureAriaHook(); }, 800);
+	}));
 
 	setSkillsServices(buildDefaultServices());
 

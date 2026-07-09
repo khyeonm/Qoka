@@ -117,7 +117,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		header.style.flex = '0 0 auto';
 
 		const hint = document.createElement('div');
-		hint.textContent = 'Draft your roadmap with Claude Code. Click any node to view or edit its details. Save keeps it in this project.';
+		hint.textContent = 'Draft your roadmap with your AI assistant. Click any node to view or edit its details. Save keeps it in this project.';
 		hint.style.fontSize = '12.5px';
 		hint.style.opacity = '0.7';
 		header.appendChild(hint);
@@ -909,7 +909,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		card.appendChild(title);
 
 		const hint = document.createElement('div');
-		hint.textContent = 'Paste the prompt below into the Claude Code chat on the right, fill in the “___”, and send. The AI will brainstorm with you and draw the roadmap here as you go.';
+		hint.textContent = 'Paste the prompt below into the AI chat on the right, fill in the “___”, and send. The AI will brainstorm with you and draw the roadmap here as you go.';
 		hint.style.fontSize = '12.5px';
 		hint.style.lineHeight = '1.5';
 		hint.style.opacity = '0.8';

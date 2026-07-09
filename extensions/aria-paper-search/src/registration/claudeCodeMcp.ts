@@ -101,27 +101,6 @@ function readUserScopeRegisteredPort(): number | null {
 	}
 }
 
-async function readRegisteredPort(claude: string): Promise<number | null> {
-	try {
-		const out = await execAsync(`${q(claude)} mcp list`, { timeout: 10000 });
-		const lines = out.stdout.split('\n');
-		for (let i = 0; i < lines.length; i++) {
-			const t = lines[i].trim();
-			if (t.startsWith(`${MCP_NAME}:`) || t === MCP_NAME) {
-				for (let j = i; j < Math.min(i + 3, lines.length); j++) {
-					const m = lines[j].match(/127\.0\.0\.1:(\d+)/);
-					if (m) {
-						return parseInt(m[1], 10);
-					}
-				}
-			}
-		}
-		return null;
-	} catch {
-		return null;
-	}
-}
-
 /**
  * Register the paper-library MCP server with the Claude Code CLI. Uses
  * the HTTP+SSE transport endpoint (/sse), distinct from Codex's

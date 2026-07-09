@@ -14,6 +14,11 @@ export type AriaMode = '' | 'easy' | 'advanced';
 
 export const AriaModeContextKey = new RawContextKey<AriaMode>('aria.mode', '');
 
+export const ARIA_AI_PROVIDER_SETTING = 'aria.aiProvider';
+
+/** Which AI assistant Aria's ✨/chat buttons prefer when several are installed. */
+export type AriaAiProvider = 'auto' | 'claude' | 'codex';
+
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'aria',
 	order: 5,
@@ -31,6 +36,18 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: '',
 			scope: ConfigurationScope.APPLICATION,
 			description: localize('aria.mode.description', "Aria interface mode."),
+		},
+		[ARIA_AI_PROVIDER_SETTING]: {
+			type: 'string',
+			enum: ['auto', 'claude', 'codex'],
+			enumDescriptions: [
+				localize('aria.aiProvider.auto', "Use whichever AI assistant is installed (prefers Claude Code when several are present)."),
+				localize('aria.aiProvider.claude', "Prefer Claude Code."),
+				localize('aria.aiProvider.codex', "Prefer Codex."),
+			],
+			default: 'auto',
+			scope: ConfigurationScope.APPLICATION,
+			description: localize('aria.aiProvider.description', "Which AI assistant Aria opens for its ✨ buttons when more than one is installed. Aria registers its tools with every installed assistant regardless of this setting."),
 		}
 	}
 });

@@ -22,6 +22,31 @@ import { PaperLibraryState } from './types';
  */
 
 let mcpServer: AriaPaperLibraryMcpServer | undefined;
+let currentMcpPort: number | undefined;
+
+/**
+ * Register the paper-library MCP with every AI provider whose CLI is
+ * available (Claude Code, Codex, Gemini). The server serves /sse (Claude)
+ * and /mcp (Codex, Gemini) on the same port; missing CLIs are skipped.
+ * Returns whether any registration actually changed.
+ */
+async function registerProviders(port: number): Promise<boolean> {
+	const results = await Promise.allSettled([
+		registerWithClaudeCode(port),
+		registerWithCodex(port),
+	]);
+	const labels = ['Claude Code', 'Codex'];
+	let changed = false;
+	results.forEach((r, i) => {
+		if (r.status === 'fulfilled') {
+			console.log(`[aria-paper-search] ${labels[i]} registration ok=${r.value.ok} changed=${r.value.changed}: ${r.value.message}`);
+			if (r.value.changed) { changed = true; }
+		} else {
+			console.error(`[aria-paper-search] ${labels[i]} registration threw:`, r.reason);
+		}
+	});
+	return changed;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-paper-search] activate()');
@@ -150,6 +175,16 @@ export function activate(context: vscode.ExtensionContext): void {
 	// block activate(); the sidebar's library commands work whether or
 	// not Claude has discovered the MCP yet.
 	void bootMcp();
+
+	// Re-register when provider extensions are installed/removed later, so a
+	// provider added after startup still gets the paper-library MCP wired up
+	// without a reload. Debounced because installs fire onDidChange rapidly.
+	let timer: NodeJS.Timeout | undefined;
+	context.subscriptions.push(vscode.extensions.onDidChange(() => {
+		if (currentMcpPort === undefined) { return; }
+		if (timer) { clearTimeout(timer); }
+		timer = setTimeout(() => { void registerProviders(currentMcpPort!); }, 800);
+	}));
 }
 
 async function bootMcp(): Promise<void> {
@@ -170,31 +205,8 @@ async function bootMcp(): Promise<void> {
 		// writes can overwrite each other.
 		await new Promise(resolve => setTimeout(resolve, 1500));
 		console.log(`[aria-paper-search] MCP on ${port}; registering with AI clients`);
-		const [claudeResult, codexResult] = await Promise.allSettled([
-			registerWithClaudeCode(port),
-			registerWithCodex(port),
-		]);
-		// Surface the actual outcome so silent registration failures
-		// (the most common symptom: tools not appearing in Claude) show
-		// up in the Developer Tools console with an actionable message.
-		if (claudeResult.status === 'fulfilled') {
-			const r = claudeResult.value;
-			console.log(`[aria-paper-search] Claude Code registration ok=${r.ok} changed=${r.changed}: ${r.message}`);
-			if (r.changed) {
-				changed = true;
-			}
-		} else {
-			console.error('[aria-paper-search] Claude Code registration threw:', claudeResult.reason);
-		}
-		if (codexResult.status === 'fulfilled') {
-			const r = codexResult.value;
-			console.log(`[aria-paper-search] Codex registration ok=${r.ok} changed=${r.changed}: ${r.message}`);
-			if (r.changed) {
-				changed = true;
-			}
-		} else {
-			console.error('[aria-paper-search] Codex registration threw:', codexResult.reason);
-		}
+		currentMcpPort = port;
+		changed = await registerProviders(port);
 		console.log(`[aria-paper-search] final changed flag = ${changed}`);
 		summary = changed
 			? 'Paper Library MCP registered'

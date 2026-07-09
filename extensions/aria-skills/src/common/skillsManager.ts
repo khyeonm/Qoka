@@ -244,12 +244,66 @@ export function installFromLocal(srcDir: string, targetName: string): string {
 	return dest;
 }
 
+/**
+ * Non-Claude AI providers scan their OWN skills directory. Aria installs the
+ * canonical copy under ~/.claude/skills/ and mirrors each skill into every
+ * installed provider's dir so Codex/Gemini discover the same skills. The
+ * SKILL.md payload is provider-neutral; only the scan path differs.
+ */
+const PROVIDER_SKILL_ROOTS: { extId: string; dir: string }[] = [
+	{ extId: 'openai.chatgpt', dir: path.join(os.homedir(), '.codex', 'skills') },
+];
+
+function installedProviderSkillDirs(): string[] {
+	return PROVIDER_SKILL_ROOTS
+		.filter(p => !!vscode.extensions.getExtension(p.extId))
+		.map(p => p.dir);
+}
+
+/** Mirror an installed skill (~/.claude/skills/<name>) into every installed
+ *  non-Claude provider's skills dir. Best-effort per provider. */
+export function mirrorSkillToProviders(name: string): void {
+	const src = skillPath(name);
+	if (!fs.existsSync(src)) {
+		return;
+	}
+	for (const dir of installedProviderSkillDirs()) {
+		const dest = path.join(dir, name);
+		try {
+			fs.mkdirSync(dir, { recursive: true });
+			hardRemove(dest);
+			fs.cpSync(src, dest, { recursive: true });
+		} catch (e) {
+			console.warn(`[aria-skills] mirror skill "${name}" -> ${dir} failed: ${(e as Error).message}`);
+		}
+	}
+}
+
+/** Remove a skill from every provider's skills dir (Claude handled separately). */
+export function removeSkillFromProviders(name: string): void {
+	for (const { dir } of PROVIDER_SKILL_ROOTS) {
+		hardRemove(path.join(dir, name));
+	}
+}
+
+/** Mirror ALL managed skills into every installed provider dir. Call when a
+ *  provider is installed after startup so pre-existing skills show up there. */
+export function syncSkillsToProviders(): void {
+	if (installedProviderSkillDirs().length === 0) {
+		return;
+	}
+	for (const skill of listManaged()) {
+		mirrorSkillToProviders(skill.name);
+	}
+}
+
 export async function uninstall(name: string): Promise<void> {
 	const leaving = findSkill(name);
 	const leavingVars = leaving?.envVars?.map(v => v.name) ?? [];
 
 	const dir = skillPath(name);
 	hardRemove(dir);
+	removeSkillFromProviders(name);
 	removeSkillFromManifest(name);
 
 	if (leavingVars.length === 0) {
@@ -329,6 +383,9 @@ export function reconcileWithDisk(): SkillInfo[] {
 /** Add or replace a skill record in the manifest. Convenience re-export. */
 export function recordSkill(skill: SkillInfo): SkillInfo {
 	upsertSkill(skill);
+	// Mirror into any installed non-Claude provider's skills dir so Codex /
+	// Gemini discover it too (Claude reads ~/.claude/skills/ directly).
+	mirrorSkillToProviders(skill.name);
 	return skill;
 }
 

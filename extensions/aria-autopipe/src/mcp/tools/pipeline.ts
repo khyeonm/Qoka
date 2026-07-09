@@ -15,9 +15,6 @@ import { windowsToWsl } from '../../common/dockerEnv';
 // placeholders for now — those land when the Hub UI ships. Local-side
 // operations (validate, delete) are wired through SSH.
 
-const HUB_STUB = (toolName: string, args: Record<string, unknown>) =>
-	textResult(`[${toolName}] not yet wired — the Autopipe Hub UI in Aria is intentionally out of scope for the current build. Arguments received: ${JSON.stringify(args)}`);
-
 function requireProfile() {
 	const { config } = services();
 	const profile = config.activeProfile();
@@ -58,45 +55,6 @@ function formatPipelineList(pipelines: Pipeline[], header: string): string {
 	return [header, '', ...rows].join('\n');
 }
 
-/** Convert Hub's `tree/<ref>[/sub]` style GitHub URL into a plain
- *  clonable HTTPS URL (no path inside the repo, no ref). */
-function githubCloneUrl(treeUrl: string): string {
-	const m = treeUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/?#]+?)(?:\.git)?(?:\/|$)/);
-	if (!m) {
-		throw new Error(`Unrecognized GitHub URL: ${treeUrl}`);
-	}
-	return `https://github.com/${m[1]}/${m[2]}.git`;
-}
-
-/** Tag/branch ref encoded in the Hub URL (`tree/<ref>`). Defaults to
- *  `main` when the URL is just `https://github.com/owner/repo`. */
-function extractGitHubRef(treeUrl: string): string {
-	const m = treeUrl.match(/\/tree\/([^/?#]+)/);
-	return m ? m[1] : 'main';
-}
-
-/** Sub-path within the repo, if the URL points into a monorepo
- *  pipeline (`/tree/<ref>/<sub/path>`). Empty string for root. */
-function extractGitHubSubPath(treeUrl: string): string {
-	const m = treeUrl.match(/\/tree\/[^/?#]+\/(.+)$/);
-	return m ? m[1].replace(/\/+$/, '') : '';
-}
-
-/** Look up the authenticated GitHub user when we don't already have it
- *  cached in config — needed to build the owner/repo URL during upload. */
-async function fetchGithubLogin(token: string): Promise<string> {
-	const res = await fetch('https://api.github.com/user', {
-		headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' },
-	});
-	if (!res.ok) {
-		throw new Error(`/user lookup failed (${res.status})`);
-	}
-	const data = await res.json() as { login?: string };
-	if (!data.login) {
-		throw new Error('/user response had no login field');
-	}
-	return data.login;
-}
 
 export const PIPELINE_TOOLS: ToolDefinition[] = [
 	{
@@ -1092,7 +1050,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 						}
 						if (!meta.author) {
 							const token = cfg.github?.token;
-							const login = await fetchGithubLogin(token);
+							const login = token ? await fetchGithubLogin(token) : '';
 							if (login) {
 								try {
 									const updated = fillRoCrateAuthor(content, login);
