@@ -392,6 +392,7 @@ import './contrib/ariaLoginGate/browser/ariaLoginGate.contribution.js';
 import './contrib/ariaRoadmapWizard/browser/ariaRoadmapWizard.contribution.js';
 import './contrib/ariaNotes/browser/ariaNotes.contribution.js';
 import './contrib/ariaPaperWriter/browser/ariaPaperWriter.contribution.js';
+import './contrib/ariaPeerReview/browser/ariaPeerReview.contribution.js';
 import './contrib/ariaVcs/browser/ariaVcs.contribution.js';
 import './contrib/welcomeViews/common/viewsWelcome.contribution.js';
 import './contrib/welcomeViews/common/newFile.contribution.js';

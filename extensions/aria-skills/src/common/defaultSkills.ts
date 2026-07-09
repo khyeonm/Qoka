@@ -15,8 +15,13 @@
 export interface DefaultSkillSpec {
 	/** Folder name used under ~/.claude/skills/. Also the manifest key. */
 	name: string;
-	/** GitHub URL the wizard will clone from (sub-paths supported). */
-	url: string;
+	/** GitHub URL the wizard will clone from (sub-paths supported). Provide this
+	 *  OR `bundledPath` — not both. */
+	url?: string;
+	/** App-bundled skill folder, relative to the aria-skills extension root
+	 *  (e.g. 'skills/iterative-paper-defense'). When set, the wizard copies it
+	 *  into ~/.claude/skills/ instead of cloning from GitHub — no network. */
+	bundledPath?: string;
 	/** Category label shown in the Skills tab. */
 	category: string;
 	/** Short blurb used until SKILL.md analysis fills in a better one. */
@@ -29,6 +34,12 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 		url: 'https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/paper-lookup',
 		category: 'Literature',
 		description: 'Look up academic papers across multiple sources for the Paper Search tab.',
+	},
+	{
+		name: 'iterative-paper-defense',
+		bundledPath: 'skills/iterative-paper-defense',
+		category: 'Writing',
+		description: 'AI peer review with iterative, non-fabricating defensive revision of a manuscript, for the Peer Review tab.',
 	},
 ];
 

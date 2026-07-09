@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { buildTools } from './mcp/tools';
+import { buildReviewTools, exportReviewPaper, ReviewExportFormat } from './reviews';
 import { AriaPaperMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { ExportFormat, exportPaper, getPandoc, setCacheDir, setResourceRoot } from './exporter';
@@ -62,6 +63,11 @@ export function activate(context: vscode.ExtensionContext): void {
 		return `Exported ${format} → ${res.outputPath} (style: ${res.style}).`;
 	}));
 
+	// Save the current AI Peer Review paper (working copy) to md/docx/latex
+	// inside the review's own directory. Invoked by the Peer Review pane.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.exportPaper', (execId: string, format: string, docKey?: string) =>
+		exportReviewPaper(execId, format as ReviewExportFormat, docKey ?? 'main')));
+
 	// Instant citation-style preview for the wizard's Format step.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.previewCitation', (style: string) =>
 		CITATION_PREVIEWS[style] ?? FAMILY_SAMPLE[STYLE_FAMILY[style]] ?? CITATION_PREVIEWS.ieee));
@@ -109,7 +115,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		setAssetSummary(id, assetId, summary);
 	}));
 
-	const tools = buildTools();
+	const tools = buildTools().concat(buildReviewTools());
 	mcpServer = new AriaPaperMcpServer(tools, PAPER_MCP_INSTRUCTIONS);
 
 	void (async () => {

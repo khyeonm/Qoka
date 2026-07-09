@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -216,6 +217,33 @@ function hardRemove(target: string): void {
  * it from the manifest, then read the manifest AFTER removal to figure
  * out which vars are still in use.
  */
+/**
+ * Install a skill by copying an app-bundled directory into
+ * ~/.claude/skills/<name>/. Used for default skills that ship WITH Aria (e.g.
+ * iterative-paper-defense) instead of being cloned from GitHub — no network.
+ */
+/**
+ * Resolve an app-bundled skill path (relative to the aria-skills extension root,
+ * e.g. 'skills/iterative-paper-defense') to an absolute path — robust to how the
+ * extension was compiled (tsc keeps out/<subdir>/, so __dirname isn't the root).
+ */
+export function resolveBundledPath(rel: string): string {
+	const ext = vscode.extensions.getExtension('aria.aria-skills');
+	const root = ext?.extensionUri?.fsPath ?? path.join(__dirname, '..', '..');
+	return path.join(root, rel);
+}
+
+export function installFromLocal(srcDir: string, targetName: string): string {
+	if (!fs.existsSync(path.join(srcDir, 'SKILL.md'))) {
+		throw new Error(`No SKILL.md at bundled path ${srcDir}.`);
+	}
+	ensureSkillsDir();
+	const dest = skillPath(targetName);
+	hardRemove(dest);
+	fs.cpSync(srcDir, dest, { recursive: true });
+	return dest;
+}
+
 export async function uninstall(name: string): Promise<void> {
 	const leaving = findSkill(name);
 	const leavingVars = leaving?.envVars?.map(v => v.name) ?? [];
@@ -258,6 +286,12 @@ export async function reinstall(
 ): Promise<string> {
 	await uninstall(name);
 	const existing = findSkill(name);
+	// App-bundled skills (source "bundled:<relPath>") re-copy from the bundle,
+	// never GitHub — they update with the app, not over the network.
+	if (source.startsWith('bundled:')) {
+		const rel = source.slice('bundled:'.length);
+		return installFromLocal(resolveBundledPath(rel), existing?.name ?? name);
+	}
 	const targetName = existing?.name ?? deriveSkillName(source);
 	return cloneFromGithub(source, targetName);
 }

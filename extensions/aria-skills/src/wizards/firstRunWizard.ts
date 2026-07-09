@@ -4,11 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { DefaultSkillSpec, findMissingDefaultSkills } from '../common/defaultSkills';
 import { skillsServices } from '../common/services';
 import { discoverSkillsInRepo, fetchSkillMd, fetchSkillMdAtPath } from '../common/skillFetcher';
 import { analyzeSkillMd } from '../common/claudeAnalyzer';
-import { cloneFromGithub } from '../common/skillsManager';
+import { cloneFromGithub, installFromLocal, resolveBundledPath } from '../common/skillsManager';
 import { log } from '../common/logger';
 import { SkillInfo } from '../common/types';
 
@@ -135,19 +137,49 @@ async function ensureUvInstalled(): Promise<void> {
 async function installOneDefault(spec: DefaultSkillSpec): Promise<void> {
 	const svc = skillsServices();
 
+	// App-bundled skill: copy from the extension's `skills/<...>` folder instead
+	// of cloning from GitHub. `__dirname` is the bundled out/ dir, so '..' is the
+	// extension root.
+	if (spec.bundledPath) {
+		const srcDir = resolveBundledPath(spec.bundledPath);
+		const skillMd = fs.readFileSync(path.join(srcDir, 'SKILL.md'), 'utf8');
+		const analysis = await analyzeSkillMd(skillMd);
+		const dest = installFromLocal(srcDir, spec.name);
+		const skill: SkillInfo = {
+			name: spec.name,
+			category: analysis.category ?? spec.category,
+			description: analysis.description ?? spec.description,
+			source: `bundled:${spec.bundledPath}`,
+			type: 'default',
+			installedAt: new Date().toISOString(),
+			envVars: analysis.envVars,
+			dependencies: analysis.dependencies,
+			autoApprove: false,
+			path: dest,
+		};
+		svc.skills.recordSkill(skill);
+		svc.manifest.addCategory(skill.category);
+		return;
+	}
+
+	if (!spec.url) {
+		throw new Error(`Default skill "${spec.name}" has neither url nor bundledPath.`);
+	}
+	const specUrl = spec.url;
+
 	let skillMd: string;
-	let cloneUrl = spec.url;
+	let cloneUrl = specUrl;
 	let categoryFromAnalysis: string | undefined;
 	try {
-		const direct = await fetchSkillMd(spec.url);
+		const direct = await fetchSkillMd(specUrl);
 		skillMd = direct.content;
 	} catch {
 		// Try multi-skill discovery — paper-lookup happens to be at a
 		// known sub-path, but other defaults might live in a monorepo
 		// where the URL only points at the root.
-		const discovered = await discoverSkillsInRepo(spec.url);
+		const discovered = await discoverSkillsInRepo(specUrl);
 		if (discovered.skillSubPaths.length === 0) {
-			throw new Error(`No SKILL.md found at ${spec.url}.`);
+			throw new Error(`No SKILL.md found at ${specUrl}.`);
 		}
 		const first = discovered.skillSubPaths[0];
 		const fetched = await fetchSkillMdAtPath(discovered.owner, discovered.repo, discovered.branch, first);

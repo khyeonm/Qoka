@@ -95,16 +95,6 @@ export async function buildOptions(
 	const subprocessEnv = buildSubprocessEnv();
 	const resolvedRgDiskPath = await rgDiskPath();
 
-	// Redirect Claude's native auto-memory out of ~/.claude and INTO the open
-	// project, under `<workspace>/.aria/memory`. This is the storage backend
-	// for Aria's per-project memory ("LLM wiki"): the native memory engine
-	// keeps auto-writing/recalling MEMORY.md + per-fact pages, but now they
-	// live in the repo — so they are git-versioned with the project, visible
-	// and editable in the workbench, and travel when the repo is cloned.
-	// Keyed by workspace, so each project gets its own isolated memory. The SDK
-	// ignores this value if set in a checked-in .claude/settings.json (for
-	// security), which is exactly why we inject it here via `Options.settings`.
-	const autoMemoryDirectory = join(input.workingDirectory.fsPath, '.aria', 'memory');
 	const settingsEnv: Record<string, string> = {
 		ANTHROPIC_BASE_URL: proxyHandle.baseUrl,
 		ANTHROPIC_AUTH_TOKEN: `${proxyHandle.nonce}.${input.sessionId}`,
