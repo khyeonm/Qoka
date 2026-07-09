@@ -9,9 +9,11 @@ import { URL } from 'url';
 import { ToolDefinition } from './tools';
 import { isJsonRpcRequest, jsonRpcSuccess, jsonRpcError, JsonRpcErrorCodes, JsonRpcRequest } from './jsonrpc';
 
-// Offset from the autopipe / paper-search / notes ports so all of Aria's MCP
-// servers can coexist on one machine.
-const DEFAULT_PORT = 3790;
+// Distinct from every other Aria MCP server's range so ports are deterministic
+// across launches (autopipe 3748-, paper-search 3760-, aria-memory 3766-,
+// roadmap 3780-, notes 3786-, paper 3790-). Overlapping ranges caused a boot
+// race where the persisted registration went stale and the chat couldn't connect.
+const DEFAULT_PORT = 3766;
 const HOST = '127.0.0.1';
 
 interface SseSession {
@@ -50,7 +52,7 @@ export class AriaMemoryMcpServer {
 
 		// Try the default port first, then fall back through a small range,
 		// finally let the OS assign one.
-		const candidates = [DEFAULT_PORT, 3791, 3792, 3793, 0];
+		const candidates = [DEFAULT_PORT, 3767, 3768, 3769, 0];
 
 		for (const candidate of candidates) {
 			try {

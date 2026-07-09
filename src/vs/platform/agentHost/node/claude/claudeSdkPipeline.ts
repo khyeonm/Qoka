@@ -14,7 +14,7 @@ import { ClaudeRuntimeEffortLevel } from '../../common/claudeModelConfig.js';
 import { AgentSignal } from '../../common/agentService.js';
 import { ISessionDatabase } from '../../common/sessionDataService.js';
 import { ActionType } from '../../common/state/sessionActions.js';
-import { DeferredPromise } from '../../../../base/common/async.js';
+import { DeferredPromise, timeout } from '../../../../base/common/async.js';
 import { ClaudePromptQueue, IPendingSdkMessage } from './claudePromptQueue.js';
 import { ClaudeSdkMessageRouter } from './claudeSdkMessageRouter.js';
 import type { SubagentRegistry } from './claudeSubagentRegistry.js';
@@ -112,8 +112,34 @@ export class ClaudeSdkPipeline extends Disposable {
 		if (!this._query) {
 			this._query = this._warm.query(this._queue.iterable);
 			await this._replayCurrentConfig();
+			// Best-effort: nudge any MCP server that failed its initial connect.
+			void this._nudgeReconnectFailedMcp(this._query);
 		}
 		return this._query;
+	}
+
+	/**
+	 * A freshly-bound session occasionally connects to an in-process MCP server
+	 * (Aria's paper / memory / … servers) a beat before that server's HTTP
+	 * endpoint is listening — or while a registration is migrating to a new port
+	 * — leaving it `failed` until a manual `/mcp` reconnect. This retries
+	 * `reconnectMcpServer` for any failed server a few times. Fire-and-forget and
+	 * fully guarded: it never throws and never blocks the chat.
+	 */
+	private async _nudgeReconnectFailedMcp(query: Query): Promise<void> {
+		try {
+			for (let attempt = 0; attempt < 3; attempt++) {
+				await timeout(attempt === 0 ? 1500 : 3000);
+				if (this._query !== query) { return; }   // query rebound/disposed — stop
+				let statuses: McpServerStatus[];
+				try { statuses = await query.mcpServerStatus(); } catch { return; }
+				const failed = statuses.filter(s => s.status === 'failed');
+				if (failed.length === 0) { return; }      // nothing (left) to fix
+				for (const s of failed) {
+					try { await query.reconnectMcpServer(s.name); } catch { /* try the rest */ }
+				}
+			}
+		} catch { /* a nudge must never destabilise the session */ }
 	}
 
 	private _query: Query | undefined;
