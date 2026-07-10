@@ -6,6 +6,9 @@
 // Side-effect import — registers the `aria.mode` configuration setting.
 import '../common/ariaConfiguration.js';
 
+// Easy-mode accent (sky-blue) overrides, scoped to `.aria-mode-easy` in CSS.
+import './media/ariaEasyMode.css';
+
 // Side-effect import — registers the full-viewport Started overlay
 // contribution that locks the workbench until a project is picked.
 import './ariaStartedOverlay.contribution.js';
@@ -20,14 +23,19 @@ import { localize } from '../../../../nls.js';
 
 import { AriaModeManager } from './ariaModeManager.js';
 import { AriaModeStatusBarContribution } from './ariaStatusBar.contribution.js';
+import { AriaAccountStatusContribution } from './ariaAccountStatus.contribution.js';
+import { AriaRailFlyoutContribution } from './ariaRailFlyout.contribution.js';
 import { AriaStartPagePane } from './ariaStartPage/ariaStartPagePane.js';
 import { AriaStartPageInput } from './ariaStartPage/ariaStartPageInput.js';
+import { AriaHelpEditorPane, AriaHelpInput } from './ariaHelpEditor.js';
 
 const workbenchRegistry = Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench);
 
 // Mode infrastructure
 workbenchRegistry.registerWorkbenchContribution(AriaModeManager, LifecyclePhase.Restored);
 workbenchRegistry.registerWorkbenchContribution(AriaModeStatusBarContribution, LifecyclePhase.Restored);
+workbenchRegistry.registerWorkbenchContribution(AriaAccountStatusContribution, LifecyclePhase.Restored);
+workbenchRegistry.registerWorkbenchContribution(AriaRailFlyoutContribution, LifecyclePhase.Restored);
 
 // Aria Start Page editor pane — kept registered for command-based
 // opening (e.g. View > Welcome To Aria) but the full-viewport
@@ -40,4 +48,15 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 		localize('aria.startPage.label', "Aria Start Page")
 	),
 	[new SyncDescriptor(AriaStartPageInput)]
+);
+
+// Per-tab "How to use" guide — opens as a read-only rendered-Markdown editor tab
+// when the user clicks the "How to use?" link in a sidebar tab's header.
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(
+		AriaHelpEditorPane,
+		AriaHelpEditorPane.ID,
+		localize('aria.help.label', "Aria How-to")
+	),
+	[new SyncDescriptor(AriaHelpInput)]
 );

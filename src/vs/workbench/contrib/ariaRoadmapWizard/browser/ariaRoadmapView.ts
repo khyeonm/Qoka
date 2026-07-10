@@ -6,6 +6,10 @@
 import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
+import { IAction } from '../../../../base/common/actions.js';
+import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
+import { IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
+import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
@@ -80,6 +84,11 @@ export class AriaRoadmapView extends ViewPane {
 		}));
 	}
 
+	override createActionViewItem(action: IAction, options?: IDropdownMenuActionViewItemOptions): IActionViewItem | undefined {
+		return createAriaHelpTitleActionViewItem(action, 'roadmap', options ?? {})
+			?? super.createActionViewItem(action, options);
+	}
+
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		const root = append(container, $('.aria-roadmap-view'));
@@ -115,6 +124,9 @@ export class AriaRoadmapView extends ViewPane {
 		}
 		clearNode(root);
 
+		// Full-width one-line summary at the top of the sidebar.
+		renderAriaTabSummary(root, 'roadmap');
+
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
 			this.renderEmpty(root, localize('aria.roadmap.noFolder', "Open a project to see its roadmap."));
 			return;
@@ -135,7 +147,7 @@ export class AriaRoadmapView extends ViewPane {
 		}
 
 		if (!roadmap || !Array.isArray(roadmap.nodes) || roadmap.nodes.length === 0) {
-			this.renderEmpty(root, localize('aria.roadmap.empty', "No roadmap yet. Use New Project to draft one with Claude Code."));
+			this.renderEmpty(root, localize('aria.roadmap.empty', "No roadmap yet. Use New Project to draft one with your AI assistant."));
 			return;
 		}
 

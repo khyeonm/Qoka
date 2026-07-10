@@ -108,6 +108,17 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 				e.editor.selectedStep = undefined;
 			}
 		}));
+
+		// Aria easy mode: if the user switches into easy mode while the developer
+		// Welcome page is open, close it — easy mode uses the watermark welcome.
+		this._register(this.configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('aria.mode') && this.configurationService.getValue<string>('aria.mode') === 'easy') {
+				const open = this.editorService.findEditors(GettingStartedInput.RESOURCE);
+				if (open.length) {
+					void this.editorService.closeEditors(open);
+				}
+			}
+		}));
 	}
 
 	private async run() {
@@ -115,12 +126,22 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 		// Wait for resolving startup editor until we are restored to reduce startup pressure
 		await this.lifecycleService.when(LifecyclePhase.Restored);
 
+		// Aria: the developer Welcome / Getting Started page is removed in BOTH
+		// modes. Never auto-open it, and close any a previous session restored (the
+		// input has a serializer, so it comes back) so it doesn't linger. It stays
+		// reachable on demand via Help › Welcome (workbench.action.openWalkthrough).
+		// In easy mode the empty-editor watermark shows the Aria welcome instead.
+		const restoredWelcome = this.editorService.findEditors(GettingStartedInput.RESOURCE);
+		if (restoredWelcome.length) {
+			await this.editorService.closeEditors(restoredWelcome);
+		}
+
 		if (AuxiliaryBarMaximizedContext.getValue(this.contextKeyService)) {
 			// If the auxiliary bar is maximized, we do not show the welcome page.
 			return;
 		}
 
-		// Always open Welcome page for first-launch, no matter what is open or which startupEditor is set.
+		// First-launch telemetry opt-out bookkeeping (does not open any editor).
 		if (
 			this.productService.enableTelemetry
 			&& this.productService.showTelemetryOptOut
@@ -131,24 +152,19 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 			this.storageService.store(telemetryOptOutStorageKey, true, StorageScope.PROFILE, StorageTarget.USER);
 		}
 
-		if (this.tryOpenWalkthroughForFolder()) {
-			return;
-		}
-
 		const enabled = isStartupPageEnabled(this.configurationService, this.contextService, this.environmentService);
 		if (enabled && this.lifecycleService.startupKind !== StartupKind.ReloadedWindow) {
 
-			// Open the welcome even if we opened a set of default editors
+			// Honour the non-welcome startup editors only; the welcome page is removed.
 			if (!this.editorService.activeEditor || this.layoutService.openedDefaultEditors) {
 				const startupEditorSetting = this.configurationService.inspect<string>(configurationKey);
 
 				if (startupEditorSetting.value === 'readme') {
 					await this.openReadme();
-				} else if (startupEditorSetting.value === 'welcomePage' || startupEditorSetting.value === 'welcomePageInEmptyWorkbench') {
-					await this.openGettingStarted(true);
 				} else if (startupEditorSetting.value === 'terminal') {
 					this.commandService.executeCommand(TerminalCommandId.CreateTerminalEditor);
 				}
+				// 'welcomePage' / 'welcomePageInEmptyWorkbench' intentionally NOT opened.
 			}
 		}
 	}
@@ -195,10 +211,9 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 					}),
 					this.editorService.openEditors(readmes.filter(readme => !isMarkDown(readme)).map(readme => ({ resource: readme, options: { preserveFocus: this.shouldPreserveFocus() } }))),
 				]);
-			} else {
-				// If no readme is found, default to showing the welcome page.
-				await this.openGettingStarted();
 			}
+			// If no readme is found we intentionally do nothing — the dev welcome
+			// page is removed in Aria (reachable via Help › Welcome if wanted).
 		}
 	}
 

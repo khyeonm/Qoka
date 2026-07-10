@@ -499,3 +499,43 @@
 	border-radius: 16px;
 	text-align: center;
 }
+
+/* --- Aria easy-mode title-bar branding ------------------------------------- */
+/* Hidden by default; shown only in easy mode where it replaces the menu bar. */
+.titlebar-left > .aria-titlebar-brand {
+	display: none;
+}
+
+.monaco-workbench.aria-mode-easy .titlebar-left > .aria-titlebar-brand {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 0 10px;
+	height: 100%;
+}
+
+/* In easy mode, hide the stock app icon and the File/Edit… menu bar so only the
+   Aria brand shows on the left. */
+.monaco-workbench.aria-mode-easy .titlebar-left > .window-appicon,
+.monaco-workbench.aria-mode-easy .titlebar-left > .menubar {
+	display: none;
+}
+
+.aria-titlebar-brand-mark {
+	width: 18px;
+	height: 18px;
+	border-radius: 5px;
+	background: var(--vscode-button-background, #1f6feb);
+	color: var(--vscode-button-foreground, #ffffff);
+	font-weight: 700;
+	font-size: 12px;
+	line-height: 18px;
+	text-align: center;
+	flex: 0 0 auto;
+}
+
+.aria-titlebar-brand-name {
+	font-weight: 600;
+	font-size: 13px;
+	color: var(--vscode-titleBar-activeForeground, var(--vscode-foreground));
+}

@@ -25,6 +25,7 @@ import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContaine
 import { AriaNoteEditorPane } from './ariaNoteEditorPane.js';
 import { AriaNoteEditorInput } from './ariaNoteEditorInput.js';
 import { AriaNotesView } from './ariaNotesView.js';
+import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 import { setNoteProposal } from './ariaNotesProposals.js';
 
 // --- Editor pane (BlockNote webview) ---------------------------------------
@@ -157,3 +158,6 @@ const notesView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([notesView], notesContainer);
+
+// "How to use?" link in the view's title bar.
+registerAriaTabHelpTitleAction(AriaNotesView.ID, 'research-note');

@@ -13,8 +13,8 @@ let mcpServer: AriaNotesMcpServer | undefined;
 
 /**
  * Register the notes MCP with every AI provider whose CLI is available
- * (Claude Code, Codex, Gemini). The server serves both /sse (Claude) and
- * /mcp (Codex, Gemini) on the same port, so each provider is pointed at
+ * (Claude Code, Codex). The server serves both /sse (Claude) and
+ * /mcp (Codex) on the same port, so each provider is pointed at
  * the endpoint it understands. Each call tolerates a missing CLI, so
  * providers the user hasn't installed are silently skipped.
  */
@@ -89,7 +89,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	})();
 
 	// Re-register when provider extensions are installed/removed later, so a
-	// provider added after startup (e.g. the user installs Codex/Gemini) still
+	// provider added after startup (e.g. the user installs Codex) still
 	// gets the notes MCP wired up without a reload. Debounced because installs
 	// fire onDidChange rapidly.
 	let timer: NodeJS.Timeout | undefined;

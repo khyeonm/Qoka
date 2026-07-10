@@ -247,7 +247,7 @@ export function installFromLocal(srcDir: string, targetName: string): string {
 /**
  * Non-Claude AI providers scan their OWN skills directory. Aria installs the
  * canonical copy under ~/.claude/skills/ and mirrors each skill into every
- * installed provider's dir so Codex/Gemini discover the same skills. The
+ * installed provider's dir so Codex discovers the same skills. The
  * SKILL.md payload is provider-neutral; only the scan path differs.
  */
 const PROVIDER_SKILL_ROOTS: { extId: string; dir: string }[] = [
@@ -383,8 +383,8 @@ export function reconcileWithDisk(): SkillInfo[] {
 /** Add or replace a skill record in the manifest. Convenience re-export. */
 export function recordSkill(skill: SkillInfo): SkillInfo {
 	upsertSkill(skill);
-	// Mirror into any installed non-Claude provider's skills dir so Codex /
-	// Gemini discover it too (Claude reads ~/.claude/skills/ directly).
+	// Mirror into any installed non-Claude provider's skills dir so Codex
+	// discovers it too (Claude reads ~/.claude/skills/ directly).
 	mirrorSkillToProviders(skill.name);
 	return skill;
 }

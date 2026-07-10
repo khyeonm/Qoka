@@ -3,9 +3,13 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 import { IConfigurationService, ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { ARIA_MODE_SETTING, AriaMode, AriaModeContextKey } from '../common/ariaConfiguration.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
@@ -17,6 +21,31 @@ import { localize } from '../../../../nls.js';
 // for legacy callers; the new segmented status bar uses ARIA_SET_MODE_COMMAND
 // for instant, no-confirm switching.
 
+/** The built-in light theme easy mode switches to for its white background. */
+const ARIA_EASY_LIGHT_THEME = 'Light Modern';
+/** Storage key holding the user's theme while easy mode overrides it. */
+const PREV_COLOR_THEME_KEY = 'aria.prevColorTheme';
+
+/** Relative luminance (0..1) of a `#rrggbb` or `rgb()/rgba()` color, or undefined. */
+function parseLuminance(color: string): number | undefined {
+	let r: number, g: number, b: number;
+	const rgb = color.match(/rgba?\(([^)]+)\)/);
+	if (rgb) {
+		const parts = rgb[1].split(',').map(s => parseFloat(s));
+		[r, g, b] = parts;
+	} else if (color.startsWith('#') && color.length >= 7) {
+		r = parseInt(color.slice(1, 3), 16);
+		g = parseInt(color.slice(3, 5), 16);
+		b = parseInt(color.slice(5, 7), 16);
+	} else {
+		return undefined;
+	}
+	if ([r, g, b].some(v => typeof v !== 'number' || isNaN(v))) {
+		return undefined;
+	}
+	return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
 /**
  * Reads aria.mode from configuration, binds it to the `aria.mode` context key
  * so it can be used in `when` clauses across the workbench, and re-binds when
@@ -27,26 +56,256 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 	static readonly ID = 'workbench.contrib.aria.modeManager';
 
 	private readonly modeKey: IContextKey<AriaMode>;
+	private readonly transitionStore = this._register(new DisposableStore());
 
 	constructor(
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+		@IStorageService private readonly storageService: IStorageService,
 	) {
 		super();
 		this.modeKey = AriaModeContextKey.bindTo(contextKeyService);
-		this.update();
+		this.update(false);
 
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(ARIA_MODE_SETTING)) {
-				this.update();
+				this.update(true);
 			}
 		}));
+
+		// New windows (auxiliary editor windows) get the class too, so their
+		// dialogs / popups follow the mode.
+		this._register(this.layoutService.onDidAddContainer(() => this.applyEasyClass()));
 	}
 
-	private update(): void {
+	/**
+	 * Mark every workbench container AND its document root (<html>/<body>) with
+	 * `aria-mode-easy` in easy mode. Dialogs and some popups attach high in the
+	 * document (outside `.monaco-workbench`), so tagging `<html>` guarantees the
+	 * easy CSS reaches them wherever they mount.
+	 */
+	private applyEasyClass(): void {
+		const easy = (this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '') === 'easy';
+		const applyToDoc = (doc: Document) => {
+			doc.documentElement.classList.toggle('aria-mode-easy', easy);
+			doc.body.classList.toggle('aria-mode-easy', easy);
+		};
+		// Use the authoritative main-window document (matches the global `document`
+		// the app + DevTools see), not mainContainer.ownerDocument which can differ.
+		applyToDoc(mainWindow.document);
+		this.layoutService.mainContainer.classList.toggle('aria-mode-easy', easy);
+		// Auxiliary windows.
+		for (const container of this.layoutService.containers) {
+			container.classList.toggle('aria-mode-easy', easy);
+			applyToDoc(container.ownerDocument);
+		}
+	}
+
+	private update(animate: boolean): void {
 		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
-		this.modeKey.set(mode);
-		void this.syncGitEnabledFor(mode);
+		this.modeKey.set(mode); // context key only — no visual change.
+
+		// Every visual change of a mode switch, grouped so the animated path can run
+		// them ALL behind the cover:
+		//  - applyEasyClass()   toggles the `.aria-mode-easy` root class, which flips a
+		//                       batch of `--vscode-*` overrides instantly.
+		//  - syncEasyChromeFor  hides/shows menu bar + command center (title re-layout).
+		//  - syncEasyThemeFor   swaps the whole color theme (the slow, blocking part).
+		// Applying the class/chrome changes BEFORE the theme swap — while visible —
+		// paints a half-converted workbench (widgets already light, editor still dark)
+		// for a frame or two: that inconsistent state WAS the switch "flash". So for an
+		// animated switch we defer all of it until the opaque cover is up.
+		//
+		// The three sync* calls each write USER settings (settings.json). They MUST run
+		// sequentially, not concurrently: overlapping writes race on the file model and
+		// the later one fails with "Unable to write into user settings because the file
+		// has unsaved changes". Theme goes first (it's the most visible change, so the
+		// backdrop recolours soonest and the cover can lift earlier).
+		const applyVisuals = async () => {
+			this.applyEasyClass();
+			try {
+				await this.syncEasyThemeFor(mode);
+				await this.syncEasyChromeFor(mode);
+				await this.syncGitEnabledFor(mode);
+			} catch {
+				// Best-effort: a failed settings write (e.g. settings.json open & dirty)
+				// shouldn't abort the rest of the switch.
+			}
+		};
+
+		if (animate && (mode === 'easy' || mode === 'advanced')) {
+			this.showTransitionOverlay(mode, applyVisuals);
+		} else {
+			applyVisuals();
+		}
+	}
+
+	private showTransitionOverlay(mode: AriaMode, swapTheme: () => void): void {
+		this.transitionStore.clear();
+
+		const toDark = mode === 'advanced';
+		const wantDark = toDark;
+		const wb = this.layoutService.mainContainer;
+
+		// The overlay is a solid TARGET-coloured panel that we fade IN over the
+		// workbench, then fade back OUT once the new theme has painted. Crucially the
+		// only animated property is `opacity`, which the compositor drives on its own
+		// thread — so even when the FIRST (uncached) theme load blocks the main thread,
+		// the cover can't freeze half-drawn. (The previous version animated
+		// `background-color`, a main-thread property: a blocking load froze it mid-fade
+		// and the old colour flashed through — the "white-then-black on the first
+		// switch" bug.)
+		const targetColor = toDark ? '#1e1e1e' : '#ffffff';
+
+		const doc = wb.ownerDocument;
+		const overlay = doc.createElement('div');
+		Object.assign(overlay.style, {
+			position: 'absolute', inset: '0', zIndex: '100000',
+			display: 'flex', alignItems: 'center', justifyContent: 'center',
+			background: targetColor, opacity: '0',
+			transition: 'opacity 200ms ease',
+		});
+		const spinner = doc.createElement('div');
+		Object.assign(spinner.style, {
+			width: '28px', height: '28px', borderRadius: '50%',
+			border: '3px solid rgba(127,127,127,0.25)',
+			borderTopColor: 'var(--aria-accent, #2ba7c9)',
+			animation: 'aria-spin 0.8s linear infinite',
+		});
+		overlay.appendChild(spinner);
+		wb.appendChild(overlay);
+		this.transitionStore.add({ dispose: () => overlay.remove() });
+
+		// Fade the target-coloured cover IN on the next frame.
+		mainWindow.requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+
+		// Apply the mode's visual changes (class + chrome + theme swap) only AFTER the
+		// cover is fully opaque (fade-in is 200ms), so every repaint — including the
+		// half-converted intermediate frames — happens entirely hidden behind it.
+		let swapped = false;
+		const doSwap = () => { if (!swapped) { swapped = true; swapTheme(); } };
+		this.transitionStore.add(disposableTimeout(doSwap, 260, this.transitionStore));
+
+		let finished = false;
+		const finish = () => {
+			if (finished) { return; }
+			finished = true;
+			// Reveal the freshly-painted theme by fading the cover back out (opacity,
+			// compositor again). The workbench behind is already the real theme, so the
+			// reveal is seamless regardless of our targetColor guess.
+			overlay.style.opacity = '0';
+			disposableTimeout(() => this.transitionStore.clear(), 240, this.transitionStore);
+		};
+
+		// Poll the live editor-background luminance (the theme-change EVENT fires
+		// before the repaint, so it can't be trusted). Require two consecutive
+		// matching frames so an intermediate paint doesn't lift the overlay early,
+		// then settle briefly before revealing.
+		let polls = 0;
+		let matchStreak = 0;
+		const poll = () => {
+			if (finished) {
+				return;
+			}
+			if (swapped && this.workbenchBgMatches(wantDark)) {
+				if (++matchStreak >= 2) {
+					disposableTimeout(finish, 120, this.transitionStore);
+					return;
+				}
+			} else {
+				matchStreak = 0;
+			}
+			if (polls++ > 300) { // ~5s hard cap
+				finish();
+				return;
+			}
+			mainWindow.requestAnimationFrame(poll);
+		};
+		mainWindow.requestAnimationFrame(poll);
+	}
+
+	/** True once the live workbench editor background is on the wanted side (dark/light). */
+	private workbenchBgMatches(wantDark: boolean): boolean {
+		const wb = mainWindow.document.querySelector('.monaco-workbench') as HTMLElement | null;
+		if (!wb) {
+			return false;
+		}
+		const lum = parseLuminance(mainWindow.getComputedStyle(wb).getPropertyValue('--vscode-editor-background').trim());
+		if (lum === undefined) {
+			return false;
+		}
+		return wantDark ? lum < 0.45 : lum > 0.55;
+	}
+
+	/**
+	 * Easy mode uses a clean white (light) look; advanced keeps whatever theme the
+	 * user had. We remember the user's theme when entering easy so advanced can
+	 * restore it exactly (instead of just clearing to the default). The accent
+	 * sky-blue is layered on top via CSS scoped to `.aria-mode-easy`
+	 * (see media/ariaEasyMode.css), so only the background/text go light.
+	 */
+	private async syncEasyThemeFor(mode: AriaMode): Promise<void> {
+		if (mode !== 'easy' && mode !== 'advanced') {
+			return;
+		}
+		const currentTheme = this.configurationService.inspect<string>('workbench.colorTheme').value;
+		if (mode === 'easy') {
+			if (currentTheme === ARIA_EASY_LIGHT_THEME) {
+				return; // already applied
+			}
+			// Remember the user's theme so advanced restores it precisely.
+			this.storageService.store(PREV_COLOR_THEME_KEY, currentTheme ?? '', StorageScope.APPLICATION, StorageTarget.MACHINE);
+			await this.setUserValue('workbench.colorTheme', ARIA_EASY_LIGHT_THEME);
+		} else {
+			const prev = this.storageService.get(PREV_COLOR_THEME_KEY, StorageScope.APPLICATION);
+			this.storageService.remove(PREV_COLOR_THEME_KEY, StorageScope.APPLICATION);
+			// Restore the saved theme, or clear the override if we never saved one.
+			await this.setUserValue('workbench.colorTheme', prev ? prev : undefined);
+		}
+	}
+
+	/**
+	 * Strips the developer chrome in easy mode: hides the top menu bar
+	 * (File/Edit/…) and the title-bar layout-control buttons. Both are driven by
+	 * settings the title bar reads live (no reload). Advanced mode clears the
+	 * overrides so the stock chrome returns.
+	 */
+	private async syncEasyChromeFor(mode: AriaMode): Promise<void> {
+		if (mode !== 'easy' && mode !== 'advanced') {
+			return;
+		}
+		const easy = mode === 'easy';
+		await this.setUserValue('window.menuBarVisibility', easy ? 'hidden' : undefined);
+		await this.setUserValue('workbench.layoutControl.enabled', easy ? false : undefined);
+		// The title-bar command center (the center "search" box + its nav arrows)
+		// is developer chrome — hide it in easy so only the "Aria" brand + title show.
+		await this.setUserValue('window.commandCenter', easy ? false : undefined);
+		// Dialogs default to the OS-native style, which the OS paints in ITS theme —
+		// on a dark desktop a confirm ("Delete this review?") shows up dark even though
+		// easy mode's workbench is white. Force the in-app custom dialog in easy mode so
+		// it renders as `.monaco-dialog-box` DOM: it then follows the (light) easy theme
+		// and picks up the `.aria-mode-easy .monaco-dialog-box` overrides. Read live per
+		// dialog, so this takes effect with no reload. Advanced restores the OS default.
+		await this.setUserValue('window.dialogStyle', easy ? 'custom' : undefined);
+	}
+
+	private async setUserValue(key: string, value: unknown): Promise<void> {
+		try {
+			if (this.configurationService.getValue(key) === value) {
+				return;
+			}
+			// `handleDirtyFile: 'save'` — if settings.json is open with unsaved edits,
+			// save it first and then write, instead of throwing "Unable to write into
+			// user settings because the file has unsaved changes" (the config-editing
+			// service shows that as a modal-ish notification we can't catch). This is
+			// exactly what that notification's "Save and retry" action does.
+			// `donotNotifyError: true` — suppress any remaining error popup; mode-switch
+			// writes are best-effort.
+			await this.configurationService.updateValue(key, value, {}, ConfigurationTarget.USER, { handleDirtyFile: 'save', donotNotifyError: true });
+		} catch {
+			// Best-effort: silent on failure (e.g. read-only settings).
+		}
 	}
 
 	/**
@@ -65,15 +324,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 			return;
 		}
 		const desired = mode === 'advanced';
-		const current = this.configurationService.getValue<boolean>('git.enabled');
-		if (current === desired) {
-			return;
-		}
-		try {
-			await this.configurationService.updateValue('git.enabled', desired, ConfigurationTarget.USER);
-		} catch {
-			// Best-effort: silent on failure (e.g. read-only settings).
-		}
+		await this.setUserValue('git.enabled', desired);
 	}
 }
 

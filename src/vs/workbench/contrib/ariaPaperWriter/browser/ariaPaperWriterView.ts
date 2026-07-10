@@ -7,6 +7,10 @@ import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { basename, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { IAction } from '../../../../base/common/actions.js';
+import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
+import { IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
+import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
@@ -56,6 +60,11 @@ export class AriaPaperWriterView extends ViewPane {
 		}));
 	}
 
+	override createActionViewItem(action: IAction, options?: IDropdownMenuActionViewItemOptions): IActionViewItem | undefined {
+		return createAriaHelpTitleActionViewItem(action, 'paper-writer', options ?? {})
+			?? super.createActionViewItem(action, options);
+	}
+
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		const root = append(container, $('.aria-paper-writer-view'));
@@ -74,6 +83,9 @@ export class AriaPaperWriterView extends ViewPane {
 		const root = this.viewBody;
 		if (!root) { return; }
 		clearNode(root);
+
+		// Full-width one-line summary at the top of the sidebar.
+		renderAriaTabSummary(root, 'paper-writer');
 
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
 			this.empty(root, localize('aria.paperWriter.noFolder', "Open a project folder to write papers."));

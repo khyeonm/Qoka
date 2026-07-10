@@ -237,3 +237,28 @@
 	color: var(--vscode-statusBarItem-offlineHoverForeground);
 	background-color: var(--vscode-statusBarItem-offlineHoverBackground) !important;
 }
+
+/* --- Aria easy mode: taller bar; only a whitelist of entries is shown -------- */
+/* Height matches StatusbarPart's mode-aware minimumHeight/maximumHeight getter. */
+.monaco-workbench.aria-mode-easy .part.statusbar {
+	height: 34px;
+	font-size: 13px;
+}
+
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item {
+	line-height: 34px;
+	/* Hide every entry by default... */
+	display: none;
+}
+
+/* ...then re-show only: the remote/SSH host indicator, the Easy/Advanced toggle,
+   and Aria's account/sign-out entry. Entry ids are DOM `id` attributes and
+   contain dots, so match with attribute selectors, not `#id`. */
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="status.host"],
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.mode.easy"],
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.mode.advanced"],
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.account"],
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.signout"],
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="status.notifications"] {
+	display: inline-block;
+}

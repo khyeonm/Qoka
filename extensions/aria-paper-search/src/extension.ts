@@ -26,8 +26,8 @@ let currentMcpPort: number | undefined;
 
 /**
  * Register the paper-library MCP with every AI provider whose CLI is
- * available (Claude Code, Codex, Gemini). The server serves /sse (Claude)
- * and /mcp (Codex, Gemini) on the same port; missing CLIs are skipped.
+ * available (Claude Code, Codex). The server serves /sse (Claude)
+ * and /mcp (Codex) on the same port; missing CLIs are skipped.
  * Returns whether any registration actually changed.
  */
 async function registerProviders(port: number): Promise<boolean> {

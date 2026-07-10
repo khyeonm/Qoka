@@ -17,6 +17,7 @@ import {
 } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { AriaAutopipeView } from './ariaAutopipeView.js';
+import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 
 const ARIA_AUTOPIPE_CONTAINER_ID = 'workbench.view.ariaAutopipe';
 
@@ -94,3 +95,6 @@ const autopipeView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([autopipeView], viewContainer);
+
+// "How to use?" link in the view's title bar (right of the "AUTOPIPE" title).
+registerAriaTabHelpTitleAction(AriaAutopipeView.ID, 'autopipe');

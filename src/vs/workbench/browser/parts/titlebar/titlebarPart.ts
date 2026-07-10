@@ -487,6 +487,15 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 			this.installMenubar();
 		}
 
+		// Aria easy-mode branding — shown only in easy mode (via the
+		// `.aria-mode-easy` root class in CSS); it replaces the File/Edit… menu
+		// bar with the product name on the left. Prepended so it sits leftmost.
+		if (!this.isAuxiliary) {
+			const brand = prepend(this.leftContent, $('.aria-titlebar-brand'));
+			append(brand, $('.aria-titlebar-brand-mark')).textContent = 'A';
+			append(brand, $('.aria-titlebar-brand-name')).textContent = 'Aria';
+		}
+
 		// Title
 		this.title = append(this.centerContent, $('div.window-title'));
 		this.createTitle();

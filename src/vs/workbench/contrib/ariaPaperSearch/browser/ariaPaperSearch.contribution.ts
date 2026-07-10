@@ -17,6 +17,7 @@ import {
 } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { AriaPaperSearchView } from './ariaPaperSearchView.js';
+import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 
 const ARIA_PAPER_SEARCH_CONTAINER_ID = 'workbench.view.ariaPaperSearch';
 
@@ -81,3 +82,6 @@ const paperSearchView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([paperSearchView], viewContainer);
+
+// "How to use?" link in the view's title bar (right of the "PAPER LIBRARY" title).
+registerAriaTabHelpTitleAction(AriaPaperSearchView.ID, 'paper-library');

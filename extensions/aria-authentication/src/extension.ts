@@ -72,6 +72,12 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.auth.signIn', async () => {
 			await vscode.authentication.getSession('aria', [], { createIfNone: true });
 		}),
+		// Exposes the signed-in {name, email, provider} to the workbench UI (the
+		// Started overlay + the easy-mode account status item), since the standard
+		// AuthenticationSession carries no provider (scopes are []).
+		vscode.commands.registerCommand('aria.auth.getSession', async () => {
+			return provider.currentSession();
+		}),
 		vscode.commands.registerCommand('aria.auth.signOut', async () => {
 			const sessions = await provider.getSessions();
 			for (const s of sessions) {

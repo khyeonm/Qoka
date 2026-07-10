@@ -15,6 +15,10 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IAction } from '../../../../base/common/actions.js';
+import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
+import { IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
+import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 
 // The themed-scrollbar helper now lives in a shared module so every Aria
 // surface can use it. Imported for local use and re-exported for back-compat
@@ -129,6 +133,11 @@ export class AriaSkillsView extends ViewPane {
 
 	private viewBody: HTMLElement | undefined;
 
+	override createActionViewItem(action: IAction, options?: IDropdownMenuActionViewItemOptions): IActionViewItem | undefined {
+		return createAriaHelpTitleActionViewItem(action, 'skills', options ?? {})
+			?? super.createActionViewItem(action, options);
+	}
+
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		ensureAriaPaneScrollbarStyle();
@@ -145,31 +154,19 @@ export class AriaSkillsView extends ViewPane {
 		root.style.overflowX = 'hidden';
 		this.viewBody = root;
 
-		const titleRow = append(root, $('div'));
-		titleRow.style.display = 'flex';
-		titleRow.style.alignItems = 'center';
-		titleRow.style.justifyContent = 'space-between';
-		titleRow.style.margin = '0 0 6px 0';
-
-		const title = append(titleRow, $('h2'));
-		title.style.fontSize = '13px';
-		title.style.fontWeight = '600';
-		title.style.margin = '0';
-		title.textContent = 'Skills';
-
-		const refreshBtn = append(titleRow, $('span.codicon.codicon-refresh')) as HTMLElement;
-		refreshBtn.title = 'Refresh';
-		refreshBtn.style.cursor = 'pointer';
-		refreshBtn.style.opacity = '0.75';
-		refreshBtn.style.padding = '2px 4px';
-		refreshBtn.style.borderRadius = '3px';
-		refreshBtn.onclick = () => { void this.refresh(); };
-
-		const intro = append(root, $('p'));
-		intro.style.opacity = '0.7';
-		intro.style.margin = '0 0 12px 0';
-		intro.style.fontSize = '11.5px';
-		intro.textContent = 'Install and manage Claude skills, configure API keys, and approve which skills can run automatically.';
+		// Full-width one-line summary. The container title bar already shows
+		// "SKILLS" and the "How to use?" link, so we don't repeat the title or a
+		// description here — the refresh control moves into the summary's slot.
+		const summaryActions = renderAriaTabSummary(root, 'skills');
+		if (summaryActions) {
+			const refreshBtn = append(summaryActions, $('span.codicon.codicon-refresh')) as HTMLElement;
+			refreshBtn.title = 'Refresh';
+			refreshBtn.style.cursor = 'pointer';
+			refreshBtn.style.opacity = '0.75';
+			refreshBtn.style.padding = '2px 4px';
+			refreshBtn.style.borderRadius = '3px';
+			refreshBtn.onclick = () => { void this.refresh(); };
+		}
 
 		const toolbar = append(root, $('div'));
 		toolbar.style.display = 'flex';

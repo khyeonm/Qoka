@@ -18,6 +18,7 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { AriaPeerReviewView } from './ariaPeerReviewView.js';
+import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 import { AriaPeerReviewEditorPane } from './ariaPeerReviewEditorPane.js';
 import { AriaPeerReviewInput } from './ariaPeerReviewInput.js';
 
@@ -90,3 +91,6 @@ const peerReviewView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([peerReviewView], peerReviewContainer);
+
+// "How to use?" link in the view's title bar.
+registerAriaTabHelpTitleAction(AriaPeerReviewView.ID, 'peer-review');

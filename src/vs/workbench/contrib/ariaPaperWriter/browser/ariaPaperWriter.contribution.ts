@@ -22,6 +22,7 @@ import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensio
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { AriaPaperWriterView } from './ariaPaperWriterView.js';
 import { AriaPaperWriterEditorPane } from './ariaPaperWriterEditorPane.js';
+import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 import { AriaPaperWriterInput } from './ariaPaperWriterInput.js';
 import { AriaManuscriptReviewEditorPane } from './ariaManuscriptReviewEditorPane.js';
 import { AriaManuscriptReviewInput } from './ariaManuscriptReviewInput.js';
@@ -144,3 +145,6 @@ const paperWriterView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([paperWriterView], paperWriterContainer);
+
+// "How to use?" link in the view's title bar.
+registerAriaTabHelpTitleAction(AriaPaperWriterView.ID, 'paper-writer');

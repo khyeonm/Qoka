@@ -34,8 +34,8 @@ let finalized = false;
  */
 /**
  * Register the roadmap MCP with every AI provider whose CLI is available
- * (Claude Code, Codex, Gemini). The server serves /sse (Claude) and /mcp
- * (Codex, Gemini) on the same port; missing CLIs are silently skipped.
+ * (Claude Code, Codex). The server serves /sse (Claude) and /mcp
+ * (Codex) on the same port; missing CLIs are silently skipped.
  */
 async function registerAllProviders(port: number): Promise<{ changed: boolean; summary: string }> {
 	const results = await Promise.allSettled([
@@ -90,7 +90,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	notify();
 
 	// Detect which AI assistant the user installed — do NOT force-install one.
-	// Aria works with Claude Code, Codex, or Gemini; installing a specific one
+	// Aria works with Claude Code or Codex; installing a specific one
 	// (previously Claude) would fight a user who intentionally chose another.
 	// The onboarding surface guides installation when none is present.
 	void (async () => {
@@ -100,12 +100,11 @@ export function activate(context: vscode.ExtensionContext): void {
 			const providers = [
 				{ id: 'anthropic.claude-code', name: 'Claude Code' },
 				{ id: 'openai.chatgpt', name: 'Codex' },
-				{ id: 'Google.gemini-cli-vscode-ide-companion', name: 'Gemini CLI' },
 			];
 			const installed = providers.filter(p => !!vscode.extensions.getExtension(p.id));
 			summary = installed.length
 				? `AI assistant detected: ${installed.map(p => p.name).join(', ')}`
-				: 'No AI assistant installed yet — install Claude Code, Codex, or Gemini to use the chat.';
+				: 'No AI assistant installed yet — install Claude Code or Codex to use the chat.';
 		} finally {
 			await vscode.commands.executeCommand('aria.startup.markComplete', 'aria-roadmap-claude-code-install', summary, false);
 		}

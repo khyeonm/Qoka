@@ -74,6 +74,9 @@ export class EditorGroupWatermark extends Disposable {
 	private readonly cachedWhen: { [when: string]: boolean };
 
 	private readonly shortcuts: HTMLElement;
+	private readonly letterpress: HTMLElement;
+	private readonly watermarkContainer: HTMLElement;
+	private ariaWelcome: HTMLElement | undefined;
 	private readonly transientDisposables = this._register(new DisposableStore());
 	private readonly keybindingLabels = this._register(new DisposableStore());
 
@@ -94,14 +97,16 @@ export class EditorGroupWatermark extends Disposable {
 		this.workbenchState = this.contextService.getWorkbenchState();
 
 		const elements = h('.editor-group-watermark', [
-			h('.watermark-container', [
-				h('.letterpress'),
+			h('.watermark-container@container', [
+				h('.letterpress@letterpress'),
 				h('.shortcuts@shortcuts'),
 			])
 		]);
 
 		append(container, elements.root);
 		this.shortcuts = elements.shortcuts;
+		this.letterpress = elements.letterpress;
+		this.watermarkContainer = elements.container;
 
 		this.registerListeners();
 
@@ -110,6 +115,12 @@ export class EditorGroupWatermark extends Disposable {
 
 	private registerListeners(): void {
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
+			// Re-render when Aria's easy/advanced mode flips — easy mode swaps the
+			// developer cheat-sheet for a simple welcome.
+			if (e.affectsConfiguration('aria.mode')) {
+				this.render();
+				return;
+			}
 			if (
 				e.affectsConfiguration(EditorGroupWatermark.SETTINGS_KEY) &&
 				this.enabled !== this.configurationService.getValue<boolean>(EditorGroupWatermark.SETTINGS_KEY)
@@ -145,6 +156,22 @@ export class EditorGroupWatermark extends Disposable {
 
 		clearNode(this.shortcuts);
 		this.transientDisposables.clear();
+
+		// Clean up any previous easy-mode welcome (it lives directly in the
+		// watermark container, not in `.shortcuts`, which CSS hides on short
+		// editor heights / non-empty content).
+		this.ariaWelcome?.remove();
+		this.ariaWelcome = undefined;
+
+		// Aria easy mode: show a friendly welcome (title + hint pointing at the
+		// left sidebar) instead of the developer keybinding cheat-sheet, and hide
+		// the code-editor letterpress logo. Always shown regardless of tips setting.
+		if (this.configurationService.getValue<string>('aria.mode') === 'easy') {
+			this.letterpress.style.display = 'none';
+			this.renderAriaEasyWelcome();
+			return;
+		}
+		this.letterpress.style.display = '';
 
 		if (!this.enabled) {
 			return;
@@ -182,6 +209,26 @@ export class EditorGroupWatermark extends Disposable {
 
 		update();
 		this.transientDisposables.add(this.keybindingService.onDidUpdateKeybindings(update));
+	}
+
+	private renderAriaEasyWelcome(): void {
+		// Appended to the watermark container (a sibling of `.letterpress` and
+		// `.shortcuts`) so the CSS rules that hide `.shortcuts` on short editor
+		// heights don't hide the welcome too.
+		const box = append(this.watermarkContainer, $('.aria-easy-welcome'));
+		this.ariaWelcome = box;
+		Object.assign(box.style, {
+			display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+			textAlign: 'center', userSelect: 'none',
+		});
+
+		const title = append(box, $('div'));
+		title.textContent = 'Aria';
+		Object.assign(title.style, { fontSize: '40px', fontWeight: '600', letterSpacing: '0.02em', opacity: '0.9' });
+
+		const hint = append(box, $('div'));
+		hint.textContent = localize('aria.welcome.hint', "Pick a tool on the left to get started.");
+		Object.assign(hint.style, { fontSize: '13px', opacity: '0.6', marginTop: '6px' });
 	}
 
 	private filterEntries(entries: WatermarkEntry[]): WatermarkEntry[] {

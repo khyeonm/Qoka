@@ -41,7 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	ensureAriaHook();
 
 	// Mirror installed skills into any non-Claude provider's skills dir so
-	// Codex / Gemini discover them too, and re-mirror when a provider is
+	// Codex discovers them too, and re-mirror when a provider is
 	// installed later (debounced — installs fire onDidChange rapidly).
 	syncSkillsToProviders();
 	let providerSyncTimer: NodeJS.Timeout | undefined;

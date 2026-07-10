@@ -118,6 +118,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	// resolves we show the loading spinner; then login (no session) or the
 	// signed-in banner + picker (session present).
 	private ariaSession: AuthenticationSession | undefined;
+	private ariaProvider: string | undefined;
 	private authChecked = false;
 	private authLoading = false;
 	private cycleTimer: ReturnType<typeof setInterval> | undefined;
@@ -209,6 +210,13 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			this.ariaSession = sessions.length > 0 ? sessions[0] : undefined;
 		} catch {
 			this.ariaSession = undefined;
+		}
+		// The session has no provider (scopes are []); the extension exposes it.
+		try {
+			const info = await this.commandService.executeCommand<{ provider?: string } | undefined>('aria.auth.getSession');
+			this.ariaProvider = info?.provider;
+		} catch {
+			this.ariaProvider = undefined;
 		}
 		this.authChecked = true;
 		this.authLoading = false;
@@ -372,10 +380,26 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		this.render();
 	}
 
+	/**
+	 * The launch overlay follows the mode: white in easy (matching the forced
+	 * light theme), the current dark editor background in advanced. Re-applied on
+	 * every render, so clicking the Easy / Advanced card recolors it immediately.
+	 */
+	private applyModeColors(): void {
+		if (!this.overlay) {
+			return;
+		}
+		const easy = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) === 'easy';
+		this.overlay.style.background = easy ? '#ffffff' : 'var(--vscode-editor-background, #1e1e1e)';
+		this.overlay.style.color = easy ? '#1f1f1f' : 'var(--vscode-foreground, #cccccc)';
+	}
+
 	private render(): void {
 		if (!this.overlay) {
 			return;
 		}
+
+		this.applyModeColors();
 
 		const content = document.createElement('div');
 		content.style.maxWidth = '900px';
@@ -554,7 +578,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		if (!s) {
 			return;
 		}
-		const name = s.account?.label || 'Aria user';
+		// Show the provider (google / orcid) after the name — the session itself has
+		// no provider (scopes are []), so it comes from the extension via command.
+		const name = (s.account?.label || 'Aria user') + (this.ariaProvider ? ` (${this.ariaProvider})` : '');
 
 		const banner = document.createElement('div');
 		banner.style.display = 'flex';

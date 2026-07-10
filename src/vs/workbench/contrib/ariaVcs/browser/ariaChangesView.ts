@@ -15,6 +15,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { applyAriaScrollbar } from '../../aria/browser/ariaScrollbar.js';
+import { renderAriaTabSummary } from '../../aria/browser/ariaHelpEditor.js';
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
@@ -81,6 +82,10 @@ export class AriaChangesView extends ViewPane {
 			return;
 		}
 		clearNode(root);
+
+		// Full-width one-line summary at the top of the Versions sidebar (the
+		// container title bar carries the "How to use?" link for this tab).
+		renderAriaTabSummary(root, 'versions');
 
 		const hasFolder = this.workspaceContextService.getWorkbenchState() !== WorkbenchState.EMPTY;
 		if (!hasFolder) {

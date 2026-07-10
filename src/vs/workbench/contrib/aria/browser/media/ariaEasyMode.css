@@ -1,0 +1,126 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * Easy mode uses the built-in "Light Modern" theme for a white background (forced
+ * in ariaModeManager.ts, and restored to the user's theme in advanced mode). On
+ * top of that white base we keep a single sky-blue point colour for the accent.
+ *
+ * These rules override the theme's `--vscode-*` custom properties, but ONLY when
+ * the `.aria-mode-easy` root class is present (advanced mode is untouched). The
+ * `.monaco-workbench.aria-mode-easy` selector (two classes) outranks the theme's
+ * own `.monaco-workbench` (one class), so it wins.
+ *
+ * To retune the accent, change the single `--aria-accent` value below.
+ */
+/* Hide the Accounts (user) icon from the activity bar in easy mode — the account
+   lives in the bottom-right status bar instead. The gear (Settings) stays. */
+.monaco-workbench.aria-mode-easy .activitybar .monaco-action-bar .action-item:has(.codicon-accounts-view-bar-icon) {
+	display: none;
+}
+
+/* Hide the bottom panel (Terminal / Problems / Output / Ports / Debug Console) in
+   easy mode — developer tooling. The panel is closed by default, so this only
+   matters if it were opened. Advanced mode is unaffected. */
+.monaco-workbench.aria-mode-easy .part.panel {
+	display: none;
+}
+
+/* Title bar: the left "Aria" brand is the title in easy mode — hide the long
+   center window title ("… - aria - Aria") so only "Aria" shows up top. */
+.monaco-workbench.aria-mode-easy .titlebar-center .window-title {
+	display: none;
+}
+
+/* Chat is always available in easy mode — hide the Secondary Side Bar close (x)
+   so the Claude / Codex chat panel can't be dismissed. */
+.monaco-workbench.aria-mode-easy .part.auxiliarybar .action-item:has(.codicon-auxiliarybar-close) {
+	display: none;
+}
+
+/* Hide the "Maximize Secondary Side Bar" (⤢) button in easy mode — window-layout
+   chrome the researcher doesn't need. Removing the maximize entry point also keeps
+   the panel out of the maximized state (so its restore counterpart never shows). */
+.monaco-workbench.aria-mode-easy .part.auxiliarybar .action-item:has(.codicon-auxiliarybar-maximize) {
+	display: none;
+}
+
+/* Spinner for the mode-switch loading overlay (ariaModeManager.ts). */
+@keyframes aria-spin {
+	to { transform: rotate(360deg); }
+}
+
+/* Surfaces rendered as direct <body> children (the launch/Started overlay,
+   dialogs) live OUTSIDE `.monaco-workbench`, so they don't inherit the theme's
+   `--vscode-*` base tokens — their `var(--vscode-foreground, #cccccc)` fallbacks
+   render nearly invisible on the white easy background. Give <body> light base
+   tokens in easy mode so that text/icons are legible. Scoped to <body> only, so
+   the workbench (which gets its tokens from the theme) is untouched. */
+body.aria-mode-easy {
+	--vscode-foreground: #1f1f1f;
+	--vscode-descriptionForeground: #6a6a6a;
+	--vscode-editor-background: #ffffff;
+	--vscode-editorWidget-background: #ffffff;
+	--vscode-editorWidget-foreground: #1f1f1f;
+	--vscode-button-foreground: #ffffff;
+	--vscode-button-secondaryBackground: #e6e8ec;
+	--vscode-button-secondaryForeground: #1f1f1f;
+	--vscode-button-secondaryHoverBackground: #dcdfe4;
+	--vscode-icon-foreground: #1f1f1f;
+	--vscode-textLink-foreground: var(--aria-accent, #2ba7c9);
+}
+
+/* Confirm/message dialogs render under `activeContainer` which can be OUTSIDE
+   `.monaco-workbench` and applies its background as an inline `var(...)`, so the
+   theme/token overrides don't always reach it. Force the dialog box light in easy
+   mode directly (the `.aria-mode-easy` class is also put on <body>). !important is
+   needed to beat the widget's inline background. */
+.aria-mode-easy .monaco-dialog-box {
+	background: #ffffff !important;
+	color: #1f1f1f !important;
+}
+.aria-mode-easy .monaco-dialog-box .dialog-message-detail,
+.aria-mode-easy .monaco-dialog-box .dialog-message-text {
+	color: #1f1f1f !important;
+}
+
+/* Vars set on BOTH the workbench element (beats the theme's `.monaco-workbench`
+   rule for surfaces inside it) AND <body> (so dialogs / popups rendered as direct
+   body children inherit them too). */
+.monaco-workbench.aria-mode-easy,
+body.aria-mode-easy {
+	--aria-accent: #2ba7c9; /* sky-blue point colour */
+	--aria-accent-hover: #2496b6;
+
+	/* Keep popups / notifications / menus / hovers on a white surface in easy mode
+	   (belt-and-suspenders on top of the forced light theme, so nothing shows the
+	   old dark surface). */
+	--vscode-notifications-background: #ffffff;
+	--vscode-notifications-foreground: #1f1f1f;
+	--vscode-notificationCenterHeader-background: #f3f3f3;
+	--vscode-notificationCenterHeader-foreground: #1f1f1f;
+	--vscode-notificationToast-border: rgba(0, 0, 0, 0.10);
+	--vscode-editorWidget-background: #ffffff;
+	--vscode-editorWidget-foreground: #1f1f1f;
+	--vscode-editorHoverWidget-background: #ffffff;
+	--vscode-editorHoverWidget-foreground: #1f1f1f;
+	--vscode-quickInput-background: #ffffff;
+	--vscode-quickInput-foreground: #1f1f1f;
+	--vscode-menu-background: #ffffff;
+	--vscode-menu-foreground: #1f1f1f;
+	--vscode-menu-selectionBackground: var(--aria-accent);
+	--vscode-dropdown-background: #ffffff;
+	--vscode-dropdown-foreground: #1f1f1f;
+
+	--vscode-button-background: var(--aria-accent);
+	--vscode-button-hoverBackground: var(--aria-accent-hover);
+	--vscode-focusBorder: var(--aria-accent);
+	--vscode-textLink-foreground: var(--aria-accent);
+	--vscode-textLink-activeForeground: var(--aria-accent-hover);
+	--vscode-progressBar-background: var(--aria-accent);
+	--vscode-activityBarBadge-background: var(--aria-accent);
+	--vscode-tab-activeBorderTop: var(--aria-accent);
+	--vscode-focusBorder: var(--aria-accent);
+}

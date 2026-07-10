@@ -17,6 +17,7 @@ import {
 } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { AriaSkillsView } from './ariaSkillsView.js';
+import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 
 const ARIA_SKILLS_CONTAINER_ID = 'workbench.view.ariaSkills';
 
@@ -95,3 +96,6 @@ const skillsView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([skillsView], viewContainer);
+
+// "How to use?" link in the view's title bar.
+registerAriaTabHelpTitleAction(AriaSkillsView.ID, 'skills');

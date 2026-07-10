@@ -14,8 +14,8 @@ const REVEAL_COMMANDS: Record<Exclude<AriaAiProvider, 'auto'>, string[]> = {
 };
 
 /**
- * Reveal whichever AI provider chat the user has installed — Claude Code,
- * Codex, or Gemini. Aria does NOT own the chat UI: each provider is a
+ * Reveal whichever AI provider chat the user has installed — Claude Code
+ * or Codex. Aria does NOT own the chat UI: each provider is a
  * separate VS Code extension contributing its own sidebar view, so we can't
  * open "the Aria chat". Instead we focus the auxiliary bar and then try each
  * provider's reveal command in turn. Only the installed provider's command is

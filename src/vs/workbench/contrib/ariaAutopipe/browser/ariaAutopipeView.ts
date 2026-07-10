@@ -16,7 +16,11 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { localize } from '../../../../nls.js';
+import { IAction } from '../../../../base/common/actions.js';
+import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
+import { IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
 import { ensureAriaPaneScrollbarStyle } from '../../ariaSkills/browser/ariaSkillsView.js';
+import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 
 interface AiProviderState {
 	kind: 'claude-code' | 'codex';
@@ -99,6 +103,11 @@ export class AriaAutopipeView extends ViewPane {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 	}
 
+	override createActionViewItem(action: IAction, options?: IDropdownMenuActionViewItemOptions): IActionViewItem | undefined {
+		return createAriaHelpTitleActionViewItem(action, 'autopipe', options ?? {})
+			?? super.createActionViewItem(action, options);
+	}
+
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		ensureAriaPaneScrollbarStyle();
@@ -141,40 +150,21 @@ export class AriaAutopipeView extends ViewPane {
 
 		clearNode(root);
 
-		// Title row — text on the left, refresh button on the right.
-		const header = append(root, $('div'));
-		header.style.display = 'flex';
-		header.style.alignItems = 'center';
-		header.style.justifyContent = 'space-between';
-		header.style.margin = '0 0 4px 0';
-
-		const title = append(header, $('h2'));
-		title.style.fontSize = '13px';
-		title.style.fontWeight = '600';
-		title.style.margin = '0';
-		title.textContent = localize('aria.autopipe.title', "Autopipe");
-
-		// Codicon refresh button — same visual language as VS Code's view
-		// toolbars elsewhere, just placed inline since we don't register
-		// proper title-bar actions yet.
-		const refreshBtn = append(header, $('span.codicon.codicon-refresh')) as HTMLElement;
-		refreshBtn.title = localize('aria.autopipe.refresh', "Refresh");
-		refreshBtn.style.cursor = 'pointer';
-		refreshBtn.style.opacity = '0.75';
-		refreshBtn.style.padding = '2px 4px';
-		refreshBtn.style.borderRadius = '3px';
-		refreshBtn.onmouseenter = () => { refreshBtn.style.opacity = '1'; };
-		refreshBtn.onmouseleave = () => { refreshBtn.style.opacity = '0.75'; };
-		refreshBtn.onclick = () => { void this.refresh(); };
-
-		const intro = append(root, $('p'));
-		intro.style.opacity = '0.7';
-		intro.style.margin = '0 0 14px 0';
-		intro.style.fontSize = '11.5px';
-		intro.textContent = localize(
-			'aria.autopipe.intro',
-			"Pipeline orchestration over SSH with AI assistance. Configure the connection below; your AI assistant drives the rest from chat.",
-		);
+		// Full-width one-line summary. The container title bar already shows
+		// "AUTOPIPE" and the "How to use?" link, so we don't repeat the title or a
+		// description here — just keep the refresh control in the summary's slot.
+		const summaryActions = renderAriaTabSummary(root, 'autopipe');
+		if (summaryActions) {
+			const refreshBtn = append(summaryActions, $('span.codicon.codicon-refresh')) as HTMLElement;
+			refreshBtn.title = localize('aria.autopipe.refresh', "Refresh");
+			refreshBtn.style.cursor = 'pointer';
+			refreshBtn.style.opacity = '0.75';
+			refreshBtn.style.padding = '2px 4px';
+			refreshBtn.style.borderRadius = '3px';
+			refreshBtn.onmouseenter = () => { refreshBtn.style.opacity = '1'; };
+			refreshBtn.onmouseleave = () => { refreshBtn.style.opacity = '0.75'; };
+			refreshBtn.onclick = () => { void this.refresh(); };
+		}
 
 		// Snapshot what's currently persisted so we can tell pending edits
 		// apart from "matches current". Initialise the draft from the
@@ -282,13 +272,10 @@ export class AriaAutopipeView extends ViewPane {
 	}
 
 	private renderStatusSection(root: HTMLElement, status: AutopipeStatus): void {
-		// Per-section refresh: re-runs the detection so a freshly installed
-		// AI assistant (the user pointed at Codex) shows up without
-		// needing to bounce dev VSCodium. Codicon-only — sits at the
-		// top-right of the section header.
-		const section = appendSectionWithAction(root, 'Status', 'refresh', () => {
-			void this.refresh();
-		});
+		// No per-section refresh here — the single refresh in the summary row at
+		// the top re-fetches status too (it calls refresh(), which re-runs
+		// detection), so a freshly installed AI assistant shows up from there.
+		const section = appendSection(root, 'Status');
 		// Always show every supported provider so the user knows which AI
 		// assistants Aria works with — even the ones they haven't installed.
 		// Color and label change to reflect installed-and-active vs

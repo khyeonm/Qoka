@@ -26,6 +26,7 @@ import { StandardMouseEvent } from '../../../../base/browser/mouseEvent.js';
 import { ToggleStatusbarVisibilityAction } from '../../actions/layoutActions.js';
 import { assertReturnsDefined } from '../../../../base/common/types.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { isHighContrast } from '../../../../platform/theme/common/theme.js';
 import { hash } from '../../../../base/common/hash.js';
 import { WorkbenchHoverDelegate } from '../../../../platform/hover/browser/hover.js';
@@ -119,13 +120,18 @@ interface IPendingStatusbarEntry {
 class StatusbarPart extends Part implements IStatusbarEntryContainer {
 
 	static readonly HEIGHT = 22;
+	// Aria easy mode uses a taller status bar (thicker, more visible chrome).
+	static readonly EASY_HEIGHT = 34;
 
 	//#region IView
 
 	readonly minimumWidth: number = 0;
 	readonly maximumWidth: number = Number.POSITIVE_INFINITY;
-	readonly minimumHeight: number = StatusbarPart.HEIGHT;
-	readonly maximumHeight: number = StatusbarPart.HEIGHT;
+	private get partHeight(): number {
+		return this.configurationService.getValue('aria.mode') === 'easy' ? StatusbarPart.EASY_HEIGHT : StatusbarPart.HEIGHT;
+	}
+	get minimumHeight(): number { return this.partHeight; }
+	get maximumHeight(): number { return this.partHeight; }
 
 	//#endregion
 
@@ -160,11 +166,20 @@ class StatusbarPart extends Part implements IStatusbarEntryContainer {
 		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super(id, { hasTitle: false }, themeService, storageService, layoutService);
 
 		this.viewModel = this._register(new StatusbarViewModel(storageService));
 		this.onDidChangeEntryVisibility = this.viewModel.onDidChangeEntryVisibility;
+
+		// Aria: the status bar is taller in easy mode; re-signal our size to the
+		// workbench grid whenever the mode flips so it re-lays out live.
+		this._register(this.configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('aria.mode')) {
+				this._onDidChange.fire(undefined);
+			}
+		}));
 
 		this.hoverDelegate = this._register(this.instantiationService.createInstance(WorkbenchHoverDelegate, 'element', {
 			instantHover: true,
@@ -724,8 +739,9 @@ export class MainStatusbarPart extends StatusbarPart {
 		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
 		@IContextMenuService contextMenuService: IContextMenuService,
 		@IContextKeyService contextKeyService: IContextKeyService,
+		@IConfigurationService configurationService: IConfigurationService,
 	) {
-		super(Parts.STATUSBAR_PART, instantiationService, themeService, contextService, storageService, layoutService, contextMenuService, contextKeyService);
+		super(Parts.STATUSBAR_PART, instantiationService, themeService, contextService, storageService, layoutService, contextMenuService, contextKeyService, configurationService);
 	}
 }
 
@@ -749,9 +765,10 @@ export class AuxiliaryStatusbarPart extends StatusbarPart implements IAuxiliaryS
 		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
 		@IContextMenuService contextMenuService: IContextMenuService,
 		@IContextKeyService contextKeyService: IContextKeyService,
+		@IConfigurationService configurationService: IConfigurationService,
 	) {
 		const id = AuxiliaryStatusbarPart.COUNTER++;
-		super(`workbench.parts.auxiliaryStatus.${id}`, instantiationService, themeService, contextService, storageService, layoutService, contextMenuService, contextKeyService);
+		super(`workbench.parts.auxiliaryStatus.${id}`, instantiationService, themeService, contextService, storageService, layoutService, contextMenuService, contextKeyService, configurationService);
 	}
 }
 

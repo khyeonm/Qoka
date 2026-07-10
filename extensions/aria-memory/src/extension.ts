@@ -14,8 +14,8 @@ let mcpServer: AriaMemoryMcpServer | undefined;
 
 /**
  * Register the memory MCP with every AI provider whose CLI is available
- * (Claude Code, Codex, Gemini). The server serves /sse (Claude) and /mcp
- * (Codex, Gemini) on the same port; each provider is pointed at the endpoint
+ * (Claude Code, Codex). The server serves /sse (Claude) and /mcp
+ * (Codex) on the same port; each provider is pointed at the endpoint
  * it understands. Missing CLIs are silently skipped.
  */
 async function registerAllProviders(port: number): Promise<{ changed: boolean; summary: string }> {

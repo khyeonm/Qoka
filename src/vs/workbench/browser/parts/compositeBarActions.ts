@@ -268,6 +268,9 @@ export class CompositeBarActionViewItem extends BaseActionViewItem {
 			persistence: {
 				hideOnKeyDown: true,
 			},
+			// Aria easy mode: a larger, more noticeable rail hover bubble (styled in
+			// activitybarpart.css). Non-devs rely on it to know what each icon is.
+			additionalClasses: this.configurationService.getValue('aria.mode') === 'easy' ? ['aria-easy-composite-hover'] : undefined,
 		}), { groupId: 'composite-bar-actions' }));
 
 		// Label

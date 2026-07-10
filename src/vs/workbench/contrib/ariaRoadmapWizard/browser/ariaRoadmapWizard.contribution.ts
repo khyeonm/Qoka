@@ -11,6 +11,8 @@ import { localize, localize2 } from '../../../../nls.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
+import { revealAiProviderChat } from '../../aria/browser/aiProviderChat.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
@@ -23,6 +25,7 @@ import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContaine
 import { AriaRoadmapEditorPane } from './ariaRoadmapEditorPane.js';
 import { AriaRoadmapEditorInput } from './ariaRoadmapEditorInput.js';
 import { AriaRoadmapView } from './ariaRoadmapView.js';
+import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 import { notifyRoadmapStateChanged } from './ariaRoadmapWizardCommon.js';
 
 // --- Editor (the New Project wizard) ---------------------------------------
@@ -58,6 +61,7 @@ class AriaRoadmapWizardContribution extends Disposable implements IWorkbenchCont
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
 		@IEditorService private readonly editorService: IEditorService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super();
 
@@ -88,21 +92,13 @@ class AriaRoadmapWizardContribution extends Disposable implements IWorkbenchCont
 		// Open (or focus, since the input is a Singleton) the wizard editor.
 		await this.editorService.openEditor(new AriaRoadmapEditorInput(), { pinned: true });
 
-		// Reveal the existing Claude Code chat in the auxiliary side bar next to
-		// the canvas. We do NOT seed a prompt here — Claude Code's sidebar
-		// chat cannot be injected with one. Instead the canvas shows a copyable
-		// "starter prompt" the user pastes into this chat to kick off the
-		// brainstorming (see AriaRoadmapEditorPane's empty state). Fire-and-forget.
-		try {
-			await this.commandService.executeCommand('workbench.action.focusAuxiliaryBar');
-		} catch { /* aux bar may already be open */ }
-		try {
-			await this.commandService.executeCommand('claudeVSCodeSidebarSecondary.focus');
-		} catch {
-			try {
-				await this.commandService.executeCommand('claude-vscode.sidebar.open');
-			} catch { /* Claude Code not ready yet — non-fatal */ }
-		}
+		// Reveal whichever AI provider chat the user installed (Claude / Codex /
+		// Gemini) in the auxiliary side bar next to the canvas. We do NOT seed a
+		// prompt here — the provider sidebars cannot be injected with one.
+		// Instead the canvas shows a copyable "starter prompt" the user pastes
+		// into the chat to kick off brainstorming (see AriaRoadmapEditorPane's
+		// empty state). Fire-and-forget.
+		await revealAiProviderChat(this.commandService, this.configurationService);
 	}
 }
 
@@ -146,6 +142,9 @@ const roadmapView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([roadmapView], roadmapContainer);
+
+// "How to use?" link in the view's title bar.
+registerAriaTabHelpTitleAction(AriaRoadmapView.ID, 'roadmap');
 
 /**
  * Keeps the `aria.roadmapFilePresent` context key in sync with whether the

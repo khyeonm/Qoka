@@ -4,6 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { append, $, clearNode } from '../../../../base/browser/dom.js';
+import { IAction } from '../../../../base/common/actions.js';
+import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
+import { IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
@@ -16,6 +19,7 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ensureAriaPaneScrollbarStyle } from '../../ariaSkills/browser/ariaSkillsView.js';
+import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 
 /**
  * Paper Library sidebar view. Renders the user's saved papers from
@@ -75,6 +79,12 @@ export class AriaPaperSearchView extends ViewPane {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 	}
 
+	override createActionViewItem(action: IAction, options?: IDropdownMenuActionViewItemOptions): IActionViewItem | undefined {
+		// Render the "How to use?" title-bar action as a blue text link.
+		return createAriaHelpTitleActionViewItem(action, 'paper-library', options ?? {})
+			?? super.createActionViewItem(action, options);
+	}
+
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		ensureAriaPaneScrollbarStyle();
@@ -88,36 +98,10 @@ export class AriaPaperSearchView extends ViewPane {
 		root.style.overflowX = 'hidden';
 		this.viewBody = root;
 
-		// Title row with refresh icon.
-		const titleRow = append(root, $('div'));
-		titleRow.style.display = 'flex';
-		titleRow.style.alignItems = 'center';
-		titleRow.style.justifyContent = 'space-between';
-		titleRow.style.margin = '0 0 6px 0';
-
-		const title = append(titleRow, $('h2'));
-		title.style.fontSize = '13px';
-		title.style.fontWeight = '600';
-		title.style.margin = '0';
-		title.textContent = 'Paper Library';
-
-		const refreshBtn = append(titleRow, $('span.codicon.codicon-refresh')) as HTMLElement;
-		refreshBtn.title = 'Refresh';
-		refreshBtn.style.cursor = 'pointer';
-		refreshBtn.style.opacity = '0.75';
-		refreshBtn.style.padding = '2px 4px';
-		refreshBtn.onclick = () => { void this.refresh(); };
-
-		// Single persistent hint at the top.
-		const hint = append(root, $('div'));
-		hint.style.fontSize = '11.5px';
-		hint.style.opacity = '0.75';
-		hint.style.margin = '0 0 12px 0';
-		hint.style.padding = '8px 10px';
-		hint.style.background = 'rgba(127, 127, 127, 0.08)';
-		hint.style.borderRadius = '4px';
-		hint.style.borderLeft = '3px solid var(--vscode-textLink-foreground, rgb(80, 140, 220))';
-		hint.textContent = 'Find papers using Claude Code chat on the right. Ask: "Find recent papers on X and save them to my library."';
+		// Full-width one-line summary under the title bar. The "How to use?" link
+		// and the refresh icon live elsewhere (title bar / stats row), so the title
+		// and its description are not repeated here.
+		renderAriaTabSummary(root, 'paper-library');
 
 		// Filter toolbar.
 		const toolbar = append(root, $('div'));
@@ -146,12 +130,27 @@ export class AriaPaperSearchView extends ViewPane {
 		};
 		this.tagSelect = tagSelect;
 
-		// Stats line — "N papers" or "N of M filtered".
-		const stats = append(root, $('div'));
+		// Stats row — "N papers" / "N of M filtered" on the left, refresh on the right.
+		const statsRow = append(root, $('div'));
+		statsRow.style.display = 'flex';
+		statsRow.style.alignItems = 'center';
+		statsRow.style.gap = '6px';
+		statsRow.style.margin = '0 0 8px 0';
+
+		const stats = append(statsRow, $('div'));
 		stats.style.fontSize = '11px';
 		stats.style.opacity = '0.65';
-		stats.style.margin = '0 0 8px 0';
+		stats.style.flex = '1';
+		stats.style.minWidth = '0';
 		this.statsEl = stats;
+
+		const refreshBtn = append(statsRow, $('span.codicon.codicon-refresh')) as HTMLElement;
+		refreshBtn.title = 'Refresh';
+		refreshBtn.style.cursor = 'pointer';
+		refreshBtn.style.opacity = '0.75';
+		refreshBtn.style.padding = '2px 4px';
+		refreshBtn.style.flexShrink = '0';
+		refreshBtn.onclick = () => { void this.refresh(); };
 
 		// Papers list container (clearNode-able — two levels deep).
 		const list = append(root, $('div'));

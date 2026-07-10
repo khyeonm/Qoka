@@ -46,8 +46,8 @@ let mcpServer: AriaPaperMcpServer | undefined;
 
 /**
  * Register the paper MCP with every AI provider whose CLI is available
- * (Claude Code, Codex, Gemini). The server serves /sse (Claude) and /mcp
- * (Codex, Gemini) on the same port; missing CLIs are silently skipped.
+ * (Claude Code, Codex). The server serves /sse (Claude) and /mcp
+ * (Codex) on the same port; missing CLIs are silently skipped.
  */
 async function registerAllProviders(port: number): Promise<{ changed: boolean; summary: string }> {
 	const results = await Promise.allSettled([
