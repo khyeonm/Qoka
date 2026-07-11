@@ -5,6 +5,7 @@
 
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { timeout } from '../../../../base/common/async.js';
 import { ARIA_AI_PROVIDER_SETTING, AriaAiProvider } from '../common/ariaConfiguration.js';
 
 /** Reveal commands per provider, best (secondary/aux-bar view) first. */
@@ -29,23 +30,34 @@ const REVEAL_COMMANDS: Record<Exclude<AriaAiProvider, 'auto'>, string[]> = {
 export async function revealAiProviderChat(
 	commandService: ICommandService,
 	configurationService: IConfigurationService,
+	opts?: { retryMs?: number },
 ): Promise<void> {
-	try {
-		await commandService.executeCommand('workbench.action.focusAuxiliaryBar');
-	} catch { /* aux bar may already be open */ }
-
 	const preferred = configurationService.getValue<AriaAiProvider>(ARIA_AI_PROVIDER_SETTING) ?? 'auto';
 	const base: Array<Exclude<AriaAiProvider, 'auto'>> = ['claude', 'codex'];
 	const order: Array<Exclude<AriaAiProvider, 'auto'>> = preferred === 'auto'
 		? base
 		: [preferred, ...base.filter(p => p !== preferred)];
 
-	for (const provider of order) {
-		for (const command of REVEAL_COMMANDS[provider]) {
-			try {
-				await commandService.executeCommand(command);
-				return;
-			} catch { /* not this provider — try the next reveal command */ }
+	// A just-installed provider extension may not have registered its reveal
+	// command yet. When a retry window is given (e.g. right after install), keep
+	// trying until one succeeds or the window elapses; ✨-button callers pass no
+	// window and get the original single-attempt behaviour.
+	const deadline = opts?.retryMs ? Date.now() + opts.retryMs : 0;
+	do {
+		try {
+			await commandService.executeCommand('workbench.action.focusAuxiliaryBar');
+		} catch { /* aux bar may already be open */ }
+
+		for (const provider of order) {
+			for (const command of REVEAL_COMMANDS[provider]) {
+				try {
+					await commandService.executeCommand(command);
+					return; // revealed
+				} catch { /* not this provider / not ready — try the next */ }
+			}
 		}
-	}
+		if (deadline) {
+			await timeout(400);
+		}
+	} while (deadline && Date.now() < deadline);
 }

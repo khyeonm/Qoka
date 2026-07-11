@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { timeout } from '../../../../base/common/async.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -52,20 +53,26 @@ class AriaLoginGateContribution extends Disposable implements IWorkbenchContribu
 	}
 
 	private async _guardFolderWindow(): Promise<void> {
-		let hasSession = false;
-		try {
-			const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
-			hasSession = sessions.length > 0;
-		} catch {
-			hasSession = false;
+		// The aria-authentication extension restores its session from SecretStorage
+		// asynchronously on activation. A single early check can race that restore
+		// and wrongly report "no session", bouncing a just-signed-in user back to
+		// login the moment they open a project. Retry a few times so a valid
+		// (already stored) session is honoured before we give up.
+		for (let attempt = 0; attempt < 6; attempt++) {
+			try {
+				const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
+				if (sessions.length > 0) {
+					return;
+				}
+			} catch {
+				/* ignore and retry */
+			}
+			await timeout(500);
 		}
 
-		if (hasSession) {
-			return;
-		}
-
-		// Signed out in a project window → close the folder. VS Code reloads into
-		// an empty workbench, where the Started overlay shows the login surface.
+		// Genuinely signed out after retries → close the folder. VS Code reloads
+		// into an empty workbench, where the Started overlay shows the login
+		// surface (login → AI picker → project — the intended first-run order).
 		try {
 			await this.commandService.executeCommand('workbench.action.closeFolder');
 		} catch {

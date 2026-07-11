@@ -13,6 +13,11 @@ import './media/ariaEasyMode.css';
 // contribution that locks the workbench until a project is picked.
 import './ariaStartedOverlay.contribution.js';
 
+// Side-effect import — auto-opens the chosen provider's chat on startup.
+// (The first-run "Choose your AI assistant" step is rendered inline by the
+// Started overlay — see renderAiProviderSection there.)
+import './ariaStartupChat.contribution.js';
+
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';

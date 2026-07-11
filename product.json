@@ -47,6 +47,10 @@
 	"urlProtocol": "aria",
 	"agentsTelemetryAppName": "agents",
 	"webviewContentExternalBaseUrlTemplate": "",
+	"linkProtectionTrustedDomains": [
+		"https://aria.pnucolab.com",
+		"https://*.pnucolab.com"
+	],
 	"builtInExtensions": [],
 	"defaultChatAgent": {
 		"extensionId": "",

@@ -10,6 +10,7 @@ import { IConfigurationService, ConfigurationTarget } from '../../../../platform
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { ARIA_MODE_SETTING, AriaMode, AriaModeContextKey } from '../common/ariaConfiguration.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
@@ -25,6 +26,50 @@ import { localize } from '../../../../nls.js';
 const ARIA_EASY_LIGHT_THEME = 'Light Modern';
 /** Storage key holding the user's theme while easy mode overrides it. */
 const PREV_COLOR_THEME_KEY = 'aria.prevColorTheme';
+
+/** Storage key holding a `{ [folderKey]: mode }` map so each project reopens in
+ *  the mode it was last used with (aria.mode itself is a single global value,
+ *  so we remember per folder here and re-apply it when that folder opens). */
+const PER_FOLDER_MODE_KEY = 'aria.mode.perFolder';
+
+/** Stable key for the open project (the multi-root .code-workspace file, else
+ *  the single folder URI). Undefined for an EMPTY workbench (no project). */
+function folderModeKey(contextService: IWorkspaceContextService): string | undefined {
+	if (contextService.getWorkbenchState() === WorkbenchState.EMPTY) {
+		return undefined;
+	}
+	const ws = contextService.getWorkspace();
+	return ws.configuration?.toString() ?? ws.folders[0]?.uri.toString();
+}
+
+function readPerFolderModes(storageService: IStorageService): Record<string, AriaMode> {
+	try {
+		const raw = storageService.get(PER_FOLDER_MODE_KEY, StorageScope.APPLICATION);
+		if (!raw) {
+			return {};
+		}
+		const parsed = JSON.parse(raw);
+		return parsed && typeof parsed === 'object' ? parsed as Record<string, AriaMode> : {};
+	} catch {
+		return {};
+	}
+}
+
+/** Remember `mode` for the currently-open project. No-op for an EMPTY workbench
+ *  or an unset mode (we only record explicit easy/advanced choices). */
+function savePerFolderMode(storageService: IStorageService, contextService: IWorkspaceContextService, mode: AriaMode): void {
+	const key = folderModeKey(contextService);
+	if (!key || (mode !== 'easy' && mode !== 'advanced')) {
+		return;
+	}
+	const map = readPerFolderModes(storageService);
+	map[key] = mode;
+	try {
+		storageService.store(PER_FOLDER_MODE_KEY, JSON.stringify(map), StorageScope.APPLICATION, StorageTarget.MACHINE);
+	} catch {
+		// Storage unavailable — per-folder memory just won't persist; harmless.
+	}
+}
 
 /** Relative luminance (0..1) of a `#rrggbb` or `rgb()/rgba()` color, or undefined. */
 function parseLuminance(color: string): number | undefined {
@@ -63,20 +108,53 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@IStorageService private readonly storageService: IStorageService,
+		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 	) {
 		super();
 		this.modeKey = AriaModeContextKey.bindTo(contextKeyService);
+		// Re-apply this project's remembered mode (or adopt the current one for it)
+		// BEFORE the first visual update, so the window opens in the right mode.
+		this.restoreFolderMode();
 		this.update(false);
 
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(ARIA_MODE_SETTING)) {
 				this.update(true);
+				// A mode change while a project is open is (almost always) a user
+				// action — remember it for this folder so reopening restores it.
+				savePerFolderMode(this.storageService, this.contextService, this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '');
 			}
 		}));
 
 		// New windows (auxiliary editor windows) get the class too, so their
 		// dialogs / popups follow the mode.
 		this._register(this.layoutService.onDidAddContainer(() => this.applyEasyClass()));
+	}
+
+	/**
+	 * On opening a project window, make aria.mode reflect THIS folder:
+	 *  - if we've remembered a mode for it, re-apply that (so a folder last used
+	 *    in easy reopens in easy even if the global value drifted to advanced);
+	 *  - otherwise, if a concrete mode is currently set, adopt it as this
+	 *    folder's remembered mode (first open records the choice made at launch).
+	 */
+	private restoreFolderMode(): void {
+		const key = folderModeKey(this.contextService);
+		if (!key) {
+			return; // EMPTY workbench — the Started overlay owns mode selection.
+		}
+		const stored = readPerFolderModes(this.storageService)[key];
+		const current = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
+		if (stored === 'easy' || stored === 'advanced') {
+			if (stored !== current) {
+				// Applied live by update() via the config-change listener.
+				// handleDirtyFile:'save' + donotNotifyError so this silent write
+				// never pops the settings.json editor / a save dialog.
+				void this.configurationService.updateValue(ARIA_MODE_SETTING, stored, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
+			}
+		} else if (current === 'easy' || current === 'advanced') {
+			savePerFolderMode(this.storageService, this.contextService, current);
+		}
 	}
 
 	/**
@@ -348,7 +426,7 @@ CommandsRegistry.registerCommand(ARIA_SWITCH_MODE_COMMAND, async (accessor: Serv
 		return;
 	}
 
-	await configurationService.updateValue(ARIA_MODE_SETTING, next, ConfigurationTarget.APPLICATION);
+	await configurationService.updateValue(ARIA_MODE_SETTING, next, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
 	await hostService.reload();
 });
 
@@ -367,5 +445,5 @@ CommandsRegistry.registerCommand(ARIA_SET_MODE_COMMAND, async (accessor: Service
 	// updates immediately, which is enough for `when` clauses and view filters.
 	// (If later we add settings that are only read at startup, we can reload
 	// selectively from those code paths.)
-	await configurationService.updateValue(ARIA_MODE_SETTING, mode, ConfigurationTarget.APPLICATION);
+	await configurationService.updateValue(ARIA_MODE_SETTING, mode, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
 });

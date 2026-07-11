@@ -9,6 +9,8 @@ import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as 
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IWorkspacesService, IRecentlyOpened, isRecentFolder, isRecentWorkspace } from '../../../../platform/workspaces/common/workspaces.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -19,8 +21,9 @@ import { IAuthenticationService, AuthenticationSession } from '../../../services
 import { ROADMAP_SCHEME } from '../../ariaRoadmapWizard/browser/ariaRoadmapWizardCommon.js';
 import { URI } from '../../../../base/common/uri.js';
 import { basename } from '../../../../base/common/resources.js';
-import { ARIA_MODE_SETTING, AriaMode } from '../common/ariaConfiguration.js';
+import { ARIA_MODE_SETTING, ARIA_AI_PROVIDER_SETTING, AriaMode } from '../common/ariaConfiguration.js';
 import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
+import { ConcreteProvider, PROVIDER_EXTENSION_ID, PROVIDER_LABEL, hasPickedAiProvider, markPickedAiProvider, clearPickedAiProvider, providerSettingFor, setPendingInstall } from './ariaAiProviderChoice.js';
 
 // Pre-paint workbench hide. Installing the stylesheet at module-load
 // — before any contribution constructor runs — guarantees the bare
@@ -123,6 +126,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	private authLoading = false;
 	private cycleTimer: ReturnType<typeof setInterval> | undefined;
 
+	// AI-provider picker step (shown after sign-in, before the mode/project
+	// picker, on first run only). `aiInstalled` is filled asynchronously from
+	// IExtensionService; `aiChecked` is the user's multi-select state.
+	private aiInstalled: Record<ConcreteProvider, boolean> | undefined;
+	private aiChecked: Record<ConcreteProvider, boolean> = { claude: false, codex: false };
+	private aiCheckedInit = false;
+	private aiFetching = false;
+
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
@@ -133,8 +144,17 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		@IEditorService private readonly editorService: IEditorService,
 		@IAuthenticationService private readonly authService: IAuthenticationService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
+		@IExtensionService private readonly extensionService: IExtensionService,
 	) {
 		super();
+
+		// Re-check which provider extensions are installed when the set changes
+		// (e.g. the user installs one from the picker), so the step updates.
+		this._register(this.extensionService.onDidChangeExtensions(() => {
+			if (this.overlay && !hasPickedAiProvider()) {
+				void this.refreshAiInstalled();
+			}
+		}));
 
 		// The New Project wizard opens as a real editor. When it appears we
 		// step the picker aside so the wizard + Claude Code's aux-bar chat own
@@ -224,6 +244,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	}
 
 	private async signIn(provider: 'orcid' | 'google'): Promise<void> {
+		// Going through the login screen re-arms the AI picker: once this sign-in
+		// completes, the AI-assistant step shows again. Reopening later with an
+		// already-restored session skips signIn (and the picker), as intended.
+		clearPickedAiProvider();
 		this.authLoading = true;
 		this.rerender();
 		try {
@@ -370,6 +394,198 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		}
 	}
 
+	// --- AI-assistant picker step ------------------------------------------
+
+	/** A small themed button used by the AI picker step. Secondary buttons use
+	 *  `inherit` so they read correctly on both the easy (white) and advanced
+	 *  (dark) overlay backgrounds. */
+	private makeButton(label: string, primary: boolean, onClick: () => void): HTMLButtonElement {
+		const btn = document.createElement('button');
+		btn.textContent = label;
+		btn.style.padding = '9px 20px';
+		btn.style.fontSize = '13.5px';
+		btn.style.borderRadius = '5px';
+		btn.style.cursor = 'pointer';
+		btn.style.font = 'inherit';
+		if (primary) {
+			btn.style.background = 'var(--vscode-button-background, #0e639c)';
+			btn.style.color = 'var(--vscode-button-foreground, #ffffff)';
+			btn.style.border = '1px solid transparent';
+		} else {
+			btn.style.background = 'transparent';
+			btn.style.color = 'inherit';
+			btn.style.border = '1px solid rgba(127,127,127,0.5)';
+		}
+		btn.onclick = onClick;
+		return btn;
+	}
+
+	/** Async-check which provider extensions are installed, then re-render. On
+	 *  the first fill, pre-check the installed ones so a ready user can just
+	 *  click Continue. */
+	private async refreshAiInstalled(): Promise<void> {
+		if (this.aiFetching) {
+			return;
+		}
+		this.aiFetching = true;
+		try {
+			const check = async (p: ConcreteProvider) => !!(await this.extensionService.getExtension(PROVIDER_EXTENSION_ID[p]));
+			const [claude, codex] = await Promise.all([check('claude'), check('codex')]);
+			this.aiInstalled = { claude, codex };
+			if (!this.aiCheckedInit) {
+				this.aiChecked = { claude, codex };
+				this.aiCheckedInit = true;
+			}
+		} finally {
+			this.aiFetching = false;
+		}
+		if (this.overlay && !hasPickedAiProvider()) {
+			this.rerender();
+		}
+	}
+
+	private renderAiProviderSection(parent: HTMLElement): void {
+		const title = document.createElement('h1');
+		title.textContent = 'Choose your AI assistant';
+		title.style.fontSize = '32px';
+		title.style.fontWeight = '300';
+		title.style.margin = '0 0 8px 0';
+		parent.appendChild(title);
+
+		const subtitle = document.createElement('p');
+		subtitle.textContent = 'Aria works with Claude Code or Codex. Pick the one(s) you\'ll use — you can select both. You can change this later in Settings.';
+		subtitle.style.fontSize = '14px';
+		subtitle.style.opacity = '0.7';
+		subtitle.style.margin = '0 0 28px 0';
+		subtitle.style.maxWidth = '520px';
+		parent.appendChild(subtitle);
+
+		// Installed-state not known yet → fetch it and show a spinner meanwhile.
+		if (!this.aiInstalled) {
+			void this.refreshAiInstalled();
+			this.renderLoadingSection(parent);
+			return;
+		}
+
+		const list = document.createElement('div');
+		list.style.display = 'flex';
+		list.style.flexDirection = 'column';
+		list.style.gap = '12px';
+		list.style.maxWidth = '520px';
+		parent.appendChild(list);
+		(['claude', 'codex'] as ConcreteProvider[]).forEach(p => list.appendChild(this.renderProviderRow(p)));
+
+		// Continue is enabled whenever at least one provider is checked. What it
+		// does depends on install state (see chooseAiProviders): all checked ones
+		// installed → proceed; any missing → open the Marketplace page(s) so the
+		// user can install, then reload.
+		const anyChecked = (['claude', 'codex'] as ConcreteProvider[]).some(p => this.aiChecked[p]);
+		const cont = this.makeButton('Continue', true, () => { if (anyChecked) { void this.chooseAiProviders(); } });
+		cont.style.marginTop = '26px';
+		if (!anyChecked) {
+			cont.style.opacity = '0.5';
+			cont.style.cursor = 'not-allowed';
+		}
+		parent.appendChild(cont);
+
+		const hint = document.createElement('div');
+		hint.textContent = 'Check the assistant(s) you want. If a checked one isn\'t installed yet, you\'ll be taken to install it after you pick a project.';
+		hint.style.marginTop = '12px';
+		hint.style.fontSize = '12px';
+		hint.style.opacity = '0.6';
+		hint.style.maxWidth = '520px';
+		parent.appendChild(hint);
+	}
+
+	private renderProviderRow(p: ConcreteProvider): HTMLElement {
+		const installed = !!this.aiInstalled?.[p];
+		const row = document.createElement('div');
+		row.style.display = 'flex';
+		row.style.alignItems = 'center';
+		row.style.gap = '12px';
+		row.style.padding = '14px 16px';
+		row.style.border = '1px solid rgba(127,127,127,0.35)';
+		row.style.borderRadius = '8px';
+
+		// Checkbox is ALWAYS selectable — the user may want an assistant that
+		// isn't installed yet; Continue routes such choices to the Marketplace.
+		const cb = document.createElement('input');
+		cb.type = 'checkbox';
+		cb.checked = this.aiChecked[p];
+		cb.style.width = '17px';
+		cb.style.height = '17px';
+		cb.style.cursor = 'pointer';
+		cb.onchange = () => { this.aiChecked[p] = cb.checked; this.rerender(); };
+		row.appendChild(cb);
+
+		const name = document.createElement('div');
+		name.textContent = PROVIDER_LABEL[p];
+		name.style.flex = '1';
+		name.style.fontSize = '15px';
+		name.style.fontWeight = '600';
+		row.appendChild(name);
+
+		// Installed → an active Uninstall button (click removes it). Not installed
+		// → a red "Uninstalled" label. The checkbox stays selectable in both cases.
+		if (installed) {
+			const uninstall = this.makeButton('Uninstall', false, () => void this.uninstallProvider(p));
+			uninstall.style.padding = '5px 12px';
+			uninstall.style.fontSize = '12.5px';
+			row.appendChild(uninstall);
+		} else {
+			const label = document.createElement('span');
+			label.textContent = 'Uninstalled';
+			label.style.fontSize = '12.5px';
+			label.style.fontWeight = '600';
+			label.style.color = 'var(--vscode-errorForeground, #e51400)';
+			row.appendChild(label);
+		}
+		return row;
+	}
+
+	private async uninstallProvider(p: ConcreteProvider): Promise<void> {
+		try {
+			await this.commandService.executeCommand('workbench.extensions.uninstallExtension', PROVIDER_EXTENSION_ID[p]);
+			this.aiChecked[p] = false;
+			this.notificationService.info(`${PROVIDER_LABEL[p]} uninstalled. Reload Aria to fully remove it.`);
+		} catch (e) {
+			this.notificationService.error(`Could not uninstall ${PROVIDER_LABEL[p]}: ${(e as Error).message}`);
+		}
+		void this.refreshAiInstalled();
+	}
+
+	/**
+	 * Continue from the AI picker:
+	 *  - if every CHECKED provider is installed → record the choice in
+	 *    `aria.aiProvider` and advance to the mode/project picker;
+	 *  - if any CHECKED provider is NOT installed → dismiss the overlay and open
+	 *    the Marketplace page for each missing one (both, if both were checked)
+	 *    so the user can install; we do NOT mark the choice, so the picker
+	 *    returns on the next reload where the now-installed provider proceeds.
+	 */
+	private async chooseAiProviders(): Promise<void> {
+		const providers: ConcreteProvider[] = ['claude', 'codex'];
+		const checked = providers.filter(p => this.aiChecked[p]);
+		if (checked.length === 0) {
+			return;
+		}
+		// Any checked provider that isn't installed yet is DEFERRED: record it and
+		// advance to the project picker. Its Marketplace page opens later — after
+		// the user picks a project — in that project window (see ariaStartupChat),
+		// not here in the empty picker.
+		const missing = checked.filter(p => !this.aiInstalled?.[p]);
+		setPendingInstall(missing);
+
+		const setting = providerSettingFor(this.aiChecked.claude, this.aiChecked.codex);
+		markPickedAiProvider();
+		try {
+			// handleDirtyFile:'save' + donotNotifyError so writing the setting never
+			// pops the settings.json editor / a save dialog over the overlay.
+			await this.configurationService.updateValue(ARIA_AI_PROVIDER_SETTING, setting, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
+		} catch { /* proceed even if persisting fails; 'auto' resolution covers it */ }
+		this.rerender(); // → mode + project picker
+	}
+
 	private rerender(): void {
 		if (!this.overlay) {
 			return;
@@ -425,6 +641,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		}
 		if (!this.ariaSession) {
 			this.renderLoginSection(content);
+			return;
+		}
+
+		// First-run AI-assistant step: signed in but hasn't chosen an AI yet.
+		// Blocks the mode/project picker until a provider is chosen (and at
+		// least one chosen provider is installed).
+		if (!hasPickedAiProvider()) {
+			this.renderAiProviderSection(content);
 			return;
 		}
 
