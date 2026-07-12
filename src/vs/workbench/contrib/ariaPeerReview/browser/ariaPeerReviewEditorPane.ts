@@ -75,6 +75,10 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	private selectedFormat: PaperFormat = 'markdown';
 	private availableFormats: PaperFormat[] = ['markdown'];
 	private reviewers: Record<string, boolean> = { claude: true };
+	/** Codex CLI present on this machine (gates the Codex reviewer — the reviewer
+	 *  runs `codex exec`, not the VS Code extension). Optimistic default;
+	 *  refreshed async from the extension when the editor is created. */
+	private codexAvailable = true;
 
 	private activeReviewer = '';
 	private docs: { key: string; name: string }[] = [];
@@ -112,6 +116,25 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		Object.assign(root.style, { width: '100%', height: '100%', boxSizing: 'border-box', fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)', color: 'var(--vscode-foreground)' });
 		parent.appendChild(root);
 		this.root = root;
+		void this.refreshCodexAvailability();
+	}
+
+	/** Ask the extension whether the Codex CLI is installed, then re-render so the
+	 *  Codex reviewer checkbox reflects it. Best-effort — assumes available on
+	 *  failure so we never wrongly block a working setup. */
+	private async refreshCodexAvailability(): Promise<void> {
+		try {
+			const avail = await this.commandService.executeCommand<boolean>('aria.peerReview.codexAvailable');
+			this.codexAvailable = avail !== false;
+		} catch {
+			this.codexAvailable = true;
+		}
+		if (!this.codexAvailable) {
+			this.reviewers.codex = false; // don't send a reviewer that can't run
+		}
+		if (this.root) {
+			this.render();
+		}
 	}
 
 	override async setInput(input: EditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
@@ -145,6 +168,9 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		}
 		if (token.isCancellationRequested) { return; }
 		this.render();
+		// Re-probe the codex CLI each time the tab is shown (the editor pane instance
+		// is reused across reopens, so createEditor alone would keep a stale result).
+		void this.refreshCodexAvailability();
 	}
 
 	// --- data ---------------------------------------------------------------
@@ -382,7 +408,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		const rw = append(root, $('div'));
 		Object.assign(rw.style, { display: 'flex', flexDirection: 'column', gap: '6px' });
 		rw.appendChild(this.reviewerCheckbox('claude', 'Claude', true));
-		rw.appendChild(this.reviewerCheckbox('codex', 'Codex', true));
+		rw.appendChild(this.reviewerCheckbox('codex', this.codexAvailable ? 'Codex' : localize('aria.peerReview.codexMissing', "Codex — CLI not installed"), this.codexAvailable));
 
 		// copy prompt
 		const bar = append(root, $('div'));

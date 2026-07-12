@@ -7,10 +7,12 @@ description: Automated AI peer review with iterative, defensive revision of a sc
 
 Automate rigorous peer review of a manuscript and, when asked, iteratively defend
 it — reframing scope/logic without ever fabricating results. This runs inside
-Aria: reviewers are **Claude sub-agents you spawn in parallel** (via the Agent /
-Task tool), and results are recorded through Aria's paper-review MCP tools so the
-**Peer Review tab** renders them. There is no `wdiff`, no `sudo`, and no external
-diff file — Aria's UI computes and shows the diff.
+Aria. Reviewers are **independent models**: the `claude` reviewer is Claude
+sub-agents you spawn in parallel (via the Agent / Task tool); the `codex` reviewer
+is the **Codex CLI run headless** (a genuinely separate model). Results are
+recorded through Aria's paper-review MCP tools so the **Peer Review tab** renders
+them. There is no `wdiff`, no `sudo`, and no external diff file — Aria's UI
+computes and shows the diff.
 
 ## When Aria starts a review
 
@@ -21,8 +23,8 @@ Aria's Peer Review tab creates a review and sends you a prompt containing an
    (`{ name, text }` — the MAIN text to review), any **`supplementary`** documents
    (`[{ name, text }]` — extra data/context), the **`figures`** (filenames only —
    you can't see the images), the title, and the reviewers to use (e.g.
-   `["claude"]`). Review the **manuscript**; use supplementary material as evidence
-   to check the manuscript's claims against.
+   `["claude"]`, `["claude","codex"]`, or `["codex"]`). Review the **manuscript**;
+   use supplementary material as evidence to check the manuscript's claims against.
 2. **Run reviewers in parallel** (see below).
 3. **Record concerns** with `record_review(...)` for each reviewer.
 4. Tell the user the review is ready in the Peer Review tab. Do NOT dump the full
@@ -31,22 +33,57 @@ Aria's Peer Review tab creates a review and sends you a prompt containing an
 If there is no `execId` (the user just pasted a paper or asked ad hoc), do the
 same review but summarize the concerns in chat.
 
-## Reviewers = parallel Claude sub-agents
+## Reviewers
 
-For each reviewer requested (MVP: `claude`), spawn **independent sub-agents in
-one batch** (a single message with multiple Agent tool calls) so they run
-concurrently. Give each a **distinct lens** so they don't all find the same
-thing:
+Run **each** reviewer id from `get_review` as an INDEPENDENT reviewer and record
+its concerns separately (so the tab shows a per-reviewer breakdown). `claude` and
+`codex` are different models — never simulate one with the other.
+
+### The `claude` reviewer = parallel Claude sub-agents
+
+Spawn **independent sub-agents in one batch** (a single message with multiple
+Agent / Task tool calls) so they run concurrently. Give each a **distinct lens**
+so they don't all find the same thing:
 
 - **methodology / statistics** — study design, sample size, controls, stats, p-values, multiple-comparison handling.
 - **scope / framing / novelty** — over-claiming, generalization beyond the data, missing baselines, contribution vs prior work.
 - **reproducibility / rigor** — can the results be reproduced from what's written; are procedures, versions, and data fully specified.
 
 Each sub-agent receives the manuscript text + supplementary and the **calibration
-rule** below, and returns Major and Minor Concerns as structured items.
+rule** below, and returns Major and Minor Concerns as structured items. Aggregate
+across sub-agents into ONE result (dedupe near-duplicates; keep the clearest
+phrasing), then `record_review(execId, reviewer="claude", …)`.
 
-Aggregate across sub-agents into ONE reviewer result per reviewer id (dedupe
-near-duplicates; keep the clearest phrasing). Then call `record_review`.
+### The `codex` reviewer = the Codex CLI, run headless
+
+Codex is a separate model — get its **own** opinion by running the Codex CLI via
+the **Bash tool** (do NOT approximate it with a Claude sub-agent). Feed it the
+same calibrated reviewer prompt + manuscript + calibration rule on stdin:
+
+```
+cat <<'PROMPT' | codex exec --skip-git-repo-check -
+You are an independent, rigorous peer reviewer.
+<paste the calibration rule below>
+Produce: a short Summary, a numbered "Major Concerns" list (or the single line
+"NONE"), a numbered "Minor Concerns" list, and a one-word Verdict
+(Accept / Minor Revision / Major Revision / Reject).
+
+TITLE: <title>
+MANUSCRIPT:
+<manuscript.text>
+SUPPLEMENTARY (evidence only):
+<supplementary texts, if any>
+PROMPT
+```
+
+Parse Codex's output into `{severity, title, detail}` objects (Major → `"major"`,
+Minor → `"minor"`) and record it: `record_review(execId, reviewer="codex", concerns=[…])`.
+
+**If Codex isn't usable** — the `codex` command is not found, or it errors /
+prompts for sign-in — do NOT fail the whole review. Skip the Codex reviewer,
+run the others, and tell the user once: *"Codex wasn't available — install the
+Codex CLI and sign in to include it as a reviewer."* (Check availability with
+`command -v codex` before the run if unsure.)
 
 ### Calibration rule (what counts as a concern)
 

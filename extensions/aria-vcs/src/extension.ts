@@ -5,6 +5,23 @@
 
 import * as vscode from 'vscode';
 import { VcsService, Snapshot, StatusInfo, FileChange } from './vcsService';
+import { summarizeDiff, availableProviders, AiProvider } from './aiSummarizer';
+import { recordGroup, getGroup } from './snapshotGroups';
+
+/** Returned by aria.vcs.prepareSnapshot — everything the Save dialog needs. */
+export interface SnapshotDraft {
+	/** AI (or fallback) title to pre-fill the name field. */
+	suggestedTitle: string;
+	/** Did the AI judge this a continuation of the previous snapshot? */
+	continuation: boolean;
+	/** Previous snapshot's title, shown as the "group with …" label. Undefined
+	 *  when there is no previous snapshot. */
+	previousTitle?: string;
+	/** Whether the AI actually ran (false → title is a plain template). */
+	aiUsed: boolean;
+	/** Provider CLIs detected on this machine. */
+	providers: AiProvider[];
+}
 
 export function activate(context: vscode.ExtensionContext): void {
 
@@ -25,7 +42,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Optional second arg `selectedPaths` restricts the snapshot to a subset of
 	// changed files — this is what the Versions view passes when the user has
 	// unchecked some entries in the Changes list.
-	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.saveSnapshot', async (presetMessage?: string, selectedPaths?: string[]) => {
+	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.saveSnapshot', async (presetMessage?: string, selectedPaths?: string[], groupWithPrevious?: boolean) => {
 		const cwd = activeWorkspacePath();
 		if (!cwd) {
 			vscode.window.showWarningMessage('Open a folder to save snapshots.');
@@ -47,9 +64,16 @@ export function activate(context: vscode.ExtensionContext): void {
 			}
 		}
 
+		// Capture the current HEAD BEFORE committing so we can link this new
+		// snapshot's group to the previous one when the user grouped them.
+		const prevHash = (await service.getRecentSnapshots(cwd, 1))[0]?.hash;
+
 		try {
 			const snapshot = await service.saveSnapshot(cwd, message, selectedPaths);
 			if (snapshot) {
+				// Display-only grouping: continuation → same group as the previous
+				// snapshot; otherwise a fresh group. Never rewrites git history.
+				recordGroup(cwd, snapshot.hash, prevHash, groupWithPrevious === true);
 				vscode.window.showInformationMessage(`Snapshot saved: ${snapshot.message}`);
 				return snapshot;
 			}
@@ -61,6 +85,35 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	}));
 
+	// Prepare a snapshot: gather the diff, ask the AI for a one-line title +
+	// whether it continues the previous snapshot, and return everything the
+	// Save dialog needs. Falls back to a timestamp title when no AI is usable.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.prepareSnapshot', async (selectedPaths?: string[]): Promise<SnapshotDraft> => {
+		const cwd = activeWorkspacePath();
+		const fallback: SnapshotDraft = { suggestedTitle: `Snapshot ${todayLabel()}`, continuation: false, aiUsed: false, providers: availableProviders() };
+		if (!cwd) {
+			return fallback;
+		}
+		try {
+			const recent = await service.getRecentSnapshots(cwd, 1);
+			const prev = recent[0];
+			const diff = await service.getDiffText(cwd, selectedPaths);
+			const summary = await summarizeDiff(diff, prev?.message, prev?.filesChanged ?? 0);
+			if (summary) {
+				return {
+					suggestedTitle: summary.message,
+					continuation: summary.continuation && !!prev,
+					previousTitle: prev?.message,
+					aiUsed: true,
+					providers: availableProviders(),
+				};
+			}
+		} catch {
+			// fall through to the template
+		}
+		return { ...fallback, previousTitle: (await service.getRecentSnapshots(cwd, 1))[0]?.message };
+	}));
+
 	// Return recent snapshots — used by the Versions view to populate its list.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.getRecent', async (limit?: number): Promise<Snapshot[]> => {
 		const cwd = activeWorkspacePath();
@@ -68,7 +121,17 @@ export function activate(context: vscode.ExtensionContext): void {
 			return [];
 		}
 		try {
-			return await service.getRecentSnapshots(cwd, limit ?? 10);
+			const snapshots = await service.getRecentSnapshots(cwd, limit ?? 10);
+			// Attach display-only grouping (from the sidecar) so the timeline can
+			// collapse consecutive same-group snapshots.
+			for (const s of snapshots) {
+				const g = getGroup(cwd, s.hash);
+				if (g) {
+					s.groupId = g.groupId;
+					s.continuation = g.continuation;
+				}
+			}
+			return snapshots;
 		} catch {
 			return [];
 		}

@@ -10,6 +10,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 import { SkillInfo } from './types';
+import { DEFAULT_SKILLS } from './defaultSkills';
 import {
 	findSkill,
 	readManifest,
@@ -283,6 +284,37 @@ export function mirrorSkillToProviders(name: string): void {
 export function removeSkillFromProviders(name: string): void {
 	for (const { dir } of PROVIDER_SKILL_ROOTS) {
 		hardRemove(path.join(dir, name));
+	}
+}
+
+/**
+ * Keep app-bundled default skills fresh. `installFromLocal` only runs on first
+ * install, so an edit to a bundled skill (e.g. iterative-paper-defense gaining
+ * Codex support) would never reach an already-set-up profile. On each launch,
+ * re-copy any bundled default skill whose SKILL.md differs from the installed
+ * copy, and re-mirror it to the provider dirs. Skips skills not installed yet
+ * (the first-run wizard handles those). Best-effort per skill.
+ */
+export function resyncBundledSkills(): void {
+	for (const spec of DEFAULT_SKILLS) {
+		if (!spec.bundledPath) {
+			continue;
+		}
+		try {
+			const srcDir = resolveBundledPath(spec.bundledPath);
+			const srcMd = path.join(srcDir, 'SKILL.md');
+			const destMd = path.join(skillPath(spec.name), 'SKILL.md');
+			// Not installed yet → leave it for the first-run wizard.
+			if (!fs.existsSync(srcMd) || !fs.existsSync(destMd)) {
+				continue;
+			}
+			if (fs.readFileSync(srcMd, 'utf8') !== fs.readFileSync(destMd, 'utf8')) {
+				installFromLocal(srcDir, spec.name);
+				mirrorSkillToProviders(spec.name);
+			}
+		} catch {
+			// best-effort — a stale copy is harmless; the skill still works.
+		}
 	}
 }
 

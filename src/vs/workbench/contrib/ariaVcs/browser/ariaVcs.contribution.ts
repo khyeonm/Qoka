@@ -14,17 +14,17 @@ import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContaine
 import { IAction } from '../../../../base/common/actions.js';
 import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { IBaseActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
-import { AriaChangesView } from './ariaChangesView.js';
-import { AriaSnapshotsView } from './ariaSnapshotsView.js';
+import { AriaVersionsView } from './ariaVersionsView.js';
 import { registerAriaTabHelpContainerTitleAction, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 
 const ARIA_VERSIONS_CONTAINER_ID = 'workbench.view.ariaVersions';
 
 /**
- * Versions uses `mergeViewWithContainerWhenSingleView: false` (two sub-panels),
- * so the "How to use?" link lives in the CONTAINER title bar. This subclass
- * renders that container-title action as a blue text link. It adds no
- * constructor, so it inherits ViewPaneContainer's injected dependencies.
+ * Versions is a SINGLE merged view (Changes + Snapshots in one body) with
+ * `mergeViewWithContainerWhenSingleView: true`, so the container shows just the
+ * "Versions" title — no collapsible sub-headers. The "How to use?" link lives in
+ * the container title bar; this subclass renders it as a blue text link. It adds
+ * no constructor, so it inherits ViewPaneContainer's injected dependencies.
  */
 class AriaVersionsViewPaneContainer extends ViewPaneContainer {
 	override getActionViewItem(action: IAction, options: IBaseActionViewItemOptions): IActionViewItem | undefined {
@@ -39,14 +39,13 @@ const versionsIcon = registerIcon(
 	localize('aria.versions.iconLabel', "Aria Versions activity bar icon")
 );
 
-// We disable `mergeViewWithContainerWhenSingleView` because the container
-// always hosts both Changes and Snapshots: we want the standard "view header
-// + drag-to-resize" treatment with two visible sub-panels.
+// Single merged view → `mergeViewWithContainerWhenSingleView: true` collapses the
+// view into the container: one "Versions" title, no sub-header, no collapse toggle.
 const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({
 		id: ARIA_VERSIONS_CONTAINER_ID,
 		title: localize2('aria.versions.containerTitle', "Versions"),
-		ctorDescriptor: new SyncDescriptor(AriaVersionsViewPaneContainer, [ARIA_VERSIONS_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: false }]),
+		ctorDescriptor: new SyncDescriptor(AriaVersionsViewPaneContainer, [ARIA_VERSIONS_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: true,
 		icon: versionsIcon,
 		order: 15,
@@ -54,34 +53,18 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 
 const easyOnly = ContextKeyExpr.equals('aria.mode', 'easy');
 
-// canToggleVisibility is false so the container title bar shows no "..." overflow
-// (the Views submenu is dropped when nothing is toggleable) — Changes and
-// Snapshots stay split and always visible by default.
-const changesView: IViewDescriptor = {
-	id: AriaChangesView.ID,
-	name: localize2('aria.versions.changesViewName', "Changes"),
+const versionsView: IViewDescriptor = {
+	id: AriaVersionsView.ID,
+	name: localize2('aria.versions.viewName', "Versions"),
 	containerIcon: versionsIcon,
-	ctorDescriptor: new SyncDescriptor(AriaChangesView),
+	ctorDescriptor: new SyncDescriptor(AriaVersionsView),
 	canToggleVisibility: false,
 	canMoveView: false,
 	order: 1,
 	when: easyOnly,
-	weight: 60,
 };
 
-const snapshotsView: IViewDescriptor = {
-	id: AriaSnapshotsView.ID,
-	name: localize2('aria.versions.snapshotsViewName', "Snapshots"),
-	containerIcon: versionsIcon,
-	ctorDescriptor: new SyncDescriptor(AriaSnapshotsView),
-	canToggleVisibility: false,
-	canMoveView: false,
-	order: 2,
-	when: easyOnly,
-	weight: 40,
-};
-
-Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([changesView, snapshotsView], viewContainer);
+Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([versionsView], viewContainer);
 
 // "How to use?" link in the container title bar (right of the "VERSIONS" title).
 registerAriaTabHelpContainerTitleAction(ARIA_VERSIONS_CONTAINER_ID, 'versions');

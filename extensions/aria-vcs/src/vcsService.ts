@@ -3,18 +3,34 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/**
+ * Run git with an argv array (NO shell). This avoids any shell interpretation of
+ * commit messages / file paths, so titles like `add $5 tier`, names with
+ * backticks, or a trailing `\` can never break the command or inject anything.
+ */
+async function git(args: string[], cwd: string, opts: { maxBuffer?: number } = {}): Promise<string> {
+	const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: opts.maxBuffer });
+	return stdout;
+}
 
 export interface Snapshot {
 	hash: string;
 	timestamp: number;       // ms since epoch
 	message: string;
 	filesChanged: number;
+	/** Display-only grouping id (from the snapshot-groups sidecar); consecutive
+	 *  snapshots that continue the same task share it. Filled by the command
+	 *  layer, not git. */
+	groupId?: string;
+	/** True when this snapshot continued the previous one's task. */
+	continuation?: boolean;
 }
 
 export interface StatusInfo {
@@ -50,14 +66,14 @@ export class VcsService {
 
 		let hasHead = true;
 		try {
-			await execAsync('git rev-parse HEAD', { cwd: workspacePath });
+			await git(['rev-parse', 'HEAD'], workspacePath);
 		} catch {
 			hasHead = false;
 		}
 
 		let unsavedChanges = 0;
 		try {
-			const { stdout } = await execAsync('git status --porcelain --untracked-files=all', { cwd: workspacePath });
+			const stdout = await git(['status', '--porcelain', '--untracked-files=all'], workspacePath);
 			unsavedChanges = stdout.split('\n').filter(line => line.trim().length > 0).length;
 		} catch {
 			// ignore
@@ -67,7 +83,7 @@ export class VcsService {
 	}
 
 	async initRepo(workspacePath: string): Promise<void> {
-		await execAsync('git init', { cwd: workspacePath });
+		await git(['init'], workspacePath);
 		// Make sure commits will succeed without any user setup. If the user
 		// already has user.name / user.email configured globally we keep
 		// using those — only fall back to an Aria-local identity when no
@@ -79,7 +95,7 @@ export class VcsService {
 	private async ensureLocalIdentity(workspacePath: string): Promise<void> {
 		const hasGlobalIdentity = async (key: string): Promise<boolean> => {
 			try {
-				const { stdout } = await execAsync(`git config --global ${key}`, { cwd: workspacePath });
+				const stdout = await git(['config', '--global', key], workspacePath);
 				return stdout.trim().length > 0;
 			} catch {
 				return false;
@@ -87,10 +103,10 @@ export class VcsService {
 		};
 
 		if (!(await hasGlobalIdentity('user.email'))) {
-			await execAsync('git config user.email "aria@localhost"', { cwd: workspacePath }).catch(() => { });
+			await git(['config', 'user.email', 'aria@localhost'], workspacePath).catch(() => { });
 		}
 		if (!(await hasGlobalIdentity('user.name'))) {
-			await execAsync('git config user.name "Aria User"', { cwd: workspacePath }).catch(() => { });
+			await git(['config', 'user.name', 'Aria User'], workspacePath).catch(() => { });
 		}
 	}
 
@@ -104,22 +120,18 @@ export class VcsService {
 		// files. When undefined or empty, fall back to "include everything",
 		// matching the Mercurial default of committing every tracked change.
 		if (paths && paths.length > 0) {
-			// `git add --` accepts file paths after the separator; quote each so
-			// names with spaces or special characters round-trip safely.
-			const quoted = paths.map(p => `"${p.replace(/"/g, '\\"')}"`).join(' ');
-			await execAsync(`git add -- ${quoted}`, { cwd: workspacePath });
+			await git(['add', '--', ...paths], workspacePath);
 		} else {
-			await execAsync('git add -A', { cwd: workspacePath });
+			await git(['add', '-A'], workspacePath);
 		}
 
 		// Check whether there is anything to commit (avoids "nothing to commit" errors).
-		const { stdout: staged } = await execAsync('git diff --cached --name-only', { cwd: workspacePath });
+		const staged = await git(['diff', '--cached', '--name-only'], workspacePath);
 		if (staged.trim().length === 0) {
 			return undefined;
 		}
 
-		const safeMessage = message.replace(/"/g, '\\"');
-		await execAsync(`git commit -m "${safeMessage}"`, { cwd: workspacePath });
+		await git(['commit', '-m', message], workspacePath);
 
 		const recent = await this.getRecentSnapshots(workspacePath, 1);
 		return recent[0];
@@ -134,9 +146,9 @@ export class VcsService {
 		// Custom format: hash | unix-timestamp | message
 		// Use a delimiter unlikely to appear in commit messages.
 		const sep = '<<ARIA-VCS-SEP>>';
-		const { stdout } = await execAsync(
-			`git log -n ${limit} --pretty=format:"%H${sep}%ct${sep}%s"`,
-			{ cwd: workspacePath }
+		const stdout = await git(
+			['log', '-n', String(limit), `--pretty=format:%H${sep}%ct${sep}%s`],
+			workspacePath
 		);
 
 		const lines = stdout.split('\n').filter(l => l.trim().length > 0);
@@ -149,10 +161,7 @@ export class VcsService {
 
 			let filesChanged = 0;
 			try {
-				const { stdout: numstat } = await execAsync(
-					`git show --stat --format="" ${hash}`,
-					{ cwd: workspacePath }
-				);
+				const numstat = await git(['show', '--stat', '--format=', hash], workspacePath);
 				const match = numstat.match(/(\d+) files? changed/);
 				if (match) {
 					filesChanged = parseInt(match[1], 10);
@@ -180,7 +189,7 @@ export class VcsService {
 		// `--untracked-files=all` makes git report every file inside untracked
 		// directories instead of collapsing them to "dir/". Without this flag
 		// the user sees a single row for a new folder full of files.
-		const { stdout: porcelain } = await execAsync('git status --porcelain --untracked-files=all', { cwd: workspacePath });
+		const porcelain = await git(['status', '--porcelain', '--untracked-files=all'], workspacePath);
 		const lines = porcelain.split('\n').filter(l => l.trim().length > 0);
 		const changes: FileChange[] = [];
 		for (const line of lines) {
@@ -211,7 +220,7 @@ export class VcsService {
 		// Line counts for tracked changes. `--numstat` reports tabs between
 		// numbers and filename; untracked files won't appear so they keep no count.
 		try {
-			const { stdout: numstat } = await execAsync('git diff --numstat HEAD', { cwd: workspacePath });
+			const numstat = await git(['diff', '--numstat', 'HEAD'], workspacePath);
 			const numstatMap = new Map<string, { add: number; del: number }>();
 			for (const line of numstat.split('\n')) {
 				const parts = line.split('\t');
@@ -239,12 +248,68 @@ export class VcsService {
 		return changes;
 	}
 
+	/**
+	 * Plain-text diff of what changed since the last snapshot — fed to the AI
+	 * summariser. Includes tracked changes (`git diff HEAD`) plus the contents of
+	 * untracked files (which git diff omits). Scoped to `paths` when the caller
+	 * saved only a subset, so the summary matches the actual snapshot. Bounded so
+	 * a huge change doesn't make an enormous prompt.
+	 */
+	async getDiffText(workspacePath: string, paths?: readonly string[]): Promise<string> {
+		const status = await this.getStatus(workspacePath);
+		if (!status.isRepo) {
+			return '';
+		}
+		const scope = paths && paths.length > 0 ? new Set(paths) : undefined;
+		const MAX = 60000;
+		let out = '';
+
+		// Tracked changes vs HEAD (staged + unstaged). No HEAD yet → skip (the
+		// untracked pass below still captures brand-new files on the first save).
+		if (status.hasHead) {
+			const args = scope
+				? ['diff', 'HEAD', '--', ...Array.from(scope)]
+				: ['diff', 'HEAD'];
+			try {
+				out += await git(args, workspacePath, { maxBuffer: 16 * 1024 * 1024 });
+			} catch {
+				// ignore
+			}
+		}
+
+		// Untracked files: git diff omits them, so append their contents as new files.
+		try {
+			const stdout = await git(['status', '--porcelain', '--untracked-files=all'], workspacePath);
+			for (const line of stdout.split('\n')) {
+				if (!line.startsWith('??')) {
+					continue;
+				}
+				const p = line.substring(3).trim();
+				if (scope && !scope.has(p)) {
+					continue;
+				}
+				if (out.length > MAX) {
+					break;
+				}
+				try {
+					const content = fs.readFileSync(path.join(workspacePath, p), 'utf8');
+					out += `\n=== new file: ${p} ===\n${content}\n`;
+				} catch {
+					// binary or unreadable — skip
+				}
+			}
+		} catch {
+			// ignore
+		}
+
+		return out.length > MAX ? out.slice(0, MAX) + '\n… (diff truncated)' : out;
+	}
+
 	async showFileAt(workspacePath: string, ref: string, filePath: string): Promise<string> {
 		// Strip leading slash that `vscode.Uri.parse` adds to the path component.
 		const rel = filePath.startsWith('/') ? filePath.slice(1) : filePath;
 		try {
-			const { stdout } = await execAsync(`git show ${ref}:${rel}`, { cwd: workspacePath });
-			return stdout;
+			return await git(['show', `${ref}:${rel}`], workspacePath);
 		} catch {
 			return '';
 		}
@@ -262,7 +327,7 @@ export class VcsService {
 		// name is timestamped and lives in `refs/tags/aria-pre-goback-*`.
 		try {
 			const tagName = `aria-pre-goback-${Date.now()}`;
-			await execAsync(`git tag ${tagName} HEAD`, { cwd: workspacePath });
+			await git(['tag', tagName, 'HEAD'], workspacePath);
 		} catch {
 			// best-effort — proceed even if the tag couldn't be created
 		}
@@ -270,7 +335,7 @@ export class VcsService {
 		// The actual go-back. Working tree is untouched, so files that
 		// existed in later snapshots stay on disk; git just no longer
 		// considers them part of the snapshot history beyond <hash>.
-		await execAsync(`git reset --mixed ${hash}`, { cwd: workspacePath });
+		await git(['reset', '--mixed', hash], workspacePath);
 	}
 
 	async getSnapshotChanges(workspacePath: string, hash: string): Promise<FileChange[]> {
@@ -280,11 +345,7 @@ export class VcsService {
 		try {
 			// `--root` lets us still get output when the snapshot has no parent
 			// (the very first snapshot in the repo).
-			const result = await execAsync(
-				`git show --name-status --format="" --root ${hash}`,
-				{ cwd: workspacePath }
-			);
-			stdout = result.stdout;
+			stdout = await git(['show', '--name-status', '--format=', '--root', hash], workspacePath);
 		} catch {
 			return [];
 		}
@@ -309,10 +370,7 @@ export class VcsService {
 
 		// Line counts: `--numstat` reports +/- per file in the same diff.
 		try {
-			const { stdout: ns } = await execAsync(
-				`git show --numstat --format="" --root ${hash}`,
-				{ cwd: workspacePath }
-			);
+			const ns = await git(['show', '--numstat', '--format=', '--root', hash], workspacePath);
 			const nsMap = new Map<string, { add: number; del: number }>();
 			for (const line of ns.split('\n')) {
 				const parts = line.split('\t');

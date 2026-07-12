@@ -22,6 +22,19 @@ export interface Snapshot {
 	timestamp: number;
 	message: string;
 	filesChanged: number;
+	/** Display-only group id; consecutive snapshots that continue the same task
+	 *  share it and collapse into one expandable timeline entry. */
+	groupId?: string;
+	continuation?: boolean;
+}
+
+/** Mirrors SnapshotDraft in the aria-vcs extension (aria.vcs.prepareSnapshot). */
+export interface SnapshotDraft {
+	suggestedTitle: string;
+	continuation: boolean;
+	previousTitle?: string;
+	aiUsed: boolean;
+	providers: string[];
 }
 
 export interface StatusInfo {

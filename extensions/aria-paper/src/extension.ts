@@ -6,6 +6,9 @@
 import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { buildTools } from './mcp/tools';
 import { buildReviewTools, exportReviewPaper, ReviewExportFormat } from './reviews';
 import { AriaPaperMcpServer } from './mcp/server';
@@ -16,6 +19,34 @@ import { addAsset, addCitationCleanKey, PaperAsset, removeAsset, setAssetSummary
 import { PAPER_MCP_INSTRUCTIONS } from './guide';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * True when the `codex` CLI is on this machine. The Peer Review tab gates the
+ * Codex reviewer on THIS (not the openai.chatgpt VS Code extension): the review
+ * skill runs `codex exec` via the shell, so the CLI is the real requirement —
+ * installing the extension does not install the CLI.
+ */
+function codexCliAvailable(): boolean {
+	const abs = [
+		'/usr/local/bin/codex',
+		'/opt/homebrew/bin/codex',
+		path.join(os.homedir(), '.local/bin/codex'),
+	];
+	for (const p of abs) {
+		try { if (fs.existsSync(p)) { return true; } } catch { /* ignore */ }
+	}
+	for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+		if (!dir) { continue; }
+		try { if (fs.existsSync(path.join(dir, 'codex'))) { return true; } } catch { /* ignore */ }
+	}
+	try {
+		const nvm = path.join(os.homedir(), '.nvm/versions/node');
+		for (const v of fs.readdirSync(nvm)) {
+			if (fs.existsSync(path.join(nvm, v, 'bin', 'codex'))) { return true; }
+		}
+	} catch { /* no nvm */ }
+	return false;
+}
 
 /** Static, instant samples of how citations look per style (for the wizard's
  *  Format-step preview — no pandoc download needed). */
@@ -98,6 +129,10 @@ export function activate(context: vscode.ExtensionContext): void {
 	// inside the review's own directory. Invoked by the Peer Review pane.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.exportPaper', (execId: string, format: string, docKey?: string) =>
 		exportReviewPaper(execId, format as ReviewExportFormat, docKey ?? 'main')));
+
+	// Whether the Codex CLI is available — the Peer Review tab uses this to gate
+	// its Codex reviewer checkbox (the reviewer runs `codex exec`).
+	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.codexAvailable', () => codexCliAvailable()));
 
 	// Instant citation-style preview for the wizard's Format step.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.previewCitation', (style: string) =>

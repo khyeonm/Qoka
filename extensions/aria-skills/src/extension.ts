@@ -12,7 +12,7 @@ import { initLogger, log, showLogger } from './common/logger';
 import { setSkillAutoApprove } from './common/permissions';
 import { ensureEnvFile } from './common/envManager';
 import { ensureAriaHook } from './common/ariaHooks';
-import { syncSkillsToProviders } from './common/skillsManager';
+import { syncSkillsToProviders, resyncBundledSkills } from './common/skillsManager';
 import { reconcileCategories } from './common/skillManifest';
 
 /**
@@ -39,6 +39,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	// credential env vars — so skill SKILL.md instructions to "create a
 	// .env file" get overridden in favour of Aria's Skills tab.
 	ensureAriaHook();
+
+	// Refresh app-bundled default skills whose SKILL.md changed in this build
+	// (e.g. iterative-paper-defense gaining the Codex reviewer) so an existing
+	// profile picks up the update without a re-install.
+	resyncBundledSkills();
 
 	// Mirror installed skills into any non-Claude provider's skills dir so
 	// Codex discovers them too, and re-mirror when a provider is
