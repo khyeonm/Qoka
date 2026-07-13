@@ -11,6 +11,7 @@ import * as net from 'net';
 import * as path from 'path';
 import { ConfigService } from '../config/configService';
 import { LOCAL_VM_ID, SshProfile } from '../common/types';
+import { Provisioner, ProgressFn } from './provisioner';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,23 +43,29 @@ const READY_TIMEOUT_MS = 180_000;
 export class VMManager {
 	private _status: VmStatus = 'stopped';
 	private _error: string | undefined;
+	private _progress: { message: string; pct?: number } | undefined;
 	private proc: ChildProcess | undefined;
 	private starting: Promise<void> | undefined;
 	private readonly _onDidChange = new vscode.EventEmitter<VmStatus>();
 	readonly onDidChangeStatus = this._onDidChange.event;
+	private readonly _onProgress = new vscode.EventEmitter<{ message: string; pct?: number }>();
+	readonly onProgress = this._onProgress.event;
 
 	private readonly dir: string;              // per-install VM assets
 	private readonly workspace: string;        // host side of the 9p share (repo)
+	private readonly provisioner: Provisioner;
 
 	constructor(context: vscode.ExtensionContext, private readonly config: ConfigService) {
 		this.dir = path.join(context.globalStorageUri.fsPath, 'vm');
 		this.workspace = path.join(context.globalStorageUri.fsPath, 'autopipe-workspace');
 		fs.mkdirSync(this.dir, { recursive: true });
 		fs.mkdirSync(this.workspace, { recursive: true });
+		this.provisioner = new Provisioner(this.dir);
 	}
 
 	status(): VmStatus { return this._status; }
 	lastError(): string | undefined { return this._error; }
+	progress(): { message: string; pct?: number } | undefined { return this._progress; }
 
 	private set(status: VmStatus, error?: string): void {
 		this._status = status; this._error = error;
@@ -109,16 +116,16 @@ export class VMManager {
 		this.set('ready');
 	}
 
-	/** Real QEMU boot. */
+	/** Real QEMU boot — provisions the portable qemu + image first (downloaded from
+	 *  GitHub Releases into app-data), then boots headless. */
 	private async startReal(): Promise<void> {
-		const qemu = this.qemuBinary();
-		const image = process.env.ARIA_AUTOPIPE_VM_IMAGE || path.join(this.dir, 'base.qcow2');
-		if (!qemu || !fs.existsSync(qemu)) {
-			throw new Error('QEMU not found. Set ARIA_QEMU_PATH (dev) or install the built-in environment (Set up now).');
-		}
-		if (!fs.existsSync(image)) {
-			throw new Error('Local VM image not found. Provisioning (download) lands in M4 — set ARIA_AUTOPIPE_VM_IMAGE to a qcow2 for dev.');
-		}
+		this.set('provisioning');
+		const progress: ProgressFn = (message, pct) => {
+			this._progress = { message: message ?? this._progress?.message ?? '', pct };
+			this._onProgress.fire(this._progress);
+		};
+		const qemu = await this.provisioner.ensureQemu(progress);
+		const image = await this.provisioner.ensureImage(progress);
 
 		this.set('booting');
 		const key = await this.ensureKey();
@@ -136,6 +143,7 @@ export class VMManager {
 		const args = [
 			'-name', 'aria-builtin', '-machine', this.machineType(), '-accel', this.accel(), '-cpu', this.cpuModel(),
 			'-smp', String(vm.cpus), '-m', String(vm.memoryMB),
+			...this.dataDirArgs(qemu),
 			...this.firmwareArgs(qemu),
 			'-drive', `file=${overlay},if=virtio`,
 			// Seed as a virtio disk (not media=cdrom): cloud-init finds it by the
@@ -166,24 +174,12 @@ export class VMManager {
 		// Base image + workspace are kept: reset only recreates the throwaway overlay.
 	}
 
-	dispose(): void { void this.stop(); this._onDidChange.dispose(); }
+	dispose(): void { void this.stop(); this._onDidChange.dispose(); this._onProgress.dispose(); }
 
 	// --- helpers ------------------------------------------------------------
 
 	private profileFor(host: string, port: number, username: string, keyPath: string, repo: string): SshProfile {
 		return { id: LOCAL_VM_ID, name: 'Aria built-in', host, port, username, auth: { type: 'key', key_path: keyPath }, repo_path: repo };
-	}
-
-	private qemuBinary(): string | undefined {
-		if (process.env.ARIA_QEMU_PATH) { return process.env.ARIA_QEMU_PATH; }
-		const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
-		const exe = process.platform === 'win32' ? '.exe' : '';
-		const name = `qemu-system-${arch}${exe}`;
-		const cands = process.platform === 'win32'
-			? [`C:\\Program Files\\qemu\\${name}`, path.join(this.dir, name)]
-			: [`/opt/homebrew/bin/${name}`, `/usr/local/bin/${name}`, path.join(this.dir, name)];
-		for (const p of cands) { if (fs.existsSync(p)) { return p; } }
-		return name; // last resort: PATH
 	}
 
 	private qemuImg(qemu: string): string {
@@ -205,6 +201,14 @@ export class VMManager {
 	/** Machine type per guest arch: Apple Silicon (arm64) uses `virt` (+UEFI);
 	 *  x86_64 uses `q35`. */
 	private machineType(): string { return process.arch === 'arm64' ? 'virt' : 'q35'; }
+
+	/** Point qemu at its data blobs (BIOS/vgabios/keymaps) so a relocated/portable
+	 *  build finds them. Works for the bundled qemu (`<qemuDir>/share/qemu`) and a
+	 *  system one (e.g. Homebrew's `../share/qemu`) alike. */
+	private dataDirArgs(qemu: string): string[] {
+		const share = path.join(path.dirname(qemu), '..', 'share', 'qemu');
+		return fs.existsSync(share) ? ['-L', share] : [];
+	}
 
 	/** arm64 `virt` boots via UEFI, so it needs the edk2 firmware; x86_64 q35 uses
 	 *  the built-in BIOS and needs nothing. Firmware ships next to the qemu binary
@@ -234,9 +238,6 @@ export class VMManager {
 	private async buildSeed(pubPath: string): Promise<string> {
 		const seed = path.join(this.dir, 'seed.iso');
 		const pub = fs.readFileSync(pubPath, 'utf8').trim();
-		// Dev only: install docker on first boot when using a vanilla Ubuntu image.
-		// The production prebuilt image (M5) bakes docker in, so this stays off.
-		const devInstallDocker = process.env.ARIA_AUTOPIPE_VM_INSTALL_DOCKER === '1';
 		const userData = [
 			'#cloud-config',
 			'users:',
@@ -251,10 +252,10 @@ export class VMManager {
 			`  - mkdir -p ${GUEST_REPO} && chown ${GUEST_USER}:${GUEST_USER} ${GUEST_REPO}`,
 			`  - mount -t 9p -o trans=virtio,version=9p2000.L aria ${GUEST_REPO} || true`,
 			`  - chown ${GUEST_USER}:${GUEST_USER} ${GUEST_REPO}`,
-			...(devInstallDocker ? [
-				'  - curl -fsSL https://get.docker.com | sh',
-				`  - usermod -aG docker ${GUEST_USER}`,
-			] : []),
+			// Ensure docker + the aria docker group. Idempotent: a no-op on the
+			// prebuilt image (docker baked in); installs it on a vanilla image.
+			'  - command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)',
+			`  - usermod -aG docker ${GUEST_USER} || true`,
 		].join('\n') + '\n';
 		const seedDir = path.join(this.dir, 'seed');
 		fs.mkdirSync(seedDir, { recursive: true });

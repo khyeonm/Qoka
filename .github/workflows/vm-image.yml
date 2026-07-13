@@ -1,0 +1,36 @@
+# Publishes the base VM disk image the built-in Run environment downloads
+# (extensions/aria-autopipe/src/vm/provisioner.ts → aria-vm-<arch>.qcow2).
+#
+# v1 uses the stock Ubuntu 24.04 cloud image (already qcow2). Docker is installed
+# on first boot by the cloud-init seed (idempotent), so no custom image build is
+# needed yet. A later version can bake docker in to speed the first boot.
+#
+# Run manually from the Actions tab (workflow_dispatch).
+name: VM image (base)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            url: https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img
+          - arch: x64
+            url: https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img
+    steps:
+      - name: Download Ubuntu cloud image
+        run: curl -fSL "${{ matrix.url }}" -o "aria-vm-${{ matrix.arch }}.qcow2"
+      - name: Publish to vm-assets release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: vm-assets-v1
+          name: VM assets
+          files: aria-vm-${{ matrix.arch }}.qcow2

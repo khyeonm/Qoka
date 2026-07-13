@@ -1,0 +1,99 @@
+# Builds the PORTABLE QEMU that Aria's built-in Run environment downloads at
+# runtime (extensions/aria-autopipe/src/vm/provisioner.ts). Users install nothing:
+# qemu runs in-place from the app-data folder. Artifacts are attached to the
+# `vm-assets-v1` release with names the provisioner expects:
+#   qemu-<darwin|win32|linux>-<arm64|x64>.tar.gz  (layout: bin/, lib/, share/qemu/)
+#
+# NOTE: first runs will likely need small tweaks (brew/choco paths, dylib list).
+# Trigger manually from the Actions tab (workflow_dispatch) or push a vm-assets-* tag.
+name: VM assets (portable qemu)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['vm-assets-*']
+
+permissions:
+  contents: write
+
+jobs:
+  qemu:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple Silicon
+            plat: darwin
+            arch: arm64
+            qarch: aarch64
+          - os: macos-13        # Intel
+            plat: darwin
+            arch: x64
+            qarch: x86_64
+          - os: windows-latest
+            plat: win32
+            arch: x64
+            qarch: x86_64
+          - os: ubuntu-22.04
+            plat: linux
+            arch: x64
+            qarch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Build portable QEMU (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euxo pipefail
+          brew install qemu dylibbundler
+          QPREFIX=$(brew --prefix qemu)
+          OUT="$PWD/out"
+          mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/share/qemu"
+          cp "$QPREFIX/bin/qemu-system-${{ matrix.qarch }}" "$OUT/bin/"
+          cp "$QPREFIX/bin/qemu-img" "$OUT/bin/"
+          cp -R "$QPREFIX/share/qemu/." "$OUT/share/qemu/"
+          # Relocate every dependent dylib into out/lib and rewrite install names
+          # to @executable_path/../lib so the binary runs from anywhere.
+          dylibbundler -od -b -x "$OUT/bin/qemu-system-${{ matrix.qarch }}" -d "$OUT/lib" -p '@executable_path/../lib'
+          dylibbundler -od -b -x "$OUT/bin/qemu-img" -d "$OUT/lib" -p '@executable_path/../lib'
+          tar -czf "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" -C "$OUT" .
+
+      - name: Build portable QEMU (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install qemu -y --no-progress
+          $qdir = "C:\Program Files\qemu"
+          $out = "$PWD\out"
+          New-Item -ItemType Directory -Force -Path "$out\bin","$out\share\qemu" | Out-Null
+          # On Windows qemu is a self-contained folder: exe + its DLLs + share/.
+          Copy-Item "$qdir\qemu-system-${{ matrix.qarch }}.exe" "$out\bin\"
+          Copy-Item "$qdir\qemu-img.exe" "$out\bin\" -ErrorAction SilentlyContinue
+          Copy-Item "$qdir\*.dll" "$out\bin\"
+          if (Test-Path "$qdir\share") { Copy-Item "$qdir\share\*" "$out\share\qemu\" -Recurse -Force -ErrorAction SilentlyContinue }
+          else { Copy-Item "$qdir\*.bin","$qdir\*.fd","$qdir\*.rom","$qdir\keymaps" "$out\share\qemu\" -Recurse -Force -ErrorAction SilentlyContinue }
+          tar -czf "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" -C "$out" .
+
+      - name: Build portable QEMU (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 patchelf
+          OUT="$PWD/out"
+          mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/share/qemu"
+          cp "$(command -v qemu-system-${{ matrix.qarch }})" "$OUT/bin/"
+          cp "$(command -v qemu-img)" "$OUT/bin/"
+          cp -R /usr/share/qemu/. "$OUT/share/qemu/" || true
+          # Copy shared libs and set rpath to $ORIGIN/../lib.
+          for b in "$OUT"/bin/*; do
+            ldd "$b" | awk '/=>/{print $3}' | grep -E '^/' | sort -u | while read -r so; do cp -n "$so" "$OUT/lib/" || true; done
+            patchelf --set-rpath '$ORIGIN/../lib' "$b" || true
+          done
+          tar -czf "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" -C "$OUT" .
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: vm-assets-v1
+          name: VM assets
+          files: qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz

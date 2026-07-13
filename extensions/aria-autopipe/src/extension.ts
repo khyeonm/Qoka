@@ -71,7 +71,25 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.autopipe.vm.setActive', () => config.activateLocalVm()),
 		vscode.commands.registerCommand('aria.autopipe.vm.start', () => vm.start()),
 		vscode.commands.registerCommand('aria.autopipe.vm.stop', () => vm.stop()),
-		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError() })),
+		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress() })),
+		// "Set up now": make the built-in VM active and provision+boot it.
+		vscode.commands.registerCommand('aria.autopipe.vm.setup', async () => {
+			await config.activateLocalVm();
+			await vm.start();
+		}),
+		// Reset recreates the throwaway overlay (data on the shared workspace is
+		// kept). Confirm because it interrupts any running VM.
+		vscode.commands.registerCommand('aria.autopipe.vm.reset', async () => {
+			const ok = await vscode.window.showWarningMessage(
+				'Reset the built-in run environment? Your pipelines and data are kept (they live in the shared workspace); only the VM itself is rebuilt.',
+				{ modal: true }, 'Reset');
+			if (ok !== 'Reset') { return; }
+			await vm.reset();
+			await vm.start();
+		}),
+		// Resource overrides (RAM/CPU) — applied on next VM start.
+		vscode.commands.registerCommand('aria.autopipe.vm.setResources', (patch: unknown) =>
+			config.setLocalVmResources((patch ?? {}) as { memoryMB?: number; cpus?: number })),
 	);
 
 	// Register the SSH/GitHub/Repo/Registry setup commands the panel calls.

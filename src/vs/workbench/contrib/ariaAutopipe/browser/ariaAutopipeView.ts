@@ -56,6 +56,11 @@ const EMPTY_DRAFT: SshFormDraft = {
 	name: '', host: '', port: '22', username: '', password: '', repoPath: '',
 };
 
+/** Active-target id for the built-in local VM (mirrors LOCAL_VM_ID in the
+ *  aria-autopipe extension's types; kept as a literal here to avoid a
+ *  workbench→extension import). */
+const LOCAL_VM_ID = '__local_vm__';
+
 /** Pending values for the unified "Save all changes" button. Anything the
  *  user can edit inline (without a dedicated multi-step form) goes here so
  *  it doesn't write to globalState until they explicitly commit. */
@@ -86,6 +91,8 @@ export class AriaAutopipeView extends ViewPane {
 	private sshDraft: SshFormDraft = { ...EMPTY_DRAFT };
 	private settingsDraft: SettingsDraft | null = null;
 	private currentSnapshot: SettingsDraft | null = null;
+	/** Live status of the built-in VM (from aria.autopipe.vm.status). */
+	private vmStatus: { status: string; error?: string; progress?: { message: string; pct?: number } } | undefined;
 
 	constructor(
 		options: IViewPaneOptions,
@@ -146,6 +153,15 @@ export class AriaAutopipeView extends ViewPane {
 			status = (await this.commandService.executeCommand<AutopipeStatus>('aria.autopipe.getStatus', true)) ?? {};
 		} catch {
 			// extension still booting
+		}
+		try {
+			this.vmStatus = await this.commandService.executeCommand('aria.autopipe.vm.status');
+		} catch {
+			this.vmStatus = undefined;
+		}
+		// Live-refresh while the VM is downloading/booting so the status updates.
+		if (this.vmStatus && (this.vmStatus.status === 'provisioning' || this.vmStatus.status === 'booting')) {
+			setTimeout(() => { void this.refresh(); }, 2000);
 		}
 
 		clearNode(root);
@@ -299,14 +315,23 @@ export class AriaAutopipeView extends ViewPane {
 		// Section with a header row that ends in a "+" add button on the
 		// far right. The Add-profile form expands inline when the + is
 		// pressed; clicking + again (it becomes ×) cancels.
-		const section = appendSectionWithAction(root, 'SSH connection', this.sshFormOpen ? 'x' : '+', () => {
+		const section = appendSectionWithAction(root, 'Run environment', this.sshFormOpen ? 'x' : '+', () => {
 			this.sshFormOpen = !this.sshFormOpen;
 			this.sshDraft = { ...EMPTY_DRAFT };
 			void this.refresh();
 		});
 
+		const desc = append(section, $('div'));
+		desc.style.fontSize = '11px';
+		desc.style.opacity = '0.7';
+		desc.style.marginBottom = '8px';
+		desc.textContent = 'Where the AI runs your analysis pipelines. Press + to use your own server instead.';
+
 		const profiles = status.sshProfiles ?? [];
 		const activeId = status.sshActiveProfileId ?? null;
+
+		// Built-in local VM — the default target on Mac/Windows.
+		this.renderBuiltInVmRow(section, activeId);
 
 		if (profiles.length > 0) {
 			const row = append(section, $('div'));
@@ -383,8 +408,6 @@ export class AriaAutopipeView extends ViewPane {
 			chev.style.borderTop = '5px solid var(--vscode-dropdown-foreground)';
 			chev.style.opacity = '0.7';
 			chev.style.pointerEvents = 'none';
-		} else if (!this.sshFormOpen) {
-			appendRow(section, false, 'No SSH profile yet — click + to add one.');
 		}
 
 		if (this.sshFormOpen) {
@@ -394,6 +417,53 @@ export class AriaAutopipeView extends ViewPane {
 			actions.style.marginTop = '8px';
 			this.addCommandButton(actions, 'Test connection', 'aria.autopipe.ssh.test');
 			this.addCommandButton(actions, 'Remove', 'aria.autopipe.ssh.remove');
+		}
+	}
+
+	/** The "Aria built-in" run target: a radio row with honest status and a
+	 *  "Set up now" button. Selecting it makes the built-in VM the active target. */
+	private renderBuiltInVmRow(section: HTMLElement, activeId: string | null): void {
+		const isActive = activeId === LOCAL_VM_ID;
+		const st = this.vmStatus?.status ?? 'stopped';
+
+		const row = append(section, $('div'));
+		Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', cursor: 'pointer' });
+
+		const dot = append(row, $('span'));
+		Object.assign(dot.style, {
+			width: '12px', height: '12px', borderRadius: '50%', flexShrink: '0', boxSizing: 'border-box',
+			border: '1px solid', borderColor: isActive ? 'var(--vscode-focusBorder, #4098ff)' : 'var(--vscode-descriptionForeground)',
+			background: isActive ? 'var(--vscode-focusBorder, #4098ff)' : 'transparent',
+		});
+
+		// Two lines only: title + one-line subtitle. No inline status text.
+		const text = append(row, $('div'));
+		text.style.flex = '1';
+		const title = append(text, $('div'));
+		title.textContent = 'Aria built-in server';
+		title.style.fontSize = '12px';
+		const sub = append(text, $('div'));
+		sub.textContent = 'Runs on this computer — no server needed';
+		Object.assign(sub.style, { fontSize: '10.5px', opacity: '0.6' });
+
+		row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.vm.setActive').then(() => this.refresh()); };
+
+		// A single button carries the state when the built-in is active and not yet
+		// ready — kept off the two title lines so the row stays clean.
+		if (isActive && st !== 'ready') {
+			const btn = append(section, $('button')) as HTMLButtonElement;
+			styleSecondaryButton(btn);
+			btn.style.marginTop = '4px';
+			if (st === 'provisioning') {
+				btn.textContent = this.vmStatus?.progress?.pct != null ? `Downloading ${this.vmStatus.progress.pct}%…` : 'Preparing…';
+				btn.disabled = true;
+			} else if (st === 'booting') {
+				btn.textContent = 'Starting…';
+				btn.disabled = true;
+			} else {
+				btn.textContent = st === 'error' ? 'Set up again' : 'Set up now';
+				btn.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh()); };
+			}
 		}
 	}
 

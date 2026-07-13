@@ -1,0 +1,95 @@
+# Builds the Aria desktop app and attaches installers to a GitHub Release when a
+# version tag is pushed (e.g. `git tag v1.2.3 && git push origin v1.2.3`).
+# Structure follows autopipe-org/autopipe's release.yml (tag trigger + version
+# gate + OS matrix + gh-release upload), but the build is VS Code's own gulp
+# tasks (not tauri-action):
+#   macOS  → Aria.app in a .dmg   (build/darwin/create-dmg.ts, UNSIGNED)
+#   Windows→ per-user AriaSetup .exe (Inno Setup, UNSIGNED)
+# QEMU + the VM image ship separately (vm-assets.yml / vm-image.yml) and are
+# downloaded at runtime by the built-in Run environment.
+#
+# NOTE: the VS Code from-source build in CI is heavy and finicky — first runs
+# will need tuning (task names, output paths, node-gyp toolchains). Unsigned
+# builds warn on Gatekeeper (macOS: right-click → Open) / SmartScreen (Windows);
+# code signing is a later step.
+name: Release (app)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  verify-version:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          echo "tag=$TAG package.json=$PKG"
+          test "$TAG" = "$PKG"
+
+  build:
+    needs: [verify-version]
+    if: always() && (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple Silicon
+            plat: darwin
+            arch: arm64
+          - os: macos-13        # Intel
+            plat: darwin
+            arch: x64
+          - os: windows-latest
+            plat: win32
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build self-bundling extensions
+        shell: bash
+        run: |
+          for e in aria-notes aria-memory aria-authentication; do
+            (cd "extensions/$e" && npm ci && node build.mjs)
+          done
+
+      - name: Build app tree
+        run: npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min-ci
+
+      - name: Package macOS (.dmg)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          node --experimental-strip-types build/darwin/create-dmg.ts \
+            "$PWD/../VSCode-darwin-${{ matrix.arch }}" "$PWD/artifacts"
+
+      - name: Package Windows (.exe)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          npm run gulp vscode-win32-${{ matrix.arch }}-inno-updater
+          npm run gulp vscode-win32-${{ matrix.arch }}-user-setup
+          mkdir -p artifacts
+          cp .build/win32-${{ matrix.arch }}/user-setup/*.exe artifacts/ || true
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: artifacts/*
