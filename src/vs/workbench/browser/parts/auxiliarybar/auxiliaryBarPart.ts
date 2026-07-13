@@ -55,6 +55,17 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 	override readonly minimumHeight: number = 0;
 	override readonly maximumHeight: number = Number.POSITIVE_INFINITY;
 
+	override get snap(): boolean {
+		// Easy mode keeps the AI chat (this secondary side bar) always visible:
+		// disable snap-to-hidden so dragging the sash below the minimum width clamps
+		// at the minimum instead of collapsing the panel to nothing — easy mode gives
+		// no visible way to reopen it. Advanced mode keeps the default snap behaviour.
+		if (this.configurationService.getValue('aria.mode') === 'easy') {
+			return false;
+		}
+		return super.snap;
+	}
+
 	get preferredHeight(): number | undefined {
 		// Don't worry about titlebar or statusbar visibility
 		// The difference is minimal and keeps this function clean
