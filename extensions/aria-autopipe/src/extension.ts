@@ -10,6 +10,7 @@ import { registerWithClaudeCode, unregisterFromClaudeCode } from './registration
 import { registerWithCodex, unregisterFromCodex } from './registration/codexMcp';
 import { ConfigService } from './config/configService';
 import { SshService } from './ssh/sshService';
+import { VMManager } from './vm/vmManager';
 import { HubApiClient } from './hub/apiClient';
 import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
@@ -44,6 +45,34 @@ export function activate(context: vscode.ExtensionContext): void {
 		plugins: new PluginService(),
 	};
 	setServices(services);
+
+	// Built-in local VM ("Aria built-in" Run environment). Runs pipelines on a
+	// bundled QEMU Linux guest (Mac/Win) or a dev SSH stand-in (Linux), exposed
+	// to the rest of autopipe as a synthetic SSH profile.
+	const vm = new VMManager(context, config);
+	context.subscriptions.push({ dispose: () => vm.dispose() });
+
+	// First run: default the built-in VM as the active target so the user has a
+	// working environment without configuring a server. Only on Mac/Win, or on
+	// Linux when a dev stand-in is set (Linux users otherwise run locally). Never
+	// overrides an existing choice.
+	const boot = config.get();
+	const hasStandin = !!(process.env.ARIA_AUTOPIPE_VM_STANDIN
+		|| vscode.workspace.getConfiguration('aria.autopipe').get<string>('vmStandin'));
+	if (!boot.active_ssh_profile_id && boot.ssh_profiles.length === 0 && (process.platform !== 'linux' || hasStandin)) {
+		void config.activateLocalVm();
+	}
+	// Bring the VM up if it's the active target (dev: eager start; production
+	// lazy-start-on-first-pipeline lands in M4). Fire-and-forget.
+	if (config.isLocalVmActive()) {
+		void vm.start().catch(err => console.error('[aria-autopipe] built-in VM start failed:', err));
+	}
+	context.subscriptions.push(
+		vscode.commands.registerCommand('aria.autopipe.vm.setActive', () => config.activateLocalVm()),
+		vscode.commands.registerCommand('aria.autopipe.vm.start', () => vm.start()),
+		vscode.commands.registerCommand('aria.autopipe.vm.stop', () => vm.stop()),
+		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError() })),
+	);
 
 	// Register the SSH/GitHub/Repo/Registry setup commands the panel calls.
 	registerSetupCommands(context);

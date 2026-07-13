@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { AriaConfig, SshProfile, defaultConfig } from '../common/types';
+import { AriaConfig, LocalVmConfig, LOCAL_VM_ID, SshProfile, defaultConfig, defaultLocalVmConfig } from '../common/types';
 
 const STATE_KEY = 'aria.autopipe.config';
 
@@ -30,9 +30,38 @@ export class ConfigService {
 	private readonly _onDidChange = new vscode.EventEmitter<AriaConfig>();
 	readonly onDidChange = this._onDidChange.event;
 
+	/** Runtime SSH endpoint of the built-in local VM, set by the VMManager once
+	 *  the VM (or its dev stand-in) is reachable, cleared when it stops. Not
+	 *  persisted — the port/key are per-boot. `activeProfile()` returns this when
+	 *  the active target is the local VM. */
+	private localVmEndpoint: SshProfile | null = null;
+
 	constructor(private readonly context: vscode.ExtensionContext) {
 		const raw = context.globalState.get<unknown>(STATE_KEY);
 		this.current = mergeIntoDefaults(raw);
+	}
+
+	/** VMManager registers the live SSH endpoint of the built-in VM here. Passing
+	 *  null (VM stopped) makes `activeProfile()` report "not ready" so callers
+	 *  can prompt to set it up. Fires onDidChange so the UI reflects readiness. */
+	setLocalVmEndpoint(profile: SshProfile | null): void {
+		this.localVmEndpoint = profile;
+		this._onDidChange.fire(this.current);
+	}
+
+	/** True when the built-in local VM is the selected run target. */
+	isLocalVmActive(): boolean {
+		return this.current.active_ssh_profile_id === LOCAL_VM_ID;
+	}
+
+	/** Select the built-in local VM as the active run target. */
+	async activateLocalVm(): Promise<AriaConfig> {
+		return this.update({ active_ssh_profile_id: LOCAL_VM_ID });
+	}
+
+	/** Persist local-VM resource overrides (RAM/CPU/disk). */
+	async setLocalVmResources(patch: Partial<LocalVmConfig>): Promise<AriaConfig> {
+		return this.update({ local_vm: { ...this.current.local_vm, ...patch } });
 	}
 
 	get(): AriaConfig {
@@ -88,25 +117,42 @@ export class ConfigService {
 		if (!id) {
 			return null;
 		}
+		// The built-in VM has no stored profile — its concrete endpoint (host/port/
+		// key) is provided at runtime by the VMManager. Returns null until ready.
+		if (id === LOCAL_VM_ID) {
+			return this.localVmEndpoint;
+		}
 		return this.current.ssh_profiles.find(p => p.id === id) ?? null;
 	}
 
 	async addOrUpdateProfile(profile: SshProfile): Promise<AriaConfig> {
 		const existing = this.current.ssh_profiles.findIndex(p => p.id === profile.id);
+		const isNew = existing < 0;
 		const next = [...this.current.ssh_profiles];
 		if (existing >= 0) {
 			next[existing] = profile;
 		} else {
 			next.push(profile);
 		}
-		return this.update({ ssh_profiles: next });
+		// Adding a NEW server takes over as the active target — this is how the
+		// user "switches off" the built-in VM by configuring their own server.
+		// (Also auto-activates the very first profile.)
+		const patch: Partial<AriaConfig> = { ssh_profiles: next };
+		if (isNew) {
+			patch.active_ssh_profile_id = profile.id;
+		}
+		return this.update(patch);
 	}
 
 	async removeProfile(id: string): Promise<AriaConfig> {
 		const next = this.current.ssh_profiles.filter(p => p.id !== id);
-		// If the removed profile was active, drop the active selection so
-		// nothing reads back stale data.
-		const newActive = this.current.active_ssh_profile_id === id ? null : this.current.active_ssh_profile_id;
+		// If the removed profile was active, hand the active selection to another
+		// profile, or fall BACK to the built-in VM when none remain (never null,
+		// so the user always has a working default rather than a dead panel).
+		let newActive = this.current.active_ssh_profile_id;
+		if (newActive === id) {
+			newActive = next[0]?.id ?? LOCAL_VM_ID;
+		}
 		return this.update({ ssh_profiles: next, active_ssh_profile_id: newActive });
 	}
 
@@ -124,9 +170,16 @@ function mergeIntoDefaults(raw: unknown): AriaConfig {
 		return defaults;
 	}
 	const r = raw as Partial<AriaConfig>;
+	const rawVm = (r.local_vm ?? {}) as Partial<LocalVmConfig>;
+	const dv = defaultLocalVmConfig();
 	return {
 		ssh_profiles: Array.isArray(r.ssh_profiles) ? r.ssh_profiles : defaults.ssh_profiles,
 		active_ssh_profile_id: typeof r.active_ssh_profile_id === 'string' ? r.active_ssh_profile_id : defaults.active_ssh_profile_id,
+		local_vm: {
+			memoryMB: typeof rawVm.memoryMB === 'number' && rawVm.memoryMB > 0 ? rawVm.memoryMB : dv.memoryMB,
+			cpus: typeof rawVm.cpus === 'number' && rawVm.cpus > 0 ? rawVm.cpus : dv.cpus,
+			diskGB: typeof rawVm.diskGB === 'number' && rawVm.diskGB > 0 ? rawVm.diskGB : dv.diskGB,
+		},
 		registry_url: typeof r.registry_url === 'string' && r.registry_url ? r.registry_url : defaults.registry_url,
 		github: typeof r.github === 'object' && r.github !== null ? r.github : defaults.github,
 		github_repo: typeof r.github_repo === 'string' ? r.github_repo : defaults.github_repo,

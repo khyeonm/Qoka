@@ -1,0 +1,316 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as vscode from 'vscode';
+import { spawn, ChildProcess, execFile } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as net from 'net';
+import * as path from 'path';
+import { ConfigService } from '../config/configService';
+import { LOCAL_VM_ID, SshProfile } from '../common/types';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Manages the built-in local VM ("Aria built-in" Run environment). The VM is a
+ * headless QEMU Linux guest with docker + sshd; autopipe talks to it exactly
+ * like any SSH server (it's exposed as a synthetic SshProfile on 127.0.0.1).
+ *
+ * Two modes:
+ *  - REAL: boot QEMU (Mac=HVF / Win=WHPX / Linux=KVM). Needs a base image + the
+ *    qemu binary. This is the production path (image comes from GitHub Releases
+ *    in M4; for dev you can point ARIA_AUTOPIPE_VM_IMAGE / ARIA_QEMU_PATH).
+ *  - STAND-IN (dev): when ARIA_AUTOPIPE_VM_STANDIN is set, skip QEMU and treat a
+ *    given SSH endpoint as the "VM". Lets Linux dev boxes (no qemu/KVM) test the
+ *    whole activation + pipeline flow against a real docker host.
+ *
+ * Either way, once reachable it registers a synthetic SshProfile via
+ * ConfigService.setLocalVmEndpoint so every existing autopipe path just works.
+ */
+
+export type VmStatus = 'stopped' | 'provisioning' | 'booting' | 'ready' | 'error';
+
+interface StandinSpec { host: string; port: number; username: string; key_path: string; repo_path: string }
+
+const GUEST_USER = 'aria';
+const GUEST_REPO = `/home/${GUEST_USER}/aria`;
+const READY_TIMEOUT_MS = 180_000;
+
+export class VMManager {
+	private _status: VmStatus = 'stopped';
+	private _error: string | undefined;
+	private proc: ChildProcess | undefined;
+	private starting: Promise<void> | undefined;
+	private readonly _onDidChange = new vscode.EventEmitter<VmStatus>();
+	readonly onDidChangeStatus = this._onDidChange.event;
+
+	private readonly dir: string;              // per-install VM assets
+	private readonly workspace: string;        // host side of the 9p share (repo)
+
+	constructor(context: vscode.ExtensionContext, private readonly config: ConfigService) {
+		this.dir = path.join(context.globalStorageUri.fsPath, 'vm');
+		this.workspace = path.join(context.globalStorageUri.fsPath, 'autopipe-workspace');
+		fs.mkdirSync(this.dir, { recursive: true });
+		fs.mkdirSync(this.workspace, { recursive: true });
+	}
+
+	status(): VmStatus { return this._status; }
+	lastError(): string | undefined { return this._error; }
+
+	private set(status: VmStatus, error?: string): void {
+		this._status = status; this._error = error;
+		this._onDidChange.fire(status);
+	}
+
+	/** The dev stand-in spec, if configured (ARIA_AUTOPIPE_VM_STANDIN as JSON). */
+	private standin(): StandinSpec | undefined {
+		const raw = process.env.ARIA_AUTOPIPE_VM_STANDIN
+			?? vscode.workspace.getConfiguration('aria.autopipe').get<string>('vmStandin');
+		if (!raw) { return undefined; }
+		try {
+			const s = JSON.parse(raw) as Partial<StandinSpec>;
+			if (!s.host || !s.username || !s.key_path) { return undefined; }
+			return { host: s.host, port: s.port ?? 22, username: s.username, key_path: s.key_path, repo_path: s.repo_path ?? GUEST_REPO };
+		} catch { return undefined; }
+	}
+
+	/** Start (idempotent). Registers the SSH endpoint on success. */
+	async start(): Promise<void> {
+		if (this._status === 'ready') { return; }
+		if (this.starting) { return this.starting; }
+		this.starting = (async () => {
+			try {
+				const standin = this.standin();
+				if (standin) {
+					await this.startStandin(standin);
+				} else {
+					await this.startReal();
+				}
+			} catch (err) {
+				this.set('error', err instanceof Error ? err.message : String(err));
+				this.config.setLocalVmEndpoint(null);
+				throw err;
+			} finally {
+				this.starting = undefined;
+			}
+		})();
+		return this.starting;
+	}
+
+	/** Dev stand-in: verify the SSH host is reachable, then expose it as the VM. */
+	private async startStandin(s: StandinSpec): Promise<void> {
+		this.set('booting');
+		const profile = this.profileFor(s.host, s.port, s.username, s.key_path, s.repo_path);
+		await this.waitForSsh(profile);
+		this.config.setLocalVmEndpoint(profile);
+		this.set('ready');
+	}
+
+	/** Real QEMU boot. */
+	private async startReal(): Promise<void> {
+		const qemu = this.qemuBinary();
+		const image = process.env.ARIA_AUTOPIPE_VM_IMAGE || path.join(this.dir, 'base.qcow2');
+		if (!qemu || !fs.existsSync(qemu)) {
+			throw new Error('QEMU not found. Set ARIA_QEMU_PATH (dev) or install the built-in environment (Set up now).');
+		}
+		if (!fs.existsSync(image)) {
+			throw new Error('Local VM image not found. Provisioning (download) lands in M4 — set ARIA_AUTOPIPE_VM_IMAGE to a qcow2 for dev.');
+		}
+
+		this.set('booting');
+		const key = await this.ensureKey();
+		const port = await this.freePort();
+		const overlay = path.join(this.dir, 'overlay.qcow2');
+		const seed = await this.buildSeed(key + '.pub');
+		const qimg = this.qemuImg(qemu);
+
+		// Fresh overlay each boot keeps the base image pristine; user DATA lives on
+		// the 9p-shared host workspace, not the overlay, so this is safe.
+		if (fs.existsSync(overlay)) { fs.rmSync(overlay); }
+		await execFileAsync(qimg, ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', image, overlay, `${this.config.get().local_vm.diskGB}G`]);
+
+		const vm = this.config.get().local_vm;
+		const args = [
+			'-name', 'aria-builtin', '-machine', this.machineType(), '-accel', this.accel(), '-cpu', this.cpuModel(),
+			'-smp', String(vm.cpus), '-m', String(vm.memoryMB),
+			...this.firmwareArgs(qemu),
+			'-drive', `file=${overlay},if=virtio`,
+			// Seed as a virtio disk (not media=cdrom): cloud-init finds it by the
+			// `cidata` label, and virtio attaches cleanly on both q35 and arm64 virt.
+			'-drive', `file=${seed},if=virtio,format=raw`,
+			'-netdev', `user,id=n0,hostfwd=tcp:127.0.0.1:${port}-:22`, '-device', 'virtio-net-pci,netdev=n0',
+			'-virtfs', `local,path=${this.workspace},mount_tag=aria,security_model=mapped-xattr,id=aria`,
+			'-display', 'none', '-serial', `file:${path.join(this.dir, 'console.log')}`,
+		];
+		this.proc = spawn(qemu, args, { stdio: 'ignore' });
+		this.proc.on('exit', () => { if (this._status !== 'stopped') { this.set('error', 'VM exited unexpectedly (see console.log).'); this.config.setLocalVmEndpoint(null); } });
+
+		const profile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
+		await this.waitForSsh(profile);
+		this.config.setLocalVmEndpoint(profile);
+		this.set('ready');
+	}
+
+	async stop(): Promise<void> {
+		this.set('stopped');
+		this.config.setLocalVmEndpoint(null);
+		if (this.proc) { try { this.proc.kill('SIGTERM'); } catch { /* ignore */ } this.proc = undefined; }
+	}
+
+	async reset(): Promise<void> {
+		await this.stop();
+		try { fs.rmSync(path.join(this.dir, 'overlay.qcow2')); } catch { /* ignore */ }
+		// Base image + workspace are kept: reset only recreates the throwaway overlay.
+	}
+
+	dispose(): void { void this.stop(); this._onDidChange.dispose(); }
+
+	// --- helpers ------------------------------------------------------------
+
+	private profileFor(host: string, port: number, username: string, keyPath: string, repo: string): SshProfile {
+		return { id: LOCAL_VM_ID, name: 'Aria built-in', host, port, username, auth: { type: 'key', key_path: keyPath }, repo_path: repo };
+	}
+
+	private qemuBinary(): string | undefined {
+		if (process.env.ARIA_QEMU_PATH) { return process.env.ARIA_QEMU_PATH; }
+		const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+		const exe = process.platform === 'win32' ? '.exe' : '';
+		const name = `qemu-system-${arch}${exe}`;
+		const cands = process.platform === 'win32'
+			? [`C:\\Program Files\\qemu\\${name}`, path.join(this.dir, name)]
+			: [`/opt/homebrew/bin/${name}`, `/usr/local/bin/${name}`, path.join(this.dir, name)];
+		for (const p of cands) { if (fs.existsSync(p)) { return p; } }
+		return name; // last resort: PATH
+	}
+
+	private qemuImg(qemu: string): string {
+		const exe = process.platform === 'win32' ? '.exe' : '';
+		const cand = path.join(path.dirname(qemu), `qemu-img${exe}`);
+		return fs.existsSync(cand) ? cand : `qemu-img${exe}`;
+	}
+
+	private accel(): string {
+		switch (process.platform) {
+			case 'darwin': return 'hvf';
+			case 'win32': return 'whpx';
+			default: return 'kvm';
+		}
+	}
+
+	private cpuModel(): string { return this.accel() === 'tcg' ? 'max' : 'host'; }
+
+	/** Machine type per guest arch: Apple Silicon (arm64) uses `virt` (+UEFI);
+	 *  x86_64 uses `q35`. */
+	private machineType(): string { return process.arch === 'arm64' ? 'virt' : 'q35'; }
+
+	/** arm64 `virt` boots via UEFI, so it needs the edk2 firmware; x86_64 q35 uses
+	 *  the built-in BIOS and needs nothing. Firmware ships next to the qemu binary
+	 *  (Homebrew: ../share/qemu/edk2-aarch64-code.fd). */
+	private firmwareArgs(qemu: string): string[] {
+		if (process.arch !== 'arm64') { return []; }
+		const share = path.join(path.dirname(qemu), '..', 'share', 'qemu');
+		for (const fw of ['edk2-aarch64-code.fd', 'AAVMF_CODE.fd']) {
+			const p = path.join(share, fw);
+			if (fs.existsSync(p)) { return ['-bios', p]; }
+		}
+		// Fall back to a well-known Homebrew path; if absent qemu will error clearly.
+		return ['-bios', '/opt/homebrew/share/qemu/edk2-aarch64-code.fd'];
+	}
+
+	private async ensureKey(): Promise<string> {
+		const key = path.join(this.dir, 'id_ed25519');
+		if (!fs.existsSync(key)) {
+			await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', key, '-q']);
+		}
+		return key;
+	}
+
+	/** Build a cloud-init NoCloud seed ISO that injects the SSH pubkey + mounts
+	 *  the 9p workspace. (The production prebuilt image bakes in docker/user; this
+	 *  seed only carries per-user bits.) */
+	private async buildSeed(pubPath: string): Promise<string> {
+		const seed = path.join(this.dir, 'seed.iso');
+		const pub = fs.readFileSync(pubPath, 'utf8').trim();
+		// Dev only: install docker on first boot when using a vanilla Ubuntu image.
+		// The production prebuilt image (M5) bakes docker in, so this stays off.
+		const devInstallDocker = process.env.ARIA_AUTOPIPE_VM_INSTALL_DOCKER === '1';
+		const userData = [
+			'#cloud-config',
+			'users:',
+			`  - name: ${GUEST_USER}`,
+			'    groups: [sudo]',
+			'    sudo: ALL=(ALL) NOPASSWD:ALL',
+			'    shell: /bin/bash',
+			'    ssh_authorized_keys:',
+			`      - ${pub}`,
+			'ssh_pwauth: false',
+			'runcmd:',
+			`  - mkdir -p ${GUEST_REPO} && chown ${GUEST_USER}:${GUEST_USER} ${GUEST_REPO}`,
+			`  - mount -t 9p -o trans=virtio,version=9p2000.L aria ${GUEST_REPO} || true`,
+			`  - chown ${GUEST_USER}:${GUEST_USER} ${GUEST_REPO}`,
+			...(devInstallDocker ? [
+				'  - curl -fsSL https://get.docker.com | sh',
+				`  - usermod -aG docker ${GUEST_USER}`,
+			] : []),
+		].join('\n') + '\n';
+		const seedDir = path.join(this.dir, 'seed');
+		fs.mkdirSync(seedDir, { recursive: true });
+		fs.writeFileSync(path.join(seedDir, 'user-data'), userData);
+		fs.writeFileSync(path.join(seedDir, 'meta-data'), 'instance-id: aria-builtin\nlocal-hostname: aria\n');
+		await this.makeSeedIso(seedDir, seed);
+		return seed;
+	}
+
+	/** Build the cloud-init NoCloud ISO (volume label `cidata`) cross-platform:
+	 *  hdiutil on macOS; oscdimg/mkisofs on Windows; genisoimage/mkisofs on Linux. */
+	private async makeSeedIso(dir: string, out: string): Promise<void> {
+		if (fs.existsSync(out)) { fs.rmSync(out); }
+		const ud = path.join(dir, 'user-data'), md = path.join(dir, 'meta-data');
+		if (process.platform === 'darwin') {
+			await execFileAsync('hdiutil', ['makehybrid', '-iso', '-joliet', '-default-volume-name', 'cidata', '-o', out, dir]);
+			return;
+		}
+		const iso = (o: string): [string, string[]] => ['x', ['-output', o, '-volid', 'cidata', '-joliet', '-rock', ud, md]];
+		// Each entry must produce an ISO whose volume label is `cidata`.
+		const attempts: Array<[string, string[]]> = process.platform === 'win32'
+			? [['oscdimg', ['-n', '-m', '-lCIDATA', dir, out]], ['mkisofs', iso(out)[1]], ['genisoimage', iso(out)[1]]]
+			: [['genisoimage', iso(out)[1]], ['mkisofs', iso(out)[1]], ['cloud-localds', [out, ud, md]]];
+		for (const [tool, args] of attempts) {
+			try { await execFileAsync(tool, args); return; } catch { /* try the next tool */ }
+		}
+		throw new Error(process.platform === 'win32'
+			? 'No ISO tool found. For dev testing install one: `scoop install cdrtools` (mkisofs), or the Windows ADK (oscdimg).'
+			: 'No ISO tool found (genisoimage / mkisofs / cloud-localds).');
+	}
+
+	private freePort(): Promise<number> {
+		return new Promise((resolve, reject) => {
+			const srv = net.createServer();
+			srv.listen(0, '127.0.0.1', () => {
+				const p = (srv.address() as net.AddressInfo).port;
+				srv.close(() => resolve(p));
+			});
+			srv.on('error', reject);
+		});
+	}
+
+	/** Poll `ssh … true` until it succeeds or we time out / the VM dies. */
+	private async waitForSsh(p: SshProfile): Promise<void> {
+		const deadline = Date.now() + READY_TIMEOUT_MS;
+		const args = [
+			'-p', String(p.port), '-i', p.auth.key_path!,
+			'-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
+			'-o', 'ConnectTimeout=3', '-o', 'BatchMode=yes',
+			`${p.username}@${p.host}`, 'true',
+		];
+		while (Date.now() < deadline) {
+			if (this.proc && this.proc.exitCode !== null) { throw new Error('VM process exited before SSH came up.'); }
+			try { await execFileAsync('ssh', args); return; } catch { /* not up yet */ }
+			await new Promise(r => setTimeout(r, 3000));
+		}
+		throw new Error('Timed out waiting for the VM to become reachable.');
+	}
+}

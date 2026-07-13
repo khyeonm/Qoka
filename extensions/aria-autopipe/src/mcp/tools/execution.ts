@@ -282,9 +282,15 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 				const metaPath = `${outputDir.replace(/\/+$/, '')}/.autopipe-run.json`;
 				try { await ssh.writeFile(profile, metaPath, runMeta); } catch { /* best-effort */ }
 
+				// Run the container as the server-side user (computed on the server)
+				// so result files land user-owned — important for the built-in VM,
+				// whose workspace is a 9p share back to the host: otherwise root-owned
+				// outputs would be awkward for the user to open/delete. Skipped for the
+				// docker-socket (nextflow) path, which needs root to drive the socket.
+				const userFlag = dockerSocketMount ? '' : `--user "$(id -u):$(id -g)" `;
 				const cmd =
 					`nohup docker run --entrypoint snakemake --name '${shellEscape(containerName)}' `
-					+ `${pipelineMount}${dockerSocketMount}${hostPathMounts}${hostEnvVars} `
+					+ `${userFlag}${pipelineMount}${dockerSocketMount}${hostPathMounts}${hostEnvVars} `
 					+ `-v '${shellEscape(inputDir)}:/input:ro'${symlinkMounts} `
 					+ `-v '${shellEscape(outputDir)}:/output' -w /output `
 					+ `'${shellEscape(imageName)}' --cores ${cores} --rerun-incomplete `

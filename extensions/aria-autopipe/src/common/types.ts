@@ -38,9 +38,34 @@ export interface GitHubAuth {
 	login?: string;
 }
 
+/** The built-in local VM's synthetic profile id. When this is the active target,
+ *  pipelines run on Aria's bundled QEMU VM ("Aria built-in", Mac/Win) instead of
+ *  a user SSH server. Its concrete SshProfile is produced at runtime by the
+ *  VMManager (which owns the forwarded SSH port + key), not stored in config. */
+export const LOCAL_VM_ID = '__local_vm__';
+
+/** User-tunable resources for the built-in local VM. Defaults adapt to the host
+ *  in VMManager; these are the persisted overrides. */
+export interface LocalVmConfig {
+	/** Guest RAM in MB. */
+	memoryMB: number;
+	/** Guest vCPUs. */
+	cpus: number;
+	/** Max virtual disk in GB — sparse, so only the actually-stored bytes count. */
+	diskGB: number;
+}
+
+export function defaultLocalVmConfig(): LocalVmConfig {
+	return { memoryMB: 4096, cpus: 2, diskGB: 60 };
+}
+
 export interface AriaConfig {
 	ssh_profiles: SshProfile[];
+	/** Active run target: an SshProfile id, `LOCAL_VM_ID` for the built-in VM, or
+	 *  null when nothing is selected. */
 	active_ssh_profile_id: string | null;
+	/** Resources for the built-in local VM. */
+	local_vm: LocalVmConfig;
 	registry_url: string;
 	github: GitHubAuth | null;
 	/** GitHub repository name for pipeline uploads in single-repo mode. */
@@ -55,6 +80,7 @@ export function defaultConfig(): AriaConfig {
 	return {
 		ssh_profiles: [],
 		active_ssh_profile_id: null,
+		local_vm: defaultLocalVmConfig(),
 		registry_url: DEFAULT_REGISTRY_URL,
 		github: null,
 		github_repo: '',
