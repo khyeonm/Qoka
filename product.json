@@ -6,7 +6,8 @@
 		"aria": [
 			"aria.aria-memory",
 			"aria.aria-authentication",
-			"aria.aria-hypothesis"
+			"aria.aria-hypothesis",
+			"aria.aria-methods-search"
 		]
 	},
 	"dataFolderName": ".aria",

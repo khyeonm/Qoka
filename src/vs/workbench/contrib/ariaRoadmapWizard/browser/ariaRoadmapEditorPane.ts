@@ -9,7 +9,6 @@ import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
@@ -18,6 +17,7 @@ import { IEditorOpenContext } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { Snapshot, isSnapshot, onDidChangeRoadmapState } from './ariaRoadmapWizardCommon.js';
+import { AriaRoadmapEditorInput } from './ariaRoadmapEditorInput.js';
 import { COLUMN_WIDTH, NODE_LINE_HEIGHT, NODE_LABEL_PAD_X, LaidOut, columnX, computeRoadmapLayout } from './roadmapCanvasLayout.js';
 
 // Ctrl+drag zoom bounds.
@@ -58,8 +58,11 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	private canvasSvg: SVGSVGElement | undefined;
 	private editPanel: HTMLElement | undefined;
 	private sequentialBar: HTMLElement | undefined;
-	private saveButton: HTMLButtonElement | undefined;
+	private saveStatus: HTMLElement | undefined;
 	private starterCard: HTMLElement | undefined;
+	/** Which roadmap this pane currently shows — set on setInput. Used to filter
+	 *  the shared state-change channel and to re-assert the active roadmap. */
+	private currentRoadmapId: string | undefined;
 	private canvasWrap: HTMLElement | undefined;
 	// Camera: the SVG fills the viewport and a viewBox acts as a movable,
 	// scalable window over the content. camX/camY are the content coordinates at
@@ -83,7 +86,6 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		@IThemeService themeService: IThemeService,
 		@IStorageService storageService: IStorageService,
 		@ICommandService private readonly commandService: ICommandService,
-		@INotificationService private readonly notificationService: INotificationService,
 		@IClipboardService private readonly clipboardService: IClipboardService,
 		@IDialogService private readonly dialogService: IDialogService,
 	) {
@@ -117,21 +119,24 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		header.style.flex = '0 0 auto';
 
 		const hint = document.createElement('div');
-		hint.textContent = 'Draft your roadmap with your AI assistant. Click any node to view or edit its details. Save keeps it in this project.';
+		hint.textContent = 'Draft your roadmap with your AI assistant. Click any node to view or edit its details. Changes are saved automatically.';
 		hint.style.fontSize = '12.5px';
 		hint.style.opacity = '0.7';
 		header.appendChild(hint);
 
 		const headerActions = document.createElement('div');
 		headerActions.style.display = 'flex';
-		headerActions.style.gap = '8px';
+		headerActions.style.alignItems = 'center';
+		headerActions.style.gap = '12px';
+		// The roadmap auto-persists on every change — there is no explicit Save
+		// action, just a passive indicator so the user knows their work is kept.
+		const saveStatus = document.createElement('span');
+		saveStatus.style.fontSize = '12px';
+		saveStatus.style.opacity = '0.65';
+		this.saveStatus = saveStatus;
 		const deleteButton = this.makeButton('Delete', 'ghost', () => void this.deleteRoadmap());
-		const saveButton = this.makeButton('Save', 'primary', () => void this.save());
-		saveButton.disabled = true;
-		saveButton.title = 'Add at least one goal to save the roadmap.';
-		this.saveButton = saveButton;
+		headerActions.appendChild(saveStatus);
 		headerActions.appendChild(deleteButton);
-		headerActions.appendChild(saveButton);
 		header.appendChild(headerActions);
 		container.appendChild(header);
 
@@ -277,12 +282,17 @@ export class AriaRoadmapEditorPane extends EditorPane {
 
 	override async setInput(input: EditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
 		await super.setInput(input, options, context, token);
-		// Pull the initial snapshot — onDidChangeRoadmapState handles updates after.
-		// Guarded: if the aria-roadmap extension hasn't activated yet (e.g. the
-		// editor auto-opens on a fresh project window) the command may be missing;
-		// we then just render empty and refresh when the extension fires its state.
+		this.currentRoadmapId = input instanceof AriaRoadmapEditorInput ? input.roadmapId : undefined;
+		// Make this tab's roadmap the ACTIVE one and use the returned snapshot as
+		// the initial render — so canvas edits and chat tools target it.
+		// onDidChangeRoadmapState handles updates after. Guarded: if the
+		// aria-roadmap extension hasn't activated yet (e.g. the editor auto-opens
+		// on a fresh project window) the command may be missing; we then render
+		// empty and refresh when the extension fires its state.
 		try {
-			const initial = await this.commandService.executeCommand<Snapshot>('aria.roadmap.getState');
+			const initial = this.currentRoadmapId
+				? await this.commandService.executeCommand<Snapshot>('aria.roadmap.switchActive', this.currentRoadmapId)
+				: await this.commandService.executeCommand<Snapshot>('aria.roadmap.getState');
 			if (token.isCancellationRequested) {
 				return;
 			}
@@ -317,10 +327,23 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	override focus(): void {
 		super.focus();
 		this.container?.focus();
+		// Re-assert this roadmap as the active one so canvas edits and chat tools
+		// target it — another tab or the chat may have switched active meanwhile.
+		// The command no-ops (no re-render) when this roadmap is already active.
+		if (this.currentRoadmapId) {
+			void this.commandService.executeCommand('aria.roadmap.switchActive', this.currentRoadmapId);
+		}
 	}
 
 	private onStateChange(snapshot: unknown): void {
 		if (!isSnapshot(snapshot)) {
+			return;
+		}
+		// A project has many roadmaps sharing one state-change channel; only react
+		// to updates for the roadmap THIS pane shows. An undefined id (folder-less
+		// empty-wizard window) matches any pane.
+		if (snapshot.roadmapId !== undefined && this.currentRoadmapId !== undefined
+			&& snapshot.roadmapId !== this.currentRoadmapId) {
 			return;
 		}
 		this.snapshot = snapshot;
@@ -579,15 +602,11 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	}
 
 	private renderSaveButton(): void {
-		if (!this.saveButton) { return; }
-		// Enabled as soon as there's at least one committed goal — the user is
-		// never blocked waiting on the AI to "finalize".
-		const ready = this.snapshot.committed.length > 0;
-		this.saveButton.disabled = !ready;
-		this.saveButton.style.opacity = ready ? '1' : '0.5';
-		this.saveButton.title = ready
-			? 'Save this roadmap.'
-			: 'Add at least one goal to save the roadmap.';
+		if (!this.saveStatus) { return; }
+		// Passive indicator only — the roadmap auto-saves. Show the "saved" note
+		// once there is at least one node worth saving.
+		const hasContent = this.snapshot.committed.length > 0 || this.snapshot.proposed.length > 0;
+		this.saveStatus.textContent = hasContent ? '✓ Saved automatically' : '';
 	}
 
 	private openKebabMenu(node: LaidOut, clientX: number, clientY: number): void {
@@ -837,29 +856,6 @@ export class AriaRoadmapEditorPane extends EditorPane {
 
 	private async reviewAcceptAll(): Promise<void> {
 		await this.commandService.executeCommand('aria.roadmap.acceptAllProposals');
-	}
-
-	// Save flow ----------------------------------------------------------
-
-	private async save(): Promise<void> {
-		// The project folder already exists (created at New Project time) and the
-		// roadmap auto-persists on every change, so Save just makes that explicit
-		// — write the current tree to <workspace>/.aria/roadmap.json and confirm.
-		// No folder picker, no new window: the roadmap stays in this window and
-		// the sidebar Roadmap tab reflects it.
-		try {
-			await this.commandService.executeCommand('aria.roadmap.persist');
-		} catch (e) {
-			this.notificationService.notify({
-				severity: Severity.Error,
-				message: `Could not save roadmap: ${(e as Error).message}`,
-			});
-			return;
-		}
-		this.notificationService.notify({
-			severity: Severity.Info,
-			message: 'Roadmap saved.',
-		});
 	}
 
 	// Lifecycle ----------------------------------------------------------

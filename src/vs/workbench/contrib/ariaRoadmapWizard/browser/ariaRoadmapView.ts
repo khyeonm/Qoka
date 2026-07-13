@@ -5,6 +5,7 @@
 
 import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { joinPath } from '../../../../base/common/resources.js';
+import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IAction } from '../../../../base/common/actions.js';
 import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
@@ -14,17 +15,18 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { applyAriaScrollbar } from '../../aria/browser/ariaScrollbar.js';
-import { COLUMN_WIDTH, NodeInput, computeRoadmapLayout, layoutBounds } from './roadmapCanvasLayout.js';
 
 interface PersistedNode {
 	id: string;
@@ -39,17 +41,29 @@ interface PersistedRoadmap {
 	version: number;
 	columnLabels: string[];
 	nodes: PersistedNode[];
+	updatedAt?: number;
+	name?: string;
 }
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
+/** One roadmap in the project, summarized for the sidebar list. */
+interface RoadmapListItem {
+	id: string;
+	/** Custom name if set, else the hypothesis sentence (first Goal node), else a placeholder. */
+	name: string;
+	nodeCount: number;
+	/** Last-modified time (ms) for the row's date stamp. */
+	updatedAt: number;
+}
+
+const UNTITLED = 'Untitled roadmap';
 
 /**
- * Sidebar view for the project's roadmap (`<workspace>/.aria/roadmap.json`).
+ * Sidebar view for the project's roadmaps (`<workspace>/.aria/roadmaps/*.json`).
  *
- * Shows a compact, non-interactive thumbnail of the same canvas the wizard
- * editor draws, plus an "Open full roadmap" button that opens the full,
- * pan/zoom/editable canvas in the editor area. Re-reads on any change to the
- * roadmap file.
+ * A project holds MANY roadmaps — one per hypothesis. This lists them by their
+ * hypothesis sentence (each roadmap's first Goal node); clicking one opens its
+ * full pan/zoom/editable canvas in the editor, each row has a Delete button, and
+ * "+ New roadmap" starts a fresh one. Re-reads whenever a roadmap file changes.
  */
 export class AriaRoadmapView extends ViewPane {
 
@@ -71,14 +85,17 @@ export class AriaRoadmapView extends ViewPane {
 		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IDialogService private readonly dialogService: IDialogService,
+		@IQuickInputService private readonly quickInputService: IQuickInputService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.refresh()));
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.refresh()));
-		// Re-read whenever the roadmap file changes (the wizard saving, manual edits).
+		// Re-read whenever any roadmap file changes (create/delete, the wizard
+		// auto-saving, manual edits) — the whole roadmaps dir is watched.
 		this._register(this.fileService.onDidFilesChange(e => {
-			const uri = this.roadmapFileUri();
-			if (uri && e.contains(uri)) {
+			const dir = this.roadmapsDirUri();
+			if (dir && e.affects(dir)) {
 				void this.refresh();
 			}
 		}));
@@ -109,12 +126,71 @@ export class AriaRoadmapView extends ViewPane {
 		}
 	}
 
-	private roadmapFileUri() {
+	private roadmapsDirUri(): URI | undefined {
 		const folder = this.workspaceContextService.getWorkspace().folders[0];
 		if (!folder) {
 			return undefined;
 		}
-		return joinPath(folder.uri, '.aria', 'roadmap.json');
+		return joinPath(folder.uri, '.aria', 'roadmaps');
+	}
+
+	/** Read every `<workspace>/.aria/roadmaps/*.json`, newest first, summarizing
+	 *  each by its hypothesis sentence (first Goal node). */
+	private async listRoadmaps(): Promise<RoadmapListItem[]> {
+		const dir = this.roadmapsDirUri();
+		if (!dir) {
+			return [];
+		}
+		let stat;
+		try {
+			stat = await this.fileService.resolve(dir);
+		} catch {
+			return []; // no roadmaps dir yet
+		}
+		const items: RoadmapListItem[] = [];
+		for (const child of stat.children ?? []) {
+			if (child.isDirectory || !child.name.endsWith('.json')) {
+				continue;
+			}
+			try {
+				const content = await this.fileService.readFile(child.resource);
+				const roadmap = JSON.parse(content.value.toString()) as PersistedRoadmap;
+				const nodes = Array.isArray(roadmap.nodes) ? roadmap.nodes : [];
+				items.push({
+					id: child.name.slice(0, -'.json'.length),
+					name: this.displayName(roadmap.name, nodes),
+					nodeCount: nodes.length,
+					updatedAt: typeof roadmap.updatedAt === 'number' ? roadmap.updatedAt : (child.mtime ?? 0),
+				});
+			} catch {
+				// Skip an unreadable roadmap rather than failing the whole list.
+			}
+		}
+		items.sort((a, b) => b.updatedAt - a.updatedAt);
+		return items;
+	}
+
+	/** Custom name wins, else the hypothesis (first Goal), else a placeholder. */
+	private displayName(explicit: string | undefined, nodes: PersistedNode[]): string {
+		const trimmed = explicit?.trim();
+		if (trimmed) {
+			return trimmed;
+		}
+		const goal = nodes.find(n => n.column === 0 && (n.parent === null || n.parent === undefined));
+		const label = goal?.label?.trim();
+		return label ? label : UNTITLED;
+	}
+
+	/** Format a timestamp as "YY/M/D HH:MM" to match the compact row stamp. */
+	private formatDate(ms: number): string {
+		if (!ms) {
+			return '';
+		}
+		const d = new Date(ms);
+		const yy = String(d.getFullYear()).slice(-2);
+		const hh = String(d.getHours()).padStart(2, '0');
+		const mm = String(d.getMinutes()).padStart(2, '0');
+		return `${yy}/${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
 	}
 
 	private async refresh(): Promise<void> {
@@ -127,103 +203,137 @@ export class AriaRoadmapView extends ViewPane {
 		// Full-width one-line summary at the top of the sidebar.
 		renderAriaTabSummary(root, 'roadmap');
 
+		// "+ New roadmap" is always available under the summary.
+		this.renderNewRoadmapButton(root);
+
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
-			this.renderEmpty(root, localize('aria.roadmap.noFolder', "Open a project to see its roadmap."));
+			this.renderEmpty(root, localize('aria.roadmap.noFolder', "Open a project to see its roadmaps."));
 			return;
 		}
 
-		const uri = this.roadmapFileUri();
-		if (!uri) {
-			this.renderEmpty(root, localize('aria.roadmap.noFolder', "Open a project to see its roadmap."));
+		const roadmaps = await this.listRoadmaps();
+		if (roadmaps.length === 0) {
+			this.renderEmpty(root, localize('aria.roadmap.empty', "No roadmaps yet. Click “+ New roadmap” (or use New Project) to draft one with your AI assistant."));
 			return;
 		}
 
-		let roadmap: PersistedRoadmap | undefined;
-		try {
-			const content = await this.fileService.readFile(uri);
-			roadmap = JSON.parse(content.value.toString()) as PersistedRoadmap;
-		} catch {
-			roadmap = undefined;
+		const list = append(root, $('div'));
+		list.style.marginTop = '4px';
+		for (const item of roadmaps) {
+			this.renderRoadmapRow(list, item);
 		}
-
-		if (!roadmap || !Array.isArray(roadmap.nodes) || roadmap.nodes.length === 0) {
-			this.renderEmpty(root, localize('aria.roadmap.empty', "No roadmap yet. Use New Project to draft one with your AI assistant."));
-			return;
-		}
-
-		this.renderThumbnail(root, roadmap.nodes);
 	}
 
-	/** Compact, non-interactive preview of the whole roadmap; click or the button
-	 *  opens the full canvas in the editor. */
-	private renderThumbnail(root: HTMLElement, nodes: PersistedNode[]): void {
-		const open = () => void this.commandService.executeCommand('aria.roadmap.openWizard');
+	/** One roadmap in the list: its hypothesis sentence (full, truncated with an
+	 *  ellipsis when it overflows) plus a Delete button. Clicking opens it. */
+	private renderRoadmapRow(list: HTMLElement, item: RoadmapListItem): void {
+		const row = append(list, $('div'));
+		row.style.display = 'flex';
+		row.style.alignItems = 'center';
+		row.style.gap = '6px';
+		row.style.padding = '8px 6px';
+		row.style.borderBottom = '1px solid rgba(127,127,127,0.15)';
+		row.style.cursor = 'pointer';
+		row.style.borderRadius = '4px';
+		row.addEventListener('mouseenter', () => { row.style.background = 'var(--vscode-list-hoverBackground, rgba(127,127,127,0.1))'; });
+		row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
+		row.onclick = () => void this.commandService.executeCommand('aria.roadmap.openWizard', {
+			id: item.id,
+			name: item.name === UNTITLED ? undefined : item.name,
+		});
+		row.title = localize('aria.roadmap.openHint', "Open this roadmap");
 
-		const inputs: NodeInput[] = nodes.map(n => ({ id: n.id, column: n.column, parent: n.parent, label: n.label, description: n.description }));
-		const laid = computeRoadmapLayout(inputs, []);
-		const bounds = layoutBounds(laid);
-
-		const frame = append(root, $('div'));
-		frame.style.border = '1px solid var(--vscode-widget-border, rgba(127,127,127,0.3))';
-		frame.style.borderRadius = '6px';
-		frame.style.overflow = 'hidden';
-		frame.style.cursor = 'pointer';
-		frame.style.background = 'var(--vscode-editorWidget-background, rgba(127,127,127,0.04))';
-		frame.title = localize('aria.roadmap.openFullHint', "Open the full roadmap");
-		frame.onclick = open;
-
-		const svg = document.createElementNS(SVG_NS, 'svg') as unknown as SVGSVGElement;
-		svg.setAttribute('viewBox', `0 0 ${bounds.width} ${bounds.height}`);
-		svg.setAttribute('width', '100%');
-		// Keep the thumbnail a reasonable height; aspect from the content bounds.
-		const aspect = bounds.height / bounds.width;
-		svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
-		svg.style.display = 'block';
-		svg.style.width = '100%';
-		svg.style.height = `${Math.max(120, Math.min(360, Math.round((root.clientWidth || 240) * aspect)))}px`;
-
-		// Connectors.
-		for (const node of laid) {
-			if (node.parent === null) { continue; }
-			const parent = laid.find(n => n.id === node.parent);
-			if (!parent) { continue; }
-			const path = document.createElementNS(SVG_NS, 'path');
-			const x1 = parent.x + COLUMN_WIDTH, y1 = parent.y + parent.height / 2;
-			const x2 = node.x, y2 = node.y + node.height / 2;
-			const mid = (x1 + x2) / 2;
-			path.setAttribute('d', `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);
-			path.setAttribute('stroke', 'rgba(127,127,127,0.6)');
-			path.setAttribute('stroke-width', '2');
-			path.setAttribute('fill', 'none');
-			svg.appendChild(path);
+		// The hypothesis sentence — full text, single line, ellipsis on overflow.
+		const label = append(row, $('span'));
+		label.textContent = item.name;
+		label.style.flex = '1 1 auto';
+		label.style.minWidth = '0';
+		label.style.overflow = 'hidden';
+		label.style.textOverflow = 'ellipsis';
+		label.style.whiteSpace = 'nowrap';
+		label.style.fontSize = '13px';
+		if (item.name === UNTITLED) {
+			label.style.opacity = '0.6';
 		}
-		// Node boxes (no text — it would be illegible at thumbnail scale).
-		for (const node of laid) {
-			const rect = document.createElementNS(SVG_NS, 'rect');
-			rect.setAttribute('x', String(node.x));
-			rect.setAttribute('y', String(node.y));
-			rect.setAttribute('width', String(COLUMN_WIDTH));
-			rect.setAttribute('height', String(node.height));
-			rect.setAttribute('rx', '8');
-			rect.setAttribute('fill', 'var(--vscode-editor-background, #1e1e1e)');
-			rect.setAttribute('stroke', node.column === 0 ? 'var(--vscode-focusBorder, #007acc)' : 'rgba(127,127,127,0.6)');
-			rect.setAttribute('stroke-width', node.column === 0 ? '3' : '2');
-			svg.appendChild(rect);
-		}
-		frame.appendChild(svg as unknown as SVGElement);
+		label.title = item.name; // full sentence on hover
 
+		// Compact date stamp (YY/M/D HH:MM), styled like the Research Note list.
+		const stamp = this.formatDate(item.updatedAt);
+		if (stamp) {
+			const date = append(row, $('span'));
+			date.textContent = stamp;
+			date.title = item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '';
+			date.style.flexShrink = '0';
+			date.style.fontSize = '11px';
+			date.style.opacity = '0.55';
+			date.style.fontVariantNumeric = 'tabular-nums';
+			date.style.marginRight = '2px';
+		}
+
+		// Pencil (rename) + trash (delete) — the same codicons the Research Note
+		// list uses. Both stop propagation so the row's open-on-click doesn't fire.
+		const rename = append(row, $('span.codicon.codicon-edit')) as HTMLElement;
+		rename.title = localize('aria.roadmap.rename', "Rename this roadmap");
+		rename.style.flexShrink = '0';
+		rename.style.opacity = '0.6';
+		rename.style.cursor = 'pointer';
+		rename.onclick = (e) => { e.stopPropagation(); void this.promptRename(item); };
+
+		const del = append(row, $('span.codicon.codicon-trash')) as HTMLElement;
+		del.title = localize('aria.roadmap.deleteRoadmap', "Delete this roadmap");
+		del.style.flexShrink = '0';
+		del.style.opacity = '0.6';
+		del.style.cursor = 'pointer';
+		del.onclick = (e) => { e.stopPropagation(); void this.confirmDelete(item); };
+	}
+
+	private async promptRename(item: RoadmapListItem): Promise<void> {
+		const next = await this.quickInputService.input({
+			title: localize('aria.roadmap.renameTitle', "Rename roadmap"),
+			prompt: localize('aria.roadmap.renamePrompt', "New name. Leave blank to use the hypothesis sentence."),
+			value: item.name === UNTITLED ? '' : item.name,
+		});
+		if (next === undefined) {
+			return; // cancelled
+		}
+		await this.commandService.executeCommand('aria.roadmap.rename', item.id, next.trim());
+		void this.refresh();
+	}
+
+	private async confirmDelete(item: RoadmapListItem): Promise<void> {
+		const label = item.name === UNTITLED ? 'this untitled roadmap' : `"${item.name}"`;
+		const { confirmed } = await this.dialogService.confirm({
+			type: 'warning',
+			message: localize('aria.roadmap.deleteConfirm', "Delete {0}?", label),
+			detail: localize('aria.roadmap.deleteDetail', "This removes the entire roadmap. This cannot be undone."),
+			primaryButton: localize('aria.roadmap.deleteButton', "Delete"),
+		});
+		if (!confirmed) {
+			return;
+		}
+		await this.commandService.executeCommand('aria.roadmap.deleteRoadmap', item.id);
+		void this.refresh();
+	}
+
+	/** "+ New roadmap" — create a fresh roadmap and open its canvas so the AI can
+	 *  draft it. Each roadmap is one hypothesis. */
+	private renderNewRoadmapButton(root: HTMLElement): void {
 		const button = append(root, $('button')) as HTMLButtonElement;
-		button.textContent = localize('aria.roadmap.openFull', "Open full roadmap");
-		button.style.marginTop = '8px';
+		button.textContent = localize('aria.roadmap.newRoadmap', "+ New roadmap");
+		button.style.display = 'block';
 		button.style.width = '100%';
-		button.style.padding = '6px 10px';
-		button.style.fontSize = '12px';
+		button.style.margin = '10px 0';
+		button.style.padding = '8px 10px';
+		button.style.fontSize = '13px';
 		button.style.cursor = 'pointer';
 		button.style.borderRadius = '4px';
 		button.style.border = 'none';
 		button.style.background = 'var(--vscode-button-background)';
 		button.style.color = 'var(--vscode-button-foreground)';
-		button.onclick = open;
+		button.onclick = async () => {
+			const id = await this.commandService.executeCommand<string | undefined>('aria.roadmap.createRoadmap');
+			await this.commandService.executeCommand('aria.roadmap.openWizard', id ? { id } : undefined);
+		};
 	}
 
 	private renderEmpty(root: HTMLElement, text: string): void {

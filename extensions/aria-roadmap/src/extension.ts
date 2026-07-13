@@ -4,17 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import { RoadmapState, RoadmapNode } from './state';
+import { RoadmapState } from './state';
+import { RoadmapStore } from './roadmaps';
 import { buildTools } from './mcp/tools';
 import { AriaRoadmapMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
-import { registerWorkbenchCommands } from './commands';
+import { registerWorkbenchCommands, snapshotPayload } from './commands';
 
 let mcpServer: AriaRoadmapMcpServer | undefined;
-let state: RoadmapState | undefined;
+let store: RoadmapStore | undefined;
 let finalized = false;
 
 /**
@@ -65,25 +64,26 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; s
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-roadmap] activate()');
 
-	state = new RoadmapState();
-	// In a project window (a folder is open), hydrate from the saved roadmap
-	// so the AI's get_tree() and the sidebar Roadmap view both reflect it.
-	// In the empty wizard window there is no folder, so this is a no-op.
-	hydrateFromWorkspace(state);
+	const state = new RoadmapState();
+	// In a project window (a folder is open), the store manages every roadmap
+	// under `.aria/roadmaps/` and mirrors the ACTIVE one into `state`. Migrate a
+	// legacy single roadmap.json and make sure something is active so get_tree()
+	// and the canvas have a roadmap to show. In the empty wizard window there is
+	// no folder, so the store is folder-less and these are no-ops.
+	const workspaceFsPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	store = new RoadmapStore(state, workspaceFsPath);
+	store.migrateLegacy();
+	store.ensureActive();
 	const notify = () => {
 		void vscode.commands.executeCommand(
 			'aria.roadmap.workbench.onStateChange',
-			{
-				columnLabels: ['Goal', 'Milestone', 'Task', 'Detail'],
-				...state!.snapshot(),
-				finalized,
-			},
+			snapshotPayload(store!, finalized),
 		);
 	};
-	const tools = buildTools(state, notify, value => { finalized = value; });
+	const tools = buildTools(store, notify, value => { finalized = value; });
 	mcpServer = new AriaRoadmapMcpServer(tools);
 
-	registerWorkbenchCommands(context, state, () => finalized, value => { finalized = value; });
+	registerWorkbenchCommands(context, store, () => finalized, value => { finalized = value; });
 
 	// Push the (possibly hydrated) state once so an already-open roadmap editor
 	// — e.g. auto-opened on a fresh project window — renders the saved tree.
@@ -147,25 +147,6 @@ export function activate(context: vscode.ExtensionContext): void {
 	}));
 }
 
-/** Load `<workspace>/.aria/roadmap.json` into the in-memory state if present.
- *  Best-effort: a missing/invalid file just leaves the state empty. */
-function hydrateFromWorkspace(state: RoadmapState): void {
-	const folder = vscode.workspace.workspaceFolders?.[0];
-	if (!folder) {
-		return;
-	}
-	const filePath = path.join(folder.uri.fsPath, '.aria', 'roadmap.json');
-	try {
-		const raw = fs.readFileSync(filePath, 'utf8');
-		const parsed = JSON.parse(raw) as { nodes?: RoadmapNode[] };
-		if (Array.isArray(parsed.nodes)) {
-			state.load(parsed.nodes);
-		}
-	} catch {
-		// No roadmap saved for this project yet — leave state empty.
-	}
-}
-
 export async function deactivate(): Promise<void> {
 	console.log('[aria-roadmap] deactivate()');
 	// Intentionally leave the Claude Code MCP registration in place on
@@ -180,5 +161,5 @@ export async function deactivate(): Promise<void> {
 		await mcpServer.stop();
 		mcpServer = undefined;
 	}
-	state = undefined;
+	store = undefined;
 }

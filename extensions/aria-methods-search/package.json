@@ -1,0 +1,24 @@
+{
+	"name": "aria-methods-search",
+	"displayName": "Aria Methods Search",
+	"description": "Search a research hypothesis and get the experimental methods that tested similar hypotheses, ranked by cross-paper support. Exposes recommend_methods / search_hypotheses as MCP tools for Claude Code and Codex, backed by the logic-graph Neo4j on the Aria server. Built into Aria.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"typescript": "^5.6.2"
+	}
+}

@@ -3,8 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
+import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { createStyleSheet } from '../../../../base/browser/domStylesheets.js';
+import { PROVIDER_EXTENSION_ID } from '../../aria/browser/ariaAiProviderChoice.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { localize, localize2 } from '../../../../nls.js';
@@ -65,8 +71,8 @@ class AriaRoadmapWizardContribution extends Disposable implements IWorkbenchCont
 	) {
 		super();
 
-		this._register(CommandsRegistry.registerCommand('aria.roadmap.openWizard', () => {
-			void this.openWizard();
+		this._register(CommandsRegistry.registerCommand('aria.roadmap.openWizard', (_accessor, arg?: { id?: string; name?: string }) => {
+			void this.openWizard(arg);
 		}));
 
 		// One-shot: New Project created a folder and reloaded into it with this
@@ -88,9 +94,27 @@ class AriaRoadmapWizardContribution extends Disposable implements IWorkbenchCont
 		}));
 	}
 
-	private async openWizard(): Promise<void> {
-		// Open (or focus, since the input is a Singleton) the wizard editor.
-		await this.editorService.openEditor(new AriaRoadmapEditorInput(), { pinned: true });
+	private async openWizard(arg?: { id?: string; name?: string }): Promise<void> {
+		// Resolve which roadmap to open. An explicit id (from the sidebar) wins;
+		// otherwise open the project's active roadmap, creating one if the project
+		// has none yet. In the folder-less empty-wizard window there is no store,
+		// so fall back to a transient id.
+		let id = arg?.id;
+		let name = arg?.name;
+		if (!id) {
+			id = await this.commandService.executeCommand<string | undefined>('aria.roadmap.ensureActive');
+		}
+		if (!id) {
+			id = 'wizard';
+		}
+		// Make the extension's active roadmap match what we open, and grab its
+		// hypothesis-sentence name for the tab when the caller didn't supply one.
+		const snap = await this.commandService.executeCommand<{ roadmapName?: string }>('aria.roadmap.switchActive', id);
+		if (!name) {
+			name = snap?.roadmapName;
+		}
+		// Open (or focus — one tab per roadmap id) the roadmap editor.
+		await this.editorService.openEditor(new AriaRoadmapEditorInput(id, name ?? 'Roadmap'), { pinned: true });
 
 		// Reveal whichever AI provider chat the user installed (Claude / Codex /
 		// Gemini) in the auxiliary side bar next to the canvas. We do NOT seed a
@@ -205,3 +229,91 @@ class AriaRoadmapContextContribution extends Disposable implements IWorkbenchCon
 
 Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
 	.registerWorkbenchContribution(AriaRoadmapContextContribution, LifecyclePhase.Restored);
+
+// --- Roadmap activity-bar icon pulse ---------------------------------------
+
+/**
+ * After the user finishes installing an AI provider from the New Project flow,
+ * the roadmap wizard editor is usually hidden behind the Extensions view that
+ * the install opened. Draw the user back by pulsing the left activity-bar
+ * Roadmap icon (yellow) until they open the Roadmap view. The pulse is a pure
+ * CSS animation keyed on a class toggled here; the target item is selected via
+ * the `data-aria-composite-id` attribute set in compositeBarActions.ts.
+ */
+const ROADMAP_PULSE_CLASS = 'aria-roadmap-pulse';
+
+class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContribution {
+
+	static readonly ID = 'workbench.contrib.aria.roadmapPulse';
+
+	private pulsing = false;
+
+	constructor(
+		@IExtensionService private readonly extensionService: IExtensionService,
+		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+		@IViewsService private readonly viewsService: IViewsService,
+		@IContextKeyService private readonly contextKeyService: IContextKeyService,
+	) {
+		super();
+		this.installStyles();
+
+		// A provider extension becoming newly available means the user just
+		// finished installing one → guide them to the roadmap, but only when this
+		// project actually has a roadmap (so the activity-bar icon is present).
+		this._register(this.extensionService.onDidChangeExtensions(e => {
+			const providerIds = Object.values(PROVIDER_EXTENSION_ID);
+			const providerInstalled = e.added.some(ext =>
+				providerIds.some(id => ExtensionIdentifier.equals(ext.identifier, id)));
+			if (providerInstalled && this.contextKeyService.getContextKeyValue<boolean>('aria.roadmapFilePresent') === true) {
+				this.start();
+			}
+		}));
+
+		// Stop once the user opens the Roadmap view — they got the hint.
+		this._register(this.viewsService.onDidChangeViewVisibility(e => {
+			if (e.id === AriaRoadmapView.ID && e.visible) {
+				this.stop();
+			}
+		}));
+
+		this._register(toDisposable(() => this.stop()));
+	}
+
+	private start(): void {
+		if (this.pulsing) {
+			return;
+		}
+		this.pulsing = true;
+		this.layoutService.mainContainer.classList.add(ROADMAP_PULSE_CLASS);
+	}
+
+	private stop(): void {
+		if (!this.pulsing) {
+			return;
+		}
+		this.pulsing = false;
+		this.layoutService.mainContainer.classList.remove(ROADMAP_PULSE_CLASS);
+	}
+
+	private installStyles(): void {
+		const style = createStyleSheet();
+		style.textContent = `
+@keyframes aria-roadmap-pulse-kf {
+	0%, 100% { transform: translateY(0); }
+	50%      { transform: translateY(-4px); }
+}
+.${ROADMAP_PULSE_CLASS} .activitybar .action-item[data-aria-composite-id="${ROADMAP_CONTAINER_ID}"] {
+	background-color: rgba(255, 193, 7, 0.95);
+	border-radius: 6px;
+	animation: aria-roadmap-pulse-kf 0.7s ease-in-out infinite;
+}
+.${ROADMAP_PULSE_CLASS} .activitybar .action-item[data-aria-composite-id="${ROADMAP_CONTAINER_ID}"] .action-label {
+	color: #1e1e1e !important;
+}
+`;
+		this._register(toDisposable(() => style.remove()));
+	}
+}
+
+Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
+	.registerWorkbenchContribution(AriaRoadmapPulseContribution, LifecyclePhase.Restored);

@@ -10,24 +10,29 @@ import { localize } from '../../../../nls.js';
 import { ROADMAP_SCHEME } from './ariaRoadmapWizardCommon.js';
 
 /**
- * Editor input for the New Project Roadmap Wizard.
+ * Editor input for a roadmap canvas.
  *
  * It carries no document of its own — the authoritative roadmap lives in
  * the aria-roadmap extension and is streamed to the pane via the
- * `onDidChangeRoadmapState` signal. The input exists only so the wizard
+ * `onDidChangeRoadmapState` signal. The input exists only so a roadmap
  * can occupy the editor area like any other built-in editor (Welcome,
  * Settings, …) rather than a hand-rolled overlay.
  *
- * `Singleton` keeps a single wizard tab — re-opening focuses the existing
- * one. We deliberately register NO serializer for this input, so it is not
- * restored across window reloads: the wizard is a transient drafting
- * surface for an empty workspace, and after Save the window reloads into
- * the freshly-created project folder where the wizard has no place.
+ * A project holds MANY roadmaps (one per hypothesis), so the input is keyed
+ * by `roadmapId` — one tab per roadmap, and re-opening the same roadmap
+ * focuses its existing tab. We deliberately register NO serializer, so tabs
+ * are not restored across window reloads; the sidebar re-opens them on demand.
  */
 export class AriaRoadmapEditorInput extends EditorInput {
 
 	static readonly ID = 'aria.roadmap.editorInput';
-	static readonly RESOURCE = URI.from({ scheme: ROADMAP_SCHEME, path: '/wizard' });
+
+	constructor(
+		readonly roadmapId: string,
+		private readonly displayName: string,
+	) {
+		super();
+	}
 
 	override get typeId(): string {
 		return AriaRoadmapEditorInput.ID;
@@ -42,17 +47,17 @@ export class AriaRoadmapEditorInput extends EditorInput {
 	}
 
 	override get resource(): URI {
-		return AriaRoadmapEditorInput.RESOURCE;
+		return URI.from({ scheme: ROADMAP_SCHEME, path: `/roadmap/${this.roadmapId}` });
 	}
 
 	override getName(): string {
-		return localize('aria.roadmap.editorName', "New Project — Roadmap");
+		return this.displayName || localize('aria.roadmap.editorName', "Roadmap");
 	}
 
 	override matches(other: EditorInput | IUntypedEditorInput): boolean {
 		if (super.matches(other)) {
 			return true;
 		}
-		return other instanceof AriaRoadmapEditorInput;
+		return other instanceof AriaRoadmapEditorInput && other.roadmapId === this.roadmapId;
 	}
 }

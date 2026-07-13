@@ -233,6 +233,11 @@ export class CompositeBarActionViewItem extends BaseActionViewItem {
 		super.render(container);
 
 		this.container = container;
+		// Aria: expose the composite id on the DOM so a specific activity-bar item
+		// can be targeted by CSS (e.g. the Roadmap icon "provider installed" pulse).
+		if (this.action?.id) {
+			this.container.setAttribute('data-aria-composite-id', this.action.id);
+		}
 		if (this.options.icon) {
 			this.container.classList.add('icon');
 		}

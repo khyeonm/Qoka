@@ -58,6 +58,7 @@ const compilations = [
 	'extensions/aria-autopipe/tsconfig.json',
 	'extensions/aria-skills/tsconfig.json',
 	'extensions/aria-paper-search/tsconfig.json',
+	'extensions/aria-methods-search/tsconfig.json',
 	'extensions/aria-hypothesis/tsconfig.json',
 	'extensions/aria-vcs/tsconfig.json',
 	'extensions/aria-roadmap/tsconfig.json',

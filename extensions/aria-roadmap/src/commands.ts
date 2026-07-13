@@ -6,48 +6,86 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Column, COLUMN_LABELS, RoadmapState } from './state';
+import { Column, COLUMN_LABELS } from './state';
+import { RoadmapStore } from './roadmaps';
 
 /**
- * VS Code commands that the workbench-side wizard UI calls. Same state
- * instance as the MCP tools — they are two faces of one tree, so a node
- * that Claude Code proposes via MCP shows up in the canvas, and a node
- * the user adds manually in the canvas shows up to the AI on its next
- * get_tree() call.
+ * VS Code commands that the workbench-side wizard UI calls. They operate on the
+ * store's shared state — the ACTIVE roadmap — so a node Claude Code proposes via
+ * MCP shows up in the canvas, and a node the user adds manually shows up to the
+ * AI on its next get_tree() call. Multi-roadmap: the workbench switches the
+ * active roadmap (switchActive) when the user opens a different one, and every
+ * mutation persists to that roadmap's own `.aria/roadmaps/<id>.json`.
  *
- * Every mutation re-emits a workbench-facing notification command
- * `aria.roadmap.workbench.onStateChange` so the canvas can re-render
- * without polling. The workbench-side contribution registers a handler
- * for that command at activation.
+ * Every mutation re-emits `aria.roadmap.workbench.onStateChange` (carrying the
+ * active roadmap id) so the matching canvas pane re-renders without polling.
  */
 export function registerWorkbenchCommands(
 	context: vscode.ExtensionContext,
-	state: RoadmapState,
-	// Set by the extension when finalize_roadmap is called via MCP, OR
-	// when the user clicks the "I'm done" affordance in chat. The
-	// canvas reads this to enable Save & Accept.
+	store: RoadmapStore,
 	getFinalized: () => boolean,
 	setFinalized: (value: boolean) => void,
 ): void {
+	const state = store.state;
+
 	const fireChange = () => {
 		void vscode.commands.executeCommand(
 			'aria.roadmap.workbench.onStateChange',
-			snapshotPayload(state, getFinalized()),
+			snapshotPayload(store, getFinalized()),
 		);
-		// In a project window, keep `.aria/roadmap.json` in sync with every
-		// edit so the sidebar view (which reads the file) refreshes and the
-		// saved roadmap survives a reload. No-op in the empty wizard window —
-		// there the roadmap is persisted explicitly by Save & Accept.
-		void persistToWorkspace(state);
+		// Keep the active roadmap's file in sync with every edit so the sidebar
+		// (which lists roadmaps by their persisted content) refreshes and the
+		// roadmap survives a reload.
+		store.persistActive();
 	};
 
 	context.subscriptions.push(
-		// Read state on wizard mount.
-		vscode.commands.registerCommand('aria.roadmap.getState', () => snapshotPayload(state, getFinalized())),
+		// Read the active roadmap's snapshot on wizard mount.
+		vscode.commands.registerCommand('aria.roadmap.getState', () => snapshotPayload(store, getFinalized())),
 
-		// Per-tool mutations. Each mirrors an MCP tool but is callable
-		// directly from workbench code (so the canvas's manual edits go
-		// through the same state path the AI does).
+		// --- Multi-roadmap management -----------------------------------------
+		// List every roadmap in the project (id + hypothesis sentence + counts).
+		vscode.commands.registerCommand('aria.roadmap.list', () => store.list()),
+
+		// Create a new empty roadmap; returns its id. Does NOT switch active — the
+		// caller (sidebar / New Project) opens it, which switches active.
+		vscode.commands.registerCommand('aria.roadmap.createRoadmap', () => store.create()),
+
+		// Make `id` the active roadmap and return its snapshot. The pane calls
+		// this on open/focus so edits target the roadmap the user is looking at.
+		vscode.commands.registerCommand('aria.roadmap.switchActive', (id: string) => {
+			// Skip the notify/persist churn when this roadmap is already active —
+			// the pane re-asserts active on every focus, which would otherwise
+			// re-render and rewrite the file needlessly.
+			const changed = store.activeId !== id;
+			store.switchActive(id);
+			if (changed) {
+				fireChange();
+			}
+			return snapshotPayload(store, getFinalized());
+		}),
+
+		// Ensure some roadmap is active (newest, or a fresh one); returns its id.
+		vscode.commands.registerCommand('aria.roadmap.ensureActive', () => {
+			const id = store.ensureActive();
+			fireChange();
+			return id;
+		}),
+
+		// Delete a roadmap entirely. Returns the id that is active afterwards.
+		vscode.commands.registerCommand('aria.roadmap.deleteRoadmap', (id: string) => {
+			const nextActive = store.delete(id);
+			fireChange();
+			return nextActive;
+		}),
+
+		// Set (or clear, with an empty string) a roadmap's custom name.
+		vscode.commands.registerCommand('aria.roadmap.rename', (id: string, name: string) => {
+			store.rename(id, name);
+			fireChange();
+		}),
+
+		// --- Per-node mutations (act on the active roadmap) -------------------
 		vscode.commands.registerCommand('aria.roadmap.propose', (args: {
 			parent: string | null;
 			column: Column;
@@ -100,43 +138,26 @@ export function registerWorkbenchCommands(
 			fireChange();
 		}),
 
-		// Save & Accept: serialize the tree to <folder>/.aria/roadmap.json
-		// and return the path so the workbench can vscode.openFolder it.
-		vscode.commands.registerCommand('aria.roadmap.saveTo', async (folderPath: string) => {
-			const ariaDir = path.join(folderPath, '.aria');
-			const filePath = path.join(ariaDir, 'roadmap.json');
-			await fs.promises.mkdir(ariaDir, { recursive: true });
-			const snapshot = state.snapshot();
-			const payload = {
-				version: 1,
-				columnLabels: COLUMN_LABELS,
-				nodes: snapshot.committed,
-			};
-			await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
-			return filePath;
-		}),
-
-		// Explicit save from the canvas's "Save" button — writes the current tree
-		// to <workspace>/.aria/roadmap.json. (Edits already auto-persist via
-		// fireChange; this just makes the user action explicit and reliable.)
-		vscode.commands.registerCommand('aria.roadmap.persist', async () => {
-			await persistToWorkspace(state);
-		}),
-
-		// Create a brand-new, EMPTY roadmap file at the given folder. Used by
-		// New Project so a fresh project never inherits whatever roadmap happens
-		// to be in memory — every project's roadmap is independent.
+		// New Project: create a fresh EMPTY roadmap under the given (about-to-be-
+		// opened) folder, so a new project starts with its own independent roadmap.
 		vscode.commands.registerCommand('aria.roadmap.createEmptyAt', async (folderPath: string) => {
-			const ariaDir = path.join(folderPath, '.aria');
-			const filePath = path.join(ariaDir, 'roadmap.json');
-			await fs.promises.mkdir(ariaDir, { recursive: true });
-			const payload = { version: 1, columnLabels: COLUMN_LABELS, nodes: [] as unknown[] };
-			await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
-			return filePath;
+			return writeNewRoadmapAt(folderPath, []);
 		}),
 
-		// Reset state for a fresh wizard session. Called when the user
-		// cancels and reopens, or when the workbench needs a clean slate.
+		// Save the active tree to a specific folder (used when finalizing into a
+		// freshly created project folder). Writes a new roadmap file there.
+		vscode.commands.registerCommand('aria.roadmap.saveTo', async (folderPath: string) => {
+			return writeNewRoadmapAt(folderPath, state.snapshot().committed);
+		}),
+
+		// Explicit save from the canvas — the roadmap already auto-persists on
+		// every edit, so this just flushes the active roadmap to disk.
+		vscode.commands.registerCommand('aria.roadmap.persist', async () => {
+			store.persistActive();
+		}),
+
+		// Clear the active roadmap's nodes (used by the canvas "Delete roadmap
+		// content" affordance). The roadmap file itself stays (now empty).
 		vscode.commands.registerCommand('aria.roadmap.reset', () => {
 			state.rejectAllProposals();
 			for (const node of state.snapshot().committed) {
@@ -148,35 +169,27 @@ export function registerWorkbenchCommands(
 	);
 }
 
-/** Write the committed tree to `<workspace>/.aria/roadmap.json` when a folder
- *  is open. Best-effort and debounce-free — edits are infrequent (human or AI
- *  tool calls), so a write per mutation is fine. */
-async function persistToWorkspace(state: RoadmapState): Promise<void> {
-	const folder = vscode.workspace.workspaceFolders?.[0];
-	if (!folder) {
-		return;
-	}
-	try {
-		const ariaDir = path.join(folder.uri.fsPath, '.aria');
-		const filePath = path.join(ariaDir, 'roadmap.json');
-		await fs.promises.mkdir(ariaDir, { recursive: true });
-		const payload = {
-			version: 1,
-			columnLabels: COLUMN_LABELS,
-			nodes: state.snapshot().committed,
-		};
-		await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
-	} catch {
-		// Disk error — non-fatal; the in-memory state is still authoritative.
-	}
+/** Write a roadmap (possibly empty) as a NEW file under `<folder>/.aria/roadmaps/`
+ *  and return its path. Used for New Project, which targets a folder other than
+ *  the current workspace, so it goes straight to disk rather than via the store. */
+async function writeNewRoadmapAt(folderPath: string, nodes: unknown[]): Promise<string> {
+	const dir = path.join(folderPath, '.aria', 'roadmaps');
+	await fs.promises.mkdir(dir, { recursive: true });
+	const id = `r_${Math.random().toString(16).slice(2, 12)}`;
+	const filePath = path.join(dir, `${id}.json`);
+	const payload = { version: 1, columnLabels: COLUMN_LABELS, nodes, updatedAt: Date.now() };
+	await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
+	return filePath;
 }
 
-function snapshotPayload(state: RoadmapState, finalized: boolean) {
-	const snap = state.snapshot();
+export function snapshotPayload(store: RoadmapStore, finalized: boolean) {
+	const snap = store.state.snapshot();
 	return {
 		columnLabels: COLUMN_LABELS,
 		committed: snap.committed,
 		proposed: snap.proposed,
 		finalized,
+		roadmapId: store.activeId,
+		roadmapName: store.activeDisplayName(),
 	};
 }

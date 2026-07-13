@@ -3,7 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Column, COLUMN_LABELS, RoadmapState } from '../state';
+import { Column, COLUMN_LABELS } from '../state';
+import { RoadmapStore } from '../roadmaps';
 import { ROADMAP_BRAINSTORM_GUIDE } from './guide';
 
 /** Optional notifier the extension wires in so MCP-driven mutations
@@ -51,10 +52,11 @@ function asColumn(v: unknown): Column | undefined {
  *  `notify` is fired after every state mutation so the canvas can
  *  re-render in real time. */
 export function buildTools(
-	state: RoadmapState,
+	store: RoadmapStore,
 	notify: StateChangeNotifier = () => { /* no-op */ },
 	setFinalized: (value: boolean) => void = () => { /* no-op */ },
 ): ToolDefinition[] {
+	const state = store.state;
 	const after = <T>(value: T): T => { notify(); return value; };
 	return [
 		{
@@ -62,6 +64,48 @@ export function buildTools(
 			description: 'Return the facilitation guide for this roadmap brainstorming session. Call this FIRST, before anything else, to learn how to run the session (it explains the one-question-per-message method, how to propose nodes, and the finalize handshake).',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(ROADMAP_BRAINSTORM_GUIDE),
+		},
+		{
+			name: 'list_roadmaps',
+			description: 'List every roadmap in this project. Each project holds MANY roadmaps — one per hypothesis — and each is identified by its hypothesis sentence (the first Goal node). Returns [{id, name, nodeCount}] where `name` is that hypothesis sentence. Call this when the user refers to "the roadmap for hypothesis X / that thyroid roadmap / my other roadmap" so you can find its id, then switch_roadmap to it before editing. The currently active roadmap is the one get_tree/propose_node act on.',
+			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+			handler: async () => ok(JSON.stringify({ active: store.activeId, roadmaps: store.list() })),
+		},
+		{
+			name: 'create_roadmap',
+			description: 'Create a NEW, separate roadmap for a NEW hypothesis and make it the active one. Use this when the user wants to start planning a different hypothesis (including a new hypothesis that emerged from a previous roadmap\'s findings) rather than adding to the current one. After creating, propose the column-0 Goal node stating that hypothesis — the roadmap is then listed/identified by that sentence. Returns the new roadmap id.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					hypothesis: { type: 'string', description: 'Optional: the hypothesis this roadmap is for, so you remember to propose it as the Goal node next.' },
+				},
+				additionalProperties: false,
+			},
+			handler: async () => {
+				const id = store.create();
+				store.switchActive(id);
+				notify();
+				return ok(JSON.stringify({ created: id, active: store.activeId }));
+			},
+		},
+		{
+			name: 'switch_roadmap',
+			description: 'Switch the ACTIVE roadmap to the given id (from list_roadmaps). All subsequent get_tree / propose_node / accept / edit calls act on this roadmap. Always switch to the roadmap the user is talking about BEFORE proposing or editing nodes, so changes land in the correct roadmap.',
+			inputSchema: {
+				type: 'object',
+				properties: { id: { type: 'string', description: 'Roadmap id from list_roadmaps.' } },
+				required: ['id'],
+				additionalProperties: false,
+			},
+			handler: async (args) => {
+				const id = asString(args.id);
+				if (!id) { return err('switch_roadmap requires id'); }
+				if (!store.switchActive(id)) {
+					return err(`no roadmap with id ${id}`);
+				}
+				notify();
+				return ok(JSON.stringify({ active: store.activeId, ...state.snapshot() }));
+			},
 		},
 		{
 			name: 'get_tree',
