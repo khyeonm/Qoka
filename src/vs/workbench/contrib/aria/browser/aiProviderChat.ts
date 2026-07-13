@@ -6,10 +6,10 @@
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { timeout } from '../../../../base/common/async.js';
-import { ARIA_AI_PROVIDER_SETTING, AriaAiProvider } from '../common/ariaConfiguration.js';
+import { AriaConcreteProvider, ariaProviderOrder } from '../common/ariaConfiguration.js';
 
 /** Reveal commands per provider, best (secondary/aux-bar view) first. */
-const REVEAL_COMMANDS: Record<Exclude<AriaAiProvider, 'auto'>, string[]> = {
+const REVEAL_COMMANDS: Record<AriaConcreteProvider, string[]> = {
 	claude: ['claudeVSCodeSidebarSecondary.focus', 'claude-vscode.sidebar.open'],
 	codex: ['chatgpt.sidebarSecondaryView.focus', 'chatgpt.openSidebar'],
 };
@@ -24,19 +24,16 @@ const REVEAL_COMMANDS: Record<Exclude<AriaAiProvider, 'auto'>, string[]> = {
  * resolves wins.
  *
  * When several providers are installed, the `aria.aiProvider` setting decides
- * which one to reveal first (default `auto` = Claude-first). Fire-and-forget:
- * every failure is non-fatal (the provider simply isn't installed / ready).
+ * which one to reveal first (via the shared `ariaProviderOrder` resolver).
+ * Fire-and-forget: every failure is non-fatal (the provider simply isn't
+ * installed / ready).
  */
 export async function revealAiProviderChat(
 	commandService: ICommandService,
 	configurationService: IConfigurationService,
 	opts?: { retryMs?: number },
 ): Promise<void> {
-	const preferred = configurationService.getValue<AriaAiProvider>(ARIA_AI_PROVIDER_SETTING) ?? 'auto';
-	const base: Array<Exclude<AriaAiProvider, 'auto'>> = ['claude', 'codex'];
-	const order: Array<Exclude<AriaAiProvider, 'auto'>> = preferred === 'auto'
-		? base
-		: [preferred, ...base.filter(p => p !== preferred)];
+	const order = ariaProviderOrder(configurationService);
 
 	// A just-installed provider extension may not have registered its reveal
 	// command yet. When a retry window is given (e.g. right after install), keep

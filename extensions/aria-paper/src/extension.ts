@@ -21,28 +21,31 @@ import { PAPER_MCP_INSTRUCTIONS } from './guide';
 const execFileAsync = promisify(execFile);
 
 /**
- * True when the `codex` CLI is on this machine. The Peer Review tab gates the
- * Codex reviewer on THIS (not the openai.chatgpt VS Code extension): the review
- * skill runs `codex exec` via the shell, so the CLI is the real requirement —
- * installing the extension does not install the CLI.
+ * True when the given reviewer CLI (`claude` or `codex`) is on this machine. The
+ * Peer Review tab gates each reviewer on THIS (not the VS Code extension): the
+ * review skill runs `claude --print` / `codex exec` via the shell, so the CLI is
+ * the real requirement — installing the extension does not install the CLI. We
+ * probe the same locations the skill's resolver checks (abs install dirs, PATH,
+ * nvm) so the UI gate and the actual run agree even when the app's PATH is thin.
  */
-function codexCliAvailable(): boolean {
+function cliAvailable(name: 'claude' | 'codex'): boolean {
 	const abs = [
-		'/usr/local/bin/codex',
-		'/opt/homebrew/bin/codex',
-		path.join(os.homedir(), '.local/bin/codex'),
+		`/usr/local/bin/${name}`,
+		`/opt/homebrew/bin/${name}`,
+		path.join(os.homedir(), '.local/bin', name),
+		...(name === 'claude' ? [path.join(os.homedir(), '.claude/local/claude')] : []),
 	];
 	for (const p of abs) {
 		try { if (fs.existsSync(p)) { return true; } } catch { /* ignore */ }
 	}
 	for (const dir of (process.env.PATH || '').split(path.delimiter)) {
 		if (!dir) { continue; }
-		try { if (fs.existsSync(path.join(dir, 'codex'))) { return true; } } catch { /* ignore */ }
+		try { if (fs.existsSync(path.join(dir, name))) { return true; } } catch { /* ignore */ }
 	}
 	try {
 		const nvm = path.join(os.homedir(), '.nvm/versions/node');
 		for (const v of fs.readdirSync(nvm)) {
-			if (fs.existsSync(path.join(nvm, v, 'bin', 'codex'))) { return true; }
+			if (fs.existsSync(path.join(nvm, v, 'bin', name))) { return true; }
 		}
 	} catch { /* no nvm */ }
 	return false;
@@ -132,7 +135,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Whether the Codex CLI is available — the Peer Review tab uses this to gate
 	// its Codex reviewer checkbox (the reviewer runs `codex exec`).
-	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.codexAvailable', () => codexCliAvailable()));
+	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.codexAvailable', () => cliAvailable('codex')));
+	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.claudeAvailable', () => cliAvailable('claude')));
 
 	// Instant citation-style preview for the wizard's Format step.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.previewCitation', (style: string) =>

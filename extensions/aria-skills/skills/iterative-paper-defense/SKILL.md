@@ -7,12 +7,13 @@ description: Automated AI peer review with iterative, defensive revision of a sc
 
 Automate rigorous peer review of a manuscript and, when asked, iteratively defend
 it — reframing scope/logic without ever fabricating results. This runs inside
-Aria. Reviewers are **independent models**: the `claude` reviewer is Claude
-sub-agents you spawn in parallel (via the Agent / Task tool); the `codex` reviewer
-is the **Codex CLI run headless** (a genuinely separate model). Results are
-recorded through Aria's paper-review MCP tools so the **Peer Review tab** renders
-them. There is no `wdiff`, no `sudo`, and no external diff file — Aria's UI
-computes and shows the diff.
+Aria. Reviewers are **independent models** (`claude` and `codex`). You are the
+**driver** — the model running this review — and you know which one you are:
+whichever reviewer id matches your own model you review **directly**, and any
+**other** model you run **headless via its CLI** (so it is a genuinely separate
+opinion). Results are recorded through Aria's paper-review MCP tools so the **Peer
+Review tab** renders them. There is no `wdiff`, no `sudo`, and no external diff
+file — Aria's UI computes and shows the diff.
 
 ## When Aria starts a review
 
@@ -37,31 +38,64 @@ same review but summarize the concerns in chat.
 
 Run **each** reviewer id from `get_review` as an INDEPENDENT reviewer and record
 its concerns separately (so the tab shows a per-reviewer breakdown). `claude` and
-`codex` are different models — never simulate one with the other.
+`codex` are different models — never simulate one with the other. For each
+reviewer id, compare it to **your own model** (you are the driver, `claude` or
+`codex`) and run it one of two ways:
 
-### The `claude` reviewer = parallel Claude sub-agents
+### If the reviewer id IS your own model → review directly
 
-Spawn **independent sub-agents in one batch** (a single message with multiple
-Agent / Task tool calls) so they run concurrently. Give each a **distinct lens**
-so they don't all find the same thing:
+- **You are `claude`:** spawn **independent Claude sub-agents in one batch** (a
+  single message with multiple Agent / Task tool calls) so they run concurrently,
+  one per **distinct lens** (below).
+- **You are `codex`:** you have no sub-agent tool — review the manuscript
+  **yourself**, working through the same distinct lenses in turn.
+
+Distinct lenses (so a reviewer doesn't find only one kind of thing):
 
 - **methodology / statistics** — study design, sample size, controls, stats, p-values, multiple-comparison handling.
 - **scope / framing / novelty** — over-claiming, generalization beyond the data, missing baselines, contribution vs prior work.
 - **reproducibility / rigor** — can the results be reproduced from what's written; are procedures, versions, and data fully specified.
 
-Each sub-agent receives the manuscript text + supplementary and the **calibration
-rule** below, and returns Major and Minor Concerns as structured items. Aggregate
-across sub-agents into ONE result (dedupe near-duplicates; keep the clearest
-phrasing), then `record_review(execId, reviewer="claude", …)`.
+Using the manuscript + supplementary and the **calibration rule** below, produce
+Major and Minor Concerns as structured items, aggregate into ONE result (dedupe
+near-duplicates; keep the clearest phrasing), then
+`record_review(execId, reviewer="<your model>", …)`.
 
-### The `codex` reviewer = the Codex CLI, run headless
+### If the reviewer id is a DIFFERENT model → run that model's CLI headless
 
-Codex is a separate model — get its **own** opinion by running the Codex CLI via
-the **Bash tool** (do NOT approximate it with a Claude sub-agent). Feed it the
-same calibrated reviewer prompt + manuscript + calibration rule on stdin:
+Get its **own** opinion by running that model's CLI via the **Bash tool** (do NOT
+approximate it with your own model). **First resolve the binary** — the CLI is
+often installed but NOT on this shell's PATH, so do NOT rely on `command -v`
+alone:
 
 ```
-cat <<'PROMPT' | codex exec --skip-git-repo-check -
+# <id> is the reviewer id: claude or codex
+BIN="$(command -v <id> || true)"
+for c in "$HOME/.local/bin/<id>" $HOME/.nvm/versions/node/*/bin/<id>; do
+  [ -z "$BIN" ] && [ -x "$c" ] && BIN="$c"
+done
+# claude only: also try "$HOME/.claude/local/claude"
+```
+
+If `BIN` ends up empty the CLI really isn't installed — skip that reviewer (see
+below). Otherwise feed it the calibrated reviewer prompt + manuscript +
+calibration rule on stdin, using the resolved `$BIN`:
+
+```
+# reviewer id = codex
+cat <<'PROMPT' | "$BIN" exec --skip-git-repo-check -
+<reviewer prompt below>
+PROMPT
+
+# reviewer id = claude
+cat <<'PROMPT' | "$BIN" --print --output-format text
+<reviewer prompt below>
+PROMPT
+```
+
+Reviewer prompt body (the same for either CLI):
+
+```
 You are an independent, rigorous peer reviewer.
 <paste the calibration rule below>
 Produce: a short Summary, a numbered "Major Concerns" list (or the single line
@@ -73,17 +107,18 @@ MANUSCRIPT:
 <manuscript.text>
 SUPPLEMENTARY (evidence only):
 <supplementary texts, if any>
-PROMPT
 ```
 
-Parse Codex's output into `{severity, title, detail}` objects (Major → `"major"`,
-Minor → `"minor"`) and record it: `record_review(execId, reviewer="codex", concerns=[…])`.
+Parse the CLI's output into `{severity, title, detail}` objects (Major →
+`"major"`, Minor → `"minor"`) and record it:
+`record_review(execId, reviewer="<that id>", concerns=[…])`.
 
-**If Codex isn't usable** — the `codex` command is not found, or it errors /
-prompts for sign-in — do NOT fail the whole review. Skip the Codex reviewer,
-run the others, and tell the user once: *"Codex wasn't available — install the
-Codex CLI and sign in to include it as a reviewer."* (Check availability with
-`command -v codex` before the run if unsure.)
+**If that model's CLI isn't usable** — the `$BIN` resolver above found nothing,
+or it errors / prompts for sign-in — do NOT fail the whole review. Skip that
+reviewer, run the others, and tell the user once: *"<Model> wasn't available —
+install its CLI and sign in to include it as a reviewer."* Do not report it as
+missing based on `command -v` alone — only after the resolver (PATH + the common
+install locations above) also comes up empty.
 
 ### Calibration rule (what counts as a concern)
 

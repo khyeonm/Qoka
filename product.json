@@ -5,7 +5,8 @@
 	"trustedExtensionAuthAccess": {
 		"aria": [
 			"aria.aria-memory",
-			"aria.aria-authentication"
+			"aria.aria-authentication",
+			"aria.aria-hypothesis"
 		]
 	},
 	"dataFolderName": ".aria",

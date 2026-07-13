@@ -75,10 +75,11 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	private selectedFormat: PaperFormat = 'markdown';
 	private availableFormats: PaperFormat[] = ['markdown'];
 	private reviewers: Record<string, boolean> = { claude: true };
-	/** Codex CLI present on this machine (gates the Codex reviewer — the reviewer
-	 *  runs `codex exec`, not the VS Code extension). Optimistic default;
-	 *  refreshed async from the extension when the editor is created. */
+	/** Each reviewer CLI present on this machine (gates that reviewer — the review
+	 *  runs `claude --print` / `codex exec`, not the VS Code extension). Optimistic
+	 *  default; refreshed async from the extension when the editor is shown. */
 	private codexAvailable = true;
+	private claudeAvailable = true;
 
 	private activeReviewer = '';
 	private docs: { key: string; name: string }[] = [];
@@ -116,22 +117,28 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		Object.assign(root.style, { width: '100%', height: '100%', boxSizing: 'border-box', fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)', color: 'var(--vscode-foreground)' });
 		parent.appendChild(root);
 		this.root = root;
-		void this.refreshCodexAvailability();
+		void this.refreshCliAvailability();
 	}
 
-	/** Ask the extension whether the Codex CLI is installed, then re-render so the
-	 *  Codex reviewer checkbox reflects it. Best-effort — assumes available on
+	/** Ask the extension whether each reviewer CLI is installed, then re-render so
+	 *  the reviewer checkboxes reflect it. Best-effort — assumes available on
 	 *  failure so we never wrongly block a working setup. */
-	private async refreshCodexAvailability(): Promise<void> {
-		try {
-			const avail = await this.commandService.executeCommand<boolean>('aria.peerReview.codexAvailable');
-			this.codexAvailable = avail !== false;
-		} catch {
-			this.codexAvailable = true;
-		}
-		if (!this.codexAvailable) {
-			this.reviewers.codex = false; // don't send a reviewer that can't run
-		}
+	private async refreshCliAvailability(): Promise<void> {
+		const probe = async (command: string): Promise<boolean> => {
+			try {
+				const avail = await this.commandService.executeCommand<boolean>(command);
+				return avail !== false;
+			} catch {
+				return true;
+			}
+		};
+		[this.codexAvailable, this.claudeAvailable] = await Promise.all([
+			probe('aria.peerReview.codexAvailable'),
+			probe('aria.peerReview.claudeAvailable'),
+		]);
+		// Don't send a reviewer whose CLI can't run.
+		if (!this.codexAvailable) { this.reviewers.codex = false; }
+		if (!this.claudeAvailable) { this.reviewers.claude = false; }
 		if (this.root) {
 			this.render();
 		}
@@ -170,7 +177,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		this.render();
 		// Re-probe the codex CLI each time the tab is shown (the editor pane instance
 		// is reused across reopens, so createEditor alone would keep a stale result).
-		void this.refreshCodexAvailability();
+		void this.refreshCliAvailability();
 	}
 
 	// --- data ---------------------------------------------------------------
@@ -407,7 +414,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		this.label(root, localize('aria.peerReview.reviewers', "2 · Reviewers"));
 		const rw = append(root, $('div'));
 		Object.assign(rw.style, { display: 'flex', flexDirection: 'column', gap: '6px' });
-		rw.appendChild(this.reviewerCheckbox('claude', 'Claude', true));
+		rw.appendChild(this.reviewerCheckbox('claude', this.claudeAvailable ? 'Claude' : localize('aria.peerReview.claudeMissing', "Claude — CLI not installed"), this.claudeAvailable));
 		rw.appendChild(this.reviewerCheckbox('codex', this.codexAvailable ? 'Codex' : localize('aria.peerReview.codexMissing', "Codex — CLI not installed"), this.codexAvailable));
 
 		// copy prompt
@@ -563,7 +570,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	}
 
 	private reviewPrompt(execId: string, _title: string, reviewers: string[]): string {
-		return `Using the Aria peer reviewer, run an AI peer review for review run "${execId}". Follow the iterative-paper-defense skill: call get_review("${execId}"), run the reviewer sub-agents, and record each reviewer's Major/Minor concerns with record_review. Reviewers: ${reviewers.join(', ')}.`;
+		return `Using the Aria peer reviewer, run an AI peer review for review run "${execId}". Follow the iterative-paper-defense skill: call get_review("${execId}"), then for each reviewer run it independently — you are the driver, so review with your own model directly and run any other reviewer's model headless via its CLI — and record each reviewer's Major/Minor concerns with record_review. Reviewers: ${reviewers.join(', ')}.`;
 	}
 
 	private revisePrompt(concernId: string, c: Concern): string {

@@ -14,6 +14,7 @@ import { ensureEnvFile } from './common/envManager';
 import { ensureAriaHook } from './common/ariaHooks';
 import { syncSkillsToProviders, resyncBundledSkills } from './common/skillsManager';
 import { reconcileCategories } from './common/skillManifest';
+import { installProviderCli } from './installProviderCli';
 
 /**
  * Skills extension entry. Phase 2 replaces the central-area webview with
@@ -67,6 +68,10 @@ export function activate(context: vscode.ExtensionContext): void {
 		// state change. Returning a plain object keeps the IPC payload
 		// small and deterministic.
 		vscode.commands.registerCommand('aria.skills.getState', async () => getState()),
+
+		// Install a provider's CLI when onboarding picks that AI (the chat panel
+		// and background features are CLI-backed). No-ops if already installed.
+		vscode.commands.registerCommand('aria.provider.installCli', (provider: unknown) => installProviderCli(provider)),
 
 		// Opens the env file in an editor tab when the sidebar wants to
 		// surface it. Falls back to a notification when no env file exists

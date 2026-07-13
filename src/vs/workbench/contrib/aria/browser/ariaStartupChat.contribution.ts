@@ -16,6 +16,7 @@ import { timeout } from '../../../../base/common/async.js';
 import { revealAiProviderChat } from './aiProviderChat.js';
 import { whenAriaSetupReady } from './ariaSetupReady.js';
 import { ConcreteProvider, hasPickedAiProvider, takePendingInstall, PROVIDER_EXTENSION_ID, PROVIDER_LABEL } from './ariaAiProviderChoice.js';
+import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConfiguration.js';
 
 /**
  * On startup in a project window:
@@ -49,6 +50,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			return;
 		}
 
+		// Make sure the CLI for each chosen provider is installed — the chat panel
+		// and background features are CLI-backed, so this is needed even when the
+		// provider's Marketplace extension is already present (no pending install).
+		// Independent of MCP setup: it only needs aria-skills active (it activates
+		// it directly), so a slow/failed MCP boot can't block the CLI install.
+		void this._ensureProviderClis();
+
 		// Deferred installs: the user chose provider(s) they hadn't installed. A
 		// real project window now exists. Cover it with a loading page IMMEDIATELY
 		// (synchronously, at window load) so the bare workbench never shows first,
@@ -74,9 +82,14 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			return;
 		}
 
-		// No pending install → auto-open the chosen provider's chat once setup has
-		// settled (the chat session needs Aria's MCP servers up).
-		void whenAriaSetupReady().then(() => {
+		// No pending install → cover the window with a loading screen until Aria is
+		// actually usable (its MCP servers are up), in ALL modes, so the user never
+		// interacts with a half-ready app. A failsafe timeout hides it even if setup
+		// stalls, so a broken MCP boot can't trap the user on the loading screen.
+		const hideLoading = this._showLoadingOverlay('Preparing Aria…');
+		const SETUP_FAILSAFE_MS = 30000;
+		void Promise.race([whenAriaSetupReady(), timeout(SETUP_FAILSAFE_MS)]).then(() => {
+			hideLoading();
 			if (!hasPickedAiProvider()) {
 				return;
 			}
@@ -84,6 +97,34 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			// may register its reveal command a moment after we ask.
 			void revealAiProviderChat(this.commandService, this.configurationService, { retryMs: 6000 });
 		});
+	}
+
+	/** Auto-install the CLI for each provider the user chose (from the
+	 *  `aria.aiProvider` setting). `auto` means they picked both, so ensure both.
+	 *  The command no-ops when a CLI is already present and only installs after
+	 *  the user has been through the picker. */
+	private async _ensureProviderClis(): Promise<void> {
+		const picked = hasPickedAiProvider();
+		const pref = this.configurationService.getValue<string>(ARIA_AI_PROVIDER_SETTING) ?? 'auto';
+		console.log(`[aria] ensureProviderClis: picked=${picked}, aria.aiProvider=${pref}`);
+		if (!picked) {
+			return;
+		}
+		// "Opt-in" set (NOT preference order): an explicit choice installs only that
+		// one; `auto` means the user picked both, so ensure both.
+		const chosen: ConcreteProvider[] = pref === 'claude' || pref === 'codex' ? [pref] : [...ARIA_ALL_PROVIDERS];
+		// The install command lives in aria-skills; make sure it's active before we
+		// call it (executeCommand won't auto-activate a dynamically-registered
+		// command). activateByEvent is idempotent if it already fired.
+		try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
+		for (const p of chosen) {
+			try {
+				console.log(`[aria] ensureProviderClis: requesting CLI install for ${p}`);
+				await this.commandService.executeCommand('aria.provider.installCli', p);
+			} catch (e) {
+				console.log(`[aria] ensureProviderClis: install command failed for ${p}:`, e);
+			}
+		}
 	}
 
 	/** Full-viewport loading page shown while the Extensions install view opens

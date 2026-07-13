@@ -537,7 +537,11 @@ export class AriaSkillsView extends ViewPane {
 			} else {
 				this.expandedSkills.add(skill.name);
 			}
-			void this.refresh();
+			// Toggling Details is a pure view change — re-render the cards from the
+			// cached state instead of calling refresh(), which would re-run the
+			// extension's getState() (a full reconcileWithDisk scan of every skill)
+			// on every click. That disk round-trip was the "Details is slow" lag.
+			this.applyFiltersToSkillSections();
 		};
 
 		if (skill.type === 'user') {

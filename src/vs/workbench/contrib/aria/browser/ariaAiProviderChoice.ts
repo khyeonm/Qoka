@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { AriaAiProvider } from '../common/ariaConfiguration.js';
+import { AriaAiProvider, AriaConcreteProvider } from '../common/ariaConfiguration.js';
 
 /**
  * Shared helpers for the first-run "Choose your AI assistant" step (rendered by
@@ -16,7 +16,9 @@ import { AriaAiProvider } from '../common/ariaConfiguration.js';
  * chosen provider isn't present yet.
  */
 
-export type ConcreteProvider = 'claude' | 'codex';
+/** Alias of the canonical provider type (defined in ariaConfiguration) so the
+ *  overlay/startup code keeps its familiar name while sharing one source. */
+export type ConcreteProvider = AriaConcreteProvider;
 
 /** Marketplace extension identifiers per provider — used both to detect
  *  installation (IExtensionService.getExtension) and to install/open the

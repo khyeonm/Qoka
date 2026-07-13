@@ -3,34 +3,21 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { exec, spawn } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { promisify } from 'util';
 import { EnvVarRequirement, SkillDependency } from './types';
 import { parseSkillMd } from './parseSkillMd';
 import { log, logBlock } from './logger';
-
-const execAsync = promisify(exec);
+import { HeadlessProvider, headlessArgs, resolveActiveProvider, resolveProviderBin, runWithStdin } from './headlessCli';
 
 /**
- * Use Claude Code (CLI in headless mode) to extract structured metadata
- * from a SKILL.md document. Falls back to regex on every kind of
- * failure: missing CLI, three timeouts in a row, unparseable response.
- * The wizard always shows the merged result to the user, so even when
- * Claude misses something the regex pass usually catches it.
+ * Use the user's AI CLI (Claude Code or Codex, per the `aria.aiProvider`
+ * setting) in headless mode to extract structured metadata from a SKILL.md
+ * document. Falls back to regex on every kind of failure: no CLI installed,
+ * three timeouts in a row, unparseable response. The wizard always shows the
+ * merged result to the user, so even when the model misses something the regex
+ * pass usually catches it.
  */
 
-const CLAUDE_PATH_CANDIDATES = [
-	'claude',
-	'/usr/local/bin/claude',
-	'/opt/homebrew/bin/claude',
-	path.join(os.homedir(), '.local/bin/claude'),
-	path.join(os.homedir(), '.claude/local/claude'),
-];
-
-const NVM_DIR = path.join(os.homedir(), '.nvm/versions/node');
+const PROVIDER_LABEL: Record<HeadlessProvider, string> = { claude: 'Claude', codex: 'Codex' };
 
 const MAX_ATTEMPTS = 3;
 const PER_ATTEMPT_TIMEOUT_MS = 30000;
@@ -41,86 +28,65 @@ export interface AnalysisResult {
 	category: string | undefined;
 	envVars: EnvVarRequirement[];
 	dependencies: SkillDependency[];
-	/** Did Claude actually run, or did we use the regex fallback only? */
-	usedClaude: boolean;
+	/** Did an AI model actually run, or did we use the regex fallback only? */
+	usedLlm: boolean;
 	/** When set, the wizard surfaces the message so the user knows. */
 	fallbackReason?: string;
 }
 
 /**
- * Analyze a SKILL.md body. Tries Claude up to MAX_ATTEMPTS times; if all
- * attempts fail, returns the regex-only result with a fallback reason
- * the caller can surface.
+ * Analyze a SKILL.md body. Picks the active provider (Claude or Codex) from the
+ * `aria.aiProvider` setting and tries it up to MAX_ATTEMPTS times; if all
+ * attempts fail, returns the regex-only result with a fallback reason the caller
+ * can surface.
  */
 export async function analyzeSkillMd(content: string): Promise<AnalysisResult> {
 	const regex = parseSkillMd(content);
 	log(`Regex pass found ${regex.envVars.length} env var(s) and ${regex.dependencies.length} dependency reference(s).`);
 
-	const claudeBin = await resolveClaude();
-	if (!claudeBin) {
-		log('Claude CLI not located — skipping LLM analysis.');
+	const provider = resolveActiveProvider();
+	const bin = provider ? resolveProviderBin(provider) : undefined;
+	if (!provider || !bin) {
+		log('No AI CLI located — skipping LLM analysis.');
 		return {
 			...regex,
-			usedClaude: false,
-			fallbackReason: 'Claude CLI not found on PATH — using built-in pattern matcher.',
+			usedLlm: false,
+			fallbackReason: 'No AI CLI (Claude or Codex) found — using built-in pattern matcher.',
 		};
 	}
-	log(`Using Claude binary: ${claudeBin}`);
+	const label = PROVIDER_LABEL[provider];
+	log(`Using ${label} binary: ${bin}`);
 
 	let lastError: string | undefined;
 	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-		log(`Claude attempt ${attempt}/${MAX_ATTEMPTS}...`);
+		log(`${label} attempt ${attempt}/${MAX_ATTEMPTS}...`);
 		try {
-			const llm = await runClaudeAnalysis(claudeBin, content);
+			const llm = await runAnalysis(provider, bin, content);
 			if (llm) {
-				log(`Claude attempt ${attempt} parsed successfully — merging with regex pass.`);
+				log(`${label} attempt ${attempt} parsed successfully — merging with regex pass.`);
 				return mergeResults(regex, llm, true);
 			}
-			log(`Claude attempt ${attempt} returned a response we could not parse as JSON — retrying.`);
+			log(`${label} attempt ${attempt} returned a response we could not parse as JSON — retrying.`);
 		} catch (err) {
 			lastError = err instanceof Error ? err.message : String(err);
-			log(`Claude attempt ${attempt} failed: ${lastError}`);
+			log(`${label} attempt ${attempt} failed: ${lastError}`);
 		}
 	}
 
-	log(`All ${MAX_ATTEMPTS} Claude attempts exhausted. Falling back to regex.`);
+	log(`All ${MAX_ATTEMPTS} ${label} attempts exhausted. Falling back to regex.`);
 	return {
 		...regex,
-		usedClaude: false,
-		fallbackReason: `Claude analysis failed after ${MAX_ATTEMPTS} attempts (${lastError ?? 'no response'}) — using built-in pattern matcher.`,
+		usedLlm: false,
+		fallbackReason: `${label} analysis failed after ${MAX_ATTEMPTS} attempts (${lastError ?? 'no response'}) — using built-in pattern matcher.`,
 	};
 }
 
-async function resolveClaude(): Promise<string | null> {
-	for (const candidate of CLAUDE_PATH_CANDIDATES) {
-		try {
-			await execAsync(`"${candidate}" --version`, { timeout: 3000 });
-			return candidate;
-		} catch {
-			// try next
-		}
-	}
-	if (fs.existsSync(NVM_DIR)) {
-		try {
-			for (const ver of fs.readdirSync(NVM_DIR)) {
-				const candidate = path.join(NVM_DIR, ver, 'bin/claude');
-				if (fs.existsSync(candidate)) {
-					return candidate;
-				}
-			}
-		} catch {
-			// ignore
-		}
-	}
-	return null;
-}
-
-/** Build the prompt we send Claude. The instruction is rigid about the
+/** Build the prompt we send the model. The instruction is rigid about the
  *  output shape because we json-parse it directly. */
 function buildPrompt(skillMd: string): string {
 	const trimmed = skillMd.length > 24000 ? skillMd.slice(0, 24000) + '\n…[truncated]' : skillMd;
 	return [
-		'You are extracting metadata from a Claude skill\'s SKILL.md.',
+		'You are extracting metadata from a skill\'s SKILL.md.',
 		'Respond with ONLY a single JSON object (no prose, no fences) using this schema:',
 		'{',
 		'  "name": "string or null",',
@@ -178,7 +144,7 @@ function buildPrompt(skillMd: string): string {
 		'  When in doubt, prefer required=false. The user can always type it in;',
 		'  marking optional variables as required just clutters the "missing" badge.',
 		'',
-		'dependencies are other Claude skills this skill expects to be installed.',
+		'dependencies are other skills this skill expects to be installed.',
 		'Same required/optional rules apply.',
 		'Suggest a short, generic category label (one or two words). The user can rename it later in the sidebar, so just pick what best fits the skill\'s primary topic. Set null if nothing obvious applies.',
 		'',
@@ -189,58 +155,19 @@ function buildPrompt(skillMd: string): string {
 	].join('\n');
 }
 
-async function runClaudeAnalysis(claudeBin: string, content: string): Promise<Partial<AnalysisResult> | null> {
+async function runAnalysis(provider: HeadlessProvider, bin: string, content: string): Promise<Partial<AnalysisResult> | null> {
+	const label = PROVIDER_LABEL[provider];
 	const prompt = buildPrompt(content);
-	logBlock(`Claude prompt (${prompt.length} chars)`, prompt);
-	const stdout = await runWithStdin(claudeBin, ['--print', '--output-format', 'text'], prompt, PER_ATTEMPT_TIMEOUT_MS);
-	logBlock(`Claude raw response (${stdout.length} chars)`, stdout);
+	logBlock(`${label} prompt (${prompt.length} chars)`, prompt);
+	const stdout = await runWithStdin(bin, headlessArgs(provider), prompt, PER_ATTEMPT_TIMEOUT_MS);
+	logBlock(`${label} raw response (${stdout.length} chars)`, stdout);
 	const json = extractJson(stdout);
 	if (!json) {
-		log('Could not extract a JSON object from Claude\'s response.');
+		log(`Could not extract a JSON object from ${label}'s response.`);
 		return null;
 	}
 	log(`Parsed JSON: ${JSON.stringify(json).slice(0, 500)}${JSON.stringify(json).length > 500 ? '...' : ''}`);
 	return normalizeLlmShape(json);
-}
-
-/**
- * Drive a child process by writing a prompt to its stdin and collecting
- * stdout. We need this because child_process.exec doesn't expose an
- * `input` option — the obvious-looking `execAsync(cmd, {input})` call
- * silently dropped the prompt, which was why Claude kept exiting with
- * an empty buffer and the wizard fell back to regex.
- */
-function runWithStdin(bin: string, args: string[], input: string, timeoutMs: number): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-		let stdout = '';
-		let stderr = '';
-		const timer = setTimeout(() => {
-			child.kill('SIGTERM');
-			reject(new Error(`Timed out after ${timeoutMs}ms`));
-		}, timeoutMs);
-		child.stdout.on('data', d => { stdout += d.toString(); });
-		child.stderr.on('data', d => { stderr += d.toString(); });
-		child.on('error', err => {
-			clearTimeout(timer);
-			reject(err);
-		});
-		child.on('close', code => {
-			clearTimeout(timer);
-			if (code === 0) {
-				resolve(stdout);
-			} else {
-				reject(new Error(`Exit ${code}${stderr ? `: ${stderr.trim()}` : ''}`));
-			}
-		});
-		try {
-			child.stdin.write(input);
-			child.stdin.end();
-		} catch (e) {
-			clearTimeout(timer);
-			reject(e);
-		}
-	});
 }
 
 function extractJson(raw: string): unknown {
@@ -315,7 +242,7 @@ function normalizeLlmShape(raw: unknown): Partial<AnalysisResult> {
 function mergeResults(
 	regex: ReturnType<typeof parseSkillMd>,
 	llm: Partial<AnalysisResult>,
-	usedClaude: boolean,
+	usedLlm: boolean,
 ): AnalysisResult {
 	const envVars = mergeEnvVars(regex.envVars, llm.envVars ?? []);
 	const dependencies = mergeDependencies(regex.dependencies, llm.dependencies ?? []);
@@ -325,7 +252,7 @@ function mergeResults(
 		category: llm.category ?? regex.category,
 		envVars,
 		dependencies,
-		usedClaude,
+		usedLlm,
 	};
 }
 

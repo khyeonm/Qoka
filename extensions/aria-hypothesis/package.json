@@ -1,0 +1,24 @@
+{
+	"name": "aria-hypothesis",
+	"displayName": "Aria Hypothesis Search",
+	"description": "Search the local research corpus for whether a hypothesis has actually been tested, and with what methods. Exposes search_hypothesis / get_hypothesis_fulltext as MCP tools for Claude Code and Codex. Built into Aria.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"typescript": "^5.6.2"
+	}
+}

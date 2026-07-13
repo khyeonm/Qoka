@@ -17,6 +17,7 @@ export const dirs = [
 	'extensions/aria-autopipe',
 	'extensions/aria-skills',
 	'extensions/aria-paper-search',
+	'extensions/aria-hypothesis',
 	'extensions/aria-vcs',
 	'extensions/aria-roadmap',
 	'extensions/aria-notes',
