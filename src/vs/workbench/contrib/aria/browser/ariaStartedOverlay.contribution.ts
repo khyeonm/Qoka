@@ -66,6 +66,13 @@ const AUTH_ID = 'aria';
  *  so the wait doesn't feel dead. Not real status — just reassurance. */
 const LOADING_MESSAGES: readonly string[] = [
 	'Getting Aria ready…',
+	'One moment…',
+	'Almost there…',
+];
+/** Shown only while an active sign-in is in progress (authLoading). These mention
+ *  the browser / authorization, which would be misleading during a plain reload
+ *  such as switching projects while already signed in. */
+const SIGNIN_MESSAGES: readonly string[] = [
 	'Preparing sign-in…',
 	'Opening your browser…',
 	'Waiting for authorization…',
@@ -684,13 +691,16 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 	private startMessageCycle(target: HTMLElement): void {
 		this.stopMessageCycle();
+		// Sign-in-specific wording only during an actual sign-in; a plain reload
+		// (e.g. switching projects while already signed in) gets neutral messages.
+		const messages = this.authLoading ? SIGNIN_MESSAGES : LOADING_MESSAGES;
 		let i = 0;
-		target.textContent = LOADING_MESSAGES[0];
+		target.textContent = messages[0];
 		this.cycleTimer = setInterval(() => {
-			i = (i + 1) % LOADING_MESSAGES.length;
+			i = (i + 1) % messages.length;
 			target.style.opacity = '0';
 			setTimeout(() => {
-				target.textContent = LOADING_MESSAGES[i];
+				target.textContent = messages[i];
 				target.style.opacity = '0.7';
 			}, 300);
 		}, 1900);

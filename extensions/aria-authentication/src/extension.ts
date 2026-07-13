@@ -28,40 +28,67 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	const provider = new AriaAuthProvider(context.secrets);
 
-	// Status-bar items: [ $(account) name (Provider) ] [ Sign out ]
-	const accountItem = vscode.window.createStatusBarItem(
-		'aria.auth.account', vscode.StatusBarAlignment.Left, 200);
-	accountItem.name = 'Aria Account';
-	const signOutItem = vscode.window.createStatusBarItem(
-		'aria.auth.signout', vscode.StatusBarAlignment.Left, 199);
-	signOutItem.name = 'Aria Sign Out';
-	signOutItem.text = '$(sign-out) Sign out';
-	signOutItem.tooltip = 'Sign out of Aria';
-	signOutItem.command = 'aria.auth.signOut';
+	// Status-bar items: [ $(account) name (Provider) ] [ Sign out ], LEFT side.
+	// Created ONLY in advanced mode: easy mode shows the account / Change project /
+	// Sign out in the bottom-right via the workbench's own AriaAccountStatusContribution
+	// (and hides everything else in the status bar), so registering ours in easy mode
+	// only duplicates them and clutters the status-bar context menu. We create them
+	// lazily and dispose them when switching to easy so they leave the menu entirely.
+	let accountItem: vscode.StatusBarItem | undefined;
+	let signOutItem: vscode.StatusBarItem | undefined;
+
+	const isEasyMode = () => vscode.workspace.getConfiguration('aria').get('mode') === 'easy';
+
+	const disposeItems = () => {
+		accountItem?.dispose();
+		accountItem = undefined;
+		signOutItem?.dispose();
+		signOutItem = undefined;
+	};
+
+	const createItems = () => {
+		if (accountItem) {
+			return;
+		}
+		accountItem = vscode.window.createStatusBarItem(
+			'aria.auth.account', vscode.StatusBarAlignment.Left, 200);
+		accountItem.name = 'Aria Account';
+		signOutItem = vscode.window.createStatusBarItem(
+			'aria.auth.signout', vscode.StatusBarAlignment.Left, 199);
+		signOutItem.name = 'Aria Sign Out';
+		signOutItem.text = '$(sign-out) Sign out';
+		signOutItem.tooltip = 'Sign out of Aria';
+		signOutItem.command = 'aria.auth.signOut';
+	};
 
 	const refreshStatus = async () => {
+		if (isEasyMode()) {
+			disposeItems();   // easy mode: the workbench provides the bottom-right ones
+			return;
+		}
+		createItems();
 		const info = await provider.currentSession();
 		if (info) {
 			const name = info.name || info.email || 'Aria user';
-			accountItem.text = `$(account) ${name} (${providerLabel(info.provider)})`;
-			accountItem.tooltip = 'Signed in to Aria';
-			accountItem.show();
-			signOutItem.show();
+			accountItem!.text = `$(account) ${name} (${providerLabel(info.provider)})`;
+			accountItem!.tooltip = 'Signed in to Aria';
+			accountItem!.command = undefined;
+			accountItem!.show();
+			signOutItem!.show();
 		} else {
 			// Signed out — could be a real sign-out OR an expired session mid-work.
 			// Keep a visible, clickable "Sign in" cue so the user always knows how
 			// to recover (rather than memory silently failing).
-			accountItem.text = '$(account) Sign in to Aria';
-			accountItem.tooltip = 'Sign in to Aria';
-			accountItem.command = 'aria.auth.signIn';
-			accountItem.show();
-			signOutItem.hide();
+			accountItem!.text = '$(account) Sign in to Aria';
+			accountItem!.tooltip = 'Sign in to Aria';
+			accountItem!.command = 'aria.auth.signIn';
+			accountItem!.show();
+			signOutItem!.hide();
 		}
 	};
 
 	context.subscriptions.push(
-		accountItem,
-		signOutItem,
+		{ dispose: disposeItems },
 		vscode.authentication.registerAuthenticationProvider(
 			'aria',
 			'Aria',
@@ -69,6 +96,13 @@ export function activate(context: vscode.ExtensionContext): void {
 			{ supportsMultipleAccounts: false },
 		),
 		provider.onDidChangeSessions(() => void refreshStatus()),
+		// Re-evaluate when the user switches Easy/Advanced mode: dispose our items in
+		// easy, (re)create them in advanced.
+		vscode.workspace.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('aria.mode')) {
+				void refreshStatus();
+			}
+		}),
 		vscode.commands.registerCommand('aria.auth.signIn', async () => {
 			await vscode.authentication.getSession('aria', [], { createIfNone: true });
 		}),

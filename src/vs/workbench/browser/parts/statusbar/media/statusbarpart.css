@@ -252,12 +252,13 @@
 }
 
 /* ...then re-show only: the remote/SSH host indicator, the Easy/Advanced toggle,
-   and Aria's account/sign-out entry. Entry ids are DOM `id` attributes and
-   contain dots, so match with attribute selectors, not `#id`. */
+   and Aria's account / change-project / sign-out entries. Entry ids are DOM `id`
+   attributes and contain dots, so match with attribute selectors, not `#id`. */
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="status.host"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.mode.easy"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.mode.advanced"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.account"],
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.switchProject"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.signout"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="status.notifications"] {
 	display: inline-block;

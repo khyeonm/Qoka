@@ -161,6 +161,13 @@ Turn a research idea into a clear, visual plan. Each project has one roadmap; th
 4. **Edit by hand** — use **+** on the *Goal* column to add a goal, **+** on any card to add a sub-step, click a card to edit its label and description, and the **⋮** menu to mark a step *in progress* / *complete* or delete it.
 5. **Save** — click **Save** to keep the roadmap in the project.
 
+## Ask about prior research & methods
+While you brainstorm, the AI assistant can also help you ground each idea in real research:
+- **Check prior research** — find whether similar studies already exist for a hypothesis you added. It searches a corpus of ~1M open-access research papers and shows which ones actually tested it and how.
+- **Suggest methods** — see what experimental methods have been used to test a hypothesis like yours, so you can add the promising ones as steps.
+
+The assistant offers these right after you add a hypothesis or goal — just say yes. You can also ask directly, e.g. *"has this been studied before?"* or *"what methods would test this?"*.
+
 ## Tips
 - Drag the background to pan; hold **Ctrl** and scroll to zoom.
 - The map is a starting point — you can edit or reorder steps anytime.`,

@@ -54,11 +54,13 @@ class AriaLoginGateContribution extends Disposable implements IWorkbenchContribu
 
 	private async _guardFolderWindow(): Promise<void> {
 		// The aria-authentication extension restores its session from SecretStorage
-		// asynchronously on activation. A single early check can race that restore
-		// and wrongly report "no session", bouncing a just-signed-in user back to
-		// login the moment they open a project. Retry a few times so a valid
-		// (already stored) session is honoured before we give up.
-		for (let attempt = 0; attempt < 6; attempt++) {
+		// asynchronously on activation. A short fixed poll can race that restore and
+		// wrongly report "no session", bouncing a just-signed-in user back to the
+		// picker the moment they open a project — most visibly right after "New
+		// Project", which creates a folder and reloads into it immediately. Poll for
+		// up to ~10s and return as soon as a valid (already stored) session appears,
+		// so the restore always wins the race before we give up.
+		for (let attempt = 0; attempt < 20; attempt++) {
 			try {
 				const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
 				if (sessions.length > 0) {

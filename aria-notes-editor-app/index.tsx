@@ -24,11 +24,31 @@ declare function acquireVsCodeApi(): {
 };
 const vscode = acquireVsCodeApi();
 
+function detectTheme(): 'light' | 'dark' {
+	const c = document.body.classList;
+	return (c.contains('vscode-light') || c.contains('vscode-high-contrast-light')) ? 'light' : 'dark';
+}
+
+/** Follow the VS Code theme — webviews get a `vscode-light` / `vscode-dark` body
+ *  class. Easy mode forces the Light Modern theme, so the editor renders light
+ *  there instead of the previously hard-coded dark. Re-reads if the theme (or the
+ *  easy/advanced mode) changes at runtime. */
+function useVsCodeTheme(): 'light' | 'dark' {
+	const [theme, setTheme] = useState<'light' | 'dark'>(detectTheme);
+	useEffect(() => {
+		const observer = new MutationObserver(() => setTheme(detectTheme()));
+		observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+		return () => observer.disconnect();
+	}, []);
+	return theme;
+}
+
 function Editor({ blocks, editable, decorations }: { blocks: unknown[]; editable: boolean; decorations?: Decorations }) {
 	const editor = useCreateBlockNote({
 		initialContent: blocks && blocks.length ? (blocks as never) : undefined,
 	});
 	const ref = useRef<HTMLDivElement>(null);
+	const theme = useVsCodeTheme();
 
 	// Tint changed blocks by data-id (set by the pane). Done in the DOM rather
 	// than via BlockNote props so it works for ALL block types — tables, images,
@@ -66,7 +86,7 @@ function Editor({ blocks, editable, decorations }: { blocks: unknown[]; editable
 		<div ref={ref} style={{ height: '100%' }}>
 			<BlockNoteView
 				editor={editor}
-				theme="dark"
+				theme={theme}
 				editable={editable}
 				onChange={() => {
 					// Read-only preview (a proposal) must never write back.
