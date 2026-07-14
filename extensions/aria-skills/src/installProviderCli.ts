@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import * as os from 'os';
 import * as path from 'path';
 import { HeadlessProvider, isProviderInstalled, ARIA_NPM_PREFIX } from './common/headlessCli';
 import { ensureNode } from './common/nodeBootstrap';
@@ -69,9 +70,12 @@ async function installCodex(): Promise<void> {
 		vscode.window.showErrorMessage(`Aria couldn't set up Node for Codex: ${message}`);
 		return;
 	}
-	// Install into Aria's own npm prefix so the codex bin lands where headlessCli
-	// looks, regardless of whether the machine had its own Node.
-	const env: { [key: string]: string | null } = { npm_config_prefix: ARIA_NPM_PREFIX };
+	// Install into ~/.local on Unix so the codex bin lands in ~/.local/bin — a
+	// directory EVERY Aria extension's resolver already probes (peer-review
+	// availability, MCP registration), not just aria-skills' headlessCli. On
+	// Windows keep Aria's own prefix (those resolvers are Windows-agnostic).
+	const prefix = isWin ? ARIA_NPM_PREFIX : path.join(os.homedir(), '.local');
+	const env: { [key: string]: string | null } = { npm_config_prefix: prefix };
 	if (nodeBin) {
 		env.PATH = nodeBin + path.delimiter + (process.env.PATH ?? '');
 	}

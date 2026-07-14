@@ -5,7 +5,8 @@
 
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { FileAccess } from '../../../../base/common/network.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
@@ -68,7 +69,7 @@ CommandsRegistry.registerCommand('aria.peerReview.delete', async (accessor, exec
 // --- Sidebar "AI Peer Review" view ------------------------------------------
 
 const PEER_REVIEW_CONTAINER_ID = 'workbench.view.ariaPeerReview';
-const peerReviewIcon = FileAccess.asBrowserUri('vs/workbench/contrib/ariaPeerReview/browser/media/review.svg');
+const peerReviewIcon = registerIcon('aria-peer-review-view', Codicon.commentDiscussion, localize('aria.peerReview.iconLabel', "Aria Peer Review activity bar icon"));
 
 const peerReviewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({

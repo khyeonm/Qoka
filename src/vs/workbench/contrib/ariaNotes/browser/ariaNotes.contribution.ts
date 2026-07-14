@@ -5,7 +5,8 @@
 
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { FileAccess } from '../../../../base/common/network.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -133,7 +134,7 @@ CommandsRegistry.registerCommand('aria.notes.delete', async (accessor, resource?
 
 const NOTES_CONTAINER_ID = 'workbench.view.ariaNotes';
 
-const notesIcon = FileAccess.asBrowserUri('vs/workbench/contrib/ariaNotes/browser/media/notebook.svg');
+const notesIcon = registerIcon('aria-notes-view', Codicon.note, localize('aria.notes.iconLabel', "Aria Notes activity bar icon"));
 
 const notesContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({

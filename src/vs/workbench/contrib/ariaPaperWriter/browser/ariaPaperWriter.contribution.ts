@@ -5,7 +5,8 @@
 
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { FileAccess } from '../../../../base/common/network.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -120,7 +121,7 @@ CommandsRegistry.registerCommand('aria.paperWriter.delete', async (accessor, res
 
 const PAPER_WRITER_CONTAINER_ID = 'workbench.view.ariaPaperWriter';
 
-const paperWriterIcon = FileAccess.asBrowserUri('vs/workbench/contrib/ariaPaperWriter/browser/media/paper.svg');
+const paperWriterIcon = registerIcon('aria-paper-writer-view', Codicon.edit, localize('aria.paperWriter.iconLabel', "Aria Paper Writer activity bar icon"));
 
 const paperWriterContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({

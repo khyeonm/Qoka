@@ -12,7 +12,8 @@ import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { createStyleSheet } from '../../../../base/browser/domStylesheets.js';
 import { PROVIDER_EXTENSION_ID } from '../../aria/browser/ariaAiProviderChoice.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { FileAccess } from '../../../../base/common/network.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -142,7 +143,7 @@ const RoadmapFilePresentContext = new RawContextKey<boolean>('aria.roadmapFilePr
 // matching the requested graphic. The activity bar masks the SVG to a single
 // theme colour, so this is line-art that renders in the activity-bar foreground
 // (highlighted when active) rather than the 2-colour source image.
-const roadmapIcon = FileAccess.asBrowserUri('vs/workbench/contrib/ariaRoadmapWizard/browser/media/roadmap.svg');
+const roadmapIcon = registerIcon('aria-roadmap-view', Codicon.milestone, localize('aria.roadmap.iconLabel', "Aria Roadmap activity bar icon"));
 
 const roadmapContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({
@@ -192,19 +193,24 @@ class AriaRoadmapContextContribution extends Disposable implements IWorkbenchCon
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.update()));
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.update()));
 		this._register(this.fileService.onDidFilesChange(e => {
-			const uri = this.roadmapFileUri();
-			if (uri && e.contains(uri)) {
+			const dir = this.roadmapsDirUri();
+			const legacy = this.legacyRoadmapFileUri();
+			if ((dir && e.contains(dir)) || (legacy && e.contains(legacy))) {
 				void this.update();
 			}
 		}));
 	}
 
-	private roadmapFileUri() {
+	/** Current layout: each roadmap is a file under `<folder>/.aria/roadmaps/`. */
+	private roadmapsDirUri() {
 		const folder = this.workspaceContextService.getWorkspace().folders[0];
-		if (!folder) {
-			return undefined;
-		}
-		return joinPath(folder.uri, '.aria', 'roadmap.json');
+		return folder ? joinPath(folder.uri, '.aria', 'roadmaps') : undefined;
+	}
+
+	/** Legacy layout: a single `<folder>/.aria/roadmap.json`. */
+	private legacyRoadmapFileUri() {
+		const folder = this.workspaceContextService.getWorkspace().folders[0];
+		return folder ? joinPath(folder.uri, '.aria', 'roadmap.json') : undefined;
 	}
 
 	private async update(): Promise<void> {
@@ -212,14 +218,21 @@ class AriaRoadmapContextContribution extends Disposable implements IWorkbenchCon
 			this.present.set(false);
 			return;
 		}
-		const uri = this.roadmapFileUri();
-		if (!uri) {
-			this.present.set(false);
-			return;
-		}
+		// The Roadmap tab shows when the project has a roadmap. New Project writes
+		// `.aria/roadmaps/<id>.json`; older projects used a single
+		// `.aria/roadmap.json`. Accept either — checking only the legacy path is
+		// what previously hid the tab entirely after New Project.
 		let exists = false;
 		try {
-			exists = await this.fileService.exists(uri);
+			const dir = this.roadmapsDirUri();
+			if (dir && await this.fileService.exists(dir)) {
+				const stat = await this.fileService.resolve(dir);
+				exists = !!stat.children?.some(c => !c.isDirectory && c.name.endsWith('.json'));
+			}
+			if (!exists) {
+				const legacy = this.legacyRoadmapFileUri();
+				exists = !!legacy && await this.fileService.exists(legacy);
+			}
 		} catch {
 			exists = false;
 		}
