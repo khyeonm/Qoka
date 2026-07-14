@@ -226,13 +226,20 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          # .deb for Debian/Ubuntu — double-click / `apt install ./x.deb`, the
-          # friendlier option for non-developers (matches autopipe shipping .deb).
-          npm run gulp -- vscode-linux-${{ matrix.arch }}-prepare-deb vscode-linux-${{ matrix.arch }}-build-deb
-          find .build/linux/deb -name "*.deb" -exec cp {} artifacts/ \;
-          # Universal fallback for non-Debian distros: extract and run ./bin/aria.
+          # Universal fallback first, so Linux always ships something even if the
+          # .deb step has trouble.
           tar -czf "artifacts/Aria-linux-${{ matrix.arch }}.tar.gz" \
             -C "$PWD/.." "VSCode-linux-${{ matrix.arch }}"
+          # .deb for Debian/Ubuntu (double-click / `apt install ./x.deb`). Run
+          # prepare THEN build as SEPARATE gulp invocations: a single combined run
+          # executes them in parallel, and build-deb then starts before prepare-deb
+          # has created its working dir (spawn /bin/sh ENOENT). Best-effort.
+          if npm run gulp -- vscode-linux-${{ matrix.arch }}-prepare-deb \
+             && npm run gulp -- vscode-linux-${{ matrix.arch }}-build-deb; then
+            find .build/linux/deb -name "*.deb" -exec cp {} artifacts/ \;
+          else
+            echo "::warning::.deb build failed — shipping the tar.gz only."
+          fi
 
       - name: Attach installers to the tag's release
         if: startsWith(github.ref, 'refs/tags/')

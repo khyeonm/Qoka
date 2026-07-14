@@ -12,6 +12,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { isLinux } from '../../../../base/common/platform.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -325,7 +326,9 @@ export class AriaAutopipeView extends ViewPane {
 		desc.style.fontSize = '11px';
 		desc.style.opacity = '0.7';
 		desc.style.marginBottom = '8px';
-		desc.textContent = 'Where the AI runs your analysis pipelines. Press + to use your own server instead.';
+		desc.textContent = isLinux
+			? 'The AI builds and runs your pipelines and shows results. Press + to connect your lab server.'
+			: 'The AI builds and runs your pipelines and shows results. Uses the built-in server, or press + to connect your own lab server.';
 
 		const profiles = status.sshProfiles ?? [];
 		const activeId = status.sshActiveProfileId ?? null;
@@ -333,81 +336,31 @@ export class AriaAutopipeView extends ViewPane {
 		// Built-in local VM — the default target on Mac/Windows.
 		this.renderBuiltInVmRow(section, activeId);
 
-		if (profiles.length > 0) {
+		// Each saved SSH profile as a selectable row, matching the built-in server
+		// row: a radio dot on the left, the user's profile name as the title, and
+		// user@host:port underneath in small text. Clicking selects it (active).
+		for (const p of profiles) {
+			const isActive = p.id === activeId;
 			const row = append(section, $('div'));
-			row.style.display = 'flex';
-			row.style.alignItems = 'center';
-			row.style.gap = '8px';
-			row.style.marginBottom = '6px';
+			Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', cursor: 'pointer' });
 
-			const label = append(row, $('span'));
-			label.style.fontSize = '11px';
-			label.style.opacity = '0.85';
-			label.style.flexShrink = '0';
-			label.textContent = 'Active profile:';
+			const dot = append(row, $('span'));
+			Object.assign(dot.style, {
+				width: '12px', height: '12px', borderRadius: '50%', flexShrink: '0', boxSizing: 'border-box',
+				border: '1px solid', borderColor: isActive ? 'var(--vscode-focusBorder, #4098ff)' : 'var(--vscode-descriptionForeground)',
+				background: isActive ? 'var(--vscode-focusBorder, #4098ff)' : 'transparent',
+			});
 
-			// Native <select> with a CSS-overlaid chevron icon. Native
-			// dropdown lists draw with browser defaults — there's no way
-			// to fully restyle the popup itself from CSS, but the closed
-			// state at least matches VS Code's settings/quickpick rows.
-			//
-			// The chevron is a positioned <span> rather than a CSS
-			// background-image because data:-URL SVGs can't read CSS
-			// `currentColor`, which left the previous version with a
-			// black arrow that disappeared on dark themes.
-			const wrap = append(row, $('div'));
-			wrap.style.flex = '1';
-			wrap.style.position = 'relative';
-			wrap.style.display = 'flex';
-			wrap.style.alignItems = 'stretch';
-			const select = append(wrap, $('select')) as HTMLSelectElement;
-			select.style.width = '100%';
-			select.style.padding = '4px 24px 4px 8px';
-			select.style.fontSize = '12px';
-			select.style.lineHeight = '1.4';
-			select.style.background = 'var(--vscode-dropdown-background)';
-			select.style.color = 'var(--vscode-dropdown-foreground)';
-			select.style.border = '1px solid var(--vscode-dropdown-border, var(--vscode-widget-border, transparent))';
-			select.style.borderRadius = '2px';
-			select.style.cursor = 'pointer';
-			select.style.appearance = 'none';
-			(select.style as { webkitAppearance?: string }).webkitAppearance = 'none';
-			for (const p of profiles) {
-				const opt = append(select, $('option')) as HTMLOptionElement;
-				opt.value = p.id;
-				opt.textContent = `${p.name} — ${p.username}@${p.host}:${p.port}`;
-				// Match the rest of the dropdown's theme so the open list
-				// blends with the closed field instead of using the
-				// browser's default white-on-light scheme.
-				opt.style.background = 'var(--vscode-dropdown-listBackground, var(--vscode-dropdown-background))';
-				opt.style.color = 'var(--vscode-dropdown-foreground)';
-				if (p.id === activeId) {
-					opt.selected = true;
-				}
-			}
-			select.onchange = () => {
-				if (this.settingsDraft) {
-					this.settingsDraft.activeProfileId = select.value;
-				}
-				void this.refresh();
-			};
+			const text = append(row, $('div'));
+			text.style.flex = '1';
+			const title = append(text, $('div'));
+			title.textContent = p.name;
+			title.style.fontSize = '12px';
+			const sub = append(text, $('div'));
+			sub.textContent = `${p.username}@${p.host}:${p.port}`;
+			Object.assign(sub.style, { fontSize: '10.5px', opacity: '0.6' });
 
-			// Pure-CSS down triangle. Renders the same on every platform
-			// instead of leaning on a Unicode glyph that some fonts draw
-			// poorly. The borders form a downward-pointing wedge whose
-			// fill color comes from `border-top-color`.
-			const chev = append(wrap, $('span')) as HTMLElement;
-			chev.style.position = 'absolute';
-			chev.style.right = '8px';
-			chev.style.top = '50%';
-			chev.style.transform = 'translateY(-25%)';
-			chev.style.width = '0';
-			chev.style.height = '0';
-			chev.style.borderLeft = '4px solid transparent';
-			chev.style.borderRight = '4px solid transparent';
-			chev.style.borderTop = '5px solid var(--vscode-dropdown-foreground)';
-			chev.style.opacity = '0.7';
-			chev.style.pointerEvents = 'none';
+			row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.ssh.setActiveById', p.id).then(() => this.refresh()); };
 		}
 
 		if (this.sshFormOpen) {
@@ -420,9 +373,16 @@ export class AriaAutopipeView extends ViewPane {
 		}
 	}
 
-	/** The "Aria built-in" run target: a radio row with honest status and a
-	 *  "Set up now" button. Selecting it makes the built-in VM the active target. */
+	/** The "Aria built-in" run target: a radio row whose subtitle shows live
+	 *  status. Clicking it makes the built-in VM active and starts it; the gear
+	 *  edits its memory/CPU. (Windows/macOS only — hidden on Linux.) */
 	private renderBuiltInVmRow(section: HTMLElement, activeId: string | null): void {
+		// The built-in server (local VM) is the default run environment only on
+		// Windows/macOS. On Linux it isn't offered — those users connect an SSH
+		// server instead — so don't render the row there.
+		if (isLinux) {
+			return;
+		}
 		const isActive = activeId === LOCAL_VM_ID;
 		const st = this.vmStatus?.status ?? 'stopped';
 
@@ -442,8 +402,22 @@ export class AriaAutopipeView extends ViewPane {
 		const title = append(text, $('div'));
 		title.textContent = 'Aria built-in server';
 		title.style.fontSize = '12px';
+		// Subtitle carries the live status instead of a separate button: idle, or
+		// downloading / starting / running / error while it's the active target.
 		const sub = append(text, $('div'));
-		sub.textContent = 'Runs on this computer — no server needed';
+		let subText = 'Runs on this computer — no server needed';
+		if (isActive) {
+			if (st === 'provisioning') {
+				subText = this.vmStatus?.progress?.pct != null ? `Downloading ${this.vmStatus.progress.pct}%…` : 'Preparing…';
+			} else if (st === 'booting') {
+				subText = 'Starting…';
+			} else if (st === 'error') {
+				subText = 'Not running — click to retry';
+			} else if (st === 'ready') {
+				subText = 'Running on this computer';
+			}
+		}
+		sub.textContent = subText;
 		Object.assign(sub.style, { fontSize: '10.5px', opacity: '0.6' });
 
 		// Gear on the right → simple resource settings (memory / CPU) for the
@@ -453,25 +427,10 @@ export class AriaAutopipeView extends ViewPane {
 		Object.assign(gear.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
 		gear.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.vm.editResources').then(() => this.refresh()); };
 
-		row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.vm.setActive').then(() => this.refresh()); };
-
-		// A single button carries the state when the built-in is active and not yet
-		// ready — kept off the two title lines so the row stays clean.
-		if (isActive && st !== 'ready') {
-			const btn = append(section, $('button')) as HTMLButtonElement;
-			styleSecondaryButton(btn);
-			btn.style.marginTop = '4px';
-			if (st === 'provisioning') {
-				btn.textContent = this.vmStatus?.progress?.pct != null ? `Downloading ${this.vmStatus.progress.pct}%…` : 'Preparing…';
-				btn.disabled = true;
-			} else if (st === 'booting') {
-				btn.textContent = 'Starting…';
-				btn.disabled = true;
-			} else {
-				btn.textContent = st === 'error' ? 'Set up again' : 'Set up now';
-				btn.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh()); };
-			}
-		}
+		// Clicking the row selects the built-in server AND starts it (idempotent;
+		// downloads qemu/image on first use, retries after an error). No separate
+		// "Set up" button — the subtitle shows progress, the gear restarts on change.
+		row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh()); };
 	}
 
 	private renderSshForm(parent: HTMLElement): void {

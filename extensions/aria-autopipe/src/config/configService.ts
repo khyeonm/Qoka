@@ -147,11 +147,13 @@ export class ConfigService {
 	async removeProfile(id: string): Promise<AriaConfig> {
 		const next = this.current.ssh_profiles.filter(p => p.id !== id);
 		// If the removed profile was active, hand the active selection to another
-		// profile, or fall BACK to the built-in VM when none remain (never null,
-		// so the user always has a working default rather than a dead panel).
+		// profile. When none remain, fall back to the built-in VM ONLY on
+		// Windows/macOS (their default run environment). On Linux the built-in VM
+		// is not the default, so leave it empty there — the user re-adds an SSH
+		// server rather than being silently switched to the VM.
 		let newActive = this.current.active_ssh_profile_id;
 		if (newActive === id) {
-			newActive = next[0]?.id ?? LOCAL_VM_ID;
+			newActive = next[0]?.id ?? (process.platform === 'linux' ? '' : LOCAL_VM_ID);
 		}
 		return this.update({ ssh_profiles: next, active_ssh_profile_id: newActive });
 	}

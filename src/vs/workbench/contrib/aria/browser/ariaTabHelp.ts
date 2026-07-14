@@ -131,21 +131,25 @@ Have independent AI reviewers read your paper and point out concerns — the way
 	},
 	'autopipe': {
 		title: 'Autopipe',
-		summary: 'Connect your lab server so the AI assistant can run analysis pipelines on it.',
+		summary: 'The AI assistant builds and runs your analysis pipelines and shows you the results.',
 		howTo: `# Autopipe — How to use
 
-This tab sets up the connection the AI assistant needs to build and run data-analysis pipelines on your lab server. You do the setup here; the actual pipeline work is driven by the AI assistant in the chat.
+This is where the AI assistant **builds and runs** your data-analysis pipelines and **shows you the results** — you drive it all from the chat.
+
+## Where it runs
+- **Built-in server (Windows / Mac)** — a small analysis machine that runs on your own computer. No setup and no server of your own needed; it's the default.
+- **Your own lab server** — if you have one (and on Linux, where the built-in server isn't offered), click **+** on **Run environment** and add it (name, host, port, username, password, remote workspace), then **Save profile** and **Test connection**. Click a row to make it the active one.
 
 ## Steps
-1. **Connect your server (SSH)** — under **SSH connection**, click **+** and fill in a name, host, port, username, password, and the remote workspace folder. Click **Save profile**, then **Test connection**. If you have several servers, pick the **active** one.
-2. **(Optional) Connect GitHub** — click **Connect to GitHub** if you want to upload or share pipelines, and choose whether each pipeline gets its **own repo** or they **share one repo**.
+1. **Pick where it runs** — the built-in server (default on Windows/Mac) or your lab server (see above).
+2. **(Optional) Connect GitHub** — click **Connect to GitHub** to upload or share pipelines, and choose whether each pipeline gets its **own repo** or they **share one repo**.
 3. **Save settings** — click **Save settings** to apply your choices.
 4. **Find pipelines** — open **Pipeline Hub** to browse ready-made pipelines, or **Plugins** for add-ons.
-5. **Run** — ask the AI assistant in the chat to build or run a pipeline; it uses the connection you set up and reports progress.
+5. **Build & run** — ask the AI assistant in the chat to build or run a pipeline; it uses your run environment, reports progress, and shows the results.
 
 ## Tips
-- The **Status** section shows which AI assistants are detected; the **↻** re-checks it.
-- You don't need to know Linux or Git — the AI assistant handles the commands over the connection.`,
+- Adjust the built-in server's memory / CPU with the **⚙** on its row.
+- You don't need to know Linux or Git — the AI assistant handles the commands.`,
 	},
 	'roadmap': {
 		title: 'Roadmap',

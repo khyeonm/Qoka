@@ -33,10 +33,25 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				github: cfg.github?.login ?? (cfg.github?.token ? 'connected' : 'disconnected'),
 			});
 			if (!profile) {
+				// The user may have chosen the built-in server (no SSH profile). When
+				// it isn't running yet, activeProfile() is null — but do NOT tell the
+				// AI to add an SSH server; guide it to start the built-in one instead.
+				if (config.isLocalVmActive()) {
+					const vm = cfg.local_vm;
+					return textResult([
+						'Run environment: the Aria built-in server (local VM) is selected, but it is NOT running yet, so there is no reachable endpoint right now.',
+						'Do NOT ask the user to add an SSH server — that is not what they chose. The built-in server may still be downloading/booting, or it needs to be started.',
+						'Ask the user to open the Autopipe tab and start the built-in server (the "Set up" button), or wait for it to finish booting, then retry.',
+						`Configured resources (apply on start): memory ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores ${vm.cpus}, disk ${vm.diskGB} GB.`,
+						'',
+						`Registry: ${cfg.registry_url}`,
+						`GitHub: ${cfg.github?.login ? `connected as @${cfg.github.login}` : 'not connected'}`,
+					].join('\n'));
+				}
 				return textResult([
 					'No active SSH profile configured yet.',
 					'',
-					'Open the Autopipe tab in the activity bar, click "+" on the SSH connection section, fill in host / port / username / password / remote workspace, then Save profile and press Save settings.',
+					'Open the Autopipe tab in the activity bar, click "+" on the SSH connection section, fill in host / port / username / password / remote workspace, then Save profile and press Save settings. Or use the built-in server instead — no SSH needed.',
 					'',
 					`Registry: ${cfg.registry_url}`,
 					`GitHub: ${cfg.github?.login ? `connected as @${cfg.github.login}` : 'not connected'}`,

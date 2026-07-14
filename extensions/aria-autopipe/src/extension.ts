@@ -75,7 +75,10 @@ export function activate(context: vscode.ExtensionContext): void {
 		// "Set up now": make the built-in VM active and provision+boot it.
 		vscode.commands.registerCommand('aria.autopipe.vm.setup', async () => {
 			await config.activateLocalVm();
-			await vm.start();
+			// Fire-and-forget: vm.start() blocks up to 3 min waiting for SSH. The
+			// panel polls vm.status() for progress, so don't await it here or the
+			// row click that triggers setup appears frozen.
+			void vm.start().catch(err => console.error('[aria-autopipe] built-in VM start failed:', err));
 		}),
 		// Reset recreates the throwaway overlay (data on the shared workspace is
 		// kept). Confirm because it interrupts any running VM.
@@ -110,7 +113,13 @@ export function activate(context: vscode.ExtensionContext): void {
 			if (config.isLocalVmActive()) {
 				const restart = await vscode.window.showInformationMessage(
 					'Built-in server settings saved. Restart it now to apply?', 'Restart now', 'Later');
-				if (restart === 'Restart now') { await vm.stop(); await vm.start(); }
+				if (restart === 'Restart now') {
+					await vm.stop();
+					// Fire-and-forget: vm.start() blocks up to 3 min waiting for SSH.
+					// Don't await it here or the command appears frozen — the panel
+					// polls vm.status() and shows the booting/progress state instead.
+					void vm.start().catch(err => console.error('[aria-autopipe] VM restart failed:', err));
+				}
 			}
 		}),
 	);
