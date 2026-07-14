@@ -35,9 +35,12 @@ jobs:
       - name: Tag must match package.json version
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          PKG=$(node -p "require('./package.json').version")
-          echo "tag=$TAG package.json=$PKG"
-          test "$TAG" = "$PKG"
+          PKG=$(jq -r '.version' package.json)
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Version mismatch — tag=$TAG but package.json=$PKG. Bump package.json version to match the tag (or retag) before releasing."
+            exit 1
+          fi
+          echo "Version OK: tag=$TAG == package.json=$PKG"
 
   build:
     needs: [verify-version]
@@ -47,12 +50,17 @@ jobs:
       matrix:
         include:
           - { os: macos-14, plat: darwin, arch: arm64, nodearch: arm64 }
-          - { os: macos-13, plat: darwin, arch: x64, nodearch: x64 }
+          # Intel .dmg is cross-built on the ARM runner (GitHub's macos-13
+          # Intel runner has ~zero capacity and hangs). Node stays arm64 to
+          # drive the build; npm_config_arch=x64 targets x64 native modules.
+          - { os: macos-14, plat: darwin, arch: x64, nodearch: arm64 }
           - { os: windows-latest, plat: win32, arch: x64, nodearch: x64 }
     runs-on: ${{ matrix.os }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      npm_config_arch: ${{ matrix.arch }}
+      npm_config_target_arch: ${{ matrix.arch }}
     steps:
       - name: Clone
         shell: bash

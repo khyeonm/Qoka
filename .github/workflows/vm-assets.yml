@@ -22,13 +22,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14        # Apple Silicon
+          - os: macos-14        # Apple Silicon (native)
             plat: darwin
             arch: arm64
             qarch: aarch64
-          - os: macos-13        # Intel
-            plat: darwin
-            arch: x64
+          - os: macos-14        # Intel, cross-produced on the ARM runner
+            plat: darwin        # (the dedicated macos-13 runner has ~zero
+            arch: x64           #  capacity and hangs forever). See build step.
             qarch: x86_64
           - os: windows-latest
             plat: win32
@@ -44,8 +44,22 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -euxo pipefail
-          brew install qemu dylibbundler
-          QPREFIX=$(brew --prefix qemu)
+          # dylibbundler runs natively (arm64); otool/install_name_tool it
+          # calls are universal, so it rewrites x86_64 Mach-O binaries fine.
+          brew install dylibbundler
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            # Cross-produce Intel qemu on the Apple Silicon runner: install an
+            # x86_64 Homebrew under Rosetta 2 and pull the Intel qemu bottle.
+            softwareupdate --install-rosetta --agree-to-license || true
+            if [ ! -x /usr/local/bin/brew ]; then
+              NONINTERACTIVE=1 arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            fi
+            arch -x86_64 /usr/local/bin/brew install qemu
+            QPREFIX=$(/usr/local/bin/brew --prefix qemu)
+          else
+            brew install qemu
+            QPREFIX=$(brew --prefix qemu)
+          fi
           OUT="$PWD/out"
           mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/share/qemu"
           cp "$QPREFIX/bin/qemu-system-${{ matrix.qarch }}" "$OUT/bin/"
