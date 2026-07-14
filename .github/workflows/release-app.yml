@@ -136,11 +136,25 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build self-bundling extensions
+      # Build every bundled Aria extension so its compiled output ships in the
+      # app. esbuild extensions (build.mjs) emit dist/; plain-tsc extensions MUST
+      # be compiled to out/ here because the gulp packaging only COPIES existing
+      # output (fromLocalNormal via vsce.listFiles) — it never compiles their
+      # TypeScript. Without this, those extensions ship with no out/extension.js
+      # and fail to activate ("Cannot find module .../out/extension.js").
+      - name: Build Aria extensions
         shell: bash
         run: |
-          for e in aria-notes aria-memory aria-authentication; do
-            (cd "extensions/$e" && npm install && node build.mjs)
+          set -e
+          for d in extensions/aria-*/; do
+            name="$(basename "$d")"
+            if [ -f "$d/build.mjs" ]; then
+              echo "== $name (esbuild) =="
+              (cd "$d" && npm install && node build.mjs)
+            elif [ -f "$d/tsconfig.json" ]; then
+              echo "== $name (tsc) =="
+              (cd "$d" && npm install && npm run compile --if-present)
+            fi
           done
 
       # Full task (compile -> minify -> package). The `-min-ci` variant only
