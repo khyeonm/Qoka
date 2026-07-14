@@ -1082,6 +1082,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		}
 		try {
 			sessionStorage.setItem('aria.roadmap.autoOpenWizard', '1');
+			// One-shot: tell the roadmap pulse to fire on the next load (this New
+			// Project reload only), never on a normal restore of an existing project.
+			sessionStorage.setItem('aria.roadmap.pulseOnLoad', '1');
 		} catch {
 			// Storage unavailable — the user can still open the canvas from the
 			// Roadmap sidebar once the window loads.

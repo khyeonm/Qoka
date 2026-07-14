@@ -262,6 +262,9 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 	static readonly ID = 'workbench.contrib.aria.roadmapPulse';
 
 	private pulsing = false;
+	/** Only pulse when the user JUST created a project via New Project (a one-shot
+	 *  flag), never on a normal restore of an existing project. */
+	private pulseRequested = false;
 
 	constructor(
 		@IExtensionService private readonly extensionService: IExtensionService,
@@ -272,15 +275,25 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 		super();
 		this.installStyles();
 
-		// A provider extension becoming newly available means the user just
-		// finished installing one → guide them to the roadmap, but only when this
-		// project actually has a roadmap (so the activity-bar icon is present).
+		// Only pulse when the user JUST created a project via New Project. That flow
+		// sets a one-shot sessionStorage flag right before it reloads into the new
+		// folder; consume it here. A normal restore of an existing project (e.g. an
+		// already-signed-in launch that auto-opens the last project) must NOT pulse.
+		try {
+			if (sessionStorage.getItem('aria.roadmap.pulseOnLoad') === '1') {
+				sessionStorage.removeItem('aria.roadmap.pulseOnLoad');
+				this.pulseRequested = true;
+			}
+		} catch { /* storage unavailable — just don't pulse */ }
+
+		// A provider installed DURING that New Project flow can leave the roadmap
+		// canvas hidden behind the Extensions view; re-pulse once one appears —
+		// still gated on the New Project flag.
 		this._register(this.extensionService.onDidChangeExtensions(e => {
+			if (!this.pulseRequested) { return; }
 			const providerIds = Object.values(PROVIDER_EXTENSION_ID);
-			const providerInstalled = e.added.some(ext =>
-				providerIds.some(id => ExtensionIdentifier.equals(ext.identifier, id)));
-			if (providerInstalled && this.contextKeyService.getContextKeyValue<boolean>('aria.roadmapFilePresent') === true) {
-				this.start();
+			if (e.added.some(ext => providerIds.some(id => ExtensionIdentifier.equals(ext.identifier, id)))) {
+				this.maybePulseForRoadmap();
 			}
 		}));
 
@@ -291,16 +304,13 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 			}
 		}));
 
-		// Pulse the moment a project gains a roadmap — e.g. right after New Project
-		// (roadmap file written → context flips true) — not only after a provider
-		// install. This is what draws the user to the Roadmap icon on entry.
+		// The roadmap file is written just before the New Project reload, so the
+		// context can flip true slightly after we construct — pulse once it does.
 		this._register(this.contextKeyService.onDidChangeContext(e => {
 			if (e.affectsSome(new Set(['aria.roadmapFilePresent']))) {
 				this.maybePulseForRoadmap();
 			}
 		}));
-		// And if the roadmap is already present at startup (reload into the new
-		// project) with the view not yet open, pulse right away.
 		this.maybePulseForRoadmap();
 
 		this._register(toDisposable(() => this.stop()));
@@ -308,7 +318,8 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 
 	/** Pulse when the project has a roadmap but its view isn't open yet. */
 	private maybePulseForRoadmap(): void {
-		if (this.contextKeyService.getContextKeyValue<boolean>('aria.roadmapFilePresent') === true
+		if (this.pulseRequested
+			&& this.contextKeyService.getContextKeyValue<boolean>('aria.roadmapFilePresent') === true
 			&& !this.viewsService.isViewVisible(AriaRoadmapView.ID)) {
 			this.start();
 		}
@@ -323,6 +334,7 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 	}
 
 	private stop(): void {
+		this.pulseRequested = false;
 		if (!this.pulsing) {
 			return;
 		}

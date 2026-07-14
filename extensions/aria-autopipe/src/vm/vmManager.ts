@@ -153,8 +153,18 @@ export class VMManager {
 			'-virtfs', `local,path=${this.workspace},mount_tag=aria,security_model=mapped-xattr,id=aria`,
 			'-display', 'none', '-serial', `file:${path.join(this.dir, 'console.log')}`,
 		];
-		this.proc = spawn(qemu, args, { stdio: 'ignore' });
-		this.proc.on('exit', () => { if (this._status !== 'stopped') { this.set('error', 'VM exited unexpectedly (see console.log).'); this.config.setLocalVmEndpoint(null); } });
+		// Capture QEMU's own stderr — HVF/accel/argument errors that otherwise
+		// vanish with stdio:'ignore' and leave us with only a silent timeout — to
+		// qemu-stderr.log next to console.log, so failures are diagnosable.
+		const errLog = fs.openSync(path.join(this.dir, 'qemu-stderr.log'), 'w');
+		this.proc = spawn(qemu, args, { stdio: ['ignore', 'ignore', errLog] });
+		this.proc.on('exit', (code) => {
+			try { fs.closeSync(errLog); } catch { /* already closed */ }
+			if (this._status !== 'stopped') {
+				this.set('error', `VM exited unexpectedly (code ${code}; see qemu-stderr.log / console.log).`);
+				this.config.setLocalVmEndpoint(null);
+			}
+		});
 
 		const profile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
 		await this.waitForSsh(profile);
