@@ -27,71 +27,98 @@ import * as path from 'path';
 
 export type HeadlessProvider = 'claude' | 'codex';
 
-/** Candidate absolute paths per provider, tried in order. `claude`/`codex`
- *  (bare) rely on PATH; the rest cover the common install locations that a
- *  GUI-launched Electron process often can't see because it doesn't inherit
- *  the user's login shell PATH. */
-const BIN_CANDIDATES: Record<HeadlessProvider, string[]> = {
-	claude: [
-		'claude',
-		'/usr/local/bin/claude',
-		'/opt/homebrew/bin/claude',
-		path.join(os.homedir(), '.local/bin/claude'),
-		path.join(os.homedir(), '.claude/local/claude'),
-	],
-	codex: [
-		'codex',
-		'/usr/local/bin/codex',
-		'/opt/homebrew/bin/codex',
-		path.join(os.homedir(), '.local/bin/codex'),
-	],
-};
+const isWin = process.platform === 'win32';
+const HOME = os.homedir();
 
-const NVM_DIR = path.join(os.homedir(), '.nvm/versions/node');
+/** Aria's private home for tools it provisions itself when the machine lacks
+ *  them (portable Node, npm-installed CLIs). Both the installer and this
+ *  resolver agree on these paths so a self-provisioned CLI is always found. */
+export const ARIA_HOME = path.join(HOME, '.aria');
+/** Portable Node root (nodeBootstrap downloads here). `bin/` on Unix; the
+ *  executables sit at the root on Windows. */
+export const ARIA_NODE_DIR = path.join(ARIA_HOME, 'node');
+/** npm --prefix used for Aria-installed global CLIs. On Unix bins land in
+ *  `<prefix>/bin`; on Windows the `.cmd` shims sit at the prefix root. */
+export const ARIA_NPM_PREFIX = path.join(ARIA_HOME, 'npm');
 
-/** Add `<nvm>/<version>/bin/<name>` candidates so an nvm-installed CLI is found
- *  even when the Electron process didn't source the user's shell. */
-function withNvmCandidates(name: HeadlessProvider, candidates: string[]): string[] {
-	const extra: string[] = [];
+/** Directory holding the portable `node`/`npm` binaries, or undefined when Aria
+ *  hasn't provisioned Node. Callers prepend this to PATH so npm-based CLIs (and
+ *  their node shebang) resolve at run time. */
+export function ariaNodeBinDir(): string | undefined {
+	const dir = isWin ? ARIA_NODE_DIR : path.join(ARIA_NODE_DIR, 'bin');
 	try {
-		for (const version of fs.readdirSync(NVM_DIR)) {
-			extra.push(path.join(NVM_DIR, version, 'bin', name));
-		}
+		return fs.existsSync(dir) ? dir : undefined;
 	} catch {
-		// no nvm — fine
+		return undefined;
 	}
-	return [...candidates, ...extra];
+}
+
+/** Directories where a provider CLI may live, most-specific first. Covers the
+ *  npm global prefixes (default + Aria's) and, on Unix, the usual bin dirs and
+ *  nvm — a GUI-launched Electron process often can't see these via PATH. */
+function providerDirs(): string[] {
+	if (isWin) {
+		const appdata = process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming');
+		return [
+			ARIA_NODE_DIR,                 // portable node's own dir (npm.cmd etc.)
+			ARIA_NPM_PREFIX,               // Aria-managed npm global (.cmd shims at root)
+			path.join(appdata, 'npm'),     // default npm global on Windows
+		];
+	}
+	return [
+		'/usr/local/bin',
+		'/opt/homebrew/bin',
+		path.join(HOME, '.local/bin'),
+		path.join(HOME, '.claude/local'),
+		path.join(ARIA_NPM_PREFIX, 'bin'),
+		path.join(ARIA_NODE_DIR, 'bin'),
+		...nvmBinDirs(),
+	];
+}
+
+/** `<nvm>/<version>/bin` dirs so an nvm-installed CLI is found even when the
+ *  Electron process didn't source the user's shell. (Unix nvm layout.) */
+function nvmBinDirs(): string[] {
+	const nvmRoot = path.join(HOME, '.nvm/versions/node');
+	try {
+		return fs.readdirSync(nvmRoot).map(v => path.join(nvmRoot, v, 'bin'));
+	} catch {
+		return [];
+	}
+}
+
+/** Executable name variants to try for a provider. On Windows npm/native
+ *  installers produce `.cmd`/`.exe` shims, never a bare extension-less file. */
+function binNames(provider: HeadlessProvider): string[] {
+	return isWin ? [`${provider}.cmd`, `${provider}.exe`, `${provider}.bat`, provider] : [provider];
 }
 
 /** Resolve an executable path for the provider, or undefined when not found.
- *  GUI-launched Electron apps often run with a truncated PATH that omits
- *  ~/.local/bin, nvm, and /opt/homebrew/bin — so we must NOT just trust the
- *  bare name. Prefer an absolute candidate that exists on disk; only then fall
- *  back to resolving the bare name against whatever PATH we do have. This always
- *  returns a concrete, spawnable path (or undefined), which keeps
- *  isProviderInstalled() honest. */
+ *  GUI-launched Electron apps often run with a truncated PATH, so we probe known
+ *  install dirs first and only then scan PATH. Always returns a concrete,
+ *  spawnable path (or undefined), keeping isProviderInstalled() honest. */
 export function resolveProviderBin(provider: HeadlessProvider): string | undefined {
-	const candidates = withNvmCandidates(provider, BIN_CANDIDATES[provider]);
-	// 1) Absolute candidates that actually exist.
-	for (const candidate of candidates) {
-		if (candidate.includes('/')) {
+	const names = binNames(provider);
+	// 1) Known install dirs.
+	for (const dir of providerDirs()) {
+		for (const name of names) {
+			const full = path.join(dir, name);
 			try {
-				if (fs.existsSync(candidate)) {
-					return candidate;
+				if (fs.existsSync(full)) {
+					return full;
 				}
 			} catch {
 				// keep looking
 			}
 		}
 	}
-	// 2) Bare name resolved against the current PATH.
-	const bare = candidates.find(c => !c.includes('/'));
-	if (bare) {
-		for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-			if (!dir) {
-				continue;
-			}
-			const full = path.join(dir, bare);
+	// 2) Whatever PATH we do have (covers Homebrew/system installs on PATH).
+	for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+		if (!dir) {
+			continue;
+		}
+		for (const name of names) {
+			const full = path.join(dir, name);
 			try {
 				if (fs.existsSync(full)) {
 					return full;
@@ -152,7 +179,14 @@ export function headlessArgs(provider: HeadlessProvider): string[] {
  */
 export function runWithStdin(bin: string, args: string[], input: string, timeoutMs: number): Promise<string> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+		// If Aria provisioned a portable Node, put it on PATH so an npm-installed
+		// CLI (e.g. codex) can find `node` for its shebang even when the machine
+		// has no system Node.
+		const nodeBin = ariaNodeBinDir();
+		const env = nodeBin
+			? { ...process.env, PATH: nodeBin + path.delimiter + (process.env.PATH ?? '') }
+			: process.env;
+		const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], env });
 		let stdout = '';
 		let stderr = '';
 		const timer = setTimeout(() => {

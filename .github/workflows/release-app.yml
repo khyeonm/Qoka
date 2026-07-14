@@ -99,7 +99,8 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
+          # Retries + timeouts so a flaky apt mirror doesn't hang the job.
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
           sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev
 
       # preinstall.ts checks default VS install paths and can miss the runner's
@@ -114,6 +115,19 @@ jobs:
           if (-not $vs) { throw "Visual Studio not found via vswhere" }
           "vs2022_install=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Found Visual Studio at: $vs"
+
+      # patchWin32DependenciesTask strips/verifies Authenticode signatures with
+      # signtool.exe (from the Windows SDK), which isn't on PATH by default. VS
+      # Code's own pipeline adds it too; without it the build fails ENOENT.
+      - name: Add Windows SDK (signtool) to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+                 Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $sdk) { throw "signtool.exe not found in Windows Kits" }
+          Write-Host "Found signtool at: $($sdk.FullName)"
+          Split-Path $sdk.FullName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       # Use `npm install`, not `npm ci`: some Aria extensions (aria-autopipe,
       # aria-vcs) ship without a committed package-lock.json, and the root
@@ -138,10 +152,14 @@ jobs:
       - name: Package macOS (.dmg)
         if: runner.os == 'macOS'
         shell: bash
+        env:
+          VSCODE_ARCH: ${{ matrix.arch }}
+          VSCODE_QUALITY: stable
         run: |
           mkdir -p artifacts
+          # First arg is the PARENT dir; create-dmg.ts appends VSCode-darwin-<arch>.
           node --experimental-strip-types build/darwin/create-dmg.ts \
-            "$PWD/../VSCode-darwin-${{ matrix.arch }}" "$PWD/artifacts"
+            "$PWD/.." "$PWD/artifacts"
 
       - name: Package Windows (.exe)
         if: runner.os == 'Windows'
