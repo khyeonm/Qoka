@@ -40,8 +40,8 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 					const vm = cfg.local_vm;
 					return textResult([
 						'Run environment: the Aria built-in server (local VM) is selected, but it is NOT running yet, so there is no reachable endpoint right now.',
-						'Do NOT ask the user to add an SSH server — that is not what they chose. The built-in server may still be downloading/booting, or it needs to be started.',
-						'Ask the user to open the Autopipe tab and start the built-in server (the "Set up" button), or wait for it to finish booting, then retry.',
+						'Do NOT ask the user to add an SSH server, and do NOT tell them to press a button — that is not the flow.',
+						'If it is not running, call the start_built_in_server tool to start it (downloads/boots in a minute or two), tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again and retry. If it is already downloading/booting, just wait and retry.',
 						`Configured resources (apply on start): memory ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores ${vm.cpus}, disk ${vm.diskGB} GB.`,
 						'',
 						`Registry: ${cfg.registry_url}`,

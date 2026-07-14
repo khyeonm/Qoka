@@ -12,6 +12,7 @@ import * as path from 'path';
 import { ConfigService } from '../config/configService';
 import { LOCAL_VM_ID, SshProfile } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
+import { buildFatSeedImage } from './fatSeed';
 
 const execFileAsync = promisify(execFile);
 
@@ -242,11 +243,16 @@ export class VMManager {
 		return key;
 	}
 
-	/** Build a cloud-init NoCloud seed ISO that injects the SSH pubkey + mounts
-	 *  the 9p workspace. (The production prebuilt image bakes in docker/user; this
-	 *  seed only carries per-user bits.) */
+	/** Build a cloud-init NoCloud seed that injects the SSH pubkey + mounts the 9p
+	 *  workspace. (The production prebuilt image bakes in docker/user; this seed
+	 *  only carries per-user bits.)
+	 *
+	 *  The seed is a FAT12 image built in pure JS (fatSeed.ts) rather than an
+	 *  ISO — cloud-init reads `user-data`/`meta-data` from any `cidata`-labelled
+	 *  filesystem, and a hand-built FAT image needs NO external tool, so the
+	 *  built-in VM works on a vanilla Windows box (no oscdimg/mkisofs there). */
 	private async buildSeed(pubPath: string): Promise<string> {
-		const seed = path.join(this.dir, 'seed.iso');
+		const seed = path.join(this.dir, 'seed.img');
 		const pub = fs.readFileSync(pubPath, 'utf8').trim();
 		const userData = [
 			'#cloud-config',
@@ -267,34 +273,13 @@ export class VMManager {
 			'  - command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)',
 			`  - usermod -aG docker ${GUEST_USER} || true`,
 		].join('\n') + '\n';
-		const seedDir = path.join(this.dir, 'seed');
-		fs.mkdirSync(seedDir, { recursive: true });
-		fs.writeFileSync(path.join(seedDir, 'user-data'), userData);
-		fs.writeFileSync(path.join(seedDir, 'meta-data'), 'instance-id: aria-builtin\nlocal-hostname: aria\n');
-		await this.makeSeedIso(seedDir, seed);
+		const metaData = 'instance-id: aria-builtin\nlocal-hostname: aria\n';
+		const img = buildFatSeedImage([
+			{ name: 'user-data', data: Buffer.from(userData, 'utf8') },
+			{ name: 'meta-data', data: Buffer.from(metaData, 'utf8') },
+		]);
+		fs.writeFileSync(seed, img);
 		return seed;
-	}
-
-	/** Build the cloud-init NoCloud ISO (volume label `cidata`) cross-platform:
-	 *  hdiutil on macOS; oscdimg/mkisofs on Windows; genisoimage/mkisofs on Linux. */
-	private async makeSeedIso(dir: string, out: string): Promise<void> {
-		if (fs.existsSync(out)) { fs.rmSync(out); }
-		const ud = path.join(dir, 'user-data'), md = path.join(dir, 'meta-data');
-		if (process.platform === 'darwin') {
-			await execFileAsync('hdiutil', ['makehybrid', '-iso', '-joliet', '-default-volume-name', 'cidata', '-o', out, dir]);
-			return;
-		}
-		const iso = (o: string): [string, string[]] => ['x', ['-output', o, '-volid', 'cidata', '-joliet', '-rock', ud, md]];
-		// Each entry must produce an ISO whose volume label is `cidata`.
-		const attempts: Array<[string, string[]]> = process.platform === 'win32'
-			? [['oscdimg', ['-n', '-m', '-lCIDATA', dir, out]], ['mkisofs', iso(out)[1]], ['genisoimage', iso(out)[1]]]
-			: [['genisoimage', iso(out)[1]], ['mkisofs', iso(out)[1]], ['cloud-localds', [out, ud, md]]];
-		for (const [tool, args] of attempts) {
-			try { await execFileAsync(tool, args); return; } catch { /* try the next tool */ }
-		}
-		throw new Error(process.platform === 'win32'
-			? 'No ISO tool found. For dev testing install one: `scoop install cdrtools` (mkisofs), or the Windows ADK (oscdimg).'
-			: 'No ISO tool found (genisoimage / mkisofs / cloud-localds).');
 	}
 
 	private freePort(): Promise<number> {

@@ -146,21 +146,33 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 			vscode.window.showInformationMessage(`Saved SSH profile "${draft.name}".`);
 		}),
 
-		vscode.commands.registerCommand('aria.autopipe.ssh.remove', async () => {
+		vscode.commands.registerCommand('aria.autopipe.ssh.remove', async (id?: string) => {
 			const cfg = services().config.get();
 			if (cfg.ssh_profiles.length === 0) {
 				vscode.window.showInformationMessage('No SSH profiles to remove.');
 				return;
 			}
-			const pick = await vscode.window.showQuickPick(
-				cfg.ssh_profiles.map(p => ({ label: p.name, description: `${p.username}@${p.host}:${p.port}`, id: p.id })),
-				{ placeHolder: 'Which profile do you want to remove?' },
-			);
-			if (!pick) {
+			// The per-row trash button passes the profile id directly; without one
+			// (e.g. a command-palette call) fall back to a picker.
+			let targetId = id;
+			let targetName = cfg.ssh_profiles.find(p => p.id === id)?.name;
+			if (!targetId) {
+				const pick = await vscode.window.showQuickPick(
+					cfg.ssh_profiles.map(p => ({ label: p.name, description: `${p.username}@${p.host}:${p.port}`, id: p.id })),
+					{ placeHolder: 'Which profile do you want to remove?' },
+				);
+				if (!pick) {
+					return;
+				}
+				targetId = pick.id;
+				targetName = pick.label;
+			}
+			const ok = await vscode.window.showWarningMessage(`Remove SSH profile "${targetName ?? ''}"?`, { modal: true }, 'Remove');
+			if (ok !== 'Remove') {
 				return;
 			}
-			await services().config.removeProfile(pick.id);
-			vscode.window.showInformationMessage(`Removed profile "${pick.label}".`);
+			await services().config.removeProfile(targetId);
+			vscode.window.showInformationMessage(`Removed profile "${targetName ?? ''}".`);
 		}),
 
 		vscode.commands.registerCommand('aria.autopipe.ssh.setActiveById', async (id: string) => {

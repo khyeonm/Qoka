@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as vscode from 'vscode';
 import { ToolDefinition, textResult } from './types';
 import { services } from '../../common/services';
 
@@ -11,6 +12,23 @@ import { services } from '../../common/services';
 // remote machine's and aren't ours to change.
 
 export const VM_TOOLS: ToolDefinition[] = [
+	{
+		name: 'start_built_in_server',
+		description: 'Start the Aria built-in server (local VM) when it is the selected run environment but is not running yet — e.g. when get_workspace_info reports it is not running. This begins downloading/booting it (about a minute or two). Call this instead of asking the user to press any button. After calling, tell the user it is starting, wait ~60-90 seconds, call get_workspace_info again, and once it reports a reachable endpoint, retry the pipeline step.',
+		inputSchema: { type: 'object', properties: {} },
+		handler: async () => {
+			const { config } = services();
+			if (!config.isLocalVmActive()) {
+				return textResult('The built-in server is not the selected run environment (an SSH server is active), so there is nothing to start here.');
+			}
+			try {
+				await vscode.commands.executeCommand('aria.autopipe.vm.setup');
+			} catch (e) {
+				return textResult(`Could not start the built-in server: ${e instanceof Error ? e.message : String(e)}`);
+			}
+			return textResult('Starting the Aria built-in server — it downloads/boots in the background (about a minute or two). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again; once it reports a reachable endpoint, retry the pipeline step.');
+		},
+	},
 	{
 		name: 'get_vm_resources',
 		description: 'Read the built-in server (Aria built-in VM) resource allocation — memory (MB), CPU cores, disk (GB). Only relevant when the built-in server is the ACTIVE run environment (not an SSH server). Call this to check capacity before running a heavy pipeline, or when a run fails with an out-of-memory error.',

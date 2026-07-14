@@ -199,60 +199,10 @@ export class AriaAutopipeView extends ViewPane {
 		this.renderStatusSection(root, status);
 		this.renderSshSection(root, status);
 		this.renderGithubSection(root, status);
-		this.renderSaveButton(root);
+		// No Save button — every setting (run environment, upload mode, repo
+		// name, GitHub) auto-saves the moment it changes.
 		this.renderDivider(root);
 		this.renderBrowseSection(root);
-	}
-
-	private renderSaveButton(root: HTMLElement): void {
-		// Right-aligned single button. Flex container with end-justify so
-		// the button hugs the right edge of the panel — matches the
-		// "primary action lives on the right" convention used elsewhere
-		// in the workbench (modal dialogs, settings pages).
-		const container = append(root, $('div'));
-		container.style.margin = '6px 0 10px 0';
-		container.style.display = 'flex';
-		container.style.justifyContent = 'flex-end';
-
-		const saveBtn = append(container, $('button')) as HTMLButtonElement;
-		saveBtn.textContent = 'Save settings';
-		stylePrimaryButton(saveBtn);
-		// Drop the default right-margin so the button truly touches the
-		// right edge rather than floating a few px in.
-		saveBtn.style.marginRight = '0';
-		saveBtn.onclick = () => void this.commitSettingsDraft();
-	}
-
-	private async commitSettingsDraft(): Promise<void> {
-		const draft = this.settingsDraft;
-		const snap = this.currentSnapshot;
-		if (!draft || !snap) {
-			return;
-		}
-		// Even when nothing changed in the draft (e.g. button used as a
-		// "force re-save"), drive through the extension's `commitAll`
-		// command. That call always rewrites the disk mirror and
-		// re-fires `onDidChange`, so observers see the same notification
-		// flow whether or not values actually changed.
-		try {
-			if (draft.activeProfileId !== snap.activeProfileId && draft.activeProfileId) {
-				await this.commandService.executeCommand('aria.autopipe.ssh.setActiveById', draft.activeProfileId);
-			}
-			if (draft.uploadMode !== snap.uploadMode) {
-				await this.commandService.executeCommand('aria.autopipe.repo.setModeValue', draft.uploadMode);
-			}
-			if (draft.uploadRepoName !== snap.uploadRepoName) {
-				await this.commandService.executeCommand('aria.autopipe.repo.setRepoName', draft.uploadRepoName);
-			}
-			// Notify the user — we always run this even with no
-			// diff, so the button feels responsive and the toast
-			// proves the call reached the extension host.
-			await this.commandService.executeCommand('aria.autopipe.settings.confirmSaved');
-		} catch {
-			// commands surface their own errors via vscode.window
-		}
-		this.settingsDraft = null;
-		void this.refresh();
 	}
 
 	private renderDivider(root: HTMLElement): void {
@@ -360,16 +310,18 @@ export class AriaAutopipeView extends ViewPane {
 			sub.textContent = `${p.username}@${p.host}:${p.port}`;
 			Object.assign(sub.style, { fontSize: '10.5px', opacity: '0.6' });
 
+			// Trash on the right (mirrors the built-in server's gear) removes this
+			// server. Stops propagation so it doesn't also select the row.
+			const trash = append(row, $('span.codicon.codicon-trash')) as HTMLElement;
+			trash.title = 'Remove this server';
+			Object.assign(trash.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
+			trash.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.ssh.remove', p.id).then(() => this.refresh()); };
+
 			row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.ssh.setActiveById', p.id).then(() => this.refresh()); };
 		}
 
 		if (this.sshFormOpen) {
 			this.renderSshForm(section);
-		} else if (profiles.length > 0) {
-			const actions = append(section, $('div'));
-			actions.style.marginTop = '8px';
-			this.addCommandButton(actions, 'Test connection', 'aria.autopipe.ssh.test');
-			this.addCommandButton(actions, 'Remove', 'aria.autopipe.ssh.remove');
 		}
 	}
 
@@ -579,9 +531,13 @@ export class AriaAutopipeView extends ViewPane {
 			radio.name = 'aria-autopipe-upload-mode';
 			radio.checked = draftMode === opt.value;
 			radio.onchange = () => {
-				if (radio.checked && this.settingsDraft) {
-					this.settingsDraft.uploadMode = opt.value;
-					void this.refresh();
+				if (radio.checked) {
+					if (this.settingsDraft) {
+						this.settingsDraft.uploadMode = opt.value;
+					}
+					// Auto-save: apply the choice immediately (no Save button).
+					void this.commandService.executeCommand('aria.autopipe.repo.setModeValue', opt.value)
+						.then(() => this.refresh());
 				}
 			};
 			const text = append(wrap, $('span'));
@@ -590,12 +546,17 @@ export class AriaAutopipeView extends ViewPane {
 
 		if (draftMode === 'single') {
 			const draftName = this.settingsDraft?.uploadRepoName ?? status.uploadRepoName ?? '';
-			labelInput(section, 'Shared GitHub repo name', draftName, 'aria-pipelines',
+			const repoInput = labelInput(section, 'Shared GitHub repo name', draftName, 'aria-pipelines',
 				(v) => {
 					if (this.settingsDraft) {
 						this.settingsDraft.uploadRepoName = v;
 					}
 				});
+			// Auto-save on blur (no Save button) — persist the typed name once
+			// the user leaves the field rather than on every keystroke.
+			repoInput.onchange = () => {
+				void this.commandService.executeCommand('aria.autopipe.repo.setRepoName', repoInput.value.trim());
+			};
 		}
 	}
 
