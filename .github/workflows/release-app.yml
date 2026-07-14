@@ -137,25 +137,31 @@ jobs:
         run: npm install
 
       # Build every bundled Aria extension so its compiled output ships in the
-      # app. esbuild extensions (build.mjs) emit dist/; plain-tsc extensions MUST
-      # be compiled to out/ here because the gulp packaging only COPIES existing
-      # output (fromLocalNormal via vsce.listFiles) — it never compiles their
-      # TypeScript. Without this, those extensions ship with no out/extension.js
-      # and fail to activate ("Cannot find module .../out/extension.js").
+      # app. The gulp packaging only COPIES existing output (fromLocalNormal via
+      # vsce.listFiles) — it never compiles TypeScript — so a fresh CI clone
+      # otherwise ships these with no out/extension.js and they fail to activate.
+      # esbuild extensions (build.mjs) emit dist/. Plain-tsc extensions are
+      # transpiled to out/ via gulp (swc, no type-check) — the same path the dev
+      # build uses; a plain `tsc -p ./` instead conflicts because both
+      # @types/vscode and src/vscode-dts/vscode.d.ts declare the global API.
       - name: Build Aria extensions
         shell: bash
         run: |
           set -e
+          transpile_tasks=""
           for d in extensions/aria-*/; do
             name="$(basename "$d")"
             if [ -f "$d/build.mjs" ]; then
               echo "== $name (esbuild) =="
               (cd "$d" && npm install && node build.mjs)
             elif [ -f "$d/tsconfig.json" ]; then
-              echo "== $name (tsc) =="
-              (cd "$d" && npm install && npm run compile --if-present)
+              transpile_tasks="$transpile_tasks transpile-extension:$name"
             fi
           done
+          if [ -n "$transpile_tasks" ]; then
+            echo "== gulp$transpile_tasks =="
+            npm run gulp -- $transpile_tasks
+          fi
 
       # Full task (compile -> minify -> package). The `-min-ci` variant only
       # packages and assumes out-vscode-min already exists (VS Code's pipeline
