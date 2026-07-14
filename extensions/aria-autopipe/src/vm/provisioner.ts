@@ -50,12 +50,34 @@ export class Provisioner {
 		return process.env.ARIA_AUTOPIPE_VM_IMAGE || path.join(this.dir, `base-${this.arch()}.qcow2`);
 	}
 
-	/** Ensure the portable qemu is present; download + extract if missing. */
+	/** True if the qemu binary actually loads and runs (all dylibs resolve). A
+	 *  broken bundle fails here instead of silently at VM-boot time. */
+	private async qemuRuns(bin: string): Promise<boolean> {
+		try {
+			await execFileAsync(bin, ['--version'], { timeout: 15000 });
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	/** Ensure the portable qemu is present AND actually runnable; download +
+	 *  extract if missing or broken. */
 	async ensureQemu(progress: ProgressFn): Promise<string> {
 		const bin = this.qemuBinPath();
-		if (fs.existsSync(bin)) { return bin; }
 		if (process.env.ARIA_QEMU_PATH) {
+			if (fs.existsSync(bin)) { return bin; }
 			throw new Error(`ARIA_QEMU_PATH set but not found: ${process.env.ARIA_QEMU_PATH}`);
+		}
+		if (fs.existsSync(bin)) {
+			// Re-validate the cached bundle: a `--version` that fails means an
+			// unresolved dylib (e.g. a previously-cached build missing
+			// libcapstone). Without this, a fixed vm-assets release never reaches
+			// anyone who already downloaded the broken one — existsSync alone would
+			// keep using it forever. Wipe and re-download when it can't even load.
+			if (await this.qemuRuns(bin)) { return bin; }
+			progress('Updating the local run environment (QEMU)…');
+			try { fs.rmSync(this.qemuDir(), { recursive: true, force: true }); } catch { /* re-created below */ }
 		}
 		const asset = `qemu-${this.plat()}-${this.arch()}.tar.gz`;
 		const tgz = path.join(this.dir, asset);

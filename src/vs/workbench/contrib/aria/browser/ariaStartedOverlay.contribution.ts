@@ -23,7 +23,6 @@ import { URI } from '../../../../base/common/uri.js';
 import { basename } from '../../../../base/common/resources.js';
 import { ARIA_MODE_SETTING, ARIA_AI_PROVIDER_SETTING, AriaMode } from '../common/ariaConfiguration.js';
 import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
-import { ARIA_MARK } from './ariaLogo.js';
 import { ConcreteProvider, PROVIDER_EXTENSION_ID, PROVIDER_LABEL, hasPickedAiProvider, markPickedAiProvider, clearPickedAiProvider, providerSettingFor, setPendingInstall } from './ariaAiProviderChoice.js';
 
 // Pre-paint workbench hide. Installing the stylesheet at module-load
@@ -626,24 +625,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		this.overlay.style.color = easy ? '#1f1f1f' : 'var(--vscode-foreground, #cccccc)';
 	}
 
-	/** Centered Aria logo shown at the top of every Started overlay screen. Uses
-	 *  the standalone mark, which reads on both the easy (light) and advanced
-	 *  (dark) backgrounds. */
-	private renderLogo(parent: HTMLElement): void {
-		const wrap = document.createElement('div');
-		wrap.style.display = 'flex';
-		wrap.style.justifyContent = 'center';
-		wrap.style.marginBottom = '28px';
-		const img = document.createElement('img');
-		img.src = ARIA_MARK;
-		img.alt = 'Aria';
-		img.style.height = '72px';
-		img.style.width = 'auto';
-		img.draggable = false;
-		wrap.appendChild(img);
-		parent.appendChild(wrap);
-	}
-
 	private render(): void {
 		if (!this.overlay) {
 			return;
@@ -666,9 +647,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		// A prior render's loading-message cycle points at a now-removed node.
 		this.stopMessageCycle();
-
-		// Aria logo at the top of every Started screen (loading / login / picker).
-		this.renderLogo(content);
 
 		// Sign-in gate: until authenticated, this overlay shows login (or the
 		// loading spinner mid sign-in), NOT the project picker.

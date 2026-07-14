@@ -12,6 +12,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { timeout } from '../../../../base/common/async.js';
 import { revealAiProviderChat } from './aiProviderChat.js';
 import { whenAriaSetupReady } from './ariaSetupReady.js';
@@ -43,12 +44,19 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		@INotificationService private readonly notificationService: INotificationService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IExtensionService private readonly extensionService: IExtensionService,
+		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 	) {
 		super();
 
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
 			return;
 		}
+
+		// Keep the right-hand chat panel (auxiliary bar) pinned open in every
+		// project window, even before any assistant is installed — the chat
+		// surface should always be present, and a just-installed provider's chat
+		// then appears in that same spot instead of the panel popping in later.
+		try { this.layoutService.setPartHidden(false, Parts.AUXILIARYBAR_PART); } catch { /* layout not ready */ }
 
 		// Make sure the CLI for each chosen provider is installed — the chat panel
 		// and background features are CLI-backed, so this is needed even when the

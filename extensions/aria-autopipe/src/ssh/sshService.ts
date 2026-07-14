@@ -38,7 +38,7 @@ export class SshService {
 
 	async run(profile: SshProfile, command: string, opts: RunOptions = {}): Promise<SshResult> {
 		const { stdout, stderr, exitCode } = await this.execRaw(profile, command, opts);
-		return { stdout: stdout.toString('utf8'), stderr, exitCode };
+		return { stdout: stripSuccessPrefix(stdout.toString('utf8')), stderr, exitCode };
 	}
 
 	async testConnection(profile: SshProfile): Promise<{ ok: boolean; message: string }> {
@@ -192,6 +192,25 @@ function connectConfig(profile: SshProfile, timeoutMs?: number): ConnectConfig {
 			break;
 	}
 	return cfg;
+}
+
+/**
+ * Some remote environments prepend a spurious `{"success":true}` banner to the
+ * FIRST line of command output (a known autopipe-server quirk — roCrate's
+ * `cleanContent` strips it too). Left in, it corrupts the first entry of every
+ * command: e.g. `list_files` returns `{"success":true}data.fq` as a filename,
+ * which then gets used to create a garbage-named file. Strip the exact known
+ * banner at the SSH boundary so every tool sees clean output. Only the precise
+ * literal is removed, so genuine JSON output that merely starts with `{` is left
+ * untouched.
+ */
+function stripSuccessPrefix(s: string): string {
+	for (const prefix of ['{"success":true}', '{"success": true}', '{"success" : true}']) {
+		if (s.startsWith(prefix)) {
+			return s.slice(prefix.length);
+		}
+	}
+	return s;
 }
 
 /**

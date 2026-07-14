@@ -101,18 +101,26 @@ class AriaRoadmapWizardContribution extends Disposable implements IWorkbenchCont
 		// so fall back to a transient id.
 		let id = arg?.id;
 		let name = arg?.name;
+		// Resolving the active roadmap goes through the aria-roadmap EXTENSION's
+		// commands. Those throw if the extension hasn't activated yet (a real race
+		// on a fresh New Project window, seen on Windows) — which must NOT stop the
+		// tab from opening. Treat every step as best-effort and fall back to a
+		// transient id so the canvas always appears; it re-syncs once the
+		// extension's onStateChange fires.
 		if (!id) {
-			id = await this.commandService.executeCommand<string | undefined>('aria.roadmap.ensureActive');
+			try {
+				id = await this.commandService.executeCommand<string | undefined>('aria.roadmap.ensureActive');
+			} catch { /* extension not ready — fall back below */ }
 		}
 		if (!id) {
 			id = 'wizard';
 		}
-		// Make the extension's active roadmap match what we open, and grab its
-		// hypothesis-sentence name for the tab when the caller didn't supply one.
-		const snap = await this.commandService.executeCommand<{ roadmapName?: string }>('aria.roadmap.switchActive', id);
-		if (!name) {
-			name = snap?.roadmapName;
-		}
+		try {
+			const snap = await this.commandService.executeCommand<{ roadmapName?: string }>('aria.roadmap.switchActive', id);
+			if (!name) {
+				name = snap?.roadmapName;
+			}
+		} catch { /* non-fatal — open with the default name */ }
 		// Open (or focus — one tab per roadmap id) the roadmap editor.
 		await this.editorService.openEditor(new AriaRoadmapEditorInput(id, name ?? 'Roadmap'), { pinned: true });
 

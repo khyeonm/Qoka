@@ -24,7 +24,13 @@ const CODEX_CANDIDATES = [
 async function resolveCodex(): Promise<string | null> {
 	for (const candidate of CODEX_CANDIDATES) {
 		try {
-			await execAsync(`"${candidate}" --version`, { timeout: 3000 });
+			// Bare command names (no path separator) must run UNQUOTED so Windows
+			// cmd.exe resolves them via PATH + PATHEXT (codex.cmd, an npm shim).
+			// Quoting is only needed for full paths with spaces. This mirrors
+			// autopipe, whose unquoted probe is the one that registers Codex on
+			// Windows where the quoted `.cmd` form fails.
+			const probe = /[\\/]/.test(candidate) ? `"${candidate}" --version` : `${candidate} --version`;
+			await execAsync(probe, { timeout: 3000 });
 			return candidate;
 		} catch { /* try next */ }
 	}

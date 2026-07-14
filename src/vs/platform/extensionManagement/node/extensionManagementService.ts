@@ -340,7 +340,14 @@ export class ExtensionManagementService extends AbstractExtensionManagementServi
 	private async downloadExtension(extension: IGalleryExtension, operation: InstallOperation, verifySignature: boolean, clientTargetPlatform?: TargetPlatform): Promise<{ readonly location: URI; readonly verificationStatus: ExtensionSignatureVerificationCode | undefined }> {
 		if (verifySignature) {
 			const value = this.configurationService.getValue(VerifyExtensionSignatureConfigKey);
-			verifySignature = isBoolean(value) ? value : true;
+			// Aria disables extension signature verification (the workbench registers
+			// this setting's default as `false`). That default lives on the browser
+			// side; this service runs in a utility process where the setting may be
+			// unregistered and `getValue` returns undefined — so fall back to `false`,
+			// NOT `true`. Otherwise Windows (which has the signing native module,
+			// unlike the macOS build) would still verify and block install of our
+			// unsigned provider extensions behind an "Install Anyway" prompt.
+			verifySignature = isBoolean(value) ? value : false;
 		}
 		const { location, verificationStatus } = await this.extensionsDownloader.download(extension, operation, verifySignature, clientTargetPlatform);
 		const shouldRequireSignature = shouldRequireRepositorySignatureFor(extension.private, await this.extensionGalleryManifestService.getExtensionGalleryManifest());

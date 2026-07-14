@@ -108,11 +108,11 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'show_results',
-		description: 'Open the Results Viewer in a browser for inspecting result files. Pass a DIRECTORY path to view all files in it, or a single FILE path to view only that file. File formats are handled by viewer plugins (auto-routed by file extension): defaults include images, PDF, text, CSV, FASTA/FASTQ, BAM/BED/GFF/CRAM/VCF/BCF, and HDF5 (h5ad).',
+		description: 'Open the in-app Results Viewer panel (a built-in Aria panel, NOT a web browser — never tell the user to open a browser or a 127.0.0.1 URL) for inspecting result files. Pass a DIRECTORY path to view all files in it, or a single FILE path to view only that file. File formats are handled by viewer plugins (auto-routed by file extension): defaults include images, PDF, text, CSV, FASTA/FASTQ, BAM/BED/GFF/CRAM/VCF/BCF, and HDF5 (h5ad).',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				path: { type: 'string', description: 'Remote file or directory path to display in the browser.' },
+				path: { type: 'string', description: 'Remote file or directory path to display in the in-app viewer panel.' },
 				filter: { type: 'string', description: 'Optional filter: "image", "text", "genomics", "pdf", "hdf5".' },
 				reference: { type: 'string', description: 'For BAM/BED/GFF/CRAM viewing: a FASTA filename in the same directory, or absolute path, or "none".' },
 			},

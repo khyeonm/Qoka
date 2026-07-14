@@ -79,10 +79,13 @@ export function ariaNodeBinDir(): string | undefined {
 function providerDirs(): string[] {
 	if (isWin) {
 		const appdata = process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming');
+		const localappdata = process.env.LOCALAPPDATA ?? path.join(HOME, 'AppData', 'Local');
 		return [
 			ARIA_NODE_DIR,                 // portable node's own dir (npm.cmd etc.)
 			ARIA_NPM_PREFIX,               // Aria-managed npm global (.cmd shims at root)
 			path.join(appdata, 'npm'),     // default npm global on Windows
+			path.join(HOME, '.local', 'bin'),          // Claude's Windows installer mirrors ~/.local/bin
+			path.join(localappdata, 'Programs', 'claude'), // alt Claude install location
 		];
 	}
 	return [

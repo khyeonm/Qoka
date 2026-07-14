@@ -160,9 +160,18 @@ export class AriaAutopipeView extends ViewPane {
 		} catch {
 			this.vmStatus = undefined;
 		}
-		// Live-refresh while the VM is downloading/booting so the status updates.
-		if (this.vmStatus && (this.vmStatus.status === 'provisioning' || this.vmStatus.status === 'booting')) {
+		// Keep the built-in server row in sync with reality. While it's
+		// downloading/booting, poll fast for progress. Also poll (slower) whenever
+		// the built-in server is the active target but not yet ready — so a start
+		// kicked off elsewhere (e.g. the assistant calling start_built_in_server
+		// from chat) flips the row to "Running" on its own, without the user
+		// reopening the tab. Stops once it's ready or no longer the target.
+		const vmSt = this.vmStatus?.status;
+		const vmIsActiveTarget = (status.sshActiveProfileId ?? null) === LOCAL_VM_ID;
+		if (vmSt === 'provisioning' || vmSt === 'booting') {
 			setTimeout(() => { void this.refresh(); }, 2000);
+		} else if (vmIsActiveTarget && vmSt !== 'ready') {
+			setTimeout(() => { void this.refresh(); }, 4000);
 		}
 
 		clearNode(root);
@@ -364,7 +373,7 @@ export class AriaAutopipeView extends ViewPane {
 			} else if (st === 'booting') {
 				subText = 'Starting…';
 			} else if (st === 'error') {
-				subText = 'Not running — click to retry';
+				subText = 'Not running';
 			} else if (st === 'ready') {
 				subText = 'Running on this computer';
 			}

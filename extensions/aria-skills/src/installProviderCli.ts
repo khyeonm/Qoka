@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
+import { spawn } from 'child_process';
 import { HeadlessProvider, isProviderInstalled, ARIA_NPM_PREFIX } from './common/headlessCli';
 import { ensureNode } from './common/nodeBootstrap';
 import { log } from './common/logger';
@@ -16,13 +17,16 @@ import { log } from './common/logger';
  * CLI-backed, so choosing a provider means its CLI must exist — not just its VS
  * Code extension.
  *
- * We install AUTOMATICALLY (no confirm), in a VISIBLE integrated terminal so the
- * user sees progress/errors and the terminal inherits the user's full login-shell
- * PATH (so `curl`/`npm` resolve there even when the GUI app's PATH is truncated).
+ * We install AUTOMATICALLY (no confirm) in a HIDDEN background process — never a
+ * visible terminal (which would pop the panel open, flash a console window on
+ * Windows, and give no completion signal so the UI could never say "done"). A
+ * progress notification shows it's working; on Windows every child is spawned
+ * with `windowsHide` so no console flashes.
  *
  * Cross-platform, so a non-developer never installs anything by hand:
- *   - Claude ships a self-contained binary — `install.sh` on Unix, the native
- *     PowerShell installer on Windows (neither needs Node).
+ *   - Claude ships a self-contained binary — `install.sh` on Unix (run through a
+ *     login shell so `curl` and the install dir resolve), the native PowerShell
+ *     installer on Windows. Neither needs Node.
  *   - Codex is an npm package, so it needs Node. When the machine has none we
  *     download a portable Node first (see nodeBootstrap) and point npm at Aria's
  *     own prefix, which headlessCli also probes.
@@ -39,57 +43,64 @@ function toProvider(arg: unknown): HeadlessProvider | undefined {
 	return arg === 'claude' || arg === 'codex' ? arg : undefined;
 }
 
-/** Open a visible terminal (optionally with extra env) and run one command. */
-function runInTerminal(name: string, command: string, env?: { [key: string]: string | null }): void {
-	const term = vscode.window.createTerminal({ name, env });
-	term.show();
-	term.sendText(command, true);
+interface RunResult { code: number; output: string; }
+
+/** Run a command to completion as a hidden background process, collecting its
+ *  combined output. Never opens a terminal or flashes a console window. */
+function runHidden(command: string, args: string[], extraEnv?: { [key: string]: string }): Promise<RunResult> {
+	return new Promise((resolve) => {
+		const env = { ...process.env, ...extraEnv };
+		// `.cmd` shims (npm.cmd) need a shell on Windows; real executables
+		// (powershell, bash) don't. windowsHide keeps any console off-screen.
+		const useShell = isWin && command.toLowerCase().endsWith('.cmd');
+		const child = spawn(command, args, { env, windowsHide: true, shell: useShell, stdio: ['ignore', 'pipe', 'pipe'] });
+		let output = '';
+		child.stdout?.on('data', (d) => { output += d.toString(); });
+		child.stderr?.on('data', (d) => { output += d.toString(); });
+		child.on('error', (err) => { output += `\n${err.message}`; resolve({ code: -1, output }); });
+		child.on('close', (code) => resolve({ code: code ?? -1, output }));
+	});
 }
 
-function installClaude(): void {
-	const command = isWin
-		? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex"'
-		: 'curl -fsSL https://claude.ai/install.sh | bash';
-	log(`installProviderCli: installing Claude via: ${command}`);
-	runInTerminal('Aria — Install Claude CLI', command);
-	vscode.window.showInformationMessage('Installing the Claude command-line tool… (running in the terminal)');
+async function installClaude(): Promise<RunResult> {
+	if (isWin) {
+		return runHidden('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex']);
+	}
+	// Login shell (-lc) so the user's full PATH (curl, install target dir) resolves
+	// even when the GUI app inherited a truncated PATH.
+	return runHidden('/bin/bash', ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash']);
 }
 
-async function installCodex(): Promise<void> {
+async function installCodex(): Promise<RunResult> {
 	// Codex is an npm package → it needs Node to install and to run. Provision a
 	// portable Node when the machine has none so the user installs nothing.
 	let nodeBin = '';
 	try {
-		nodeBin = await vscode.window.withProgress(
-			{ location: vscode.ProgressLocation.Notification, title: 'Preparing to install Codex…' },
-			() => ensureNode(),
-		);
+		nodeBin = await ensureNode();
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		log(`installProviderCli: ensureNode failed — ${message}`);
-		vscode.window.showErrorMessage(`Aria couldn't set up Node for Codex: ${message}`);
-		return;
+		return { code: -1, output: `Couldn't set up Node for Codex: ${message}` };
 	}
 	// Install into ~/.local on Unix so the codex bin lands in ~/.local/bin — a
 	// directory EVERY Aria extension's resolver already probes (peer-review
 	// availability, MCP registration), not just aria-skills' headlessCli. On
 	// Windows keep Aria's own prefix (those resolvers are Windows-agnostic).
 	const prefix = isWin ? ARIA_NPM_PREFIX : path.join(os.homedir(), '.local');
-	const env: { [key: string]: string | null } = { npm_config_prefix: prefix };
+	const env: { [key: string]: string } = { npm_config_prefix: prefix };
 	if (nodeBin) {
 		env.PATH = nodeBin + path.delimiter + (process.env.PATH ?? '');
 	}
 	const npm = isWin ? 'npm.cmd' : 'npm';
-	const command = `${npm} install -g @openai/codex`;
-	log(`installProviderCli: installing Codex via: ${command} (prefix ${ARIA_NPM_PREFIX})`);
-	runInTerminal('Aria — Install Codex CLI', command, env);
-	vscode.window.showInformationMessage('Installing the Codex command-line tool… (running in the terminal)');
+	log(`installProviderCli: installing Codex via ${npm} install -g @openai/codex (prefix ${prefix})`);
+	return runHidden(npm, ['install', '-g', '@openai/codex'], env);
 }
 
 /**
  * Ensure the given provider's CLI is installed. No-ops when the argument isn't a
- * known provider or the CLI is already present. Otherwise auto-installs it (in a
- * visible terminal), at most once per session.
+ * known provider or the CLI is already present. Otherwise auto-installs it in a
+ * hidden background process (with a progress notification), at most once per
+ * session, and reports success/failure when it finishes.
  */
 export async function installProviderCli(arg: unknown): Promise<void> {
 	const provider = toProvider(arg);
@@ -106,9 +117,24 @@ export async function installProviderCli(arg: unknown): Promise<void> {
 		return;
 	}
 	attemptedThisSession.add(provider);
-	if (provider === 'claude') {
-		installClaude();
-	} else {
-		await installCodex();
-	}
+
+	const label = provider === 'claude' ? 'Claude' : 'Codex';
+	await vscode.window.withProgress(
+		{ location: vscode.ProgressLocation.Notification, title: `Installing the ${label} command-line tool…`, cancellable: false },
+		async () => {
+			const result = provider === 'claude' ? await installClaude() : await installCodex();
+			// Trust the resolver, not the exit code: some installers return non-zero
+			// yet still place the binary (and vice versa). If it's now on PATH, we're
+			// done regardless.
+			if (isProviderInstalled(provider)) {
+				log(`installProviderCli: ${provider} CLI installed successfully.`);
+				vscode.window.showInformationMessage(`${label} is ready. Reload Aria if the chat doesn't pick it up.`);
+				return;
+			}
+			log(`installProviderCli: ${provider} CLI install did not complete (exit ${result.code}). Output:\n${result.output}`);
+			// Let the session retry on next launch rather than latching failure.
+			attemptedThisSession.delete(provider);
+			vscode.window.showErrorMessage(`Aria couldn't install the ${label} command-line tool automatically. See the Aria Skills log for details.`);
+		},
+	);
 }
