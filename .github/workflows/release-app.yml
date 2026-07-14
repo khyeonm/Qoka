@@ -137,6 +137,26 @@ jobs:
           Write-Host "Found signtool at: $($sdk.FullName)"
           Split-Path $sdk.FullName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
+      # node-gyp on the runner picked Python 3.14 (very new), which crashes some
+      # native builds (tree-sitter) with 0xC0000409. Point npm at a stable 3.12/
+      # 3.11 from the toolcache when available.
+      - name: Pin a node-gyp-friendly Python (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $py = Get-ChildItem "C:\hostedtoolcache\windows\Python\3.12.*\x64\python.exe" -ErrorAction SilentlyContinue |
+                Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $py) {
+            $py = Get-ChildItem "C:\hostedtoolcache\windows\Python\3.11.*\x64\python.exe" -ErrorAction SilentlyContinue |
+                  Sort-Object FullName -Descending | Select-Object -First 1
+          }
+          if ($py) {
+            Write-Host "Using Python: $($py.FullName)"
+            "npm_config_python=$($py.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } else {
+            Write-Host "No 3.11/3.12 Python in toolcache; keeping default."
+          }
+
       # Use `npm install`, not `npm ci`: some Aria extensions (aria-autopipe,
       # aria-vcs) ship without a committed package-lock.json, and the root
       # postinstall runs the same command in every workspace dir — `npm ci`

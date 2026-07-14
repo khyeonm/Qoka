@@ -57,38 +57,33 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// it directly), so a slow/failed MCP boot can't block the CLI install.
 		void this._ensureProviderClis();
 
-		// Deferred installs: the user chose provider(s) they hadn't installed. A
-		// real project window now exists. Cover it with a loading page IMMEDIATELY
-		// (synchronously, at window load) so the bare workbench never shows first,
-		// then open both providers in the Extensions view (one search over both
-		// ids — separate `extension.open` detail tabs replace each other), and
-		// reveal it once the Marketplace list has had time to load. We do NOT wait
-		// for whenAriaSetupReady here: the Extensions/Marketplace view doesn't need
-		// Aria's MCP setup, and waiting would leave the workbench visible first.
-		const pending = takePendingInstall();
-		if (pending.length > 0) {
-			const labels = pending.map(p => PROVIDER_LABEL[p]).join(' and ');
-			const hideLoading = this._showLoadingOverlay(`Opening the install page for ${labels}…`);
-			void (async () => {
-				const ids = pending.map(p => PROVIDER_EXTENSION_ID[p]);
+		// Cover the window IMMEDIATELY (synchronously, at window load) so the bare
+		// workbench never flashes, then decide once we can read the live state.
+		const hideLoading = this._showLoadingOverlay('Preparing Aria…');
+		// Drain the stale one-shot; the decision below is made from LIVE state.
+		takePendingInstall();
+		void (async () => {
+			// Surface any provider EXTENSION the user opted into (via aria.aiProvider)
+			// that isn't installed — checked LIVE every launch, not from the one-shot
+			// pending list. This re-appears on re-entry (e.g. a bounce back into the
+			// picker) and correctly covers "auto" (both providers). Open the
+			// Extensions view over the missing ids and reveal a chat once installed.
+			const missing = await this._missingProviderExtensions();
+			if (missing.length > 0) {
+				const labels = missing.map(p => PROVIDER_LABEL[p]).join(' and ');
+				const ids = missing.map(p => PROVIDER_EXTENSION_ID[p]);
 				try { await this.commandService.executeCommand('workbench.extensions.action.showExtensionsWithIds', ids); } catch { /* ignore */ }
 				await timeout(2500); // let the Marketplace list populate behind the overlay
 				hideLoading();
 				this.notificationService.info(`Install ${labels}, then reload Aria to finish setup.`);
-				// As soon as one of them is installed (with or without a reload),
-				// reveal its chat so the tab is active right after install.
-				this._revealWhenInstalled(pending);
-			})();
-			return;
-		}
+				this._revealWhenInstalled(missing);
+				return;
+			}
 
-		// No pending install → cover the window with a loading screen until Aria is
-		// actually usable (its MCP servers are up), in ALL modes, so the user never
-		// interacts with a half-ready app. A failsafe timeout hides it even if setup
-		// stalls, so a broken MCP boot can't trap the user on the loading screen.
-		const hideLoading = this._showLoadingOverlay('Preparing Aria…');
-		const SETUP_FAILSAFE_MS = 30000;
-		void Promise.race([whenAriaSetupReady(), timeout(SETUP_FAILSAFE_MS)]).then(() => {
+			// All wanted providers present → wait until Aria is actually usable (its
+			// MCP servers are up), in ALL modes, with a failsafe so a broken boot
+			// can't trap the user on the loading screen.
+			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
 			hideLoading();
 			if (!hasPickedAiProvider()) {
 				return;
@@ -96,7 +91,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			// Retry: a just-activated provider (e.g. after a post-install reload)
 			// may register its reveal command a moment after we ask.
 			void revealAiProviderChat(this.commandService, this.configurationService, { retryMs: 6000 });
-		});
+		})();
 	}
 
 	/** Auto-install the CLI for each provider the user chose (from the
@@ -125,6 +120,25 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				console.log(`[aria] ensureProviderClis: install command failed for ${p}:`, e);
 			}
 		}
+	}
+
+	/** The provider EXTENSIONS the user opted into (via aria.aiProvider: an
+	 *  explicit choice = that one; `auto` = both) that are NOT installed. Read live
+	 *  so a missing provider is always surfaced, not just once from the picker. */
+	private async _missingProviderExtensions(): Promise<ConcreteProvider[]> {
+		if (!hasPickedAiProvider()) {
+			return [];
+		}
+		const pref = this.configurationService.getValue<string>(ARIA_AI_PROVIDER_SETTING) ?? 'auto';
+		const wanted: ConcreteProvider[] = pref === 'claude' || pref === 'codex' ? [pref] : [...ARIA_ALL_PROVIDERS];
+		try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
+		const missing: ConcreteProvider[] = [];
+		for (const p of wanted) {
+			if (!(await this.extensionService.getExtension(PROVIDER_EXTENSION_ID[p]))) {
+				missing.push(p);
+			}
+		}
+		return missing;
 	}
 
 	/** Full-viewport loading page shown while the Extensions install view opens
