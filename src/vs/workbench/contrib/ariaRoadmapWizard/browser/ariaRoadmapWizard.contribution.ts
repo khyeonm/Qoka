@@ -12,8 +12,7 @@ import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { createStyleSheet } from '../../../../base/browser/domStylesheets.js';
 import { PROVIDER_EXTENSION_ID } from '../../aria/browser/ariaAiProviderChoice.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { Codicon } from '../../../../base/common/codicons.js';
-import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
+import { URI } from '../../../../base/common/uri.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -143,7 +142,10 @@ const RoadmapFilePresentContext = new RawContextKey<boolean>('aria.roadmapFilePr
 // matching the requested graphic. The activity bar masks the SVG to a single
 // theme colour, so this is line-art that renders in the activity-bar foreground
 // (highlighted when active) rather than the 2-colour source image.
-const roadmapIcon = registerIcon('aria-roadmap-view', Codicon.milestone, localize('aria.roadmap.iconLabel', "Aria Roadmap activity bar icon"));
+// Winding road ending in a flag. Inlined as a data: URI so there is no separate
+// media file to bundle; the activity bar masks it to the theme foreground colour.
+const ROADMAP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="1.5 1 21 21" fill="none" stroke="#000" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20 H14 a3.5 3.5 0 0 0 0-7 H10 a3.5 3.5 0 0 1 0-7 h6"/><circle cx="5" cy="20" r="1.3" fill="#000" stroke="none"/><circle cx="12" cy="13" r="1.3" fill="#000" stroke="none"/><path d="M16 6 V1.5"/><path d="M16 1.7 L20.6 3.3 L16 4.9 Z" fill="#000" stroke="none"/></svg>';
+const roadmapIcon = URI.parse(`data:image/svg+xml,${encodeURIComponent(ROADMAP_ICON_SVG)}`);
 
 const roadmapContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({
@@ -289,7 +291,27 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 			}
 		}));
 
+		// Pulse the moment a project gains a roadmap — e.g. right after New Project
+		// (roadmap file written → context flips true) — not only after a provider
+		// install. This is what draws the user to the Roadmap icon on entry.
+		this._register(this.contextKeyService.onDidChangeContext(e => {
+			if (e.affectsSome(new Set(['aria.roadmapFilePresent']))) {
+				this.maybePulseForRoadmap();
+			}
+		}));
+		// And if the roadmap is already present at startup (reload into the new
+		// project) with the view not yet open, pulse right away.
+		this.maybePulseForRoadmap();
+
 		this._register(toDisposable(() => this.stop()));
+	}
+
+	/** Pulse when the project has a roadmap but its view isn't open yet. */
+	private maybePulseForRoadmap(): void {
+		if (this.contextKeyService.getContextKeyValue<boolean>('aria.roadmapFilePresent') === true
+			&& !this.viewsService.isViewVisible(AriaRoadmapView.ID)) {
+			this.start();
+		}
 	}
 
 	private start(): void {

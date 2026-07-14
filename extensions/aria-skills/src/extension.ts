@@ -15,6 +15,7 @@ import { ensureAriaHook } from './common/ariaHooks';
 import { syncSkillsToProviders, resyncBundledSkills } from './common/skillsManager';
 import { reconcileCategories } from './common/skillManifest';
 import { installProviderCli } from './installProviderCli';
+import { ensureAriaBinsOnPath } from './common/headlessCli';
 
 /**
  * Skills extension entry. Phase 2 replaces the central-area webview with
@@ -30,6 +31,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	// somewhere the user can find them.
 	initLogger();
 	log('Aria Skills extension activated.');
+
+	// Put Aria's Node + ~/.local/bin on the shared extension-host PATH so every
+	// extension (autopipe, paper, …) can run the codex CLI — an npm script that
+	// needs `node` — even when the machine has no system Node.
+	ensureAriaBinsOnPath();
 
 	// Touch ~/.env on startup so "Open ~/.env" always opens something.
 	ensureEnvFile();

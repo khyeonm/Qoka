@@ -41,6 +41,26 @@ export const ARIA_NODE_DIR = path.join(ARIA_HOME, 'node');
  *  `<prefix>/bin`; on Windows the `.cmd` shims sit at the prefix root. */
 export const ARIA_NPM_PREFIX = path.join(ARIA_HOME, 'npm');
 
+/** Put Aria's provisioned bins on THIS process's PATH so every extension in the
+ *  shared extension host — not just aria-skills — can spawn the provider CLIs and
+ *  the Node they need. Codex is an npm script whose `#!/usr/bin/env node` shebang
+ *  needs `node`; a non-developer machine often has none, so we prepend Aria's
+ *  portable Node (~/.aria/node/bin) plus ~/.local/bin (where claude/codex land).
+ *  Idempotent — safe to call from multiple extensions' activate(). */
+export function ensureAriaBinsOnPath(): void {
+	const wanted: string[] = [];
+	const nodeBin = ariaNodeBinDir();
+	if (nodeBin) {
+		wanted.push(nodeBin);
+	}
+	wanted.push(path.join(HOME, '.local', 'bin'));
+	const current = (process.env.PATH ?? '').split(path.delimiter);
+	const missing = wanted.filter(dir => dir && !current.includes(dir));
+	if (missing.length) {
+		process.env.PATH = [...missing, ...current].filter(Boolean).join(path.delimiter);
+	}
+}
+
 /** Directory holding the portable `node`/`npm` binaries, or undefined when Aria
  *  hasn't provisioned Node. Callers prepend this to PATH so npm-based CLIs (and
  *  their node shebang) resolve at run time. */

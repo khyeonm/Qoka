@@ -154,6 +154,13 @@ export async function ensureNode(): Promise<string> {
 	if (!bin) {
 		throw new Error('nodeBootstrap: extraction finished but node bin dir is missing');
 	}
+	// Make the freshly provisioned Node visible to every extension in this host
+	// right away, so a codex install (and codex runs) immediately after this can
+	// find `node` without waiting for a restart.
+	const parts = (process.env.PATH ?? '').split(path.delimiter);
+	if (!parts.includes(bin)) {
+		process.env.PATH = [bin, ...parts].filter(Boolean).join(path.delimiter);
+	}
 	log(`nodeBootstrap: portable Node ready at ${bin}`);
 	return bin;
 }

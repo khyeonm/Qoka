@@ -470,11 +470,42 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 
 	private reviewerCheckbox(id: string, text: string, enabled: boolean): HTMLElement {
 		const wrap = document.createElement('div');
-		Object.assign(wrap.style, { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', cursor: enabled ? 'pointer' : 'default', opacity: enabled ? '1' : '0.55' });
-		wrap.appendChild(this.checkbox(!!this.reviewers[id] && enabled, enabled));
+		Object.assign(wrap.style, { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', cursor: enabled ? 'pointer' : 'default' });
+		const box = this.checkbox(!!this.reviewers[id] && enabled, enabled);
+		box.style.opacity = enabled ? '1' : '0.55';
+		wrap.appendChild(box);
 		if (enabled) { wrap.onclick = () => { this.reviewers[id] = !this.reviewers[id]; this.render(); }; }
-		const t = append(wrap, $('span')); t.textContent = text;
+		const t = append(wrap, $('span')); t.textContent = text; t.style.opacity = enabled ? '1' : '0.55';
+		// When a reviewer's CLI is missing, offer a belated install right here — a
+		// plain underlined link (not a button, so it isn't confused with the
+		// actions below). It installs only this provider's CLI.
+		if (!enabled && (id === 'claude' || id === 'codex')) {
+			const install = append(wrap, $('span'));
+			install.textContent = localize('aria.peerReview.installCli', "Install");
+			Object.assign(install.style, { cursor: 'pointer', textDecoration: 'underline', color: 'var(--vscode-textLink-foreground)' });
+			install.onclick = (e) => { e.stopPropagation(); void this.installReviewerCli(id); };
+		}
 		return wrap;
+	}
+
+	/** Belated CLI install for a reviewer whose CLI is missing. Runs the shared
+	 *  installer (auto Node bootstrap + provider install, in a visible terminal)
+	 *  for ONLY this provider, then polls availability so the checkbox re-enables
+	 *  once the CLI lands — no reload needed. */
+	private async installReviewerCli(provider: 'claude' | 'codex'): Promise<void> {
+		try {
+			await this.commandService.executeCommand('aria.provider.installCli', provider);
+		} catch {
+			// The installer surfaces its own errors in the terminal / notifications.
+		}
+		// The install runs asynchronously in a terminal; re-probe for a while so
+		// the reviewer checkbox flips on automatically when it finishes.
+		for (let i = 0; i < 20 && this.root; i++) {
+			await new Promise(resolve => setTimeout(resolve, 3000));
+			if (!this.root) { break; }
+			await this.refreshCliAvailability();
+			if (provider === 'codex' ? this.codexAvailable : this.claudeAvailable) { break; }
+		}
 	}
 
 	/** A labelled file slot: title, hint, current file rows (with ✕), and an add/select button. */

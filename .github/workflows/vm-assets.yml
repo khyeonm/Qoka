@@ -69,6 +69,21 @@ jobs:
           # to @executable_path/../lib so the binary runs from anywhere.
           dylibbundler -od -b -x "$OUT/bin/qemu-system-${{ matrix.qarch }}" -d "$OUT/lib" -p '@executable_path/../lib'
           dylibbundler -od -b -x "$OUT/bin/qemu-img" -d "$OUT/lib" -p '@executable_path/../lib'
+          # dylibbundler's install_name_tool edits invalidate the code signature,
+          # and macOS refuses HVF acceleration unless the binary is validly signed
+          # AND carries the hypervisor entitlement — otherwise QEMU falls back to
+          # slow TCG (or fails), which is what made the VM never come up. Ad-hoc
+          # re-sign the bundled dylibs, then the binaries; qemu-system also gets
+          # the hypervisor + library-validation-disable entitlements.
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0"><dict><key>com.apple.security.hypervisor</key><true/><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>' \
+            > "$PWD/hvf.entitlements"
+          for f in "$OUT"/lib/*.dylib; do codesign --force --sign - "$f" || true; done
+          codesign --force --sign - "$OUT/bin/qemu-img"
+          codesign --force --sign - --entitlements "$PWD/hvf.entitlements" "$OUT/bin/qemu-system-${{ matrix.qarch }}"
+          codesign --verify --verbose "$OUT/bin/qemu-system-${{ matrix.qarch }}" || true
           tar -czf "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" -C "$OUT" .
 
       - name: Build portable QEMU (Windows)

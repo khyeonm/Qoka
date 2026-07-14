@@ -18,6 +18,21 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { localize } from '../../../../nls.js';
+import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
+
+// In easy mode the bottom panel (Terminal / Problems / Output …) is removed as
+// developer tooling, so its toggle shortcut Ctrl+` should do nothing instead of
+// popping an empty panel. A higher-weight no-op wins over the terminal toggle
+// only while `aria.mode == easy`; advanced mode keeps the default behaviour.
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: 'aria.easyMode.suppressTerminalToggle',
+	weight: KeybindingWeight.WorkbenchContrib + 50,
+	when: AriaModeContextKey.isEqualTo('easy'),
+	primary: KeyMod.CtrlCmd | KeyCode.Backquote,
+	mac: { primary: KeyMod.WinCtrl | KeyCode.Backquote },
+	handler: () => { /* no-op: easy mode has no bottom panel */ },
+});
 // Note: ARIA_SWITCH_MODE_COMMAND keeps the original toggle-with-confirm semantics
 // for legacy callers; the new segmented status bar uses ARIA_SET_MODE_COMMAND
 // for instant, no-confirm switching.
