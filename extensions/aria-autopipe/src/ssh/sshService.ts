@@ -3,20 +3,23 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { spawn } from 'child_process';
+import { Client, ConnectConfig } from 'ssh2';
+import * as fs from 'fs';
+import * as path from 'path';
 import { SshProfile } from '../common/types';
 
 /**
- * Thin wrapper around the system `ssh` CLI. Aria's extension host runs in
- * Node.js — same pattern aria-vcs uses for `git` (shell out instead of
- * pulling in a Node library). This keeps the extension's runtime
- * dependencies at zero npm packages while still reaching arbitrary SSH
- * hosts.
+ * SSH access via the pure-JS `ssh2` library — NO external `ssh`/`sshpass`
+ * process and no dependency on the system OpenSSH. This mirrors how the
+ * reference autopipe backend works (its Rust `ssh2` crate over libssh2): the
+ * library performs the TCP connection and password/key authentication itself,
+ * so it behaves identically on Windows, macOS and Linux with nothing to
+ * install. It also sidesteps the Electron-vs-system libssl ABI clash that made
+ * shelling out to `ssh` fragile.
  *
- * Trade-off: every command spawns a new ssh process. For a future
- * optimisation we can switch to the `ssh2` npm package with a persistent
- * connection pool — autopipe-app's Rust code uses ssh2-rs the same way.
- * For Phase 5 the spawn-per-command model is plenty.
+ * Each call opens a short-lived connection (connect → exec → disconnect),
+ * matching the previous spawn-per-command model; a persistent pool can be
+ * layered on later if latency matters.
  */
 export interface SshResult {
 	stdout: string;
@@ -29,76 +32,13 @@ export interface RunOptions {
 	stdin?: string;
 }
 
+const DEFAULT_TIMEOUT_MS = 20000;
+
 export class SshService {
 
 	async run(profile: SshProfile, command: string, opts: RunOptions = {}): Promise<SshResult> {
-		return new Promise((resolve, reject) => {
-			const args = buildSshArgs(profile);
-			args.push(command);
-
-			const env = { ...process.env };
-			// Electron pre-loads its own bundled crypto libs and points
-			// LD_LIBRARY_PATH / LD_PRELOAD at them. The system `ssh`
-			// binary then crashes with "OpenSSL version mismatch" because
-			// it was built against a different libssl ABI than Electron's
-			// bundled one. Strip those vars so ssh resolves the system
-			// libssl normally — same defensive pattern VS Code's built-in
-			// git extension uses when shelling out to /usr/bin/git.
-			delete env.LD_LIBRARY_PATH;
-			delete env.LD_PRELOAD;
-			delete env.SNAP;
-			delete env.SNAP_REVISION;
-			// Tell ssh-askpass that we have no terminal — if the user's
-			// key has a passphrase we'd rather get an explicit failure
-			// than a hung prompt.
-			env.SSH_ASKPASS_REQUIRE = 'never';
-
-			// Password auth uses `sshpass -e ssh …` so the password flows
-			// through SSHPASS env var rather than being passed on the
-			// command line (visible to `ps`). Falls back to a clear error
-			// when sshpass isn't installed.
-			let command0 = 'ssh';
-			let finalArgs = args;
-			if (profile.auth.type === 'password') {
-				if (!profile.auth.password) {
-					reject(new Error('Password auth selected but no password supplied.'));
-					return;
-				}
-				env.SSHPASS = profile.auth.password;
-				command0 = 'sshpass';
-				finalArgs = ['-e', 'ssh', ...args];
-			}
-
-			const child = spawn(command0, finalArgs, { env });
-			let stdout = '';
-			let stderr = '';
-			let timer: NodeJS.Timeout | undefined;
-
-			if (opts.timeoutMs && opts.timeoutMs > 0) {
-				timer = setTimeout(() => {
-					try { child.kill('SIGTERM'); } catch { /* ignore */ }
-					reject(new Error(`ssh command timed out after ${opts.timeoutMs}ms`));
-				}, opts.timeoutMs);
-			}
-
-			child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
-			child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
-			child.on('error', (err) => {
-				if (timer) { clearTimeout(timer); }
-				reject(err);
-			});
-			child.on('close', (code) => {
-				if (timer) { clearTimeout(timer); }
-				resolve({ stdout, stderr, exitCode: code ?? 0 });
-			});
-
-			if (opts.stdin !== undefined) {
-				child.stdin.write(opts.stdin);
-				child.stdin.end();
-			} else {
-				child.stdin.end();
-			}
-		});
+		const { stdout, stderr, exitCode } = await this.execRaw(profile, command, opts);
+		return { stdout: stdout.toString('utf8'), stderr, exitCode };
 	}
 
 	async testConnection(profile: SshProfile): Promise<{ ok: boolean; message: string }> {
@@ -113,48 +53,25 @@ export class SshService {
 		}
 	}
 
-	async readFile(profile: SshProfile, remotePath: string): Promise<Buffer> {
-		// Binary-safe read: we collect stdout as raw Buffers (no toString)
-		// so callers handling binary files (BAM, images, PDFs) get the
-		// exact bytes. The MCP `read_file` handler decodes to UTF-8 itself;
-		// the viewer panel uses the raw bytes via base64.
-		const args = buildSshArgs(profile);
-		args.push(`cat -- ${shellQuote(remotePath)}`);
-
-		const env = { ...process.env };
-		delete env.LD_LIBRARY_PATH;
-		delete env.LD_PRELOAD;
-		delete env.SNAP;
-		delete env.SNAP_REVISION;
-		env.SSH_ASKPASS_REQUIRE = 'never';
-
-		let command0 = 'ssh';
-		let finalArgs = args;
-		if (profile.auth.type === 'password') {
-			if (!profile.auth.password) {
-				throw new Error('Password auth selected but no password supplied.');
-			}
-			env.SSHPASS = profile.auth.password;
-			command0 = 'sshpass';
-			finalArgs = ['-e', 'ssh', ...args];
+	/** Quick reachability probe used while the built-in VM is booting. */
+	async canConnect(profile: SshProfile, timeoutMs = 5000): Promise<boolean> {
+		try {
+			const { exitCode } = await this.run(profile, 'true', { timeoutMs });
+			return exitCode === 0;
+		} catch {
+			return false;
 		}
+	}
 
-		return new Promise<Buffer>((resolve, reject) => {
-			const child = spawn(command0, finalArgs, { env });
-			const chunks: Buffer[] = [];
-			let stderr = '';
-			child.stdout.on('data', (c: Buffer) => { chunks.push(c); });
-			child.stderr.on('data', (c) => { stderr += c.toString('utf8'); });
-			child.on('error', reject);
-			child.on('close', (code) => {
-				if (code !== 0) {
-					reject(new Error(`read_file failed (exit ${code}): ${stderr.trim()}`));
-					return;
-				}
-				resolve(Buffer.concat(chunks));
-			});
-			child.stdin.end();
-		});
+	async readFile(profile: SshProfile, remotePath: string): Promise<Buffer> {
+		// Binary-safe read: the SSH channel is 8-bit clean, so we collect the
+		// exec stdout as raw Buffers (no decode) and callers handling binary
+		// files (BAM, images, PDFs) get the exact bytes.
+		const { stdout, stderr, exitCode } = await this.execRaw(profile, `cat -- ${shellQuote(remotePath)}`, {});
+		if (exitCode !== 0) {
+			throw new Error(`read_file failed (exit ${exitCode}): ${stderr.trim()}`);
+		}
+		return stdout;
 	}
 
 	async writeFile(profile: SshProfile, remotePath: string, content: string): Promise<void> {
@@ -185,8 +102,6 @@ export class SshService {
 		}
 		const clean = stdout.replace(/\s+/g, '');
 		const bytes = Buffer.from(clean, 'base64');
-		const fs = await import('fs');
-		const path = await import('path');
 		fs.mkdirSync(path.dirname(localPath), { recursive: true });
 		fs.writeFileSync(localPath, bytes);
 		return bytes.length;
@@ -202,27 +117,81 @@ export class SshService {
 		}
 		return stdout.split('\n').filter(line => line.length > 0);
 	}
+
+	/** Core: open a connection, run one command, collect raw output, disconnect. */
+	private execRaw(profile: SshProfile, command: string, opts: RunOptions): Promise<{ stdout: Buffer; stderr: string; exitCode: number }> {
+		return new Promise((resolve, reject) => {
+			let cfg: ConnectConfig;
+			try {
+				cfg = connectConfig(profile, opts.timeoutMs);
+			} catch (e) {
+				reject(e);
+				return;
+			}
+
+			const conn = new Client();
+			let settled = false;
+			let timer: NodeJS.Timeout | undefined;
+			const finish = (err?: Error, val?: { stdout: Buffer; stderr: string; exitCode: number }): void => {
+				if (settled) { return; }
+				settled = true;
+				if (timer) { clearTimeout(timer); }
+				try { conn.end(); } catch { /* ignore */ }
+				if (err) { reject(err); } else { resolve(val!); }
+			};
+
+			if (opts.timeoutMs && opts.timeoutMs > 0) {
+				timer = setTimeout(() => finish(new Error(`ssh command timed out after ${opts.timeoutMs}ms`)), opts.timeoutMs);
+			}
+
+			conn.on('ready', () => {
+				conn.exec(command, (err, stream) => {
+					if (err) { finish(err); return; }
+					const out: Buffer[] = [];
+					let errText = '';
+					stream.on('close', (code: number | null) => {
+						finish(undefined, { stdout: Buffer.concat(out), stderr: errText, exitCode: code ?? 0 });
+					}).on('data', (d: Buffer) => { out.push(d); });
+					stream.stderr.on('data', (d: Buffer) => { errText += d.toString('utf8'); });
+					if (opts.stdin !== undefined) { stream.end(opts.stdin); }
+				});
+			});
+			conn.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
+
+			try {
+				conn.connect(cfg);
+			} catch (e) {
+				finish(e instanceof Error ? e : new Error(String(e)));
+			}
+		});
+	}
 }
 
-function buildSshArgs(profile: SshProfile): string[] {
-	const args: string[] = [
-		'-p', String(profile.port),
-		'-o', 'StrictHostKeyChecking=accept-new',
-		'-o', 'ConnectTimeout=10',
-		'-o', 'ServerAliveInterval=30',
-	];
-	// BatchMode=yes blocks ALL prompts — perfect for key/agent auth
-	// (we'd rather fail than hang) but breaks password auth because
-	// sshpass needs to answer the password prompt. So switch it off
-	// when the profile is password-based.
-	if (profile.auth.type !== 'password') {
-		args.push('-o', 'BatchMode=yes');
+/** Translate an Aria SshProfile into ssh2's connection config. Throws with a
+ *  clear message when required auth material is missing. */
+function connectConfig(profile: SshProfile, timeoutMs?: number): ConnectConfig {
+	const cfg: ConnectConfig = {
+		host: profile.host,
+		port: profile.port,
+		username: profile.username,
+		readyTimeout: timeoutMs && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS,
+		keepaliveInterval: 30000,
+	};
+	switch (profile.auth.type) {
+		case 'password':
+			if (!profile.auth.password) { throw new Error('Password auth selected but no password supplied.'); }
+			cfg.password = profile.auth.password;
+			break;
+		case 'key':
+			if (!profile.auth.key_path) { throw new Error('Key auth selected but no key file supplied.'); }
+			cfg.privateKey = fs.readFileSync(profile.auth.key_path);
+			break;
+		case 'agent':
+			// Fall back to the OS SSH agent (Pageant on Windows).
+			cfg.agent = process.env.SSH_AUTH_SOCK || (process.platform === 'win32' ? 'pageant' : undefined);
+			break;
 	}
-	if (profile.auth.type === 'key' && profile.auth.key_path) {
-		args.push('-i', profile.auth.key_path);
-	}
-	args.push(`${profile.username}@${profile.host}`);
-	return args;
+	return cfg;
 }
 
 /**

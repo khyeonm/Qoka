@@ -14,18 +14,54 @@
 	],
 	"contributes": {
 		"commands": [
-			{ "command": "aria.autopipe.getStatus", "title": "Aria: Autopipe Status" },
-			{ "command": "aria.autopipe.ssh.add", "title": "Aria: Add SSH profile" },
-			{ "command": "aria.autopipe.ssh.remove", "title": "Aria: Remove SSH profile" },
-			{ "command": "aria.autopipe.ssh.setActive", "title": "Aria: Choose active SSH profile" },
-			{ "command": "aria.autopipe.ssh.test", "title": "Aria: Test SSH connection" },
-			{ "command": "aria.autopipe.github.login", "title": "Aria: Connect to GitHub" },
-			{ "command": "aria.autopipe.github.logout", "title": "Aria: Sign out of GitHub" },
-			{ "command": "aria.autopipe.repo.setMode", "title": "Aria: Configure pipeline upload mode" },
-			{ "command": "aria.autopipe.registry.setUrl", "title": "Aria: Set Autopipe Hub URL" },
-			{ "command": "aria.autopipe.openHub", "title": "Aria: Open Pipeline Hub" },
-			{ "command": "aria.autopipe.openPlugins", "title": "Aria: Open Plugins" },
-			{ "command": "aria.autopipe.reregister", "title": "Aria: Re-register MCP with Claude Code" }
+			{
+				"command": "aria.autopipe.getStatus",
+				"title": "Aria: Autopipe Status"
+			},
+			{
+				"command": "aria.autopipe.ssh.add",
+				"title": "Aria: Add SSH profile"
+			},
+			{
+				"command": "aria.autopipe.ssh.remove",
+				"title": "Aria: Remove SSH profile"
+			},
+			{
+				"command": "aria.autopipe.ssh.setActive",
+				"title": "Aria: Choose active SSH profile"
+			},
+			{
+				"command": "aria.autopipe.ssh.test",
+				"title": "Aria: Test SSH connection"
+			},
+			{
+				"command": "aria.autopipe.github.login",
+				"title": "Aria: Connect to GitHub"
+			},
+			{
+				"command": "aria.autopipe.github.logout",
+				"title": "Aria: Sign out of GitHub"
+			},
+			{
+				"command": "aria.autopipe.repo.setMode",
+				"title": "Aria: Configure pipeline upload mode"
+			},
+			{
+				"command": "aria.autopipe.registry.setUrl",
+				"title": "Aria: Set Autopipe Hub URL"
+			},
+			{
+				"command": "aria.autopipe.openHub",
+				"title": "Aria: Open Pipeline Hub"
+			},
+			{
+				"command": "aria.autopipe.openPlugins",
+				"title": "Aria: Open Plugins"
+			},
+			{
+				"command": "aria.autopipe.reregister",
+				"title": "Aria: Re-register MCP with Claude Code"
+			}
 		]
 	},
 	"scripts": {
@@ -34,6 +70,10 @@
 	},
 	"devDependencies": {
 		"@types/node": "^20",
+		"@types/ssh2": "^1.15.5",
 		"typescript": "^5.6.2"
+	},
+	"dependencies": {
+		"ssh2": "^1.17.0"
 	}
 }

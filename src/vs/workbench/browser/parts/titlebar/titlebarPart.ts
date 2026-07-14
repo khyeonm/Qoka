@@ -494,7 +494,8 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 		// sits centered on its own.
 		if (!this.isAuxiliary) {
 			const brand = prepend(this.centerContent, $('.aria-titlebar-brand'));
-			append(brand, $('.aria-titlebar-brand-mark')).textContent = 'A';
+			// The mark is drawn from the embedded Aria logo via CSS background-image.
+			append(brand, $('.aria-titlebar-brand-mark'));
 			append(brand, $('.aria-titlebar-brand-name')).textContent = 'Aria';
 		}
 

@@ -13,6 +13,7 @@ import { ConfigService } from '../config/configService';
 import { LOCAL_VM_ID, SshProfile } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
+import { SshService } from '../ssh/sshService';
 
 const execFileAsync = promisify(execFile);
 
@@ -55,6 +56,7 @@ export class VMManager {
 	private readonly dir: string;              // per-install VM assets
 	private readonly workspace: string;        // host side of the 9p share (repo)
 	private readonly provisioner: Provisioner;
+	private readonly ssh = new SshService();   // ssh2-based reachability probe
 
 	constructor(context: vscode.ExtensionContext, private readonly config: ConfigService) {
 		this.dir = path.join(context.globalStorageUri.fsPath, 'vm');
@@ -293,18 +295,12 @@ export class VMManager {
 		});
 	}
 
-	/** Poll `ssh … true` until it succeeds or we time out / the VM dies. */
+	/** Poll the VM over ssh2 until it answers or we time out / the VM dies. */
 	private async waitForSsh(p: SshProfile): Promise<void> {
 		const deadline = Date.now() + READY_TIMEOUT_MS;
-		const args = [
-			'-p', String(p.port), '-i', p.auth.key_path!,
-			'-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
-			'-o', 'ConnectTimeout=3', '-o', 'BatchMode=yes',
-			`${p.username}@${p.host}`, 'true',
-		];
 		while (Date.now() < deadline) {
 			if (this.proc && this.proc.exitCode !== null) { throw new Error('VM process exited before SSH came up.'); }
-			try { await execFileAsync('ssh', args); return; } catch { /* not up yet */ }
+			if (await this.ssh.canConnect(p, 3000)) { return; }
 			await new Promise(r => setTimeout(r, 3000));
 		}
 		throw new Error('Timed out waiting for the VM to become reachable.');

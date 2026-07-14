@@ -54,21 +54,47 @@ jobs:
             if [ ! -x /usr/local/bin/brew ]; then
               NONINTERACTIVE=1 arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
             fi
-            arch -x86_64 /usr/local/bin/brew install qemu
-            QPREFIX=$(/usr/local/bin/brew --prefix qemu)
+            BREW=/usr/local/bin/brew
+            arch -x86_64 "$BREW" install qemu
           else
+            BREW=brew
             brew install qemu
-            QPREFIX=$(brew --prefix qemu)
           fi
+          QPREFIX=$("$BREW" --prefix qemu)
+          # Homebrew symlinks every keg's libs into <prefix>/lib, so this is the
+          # search path dylibbundler needs to locate keg-only deps like capstone.
+          HBLIB=$("$BREW" --prefix)/lib
           OUT="$PWD/out"
           mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/share/qemu"
           cp "$QPREFIX/bin/qemu-system-${{ matrix.qarch }}" "$OUT/bin/"
           cp "$QPREFIX/bin/qemu-img" "$OUT/bin/"
           cp -R "$QPREFIX/share/qemu/." "$OUT/share/qemu/"
           # Relocate every dependent dylib into out/lib and rewrite install names
-          # to @executable_path/../lib so the binary runs from anywhere.
-          dylibbundler -od -b -x "$OUT/bin/qemu-system-${{ matrix.qarch }}" -d "$OUT/lib" -p '@executable_path/../lib'
-          dylibbundler -od -b -x "$OUT/bin/qemu-img" -d "$OUT/lib" -p '@executable_path/../lib'
+          # to @executable_path/../lib so the binaries run from anywhere. The
+          # `-s "$HBLIB"` search path is what lets dylibbundler actually COPY
+          # keg-only libs (e.g. libcapstone) instead of rewriting the reference
+          # but leaving the file behind — the bug that shipped a bundle missing
+          # libcapstone.5.dylib so qemu died in dyld before it ever booted.
+          dylibbundler -od -b \
+            -x "$OUT/bin/qemu-system-${{ matrix.qarch }}" \
+            -x "$OUT/bin/qemu-img" \
+            -d "$OUT/lib" -p '@executable_path/../lib' -s "$HBLIB"
+          # Belt-and-suspenders: copy any dylib still referenced under ../lib but
+          # absent, resolving from Homebrew's lib dirs; iterate to a fixpoint so
+          # transitive deps of the copied libs are covered too.
+          for _pass in 1 2 3 4 5 6; do
+            missing=0
+            for f in "$OUT/bin/qemu-system-${{ matrix.qarch }}" "$OUT/bin/qemu-img" "$OUT"/lib/*.dylib; do
+              [ -f "$f" ] || continue
+              for name in $(otool -L "$f" | awk -F/ '/@executable_path\/\.\.\/lib\//{print $NF}' | awk '{print $1}'); do
+                if [ ! -f "$OUT/lib/$name" ]; then
+                  src=$(find -L "$HBLIB" /opt/homebrew/lib /usr/local/lib -maxdepth 1 -name "$name" 2>/dev/null | head -1)
+                  if [ -n "$src" ]; then cp -L "$src" "$OUT/lib/$name"; missing=1; fi
+                fi
+              done
+            done
+            [ "$missing" = 0 ] && break
+          done
           # dylibbundler's install_name_tool edits invalidate the code signature,
           # and macOS refuses HVF acceleration unless the binary is validly signed
           # AND carries the hypervisor entitlement — otherwise QEMU falls back to
@@ -84,6 +110,11 @@ jobs:
           codesign --force --sign - "$OUT/bin/qemu-img"
           codesign --force --sign - --entitlements "$PWD/hvf.entitlements" "$OUT/bin/qemu-system-${{ matrix.qarch }}"
           codesign --verify --verbose "$OUT/bin/qemu-system-${{ matrix.qarch }}" || true
+          # Smoke test: a bundle that can't resolve its dylibs must FAIL the job,
+          # not ship. `--version` exercises the full dyld load without needing
+          # HVF; the x64 binary runs under Rosetta on the arm runner.
+          "$OUT/bin/qemu-system-${{ matrix.qarch }}" --version
+          "$OUT/bin/qemu-img" --version
           tar -czf "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" -C "$OUT" .
 
       - name: Build portable QEMU (Windows)
