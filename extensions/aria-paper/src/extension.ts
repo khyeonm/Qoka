@@ -29,21 +29,39 @@ const execFileAsync = promisify(execFile);
  * nvm) so the UI gate and the actual run agree even when the app's PATH is thin.
  */
 function cliAvailable(name: 'claude' | 'codex'): boolean {
-	const abs = [
-		`/usr/local/bin/${name}`,
-		`/opt/homebrew/bin/${name}`,
-		path.join(os.homedir(), '.local/bin', name),
-		...(name === 'claude' ? [path.join(os.homedir(), '.claude/local/claude')] : []),
-	];
-	for (const p of abs) {
-		try { if (fs.existsSync(p)) { return true; } } catch { /* ignore */ }
+	const home = os.homedir();
+	const isWin = process.platform === 'win32';
+	// On Windows the CLIs are `.cmd`/`.exe` shims, never a bare extension-less
+	// file, and they land under the npm prefix root (~/.aria/npm or %APPDATA%/npm)
+	// or Claude's ~/.local/bin — none on the GUI process PATH. Probe all of these
+	// with the right extensions so the reviewer gate matches reality on Windows.
+	const names = isWin ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name];
+	const dirs = isWin
+		? [
+			path.join(home, '.aria', 'npm'),
+			path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm'),
+			path.join(home, '.aria', 'node'),
+			path.join(home, '.local', 'bin'),
+		]
+		: [
+			'/usr/local/bin',
+			'/opt/homebrew/bin',
+			path.join(home, '.local/bin'),
+			...(name === 'claude' ? [path.join(home, '.claude/local')] : []),
+		];
+	for (const dir of dirs) {
+		for (const n of names) {
+			try { if (fs.existsSync(path.join(dir, n))) { return true; } } catch { /* ignore */ }
+		}
 	}
 	for (const dir of (process.env.PATH || '').split(path.delimiter)) {
 		if (!dir) { continue; }
-		try { if (fs.existsSync(path.join(dir, name))) { return true; } } catch { /* ignore */ }
+		for (const n of names) {
+			try { if (fs.existsSync(path.join(dir, n))) { return true; } } catch { /* ignore */ }
+		}
 	}
 	try {
-		const nvm = path.join(os.homedir(), '.nvm/versions/node');
+		const nvm = path.join(home, '.nvm/versions/node');
 		for (const v of fs.readdirSync(nvm)) {
 			if (fs.existsSync(path.join(nvm, v, 'bin', name))) { return true; }
 		}

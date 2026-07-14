@@ -63,6 +63,14 @@ function candidateBinaryPaths(name: string, extraHomeRelative: string[] = []): s
 		path.join(home, '.local/bin', name),
 		path.join(home, 'bin', name),
 		...extraHomeRelative.map(rel => path.join(home, rel)),
+		// Windows: npm installs the CLI as a `.cmd` shim under the npm prefix root
+		// (Aria-managed ~/.aria/npm or the OS default %APPDATA%/npm), none of which
+		// sit on the GUI process PATH.
+		...(process.platform === 'win32' ? [
+			path.join(home, '.aria', 'npm', `${name}.cmd`),
+			path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm', `${name}.cmd`),
+			path.join(home, '.local', 'bin', `${name}.exe`),
+		] : []),
 	];
 	for (const p of direct) {
 		if (fs.existsSync(p)) {

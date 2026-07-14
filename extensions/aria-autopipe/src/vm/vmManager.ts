@@ -137,14 +137,24 @@ export class VMManager {
 		const seed = await this.buildSeed(key + '.pub');
 		const qimg = this.qemuImg(qemu);
 
-		// Fresh overlay each boot keeps the base image pristine; user DATA lives on
-		// the 9p-shared host workspace, not the overlay, so this is safe.
-		if (fs.existsSync(overlay)) { fs.rmSync(overlay); }
-		await execFileAsync(qimg, ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', image, overlay, `${this.config.get().local_vm.diskGB}G`]);
+		// Mac/Linux: a fresh overlay each boot keeps the base image pristine because
+		// user DATA lives on the 9p-shared host workspace, not the overlay.
+		// Windows: qemu has no 9p/virtfs, so there is NO host share — user data
+		// lives inside the guest overlay, so we must PERSIST it across boots (never
+		// wipe; only create it the first time) or every restart loses the workspace.
+		const createArgs = ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', image, overlay, `${this.config.get().local_vm.diskGB}G`];
+		if (process.platform === 'win32') {
+			if (!fs.existsSync(overlay)) {
+				await execFileAsync(qimg, createArgs, { windowsHide: true });
+			}
+		} else {
+			if (fs.existsSync(overlay)) { fs.rmSync(overlay); }
+			await execFileAsync(qimg, createArgs, { windowsHide: true });
+		}
 
 		const vm = this.config.get().local_vm;
 		const args = [
-			'-name', 'aria-builtin', '-machine', this.machineType(), '-accel', this.accel(), '-cpu', this.cpuModel(),
+			'-name', 'aria-builtin', ...this.cpuMachineArgs(),
 			'-smp', String(vm.cpus), '-m', String(vm.memoryMB),
 			...this.dataDirArgs(qemu),
 			...this.firmwareArgs(qemu),
@@ -153,14 +163,21 @@ export class VMManager {
 			// `cidata` label, and virtio attaches cleanly on both q35 and arm64 virt.
 			'-drive', `file=${seed},if=virtio,format=raw`,
 			'-netdev', `user,id=n0,hostfwd=tcp:127.0.0.1:${port}-:22`, '-device', 'virtio-net-pci,netdev=n0',
-			'-virtfs', `local,path=${this.workspace},mount_tag=aria,security_model=mapped-xattr,id=aria`,
+			// 9p host-workspace share — Linux/macOS qemu only. The Windows qemu build
+			// (choco) has virtfs DISABLED, and passing -virtfs makes it exit at start
+			// ("There is no option group 'virtfs'"), which is why the VM never booted
+			// on Windows. Omit it there; the guest keeps its data in the persisted
+			// overlay instead (see overlay handling above).
+			...(process.platform === 'win32'
+				? []
+				: ['-virtfs', `local,path=${this.workspace},mount_tag=aria,security_model=mapped-xattr,id=aria`]),
 			'-display', 'none', '-serial', `file:${path.join(this.dir, 'console.log')}`,
 		];
 		// Capture QEMU's own stderr — HVF/accel/argument errors that otherwise
 		// vanish with stdio:'ignore' and leave us with only a silent timeout — to
 		// qemu-stderr.log next to console.log, so failures are diagnosable.
 		const errLog = fs.openSync(path.join(this.dir, 'qemu-stderr.log'), 'w');
-		this.proc = spawn(qemu, args, { stdio: ['ignore', 'ignore', errLog] });
+		this.proc = spawn(qemu, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
 		this.proc.on('exit', (code) => {
 			try { fs.closeSync(errLog); } catch { /* already closed */ }
 			if (this._status !== 'stopped') {
@@ -211,6 +228,18 @@ export class VMManager {
 
 	private cpuModel(): string { return this.accel() === 'tcg' ? 'max' : 'host'; }
 
+	/** `-machine`/`-accel`/`-cpu` args. On Windows we fold the accelerator into the
+	 *  machine as `whpx:tcg` so qemu falls back to (slow) TCG when the Windows
+	 *  Hypervisor Platform feature isn't enabled — otherwise the VM won't boot at
+	 *  all there. `-cpu max` is used because it's valid under BOTH whpx and TCG
+	 *  (`-cpu host` is rejected by TCG). */
+	private cpuMachineArgs(): string[] {
+		if (process.platform === 'win32') {
+			return ['-machine', `${this.machineType()},accel=whpx:tcg`, '-cpu', 'max'];
+		}
+		return ['-machine', this.machineType(), '-accel', this.accel(), '-cpu', this.cpuModel()];
+	}
+
 	/** Machine type per guest arch: Apple Silicon (arm64) uses `virt` (+UEFI);
 	 *  x86_64 uses `q35`. */
 	private machineType(): string { return process.arch === 'arm64' ? 'virt' : 'q35'; }
@@ -240,7 +269,7 @@ export class VMManager {
 	private async ensureKey(): Promise<string> {
 		const key = path.join(this.dir, 'id_ed25519');
 		if (!fs.existsSync(key)) {
-			await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', key, '-q']);
+			await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', key, '-q'], { windowsHide: true });
 		}
 		return key;
 	}

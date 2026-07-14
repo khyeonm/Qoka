@@ -53,6 +53,14 @@ export function ensureAriaBinsOnPath(): void {
 	if (nodeBin) {
 		wanted.push(nodeBin);
 	}
+	// Where `npm install -g` (Aria-managed prefix + the OS default) drops the
+	// codex CLI. Without these the per-extension MCP resolvers' `codex --version`
+	// PATH probe fails on Windows (codex.cmd lives under ~/.aria/npm, not on PATH),
+	// so Codex MCP registration silently no-ops for every extension but autopipe.
+	wanted.push(isWin ? ARIA_NPM_PREFIX : path.join(ARIA_NPM_PREFIX, 'bin'));
+	if (isWin) {
+		wanted.push(path.join(process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming'), 'npm'));
+	}
 	wanted.push(path.join(HOME, '.local', 'bin'));
 	const current = (process.env.PATH ?? '').split(path.delimiter);
 	const missing = wanted.filter(dir => dir && !current.includes(dir));

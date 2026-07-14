@@ -101,7 +101,7 @@ function download(url: string, dest: string, redirects = 0): Promise<void> {
 /** Run a command, resolving on exit 0 and rejecting otherwise. */
 function run(cmd: string, args: string[], cwd: string): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(cmd, args, { cwd, stdio: 'ignore' });
+		const child = spawn(cmd, args, { cwd, stdio: 'ignore', windowsHide: true });
 		child.on('error', reject);
 		child.on('close', code => (code === 0 ? resolve() : reject(new Error(`${cmd} exited with ${code}`))));
 	});
