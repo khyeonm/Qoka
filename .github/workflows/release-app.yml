@@ -1,17 +1,18 @@
 # Builds the Aria desktop app and attaches installers to a GitHub Release when a
 # version tag is pushed (e.g. `git tag v1.2.3 && git push origin v1.2.3`).
 # Structure follows autopipe-org/autopipe's release.yml (tag trigger + version
-# gate + OS matrix + gh-release upload), but the build is VS Code's own gulp
-# tasks (not tauri-action):
-#   macOS  → Aria.app in a .dmg   (build/darwin/create-dmg.ts, UNSIGNED)
+# gate + OS matrix + release upload), but the build is VS Code's own gulp tasks.
+#
+# Uses NO third-party actions (repo policy is `local_only`): the repo is cloned
+# by hand, Node comes straight from nodejs.org, and releases are managed with the
+# preinstalled `gh` CLI.
+#   macOS  → Aria.app in a .dmg  (build/darwin/create-dmg.ts, UNSIGNED)
 #   Windows→ per-user AriaSetup .exe (Inno Setup, UNSIGNED)
-# QEMU + the VM image ship separately (vm-assets.yml / vm-image.yml) and are
-# downloaded at runtime by the built-in Run environment.
+# QEMU + the VM image ship separately (vm-assets.yml / vm-image.yml).
 #
 # NOTE: the VS Code from-source build in CI is heavy and finicky — first runs
 # will need tuning (task names, output paths, node-gyp toolchains). Unsigned
-# builds warn on Gatekeeper (macOS: right-click → Open) / SmartScreen (Windows);
-# code signing is a later step.
+# builds warn on Gatekeeper (macOS: right-click → Open) / SmartScreen (Windows).
 name: Release (app)
 
 on:
@@ -26,8 +27,11 @@ jobs:
   verify-version:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Clone at tag
+        run: git clone --depth 1 --branch "${GITHUB_REF_NAME}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
       - name: Tag must match package.json version
         run: |
           TAG="${GITHUB_REF_NAME#v}"
@@ -42,21 +46,32 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14        # Apple Silicon
-            plat: darwin
-            arch: arm64
-          - os: macos-13        # Intel
-            plat: darwin
-            arch: x64
-          - os: windows-latest
-            plat: win32
-            arch: x64
+          - { os: macos-14, plat: darwin, arch: arm64, nodearch: arm64 }
+          - { os: macos-13, plat: darwin, arch: x64, nodearch: x64 }
+          - { os: windows-latest, plat: win32, arch: x64, nodearch: x64 }
     runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
+      - name: Clone
+        shell: bash
+        run: git clone --branch "${GITHUB_REF_NAME}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+
+      - name: Install Node from .nvmrc (no external action)
+        shell: bash
+        run: |
+          V="$(tr -d '[:space:]' < .nvmrc)"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            F="node-v$V-darwin-${{ matrix.nodearch }}"
+            curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
+            echo "$PWD/$F/bin" >> "$GITHUB_PATH"
+          else
+            F="node-v$V-win-x64"
+            curl -fsSL "https://nodejs.org/dist/v$V/$F.zip" -o node.zip
+            tar -xf node.zip     # bsdtar (Windows 10+) extracts .zip
+            echo "$PWD/$F" >> "$GITHUB_PATH"
+          fi
 
       - name: Install dependencies
         run: npm ci
@@ -88,8 +103,9 @@ jobs:
           mkdir -p artifacts
           cp .build/win32-${{ matrix.arch }}/user-setup/*.exe artifacts/ || true
 
-      - name: Attach to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: artifacts/*
+      - name: Attach installers to the tag's release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "Aria ${GITHUB_REF_NAME}" 2>/dev/null || true
+          for f in artifacts/*; do gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; done

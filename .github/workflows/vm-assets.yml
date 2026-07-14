@@ -92,8 +92,11 @@ jobs:
           tar -czf "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" -C "$OUT" .
 
       - name: Attach to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: vm-assets-v1
-          name: VM assets
-          files: qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create vm-assets-v1 --title "VM assets" \
+            --notes "Portable QEMU + base image for Aria's built-in run environment." 2>/dev/null || true
+          gh release upload vm-assets-v1 "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" --clobber
