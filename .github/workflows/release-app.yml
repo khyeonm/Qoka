@@ -60,6 +60,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      # @vscode/ripgrep (and other prebuilt downloaders) query the GitHub API;
+      # unauthenticated CI hits the 60/hr limit and 403s. Authenticate it.
+      GITHUB_TOKEN: ${{ github.token }}
       npm_config_arch: ${{ matrix.arch }}
       npm_config_target_arch: ${{ matrix.arch }}
     steps:
@@ -99,6 +102,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev
 
+      # preinstall.ts checks default VS install paths and can miss the runner's
+      # edition; point it straight at the real install via vswhere so the
+      # C/C++ toolchain check passes.
+      - name: Locate Visual Studio (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          if (-not $vs) { throw "Visual Studio not found via vswhere" }
+          "vs2022_install=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Found Visual Studio at: $vs"
+
       # Use `npm install`, not `npm ci`: some Aria extensions (aria-autopipe,
       # aria-vcs) ship without a committed package-lock.json, and the root
       # postinstall runs the same command in every workspace dir — `npm ci`
@@ -113,8 +129,11 @@ jobs:
             (cd "extensions/$e" && npm install && node build.mjs)
           done
 
+      # Full task (compile -> minify -> package). The `-min-ci` variant only
+      # packages and assumes out-vscode-min already exists (VS Code's pipeline
+      # builds it in a separate upstream job); we do everything in one job.
       - name: Build app tree
-        run: npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min-ci
+        run: npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min
 
       - name: Package macOS (.dmg)
         if: runner.os == 'macOS'
