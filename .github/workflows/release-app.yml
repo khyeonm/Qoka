@@ -18,7 +18,10 @@ name: Release (app)
 on:
   workflow_dispatch:
   push:
-    tags: ['v*']
+    # Aria release tags carry Aria's OWN version (aria-v0.1.0), independent of
+    # package.json's version, which stays at the forked VS Code API version
+    # (1.x) for extension compatibility.
+    tags: ['aria-v*']
 
 permissions:
   contents: write
@@ -32,15 +35,20 @@ jobs:
     steps:
       - name: Clone at tag
         run: git clone --depth 1 --branch "${GITHUB_REF_NAME}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
-      - name: Tag must match package.json version
+      - name: Tag must match Aria version; API version must stay 1.x
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${GITHUB_REF_NAME#aria-v}"
+          ARIA=$(jq -r '.ariaVersion' product.json)
           PKG=$(jq -r '.version' package.json)
-          if [ "$TAG" != "$PKG" ]; then
-            echo "::error::Version mismatch — tag=$TAG but package.json=$PKG. Bump package.json version to match the tag (or retag) before releasing."
+          if [ "$TAG" != "$ARIA" ]; then
+            echo "::error::Tag aria-v$TAG does not match product.json ariaVersion=$ARIA. Bump product.json ariaVersion (or retag) before releasing."
             exit 1
           fi
-          echo "Version OK: tag=$TAG == package.json=$PKG"
+          case "$PKG" in
+            1.*) : ;;
+            *) echo "::error::package.json version must stay 1.x for extension compatibility (got $PKG). Do NOT set it to the Aria version."; exit 1 ;;
+          esac
+          echo "Version OK: Aria $TAG (vscode API $PKG)"
 
   build:
     needs: [verify-version]
@@ -202,5 +210,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
-          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "Aria ${GITHUB_REF_NAME}" 2>/dev/null || true
+          VER="${GITHUB_REF_NAME#aria-v}"
+          gh release create "${GITHUB_REF_NAME}" --title "Aria ${VER}" --notes "Aria ${VER}" 2>/dev/null || true
           for f in artifacts/*; do gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; done

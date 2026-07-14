@@ -107,6 +107,9 @@ const vscodeResourceIncludes = [
 	'out-build/vs/workbench/contrib/extensions/browser/media/{theme-icon.png,language-icon.svg}',
 	'out-build/vs/workbench/services/extensionManagement/common/media/*.{svg,png}',
 
+	// Aria — view icons loaded at runtime via FileAccess.asBrowserUri
+	'out-build/vs/workbench/contrib/aria*/browser/media/*.{svg,png}',
+
 	// Webview
 	'out-build/vs/workbench/contrib/webview/browser/pre/*.{js,html}',
 

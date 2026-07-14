@@ -488,10 +488,12 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 		}
 
 		// Aria easy-mode branding — shown only in easy mode (via the
-		// `.aria-mode-easy` root class in CSS); it replaces the File/Edit… menu
-		// bar with the product name on the left. Prepended so it sits leftmost.
+		// `.aria-mode-easy` root class in CSS). Placed in the CENTER of the title
+		// bar (not the left) so it never overlaps the macOS traffic-light window
+		// controls. In easy mode the center window title is hidden, so the brand
+		// sits centered on its own.
 		if (!this.isAuxiliary) {
-			const brand = prepend(this.leftContent, $('.aria-titlebar-brand'));
+			const brand = prepend(this.centerContent, $('.aria-titlebar-brand'));
 			append(brand, $('.aria-titlebar-brand-mark')).textContent = 'A';
 			append(brand, $('.aria-titlebar-brand-name')).textContent = 'Aria';
 		}

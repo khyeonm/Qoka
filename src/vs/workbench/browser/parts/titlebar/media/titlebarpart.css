@@ -502,11 +502,11 @@
 
 /* --- Aria easy-mode title-bar branding ------------------------------------- */
 /* Hidden by default; shown only in easy mode where it replaces the menu bar. */
-.titlebar-left > .aria-titlebar-brand {
+.titlebar-center > .aria-titlebar-brand {
 	display: none;
 }
 
-.monaco-workbench.aria-mode-easy .titlebar-left > .aria-titlebar-brand {
+.monaco-workbench.aria-mode-easy .titlebar-center > .aria-titlebar-brand {
 	display: flex;
 	align-items: center;
 	gap: 7px;

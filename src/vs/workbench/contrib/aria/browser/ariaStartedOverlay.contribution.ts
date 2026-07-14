@@ -341,6 +341,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			return;
 		}
 
+		// Never show the sign-in / mode-and-project picker once a project folder
+		// is open. The picker is for the empty-workbench start only; a folder
+		// window must stay on the project — even if a provider extension failed
+		// to load or wasn't detected — instead of bouncing back to the picker.
+		if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY) {
+			return;
+		}
+
 		const overlay = document.createElement('div');
 		overlay.id = 'aria-started-overlay';
 		overlay.style.position = 'fixed';
