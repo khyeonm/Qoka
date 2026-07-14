@@ -56,6 +56,9 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				: 'GitHub: Not connected — open the Autopipe tab in the activity bar, find the GitHub section, and click "Connect to GitHub" to log in.';
 			return textResult([
 				`SSH: ${profile.username}@${profile.host}:${profile.port}`,
+				config.isLocalVmActive()
+					? `Run environment: Aria built-in server (local VM) — memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings — honour them for this run; if the run needs more, propose set_vm_resources.`
+					: 'Run environment: user-provided SSH server.',
 				`Repo path: ${paths.repo_path}`,
 				`Pipelines: ${paths.pipelines_dir}`,
 				`Input: ${paths.input_dir}`,

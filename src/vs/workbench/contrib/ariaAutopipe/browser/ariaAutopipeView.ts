@@ -446,6 +446,13 @@ export class AriaAutopipeView extends ViewPane {
 		sub.textContent = 'Runs on this computer — no server needed';
 		Object.assign(sub.style, { fontSize: '10.5px', opacity: '0.6' });
 
+		// Gear on the right → simple resource settings (memory / CPU) for the
+		// built-in server. Stops propagation so it doesn't also toggle the row.
+		const gear = append(row, $('span.codicon.codicon-settings-gear')) as HTMLElement;
+		gear.title = 'Built-in server settings (memory, CPU)';
+		Object.assign(gear.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
+		gear.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.vm.editResources').then(() => this.refresh()); };
+
 		row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.vm.setActive').then(() => this.refresh()); };
 
 		// A single button carries the state when the built-in is active and not yet

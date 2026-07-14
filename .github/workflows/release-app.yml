@@ -109,7 +109,7 @@ jobs:
         run: |
           # Retries + timeouts so a flaky apt mirror doesn't hang the job.
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev
+          sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
 
       # preinstall.ts checks default VS install paths and can miss the runner's
       # edition; point it straight at the real install via vswhere so the
@@ -156,6 +156,9 @@ jobs:
           } else {
             Write-Host "No 3.11/3.12 Python in toolcache; keeping default."
           }
+          # Run the postinstall's per-directory npm installs one at a time: parallel
+          # child processes crash the Windows build with 0xC0000409.
+          "VSCODE_POSTINSTALL_CONCURRENCY=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # Use `npm install`, not `npm ci`: some Aria extensions (aria-autopipe,
       # aria-vcs) ship without a committed package-lock.json, and the root
@@ -218,11 +221,16 @@ jobs:
           mkdir -p artifacts
           cp .build/win32-${{ matrix.arch }}/user-setup/*.exe artifacts/ || true
 
-      - name: Package Linux (.tar.gz)
+      - name: Package Linux (.deb + .tar.gz)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           mkdir -p artifacts
+          # .deb for Debian/Ubuntu — double-click / `apt install ./x.deb`, the
+          # friendlier option for non-developers (matches autopipe shipping .deb).
+          npm run gulp -- vscode-linux-${{ matrix.arch }}-prepare-deb vscode-linux-${{ matrix.arch }}-build-deb
+          find .build/linux/deb -name "*.deb" -exec cp {} artifacts/ \;
+          # Universal fallback for non-Debian distros: extract and run ./bin/aria.
           tar -czf "artifacts/Aria-linux-${{ matrix.arch }}.tar.gz" \
             -C "$PWD/.." "VSCode-linux-${{ matrix.arch }}"
 

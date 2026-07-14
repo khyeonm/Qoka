@@ -90,6 +90,29 @@ export function activate(context: vscode.ExtensionContext): void {
 		// Resource overrides (RAM/CPU) — applied on next VM start.
 		vscode.commands.registerCommand('aria.autopipe.vm.setResources', (patch: unknown) =>
 			config.setLocalVmResources((patch ?? {}) as { memoryMB?: number; cpus?: number })),
+		// Interactive editor invoked by the panel's gear button: simple RAM/CPU
+		// inputs, then offer to restart the VM so the change takes effect.
+		vscode.commands.registerCommand('aria.autopipe.vm.editResources', async () => {
+			const cur = config.get().local_vm;
+			const memGB = await vscode.window.showInputBox({
+				title: 'Built-in server — Memory (GB)',
+				value: String(Math.max(1, Math.round(cur.memoryMB / 1024))),
+				validateInput: v => /^\d+$/.test(v) && +v >= 1 && +v <= 128 ? undefined : 'Whole number of GB (1–128)',
+			});
+			if (memGB === undefined) { return; }
+			const cpus = await vscode.window.showInputBox({
+				title: 'Built-in server — CPU cores',
+				value: String(cur.cpus),
+				validateInput: v => /^\d+$/.test(v) && +v >= 1 && +v <= 32 ? undefined : 'Whole number of cores (1–32)',
+			});
+			if (cpus === undefined) { return; }
+			await config.setLocalVmResources({ memoryMB: Number(memGB) * 1024, cpus: Number(cpus) });
+			if (config.isLocalVmActive()) {
+				const restart = await vscode.window.showInformationMessage(
+					'Built-in server settings saved. Restart it now to apply?', 'Restart now', 'Later');
+				if (restart === 'Restart now') { await vm.stop(); await vm.start(); }
+			}
+		}),
 	);
 
 	// Register the SSH/GitHub/Repo/Registry setup commands the panel calls.

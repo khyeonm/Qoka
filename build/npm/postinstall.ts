@@ -308,8 +308,13 @@ async function main() {
 		await task();
 	}
 
-	// JS-only dirs run in parallel
-	const concurrency = Math.min(os.cpus().length, 8);
+	// JS-only dirs run in parallel. VSCODE_POSTINSTALL_CONCURRENCY overrides the
+	// default — set it to 1 on Windows, where parallel npm child processes have
+	// been crashing the build with 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN).
+	const concurrencyOverride = parseInt(process.env['VSCODE_POSTINSTALL_CONCURRENCY'] ?? '', 10);
+	const concurrency = Number.isFinite(concurrencyOverride) && concurrencyOverride > 0
+		? concurrencyOverride
+		: Math.min(os.cpus().length, 8);
 	log('.', `Running ${parallelTasks.length} npm installs with concurrency ${concurrency}...`);
 	await runWithConcurrency(parallelTasks, concurrency);
 

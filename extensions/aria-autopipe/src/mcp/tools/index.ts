@@ -10,6 +10,7 @@ import { EXECUTION_TOOLS } from './execution';
 import { FILE_TOOLS } from './files';
 import { RESULT_TOOLS } from './results';
 import { PLUGIN_TOOLS } from './plugins';
+import { VM_TOOLS } from './vm';
 
 // Concatenated in the order they appear in autopipe-app's server.rs so that
 // `tools/list` returns tools in a consistent, predictable sequence.
@@ -31,6 +32,8 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	RESULT_TOOLS[1], // show_results
 	...WORKSPACE_TOOLS.slice(1), // get_templates, get_generation_guide
 	...PLUGIN_TOOLS,
+	...VM_TOOLS, // built-in server resources (get/set) — only for the local VM
+
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
