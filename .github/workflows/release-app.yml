@@ -55,6 +55,7 @@ jobs:
           # drive the build; npm_config_arch=x64 targets x64 native modules.
           - { os: macos-14, plat: darwin, arch: x64, nodearch: arm64 }
           - { os: windows-latest, plat: win32, arch: x64, nodearch: x64 }
+          - { os: ubuntu-22.04, plat: linux, arch: x64, nodearch: x64 }
     runs-on: ${{ matrix.os }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -66,29 +67,50 @@ jobs:
         shell: bash
         run: git clone --branch "${GITHUB_REF_NAME}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
 
-      - name: Install Node from .nvmrc (no external action)
+      # Node comes straight from nodejs.org (no external action). Windows uses
+      # PowerShell + Expand-Archive because Git Bash's tar is GNU tar and can't
+      # read .zip. macOS/Linux use the .tar.xz.
+      - name: Install Node from .nvmrc (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           V="$(tr -d '[:space:]' < .nvmrc)"
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            F="node-v$V-darwin-${{ matrix.nodearch }}"
-            curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
-            echo "$PWD/$F/bin" >> "$GITHUB_PATH"
-          else
-            F="node-v$V-win-x64"
-            curl -fsSL "https://nodejs.org/dist/v$V/$F.zip" -o node.zip
-            tar -xf node.zip     # bsdtar (Windows 10+) extracts .zip
-            echo "$PWD/$F" >> "$GITHUB_PATH"
-          fi
+          case "${{ runner.os }}" in
+            macOS) OS=darwin ;;
+            Linux) OS=linux ;;
+          esac
+          F="node-v$V-$OS-${{ matrix.nodearch }}"
+          curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
+          echo "$PWD/$F/bin" >> "$GITHUB_PATH"
 
+      - name: Install Node from .nvmrc (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $V = (Get-Content .nvmrc -Raw).Trim()
+          $F = "node-v$V-win-x64"
+          curl.exe -fsSL "https://nodejs.org/dist/v$V/$F.zip" -o node.zip
+          Expand-Archive -Path node.zip -DestinationPath . -Force
+          "$PWD\$F" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev
+
+      # Use `npm install`, not `npm ci`: some Aria extensions (aria-autopipe,
+      # aria-vcs) ship without a committed package-lock.json, and the root
+      # postinstall runs the same command in every workspace dir — `npm ci`
+      # aborts there, `npm install` does not. Matches the local dev build.
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build self-bundling extensions
         shell: bash
         run: |
           for e in aria-notes aria-memory aria-authentication; do
-            (cd "extensions/$e" && npm ci && node build.mjs)
+            (cd "extensions/$e" && npm install && node build.mjs)
           done
 
       - name: Build app tree
@@ -110,6 +132,14 @@ jobs:
           npm run gulp vscode-win32-${{ matrix.arch }}-user-setup
           mkdir -p artifacts
           cp .build/win32-${{ matrix.arch }}/user-setup/*.exe artifacts/ || true
+
+      - name: Package Linux (.tar.gz)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          tar -czf "artifacts/Aria-linux-${{ matrix.arch }}.tar.gz" \
+            -C "$PWD/.." "VSCode-linux-${{ matrix.arch }}"
 
       - name: Attach installers to the tag's release
         if: startsWith(github.ref, 'refs/tags/')
