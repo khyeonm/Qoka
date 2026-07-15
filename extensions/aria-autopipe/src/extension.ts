@@ -266,6 +266,15 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	})();
 
+	// Re-register on demand: the chat-open coordinator (workbench) calls this
+	// when an AI chat opens, so a provider whose CLI was installed after startup
+	// gets registered right when the user goes to use it. Returns true if it
+	// newly registered something, so the coordinator can show one "open a new
+	// chat" prompt across all Aria MCPs.
+	context.subscriptions.push(
+		vscode.commands.registerCommand('aria.autopipe.reregisterMcp', () => refreshAiRegistrations()),
+	);
+
 	context.subscriptions.push(
 		vscode.commands.registerCommand('aria.autopipe.getStatus', async (silent?: boolean) => {
 			const detection = await detectAiProviders();
@@ -433,8 +442,11 @@ async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient
  * cleaned up. Idempotent because the underlying register/unregister
  * functions remove any prior entry before adding.
  */
-let refreshInFlight: Promise<void> | null = null;
-async function refreshAiRegistrations(): Promise<void> {
+// Returns true if a provider was NEWLY registered (so the caller can prompt the
+// user to open a fresh chat). The self-notification is gone: the chat-open
+// coordinator shows a single toast across all Aria MCPs instead.
+let refreshInFlight: Promise<boolean> | null = null;
+async function refreshAiRegistrations(): Promise<boolean> {
 	// Coalesce rapid-fire onDidChange events (extension installs often
 	// fire several in quick succession) so we don't spam registration
 	// calls.
@@ -444,7 +456,7 @@ async function refreshAiRegistrations(): Promise<void> {
 	refreshInFlight = (async () => {
 		try {
 			if (!mcpServer || !mcpServer.currentPort) {
-				return;
+				return false;
 			}
 			const port = mcpServer.currentPort;
 			const detection = await detectAiProviders();
@@ -477,17 +489,14 @@ async function refreshAiRegistrations(): Promise<void> {
 				lastRegistration.codex = { ok: false, message: 'extension uninstalled', port: null };
 			}
 
-			if (newlyConnected.length > 0) {
-				vscode.window.showInformationMessage(
-					'Autopipe MCP connected. Open a new chat to use it.',
-				);
-			}
+			return newlyConnected.length > 0;
 		} catch (err) {
 			console.error('[aria-autopipe] refreshAiRegistrations failed:', err);
+			return false;
 		}
 	})();
 	try {
-		await refreshInFlight;
+		return await refreshInFlight;
 	} finally {
 		refreshInFlight = null;
 	}

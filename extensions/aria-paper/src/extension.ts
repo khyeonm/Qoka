@@ -236,6 +236,11 @@ export function activate(context: vscode.ExtensionContext): void {
 		if (timer) { clearTimeout(timer); }
 		timer = setTimeout(() => { void registerAllProviders(currentPort!); }, 800);
 	}));
+
+	// On-demand re-register for the workbench chat-open coordinator; true if it
+	// newly registered something.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.reregisterMcp', async () =>
+		currentPort === undefined ? false : (await registerAllProviders(currentPort)).changed));
 }
 
 export async function deactivate(): Promise<void> {

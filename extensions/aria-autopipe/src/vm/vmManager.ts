@@ -206,9 +206,14 @@ export class VMManager {
 			// Capture QEMU's own stderr (accel/argument errors) to qemu-stderr.log
 			// so a silent timeout is still diagnosable.
 			const errLog = fs.openSync(path.join(this.dir, 'qemu-stderr.log'), 'w');
-			this.proc = spawn(qemu, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
-			this.proc.on('exit', (code) => {
+			const proc = spawn(qemu, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
+			this.proc = proc;
+			proc.on('exit', (code) => {
 				try { fs.closeSync(errLog); } catch { /* already closed */ }
+				// Ignore if a restart already replaced this process: otherwise the
+				// OLD proc's late exit (SIGTERM from stop() isn't instant) fires
+				// after the NEW VM is 'ready' and wrongly flips it to 'error'.
+				if (this.proc !== proc) { return; }
 				// Only a hard error once we're READY (qemu died mid-run). During
 				// boot, waitForSsh detects the exit and the loop below retries.
 				if (this._status === 'ready') {
@@ -290,9 +295,14 @@ export class VMManager {
 			'--device', `virtio-serial,logFilePath=${consoleLog}`,
 		];
 		const errLog = fs.openSync(path.join(this.dir, 'vfkit-stderr.log'), 'w');
-		this.proc = spawn(vfkit, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
-		this.proc.on('exit', (code) => {
+		const proc = spawn(vfkit, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
+		this.proc = proc;
+		proc.on('exit', (code) => {
 			try { fs.closeSync(errLog); } catch { /* already closed */ }
+			// Ignore a stale exit after a restart replaced this process, or the
+			// old vfkit's late SIGTERM exit would flip the freshly-booted VM to
+			// 'error' ("running then not connected" on the restart button).
+			if (this.proc !== proc) { return; }
 			if (this._status === 'ready') {
 				this.set('error', `VM exited unexpectedly (code ${code}; see vfkit-stderr.log / console.log).`);
 				this.config.setLocalVmEndpoint(null);
@@ -363,8 +373,28 @@ export class VMManager {
 	async stop(): Promise<void> {
 		this.set('stopped');
 		this.config.setLocalVmEndpoint(null);
-		if (this.proc) { try { this.proc.kill('SIGTERM'); } catch { /* ignore */ } this.proc = undefined; }
-		if (this.gvproxyProc) { try { this.gvproxyProc.kill('SIGTERM'); } catch { /* ignore */ } this.gvproxyProc = undefined; }
+		const procs = [this.proc, this.gvproxyProc].filter((p): p is ChildProcess => !!p);
+		this.proc = undefined;
+		this.gvproxyProc = undefined;
+		// WAIT for the processes to actually exit before returning. A restart calls
+		// start() immediately after stop(); if we don't wait, the OLD VM can still
+		// hold the disk image (overlay.qcow2 / disk.raw) open when the NEW one boots
+		// - a hard failure under Windows' exclusive file locks - and its late exit
+		// event can flip the freshly-booted VM to 'error'.
+		await Promise.all(procs.map(p => this.killAndWait(p)));
+	}
+
+	/** SIGTERM a process and resolve once it exits, falling back to SIGKILL if it
+	 *  lingers, so a caller (restart) can safely reuse its files afterwards. */
+	private killAndWait(p: ChildProcess): Promise<void> {
+		return new Promise<void>((resolve) => {
+			if (p.exitCode !== null || p.signalCode !== null) { resolve(); return; }
+			let settled = false;
+			const finish = (): void => { if (!settled) { settled = true; resolve(); } };
+			p.once('exit', finish);
+			try { p.kill('SIGTERM'); } catch { /* already gone */ }
+			setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* ignore */ } finish(); }, 3000);
+		});
 	}
 
 	async reset(): Promise<void> {

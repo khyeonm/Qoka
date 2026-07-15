@@ -15,6 +15,7 @@ import { IWorkspacesService, IRecentlyOpened, isRecentFolder, isRecentWorkspace 
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IAuthenticationService, AuthenticationSession } from '../../../services/authentication/common/authentication.js';
@@ -147,6 +148,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		@IWorkspacesService private readonly workspacesService: IWorkspacesService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
+		@IFileService private readonly fileService: IFileService,
 		@IHostService private readonly hostService: IHostService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IAuthenticationService private readonly authService: IAuthenticationService,
@@ -1068,17 +1070,33 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			// User cancelled - keep the overlay up.
 			return;
 		}
+		// Canonicalise the save-dialog target into a plain file:// folder URI, the
+		// same shape openWindow gets for recent/Open Project (which work). A raw
+		// showSaveDialog URI can differ enough on Windows that the reload lands in
+		// an empty window and bounces back to the picker.
+		const folderUri = URI.file(target.fsPath);
 		// Create the folder + a fresh EMPTY roadmap file. We use createEmptyAt
 		// (not saveTo) so the new project never inherits a roadmap that might be
 		// in memory - each project's roadmap is independent.
 		try {
-			await this.commandService.executeCommand('aria.roadmap.createEmptyAt', target.fsPath);
+			await this.commandService.executeCommand('aria.roadmap.createEmptyAt', folderUri.fsPath);
 		} catch (e) {
 			this.notificationService.notify({
 				severity: Severity.Error,
 				message: `Could not create the project: ${(e as Error).message}`,
 			});
 			return;
+		}
+		// The folder is created in the EXTENSION HOST, but openWindow runs in the
+		// MAIN process. On Windows that mkdir can lag the reload, so openWindow
+		// sees "folder not found", opens an empty window (still recording it in
+		// recent), and Started re-shows its picker. Wait until the workbench's own
+		// file service can see the folder before reloading into it.
+		for (let i = 0; i < 30; i++) {
+			try {
+				if (await this.fileService.exists(folderUri)) { break; }
+			} catch { /* provider not ready yet - keep polling */ }
+			await new Promise(r => setTimeout(r, 100));
 		}
 		try {
 			sessionStorage.setItem('aria.roadmap.autoOpenWizard', '1');
@@ -1090,7 +1108,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			// Roadmap sidebar once the window loads.
 		}
 		this.pickAndDismiss(() => {
-			void this.hostService.openWindow([{ folderUri: target }], { forceReuseWindow: true });
+			void this.hostService.openWindow([{ folderUri }], { forceReuseWindow: true });
 		});
 	}
 

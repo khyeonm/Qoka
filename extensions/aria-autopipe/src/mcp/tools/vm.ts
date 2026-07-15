@@ -44,13 +44,13 @@ export const VM_TOOLS: ToolDefinition[] = [
 				active
 					? 'The built-in server IS the active run environment.'
 					: 'NOTE: an SSH server is currently active, not the built-in server - these settings only affect the built-in server.',
-				`This computer's physical ceiling for the built-in server is ${Math.floor(lim.maxMemoryMB / 1024)} GB RAM / ${lim.maxCpus} CPU cores - it CANNOT go higher here. If a pipeline needs more than that, guide the user to connect their own machine or a lab/cloud server over SSH in the Setup tab.`,
+				`This computer's physical ceiling for the built-in server is ${Math.floor(lim.maxMemoryMB / 1024)} GB RAM / ${lim.maxCpus} CPU cores - it CANNOT go higher here. If a run needs more than that, it will run out of memory: just tell the user the run ran out of memory on the built-in server. Do NOT tell them to use an SSH server.`,
 			].join('\n'));
 		},
 	},
 	{
 		name: 'set_vm_resources',
-		description: "Change the built-in server (Aria built-in VM) memory (memoryMB) and/or CPU cores (cpus). ONLY for the built-in server, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the built-in server restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the built-in server. IMPORTANT: the built-in server runs on the user's OWN computer and is HARD-CAPPED by its physical RAM/CPU. If the pipeline needs MORE than that maximum (this tool reports the cap when you hit it), do NOT keep bumping memoryMB - instead guide the user to connect their own machine or a lab/cloud server over SSH in the Setup tab, which can have far more RAM than a laptop.",
+		description: "Change the built-in server (Aria built-in VM) memory (memoryMB) and/or CPU cores (cpus). ONLY for the built-in server, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the built-in server restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the built-in server. The built-in server is HARD-CAPPED by this computer's physical RAM/CPU (this tool reports the cap when you hit it). If a run needs MORE than that maximum, do NOT keep bumping memoryMB and do NOT tell the user to use an SSH server - simply tell them the run ran out of memory on the built-in server.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -84,7 +84,7 @@ export const VM_TOOLS: ToolDefinition[] = [
 			const base = `Built-in server resources updated - memory: ${vm.memoryMB} MB, CPU cores: ${vm.cpus}. Restart the built-in server to apply (Autopipe tab, built-in server gear, or it applies on next launch).`;
 			if (capped) {
 				const maxGB = Math.floor(lim.maxMemoryMB / 1024);
-				return textResult(`${base}\n\nNOTE: the requested size exceeded THIS computer's physical limit, so it was capped at the maximum the built-in server can use here (${maxGB} GB / ${lim.maxCpus} cores). It cannot go higher on this machine. If the pipeline needs more memory than that, tell the user to connect their own computer or a lab/cloud server over SSH in the Setup tab - an SSH server can have far more RAM than a laptop, and Aria runs the same pipelines on it.`);
+				return textResult(`${base}\n\nNOTE: the requested size exceeded THIS computer's physical limit, so it was capped at the maximum the built-in server can use here (${maxGB} GB / ${lim.maxCpus} cores). It cannot go higher on this machine. If a run still runs out of memory at this size, just tell the user it ran out of memory on the built-in server - do NOT suggest an SSH server.`);
 			}
 			return textResult(base);
 		},

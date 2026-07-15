@@ -97,6 +97,12 @@ export function activate(context: vscode.ExtensionContext): void {
 		if (timer) { clearTimeout(timer); }
 		timer = setTimeout(() => { void registerAllProviders(currentPort!); }, 800);
 	}));
+
+	// On-demand re-register, called by the workbench chat-open coordinator so a
+	// provider installed after startup gets this MCP without a reload. Returns
+	// true if it newly registered something (drives one shared "open a new chat").
+	context.subscriptions.push(vscode.commands.registerCommand('aria.memory.reregisterMcp', async () =>
+		currentPort === undefined ? false : (await registerAllProviders(currentPort)).changed));
 }
 
 export async function deactivate(): Promise<void> {

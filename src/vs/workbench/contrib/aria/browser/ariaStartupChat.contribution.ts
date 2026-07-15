@@ -65,6 +65,11 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// it directly), so a slow/failed MCP boot can't block the CLI install.
 		void this._ensureProviderClis();
 
+		// Ensure every Aria MCP is registered with the installed provider(s), and
+		// keep it correct when a provider is installed later. One coordinated
+		// "open a new chat" toast across all Aria MCPs (not one per server).
+		this._wireMcpReconcile();
+
 		// Cover the window IMMEDIATELY (synchronously, at window load) so the bare
 		// workbench never flashes, then decide once we can read the live state.
 		const hideLoading = this._showLoadingOverlay('Preparing Aria…');
@@ -100,6 +105,52 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			// may register its reveal command a moment after we ask.
 			void revealAiProviderChat(this.commandService, this.configurationService, { retryMs: 6000 });
 		})();
+	}
+
+	/** Every Aria MCP extension exposes this command: re-run its registration
+	 *  with whatever provider CLIs are present, returning true if it NEWLY
+	 *  registered something. Firing all of them and OR-ing the results lets us
+	 *  show a single "open a new chat" prompt. */
+	private readonly _mcpReregisterCommands = [
+		'aria.autopipe.reregisterMcp',
+		'aria.paper.reregisterMcp',
+		'aria.paperSearch.reregisterMcp',
+		'aria.memory.reregisterMcp',
+		'aria.notes.reregisterMcp',
+		'aria.roadmap.reregisterMcp',
+		'aria.methodsSearch.reregisterMcp',
+		'aria.hypothesis.reregisterMcp',
+	];
+	private _mcpKickScheduled = false;
+
+	/** Ask every Aria MCP to (re)register; show ONE toast if any newly did. A
+	 *  command that isn't registered yet (its extension not active) just resolves
+	 *  to false. Registration is done via each provider's CLI, so the config
+	 *  schema is always correct - we never hand-write ~/.claude.json / config.toml. */
+	private async _reconcileMcp(): Promise<void> {
+		const results = await Promise.all(this._mcpReregisterCommands.map(cmd =>
+			Promise.resolve(this.commandService.executeCommand<boolean>(cmd)).then(r => r === true, () => false)));
+		if (results.some(Boolean)) {
+			this.notificationService.info('Aria tools connected. Open a NEW Claude or Codex chat to use them.');
+		}
+	}
+
+	/** Run the reconcile on startup and whenever the installed extension set
+	 *  changes (a provider installed later). Each trigger fires a few DELAYED
+	 *  passes too, because a provider's CLI can land a couple of seconds after
+	 *  its extension - a bounded catch-up, not a perpetual poll. */
+	private _wireMcpReconcile(): void {
+		const kick = (): void => {
+			if (this._mcpKickScheduled) {
+				return;
+			}
+			this._mcpKickScheduled = true;
+			void this._reconcileMcp();
+			setTimeout(() => void this._reconcileMcp(), 6000);
+			setTimeout(() => { void this._reconcileMcp(); this._mcpKickScheduled = false; }, 15000);
+		};
+		void Promise.race([whenAriaSetupReady(), timeout(30000)]).then(kick, kick);
+		this._register(this.extensionService.onDidChangeExtensions(() => kick()));
 	}
 
 	/** Auto-install the CLI for each provider the user chose (from the
