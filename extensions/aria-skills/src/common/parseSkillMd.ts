@@ -193,12 +193,25 @@ function contextAround(content: string, anchor: string, span: number): string {
 }
 
 function summariseContext(ctx: string): string | undefined {
-	const sentences = ctx
+	// Many skills document env vars in a MARKDOWN TABLE, which has no sentence
+	// punctuation — the old "first sentence" logic then returned raw
+	// `| cell | cell | ---|--- |` gibberish. Bail on table-shaped context
+	// (better to show NO description than garbage; the LLM path produces a clean
+	// one for these). Then strip markup and keep only a real prose sentence.
+	if ((ctx.match(/\|/g) ?? []).length >= 2 || /-{3,}/.test(ctx)) {
+		return undefined;
+	}
+	const cleaned = ctx
+		.replace(/`([^`]*)`/g, '$1')            // inline code
+		.replace(/https?:\/\/[^\s)]+/g, '')     // URLs
+		.replace(/[*_#>]/g, ' ')                // md emphasis / headings / quotes
 		.replace(/\s+/g, ' ')
+		.trim();
+	const first = cleaned
 		.split(/(?<=[.!?])\s+/)
 		.map(s => s.trim())
-		.filter(Boolean);
-	return sentences[0]?.slice(0, 180);
+		.find(s => s.length >= 8 && /\s/.test(s) && /[a-z]/i.test(s));
+	return first?.slice(0, 180);
 }
 
 function extractDependencies(content: string): SkillDependency[] {

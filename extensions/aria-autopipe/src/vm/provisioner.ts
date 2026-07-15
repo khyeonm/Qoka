@@ -28,6 +28,12 @@ const execFileAsync = promisify(execFile);
 const RELEASE_BASE = process.env.ARIA_VM_RELEASE_BASE
 	|| 'https://github.com/khyeonm/aria-vscode/releases/download/vm-assets-v1';
 
+// Bumped whenever the published aria-vm-<arch>.qcow2 changes in a way that a
+// cached copy must be replaced. v2 = docker baked in + disk resized to 20G.
+// A cached image whose tag differs is deleted and re-downloaded (see
+// ensureImage), and its overlay is discarded so it rebuilds against the new base.
+const IMAGE_TAG = 'v2-docker';
+
 export type ProgressFn = (message: string, pct?: number) => void;
 
 export class Provisioner {
@@ -44,6 +50,38 @@ export class Provisioner {
 		if (process.env.ARIA_QEMU_PATH) { return process.env.ARIA_QEMU_PATH; }
 		const exe = process.platform === 'win32' ? '.exe' : '';
 		return path.join(this.qemuDir(), 'bin', `qemu-system-${this.qemuArch()}${exe}`);
+	}
+
+	// --- vfkit (macOS Apple Virtualization.framework backend) ----------------
+
+	vfkitDir(): string { return path.join(this.dir, 'vfkit'); }
+	vfkitBinPath(): string { return process.env.ARIA_VFKIT_PATH || path.join(this.vfkitDir(), 'bin', 'vfkit'); }
+	gvproxyBinPath(): string { return path.join(this.vfkitDir(), 'bin', 'gvproxy'); }
+
+	/** Ensure the vfkit + gvproxy bundle is present; download + extract if missing.
+	 *  macOS only — vfkit drives Apple's Virtualization.framework, which works on
+	 *  every Apple Silicon generation (unlike qemu's HVF, broken on M4). */
+	async ensureVfkit(progress: ProgressFn): Promise<{ vfkit: string; gvproxy: string }> {
+		const vfkit = this.vfkitBinPath();
+		const gvproxy = this.gvproxyBinPath();
+		if (process.env.ARIA_VFKIT_PATH) {
+			if (fs.existsSync(vfkit)) { return { vfkit, gvproxy }; }
+			throw new Error(`ARIA_VFKIT_PATH set but not found: ${process.env.ARIA_VFKIT_PATH}`);
+		}
+		if (fs.existsSync(vfkit) && fs.existsSync(gvproxy)) { return { vfkit, gvproxy }; }
+		const asset = 'vfkit-darwin.tar.gz';
+		const tgz = path.join(this.dir, asset);
+		progress('Downloading the Mac run environment (vfkit)…');
+		await this.download(`${RELEASE_BASE}/${asset}`, tgz, (pct) => progress('Downloading vfkit…', pct));
+		progress('Unpacking vfkit…');
+		fs.mkdirSync(this.vfkitDir(), { recursive: true });
+		await execFileAsync('tar', ['-xzf', tgz, '-C', this.vfkitDir()]);
+		try { fs.rmSync(tgz); } catch { /* ignore */ }
+		if (!fs.existsSync(vfkit) || !fs.existsSync(gvproxy)) {
+			throw new Error('vfkit package did not contain the expected binaries.');
+		}
+		for (const b of [vfkit, gvproxy]) { try { fs.chmodSync(b, 0o755); } catch { /* ignore */ } }
+		return { vfkit, gvproxy };
 	}
 
 	imagePath(): string {
@@ -94,17 +132,34 @@ export class Provisioner {
 		return bin;
 	}
 
-	/** Ensure the base VM image is present; download if missing. */
+	/** Ensure the base VM image is present AND current; download if missing or
+	 *  if the cached copy predates the current IMAGE_TAG (e.g. an old image
+	 *  without docker baked in). */
 	async ensureImage(progress: ProgressFn): Promise<string> {
 		const img = this.imagePath();
-		if (fs.existsSync(img)) { return img; }
+		// Dev override: use the local file as-is, no tag/version handling.
 		if (process.env.ARIA_AUTOPIPE_VM_IMAGE) {
+			if (fs.existsSync(img)) { return img; }
 			throw new Error(`ARIA_AUTOPIPE_VM_IMAGE set but not found: ${process.env.ARIA_AUTOPIPE_VM_IMAGE}`);
 		}
+		const tagFile = path.join(this.dir, 'image.tag');
+		const currentTag = fs.existsSync(tagFile) ? fs.readFileSync(tagFile, 'utf8').trim() : '';
+		if (fs.existsSync(img) && currentTag === IMAGE_TAG) { return img; }
+		// Missing, or a stale generation: discard the old base AND its overlay
+		// (the overlay's backing file / size no longer matches the new base, so
+		// on Windows — where the overlay is persisted — it would fail to open).
+		if (fs.existsSync(img)) {
+			try { fs.rmSync(img); } catch { /* overwritten below */ }
+		}
+		// Discard derived per-boot disks so they rebuild against the new base:
+		// the qemu overlay (Windows) and the vfkit raw conversion (macOS).
+		try { fs.rmSync(path.join(this.dir, 'overlay.qcow2')); } catch { /* may not exist */ }
+		try { fs.rmSync(path.join(this.dir, 'disk.raw')); } catch { /* may not exist */ }
 		const asset = `aria-vm-${this.arch()}.qcow2`;
 		progress('Downloading the run environment image…');
 		await this.download(`${RELEASE_BASE}/${asset}`, img + '.part', (pct) => progress('Downloading VM image…', pct));
 		fs.renameSync(img + '.part', img); // atomic: a half-download never looks complete
+		try { fs.writeFileSync(tagFile, IMAGE_TAG); } catch { /* best-effort marker */ }
 		return img;
 	}
 

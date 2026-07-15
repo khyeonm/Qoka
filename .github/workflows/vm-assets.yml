@@ -167,3 +167,37 @@ jobs:
           gh release create vm-assets-v1 --title "VM assets" \
             --notes "Portable QEMU + base image for Aria's built-in run environment." 2>/dev/null || true
           gh release upload vm-assets-v1 "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" --clobber
+
+  # macOS-only fast path: Apple Virtualization.framework (VZ) via vfkit. QEMU's
+  # HVF accelerator is broken on Apple Silicon M4 (SME sysreg assertion), so on
+  # Mac the built-in VM boots under vfkit instead — same per-user local VM, no
+  # HVF. Networking is user-mode via gvproxy (no vmnet entitlement required).
+  vfkit:
+    runs-on: macos-14
+    steps:
+      - name: Download, sign, and package vfkit + gvproxy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euxo pipefail
+          mkdir -p out/bin
+          # vfkit: Apple Virtualization.framework CLI (Go static binary — no dylibs).
+          curl -fL -o out/bin/vfkit \
+            "https://github.com/crc-org/vfkit/releases/latest/download/vfkit"
+          # gvproxy: user-mode networking, no privileged vmnet entitlement needed.
+          curl -fL -o out/bin/gvproxy \
+            "https://github.com/containers/gvisor-tap-vsock/releases/latest/download/gvproxy-darwin"
+          chmod +x out/bin/vfkit out/bin/gvproxy
+          # Do NOT re-sign: the official vfkit is already Developer-ID signed and
+          # notarized with BOTH the com.apple.security.virtualization AND
+          # com.apple.vm.networking entitlements. An ad-hoc re-sign would strip
+          # the networking entitlement and break vmnet/gvproxy. vfkit's own
+          # entitlements govern vfkit regardless of Aria being unsigned. tar drops
+          # the quarantine xattr, so the extracted binary runs without Gatekeeper.
+          codesign -dv --entitlements - out/bin/vfkit || true
+          tar -czf vfkit-darwin.tar.gz -C out .
+          gh release create vm-assets-v1 --title "VM assets" \
+            --notes "Portable QEMU + base image for Aria's built-in run environment." 2>/dev/null || true
+          gh release upload vm-assets-v1 vfkit-darwin.tar.gz --clobber

@@ -8,6 +8,7 @@ import { spawn, ChildProcess, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as net from 'net';
+import * as http from 'http';
 import * as path from 'path';
 import { ConfigService } from '../config/configService';
 import { LOCAL_VM_ID, SshProfile } from '../common/types';
@@ -52,6 +53,7 @@ export class VMManager {
 	private _error: string | undefined;
 	private _progress: { message: string; pct?: number } | undefined;
 	private proc: ChildProcess | undefined;
+	private gvproxyProc: ChildProcess | undefined;   // macOS vfkit networking helper
 	private starting: Promise<void> | undefined;
 	private readonly _onDidChange = new vscode.EventEmitter<VmStatus>();
 	readonly onDidChangeStatus = this._onDidChange.event;
@@ -124,14 +126,25 @@ export class VMManager {
 		this.set('ready');
 	}
 
-	/** Real QEMU boot — provisions the portable qemu + image first (downloaded from
-	 *  GitHub Releases into app-data), then boots headless. */
+	/** Provision + boot the built-in VM. macOS uses vfkit (Apple VZ — works on
+	 *  every Apple Silicon generation); Windows/Linux use portable QEMU. */
 	private async startReal(): Promise<void> {
 		this.set('provisioning');
 		const progress: ProgressFn = (message, pct) => {
 			this._progress = { message: message ?? this._progress?.message ?? '', pct };
 			this._onProgress.fire(this._progress);
 		};
+		// Apple Silicon → vfkit (qemu's HVF asserts on M4). Intel Macs keep qemu+HVF
+		// (the SME assertion is ARM-only, and HVF is fast there), same as Win/Linux.
+		if (process.platform === 'darwin' && process.arch === 'arm64') {
+			await this.startVfkit(progress);
+		} else {
+			await this.startQemu(progress);
+		}
+	}
+
+	/** Windows/Linux boot path: portable QEMU with WHPX/KVM and a TCG fallback. */
+	private async startQemu(progress: ProgressFn): Promise<void> {
 		const qemu = await this.provisioner.ensureQemu(progress);
 		const image = await this.provisioner.ensureImage(progress);
 
@@ -199,6 +212,110 @@ export class VMManager {
 		throw lastErr ?? new Error('The VM failed to start.');
 	}
 
+	/** macOS boot path: vfkit (Apple Virtualization.framework) + gvproxy user-mode
+	 *  networking. Works on every Apple Silicon generation (M1–M4) because it uses
+	 *  Apple's VZ, not qemu's HVF (which asserts on M4). Like the Windows qemu
+	 *  path there is NO host share; the guest keeps its data in the persisted raw
+	 *  disk and docker is baked into the base image. */
+	private async startVfkit(progress: ProgressFn): Promise<void> {
+		const { vfkit, gvproxy } = await this.provisioner.ensureVfkit(progress);
+		// qemu-img only, for the one-time qcow2 -> raw conversion. qemu-system is
+		// never launched on Mac, so its broken HVF path is irrelevant.
+		const qemuImgBin = this.qemuImg(await this.provisioner.ensureQemu(progress));
+		const image = await this.provisioner.ensureImage(progress);
+
+		this.set('booting');
+		const key = await this.ensureKey();
+		const seed = await this.buildVfkitSeed(key + '.pub');
+		const port = await this.freePort();
+		const disk = path.join(this.dir, 'disk.raw');
+		const efi = path.join(this.dir, 'efi-vars.nvram');
+		// Unix socket paths must stay under the macOS ~104-char sun_path limit, so
+		// keep them in /tmp rather than the (long) globalStorage dir.
+		const netSock = `/tmp/aria-${port}-net.sock`;
+		const vfkitSock = `/tmp/aria-${port}-vfk.sock`;
+		const consoleLog = path.join(this.dir, 'console.log');
+
+		// One-time qcow2 -> raw conversion (VZ only boots raw images). Persist it:
+		// it IS the guest's disk (no host share on Mac), rebuilt only when the base
+		// image changes (the provisioner clears disk.raw on an image-tag bump).
+		if (!fs.existsSync(disk)) {
+			progress('Preparing the run environment disk…');
+			await execFileAsync(qemuImgBin, ['convert', '-f', 'qcow2', '-O', 'raw', image, disk], { windowsHide: true });
+		}
+		// Fresh EFI variable store + sockets each boot (deterministic auto-boot).
+		for (const f of [efi, netSock, vfkitSock]) { try { fs.rmSync(f, { force: true }); } catch { /* ignore */ } }
+
+		const vm = this.config.get().local_vm;
+		const sshProfile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
+
+		// 1) gvproxy: creates the vfkit datagram socket + an API socket. Guest gets
+		//    192.168.127.2 with gateway 192.168.127.1.
+		const gvErr = fs.openSync(path.join(this.dir, 'gvproxy-stderr.log'), 'w');
+		this.gvproxyProc = spawn(gvproxy, ['-listen', `unix://${netSock}`, '--listen-vfkit', `unixgram://${vfkitSock}`],
+			{ stdio: ['ignore', 'ignore', gvErr], windowsHide: true });
+		this.gvproxyProc.on('exit', () => { try { fs.closeSync(gvErr); } catch { /* already closed */ } });
+		await this.waitForFile(vfkitSock, 10_000);
+		// 2) Forward host 127.0.0.1:<port> -> guest 192.168.127.2:22.
+		await this.gvproxyExpose(netSock, `127.0.0.1:${port}`, '192.168.127.2:22');
+
+		// 3) vfkit boots the raw disk + cloud-init seed; networking over the socket.
+		const args = [
+			'--cpus', String(vm.cpus), '--memory', String(vm.memoryMB),
+			'--bootloader', `efi,variable-store=${efi},create`,
+			'--device', `virtio-blk,path=${disk}`,
+			'--device', `virtio-blk,path=${seed}`,
+			'--device', `virtio-net,unixSocketPath=${vfkitSock}`,
+			'--device', `virtio-serial,logFilePath=${consoleLog}`,
+		];
+		const errLog = fs.openSync(path.join(this.dir, 'vfkit-stderr.log'), 'w');
+		this.proc = spawn(vfkit, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
+		this.proc.on('exit', (code) => {
+			try { fs.closeSync(errLog); } catch { /* already closed */ }
+			if (this._status === 'ready') {
+				this.set('error', `VM exited unexpectedly (code ${code}; see vfkit-stderr.log / console.log).`);
+				this.config.setLocalVmEndpoint(null);
+			}
+		});
+
+		try {
+			await this.waitForSsh(sshProfile);
+			this.config.setLocalVmEndpoint(sshProfile);
+			this.set('ready');
+		} catch (err) {
+			try { this.proc?.kill('SIGKILL'); } catch { /* ignore */ }
+			try { this.gvproxyProc?.kill('SIGKILL'); } catch { /* ignore */ }
+			this.proc = undefined; this.gvproxyProc = undefined;
+			throw err instanceof Error ? err : new Error(String(err));
+		}
+	}
+
+	/** POST a port-forward to gvproxy's REST API over its unix socket. */
+	private gvproxyExpose(apiSock: string, local: string, remote: string): Promise<void> {
+		return new Promise((resolve, reject) => {
+			const body = JSON.stringify({ local, remote });
+			const req = http.request(
+				{ socketPath: apiSock, path: '/services/forwarder/expose', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
+				(res) => {
+					res.resume();
+					if (res.statusCode && res.statusCode < 300) { resolve(); } else { reject(new Error(`gvproxy expose failed (HTTP ${res.statusCode})`)); }
+				});
+			req.on('error', reject);
+			req.write(body);
+			req.end();
+		});
+	}
+
+	/** Poll until a path exists (gvproxy creating its vfkit datagram socket). */
+	private async waitForFile(p: string, timeoutMs: number): Promise<void> {
+		const deadline = Date.now() + timeoutMs;
+		while (Date.now() < deadline) {
+			if (fs.existsSync(p)) { return; }
+			await new Promise(r => setTimeout(r, 100));
+		}
+		throw new Error(`gvproxy did not create ${path.basename(p)} in time (see gvproxy-stderr.log).`);
+	}
+
 	/** Assemble the qemu command line for one accelerator choice. */
 	private buildQemuArgs(accel: string, vm: { cpus: number; memoryMB: number }, qemu: string, overlay: string, seed: string, port: number): string[] {
 		return [
@@ -226,6 +343,7 @@ export class VMManager {
 		this.set('stopped');
 		this.config.setLocalVmEndpoint(null);
 		if (this.proc) { try { this.proc.kill('SIGTERM'); } catch { /* ignore */ } this.proc = undefined; }
+		if (this.gvproxyProc) { try { this.gvproxyProc.kill('SIGTERM'); } catch { /* ignore */ } this.gvproxyProc = undefined; }
 	}
 
 	async reset(): Promise<void> {
@@ -344,6 +462,52 @@ export class VMManager {
 		]);
 		fs.writeFileSync(seed, img);
 		return seed;
+	}
+
+	/** vfkit/macOS cloud-init seed (ISO via hdiutil). Two differences from the
+	 *  qemu seed: (1) a STATIC IP of 192.168.127.2 so gvproxy's fixed forward
+	 *  (host:port -> 192.168.127.2:22) always hits the guest — gvproxy's DHCP
+	 *  hands out .3/.4/... unpredictably across boots; (2) no 9p mount (VZ has no
+	 *  host share). Built as an ISO because that is the seed format verified to
+	 *  mount under Apple VZ (the pure-JS FAT image is only proven under qemu). */
+	private async buildVfkitSeed(pubPath: string): Promise<string> {
+		const dir = path.join(this.dir, 'seed-src');
+		fs.mkdirSync(dir, { recursive: true });
+		const pub = fs.readFileSync(pubPath, 'utf8').trim();
+		fs.writeFileSync(path.join(dir, 'meta-data'), 'instance-id: aria-builtin\nlocal-hostname: aria\n');
+		fs.writeFileSync(path.join(dir, 'network-config'), [
+			'version: 2',
+			'ethernets:',
+			'  all:',
+			'    match:',
+			'      name: "e*"',
+			'    addresses: [192.168.127.2/24]',
+			'    routes:',
+			'      - {to: default, via: 192.168.127.1}',
+			'    nameservers:',
+			'      addresses: [192.168.127.1]',
+			'',
+		].join('\n'));
+		fs.writeFileSync(path.join(dir, 'user-data'), [
+			'#cloud-config',
+			'users:',
+			`  - name: ${GUEST_USER}`,
+			'    groups: [sudo]',
+			'    sudo: ALL=(ALL) NOPASSWD:ALL',
+			'    shell: /bin/bash',
+			'    ssh_authorized_keys:',
+			`      - ${pub}`,
+			'ssh_pwauth: false',
+			'runcmd:',
+			// Docker is baked into the image; this is an idempotent fallback only.
+			'  - command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)',
+			`  - usermod -aG docker ${GUEST_USER} || true`,
+			'',
+		].join('\n'));
+		const iso = path.join(this.dir, 'seed.iso');
+		try { fs.rmSync(iso); } catch { /* first run */ }
+		await execFileAsync('hdiutil', ['makehybrid', '-o', iso, '-iso', '-joliet', '-default-volume-name', 'cidata', dir], { windowsHide: true });
+		return iso;
 	}
 
 	private freePort(): Promise<number> {

@@ -42,6 +42,9 @@ export class AriaVersionsView extends ViewPane {
 	private changesRegion: HTMLElement | undefined;
 	/** Bottom region (snapshots), pinned to the bottom, scrolls independently. */
 	private snapshotsRegion: HTMLElement | undefined;
+	/** Fraction of the body height given to the Changes region — dragged via the
+	 *  divider between the two sections. */
+	private changesRatio = 0.48;
 
 	// --- Changes state ---
 	private selectedPaths: Set<string> | undefined;
@@ -92,14 +95,25 @@ export class AriaVersionsView extends ViewPane {
 
 		const changesRegion = append(root, $('.aria-vcs-scroll'));
 		applyAriaScrollbar(changesRegion);
-		Object.assign(changesRegion.style, { padding: '10px 8px', overflowY: 'auto', boxSizing: 'border-box', flex: '0 1 auto', maxHeight: '48%' });
+		// Fixed height (set from `changesRatio` in layoutBody); the user drags the
+		// divider below to change the split.
+		Object.assign(changesRegion.style, { padding: '10px 8px', overflowY: 'auto', boxSizing: 'border-box', flex: '0 0 auto' });
 		this.changesRegion = changesRegion;
+
+		// Draggable divider between Changes (top) and Snapshots (bottom).
+		const divider = append(root, $('.aria-vcs-divider'));
+		Object.assign(divider.style, {
+			flex: '0 0 auto', height: '7px', cursor: 'ns-resize', boxSizing: 'border-box',
+			borderTop: '1px solid rgba(127,127,127,0.25)',
+		});
+		this.installDividerDrag(divider);
 
 		const snapshotsRegion = append(root, $('.aria-vcs-scroll'));
 		applyAriaScrollbar(snapshotsRegion);
-		Object.assign(snapshotsRegion.style, { padding: '6px 8px 10px', overflowY: 'auto', boxSizing: 'border-box', flex: '1 1 auto', borderTop: '1px solid rgba(127,127,127,0.25)' });
+		Object.assign(snapshotsRegion.style, { padding: '6px 8px 10px', overflowY: 'auto', boxSizing: 'border-box', flex: '1 1 auto' });
 		this.snapshotsRegion = snapshotsRegion;
 
+		this.applyChangesHeight();
 		this.refresh();
 	}
 
@@ -109,6 +123,50 @@ export class AriaVersionsView extends ViewPane {
 			this.viewBody.style.height = `${height}px`;
 			this.viewBody.style.width = `${width}px`;
 		}
+		this.applyChangesHeight();
+	}
+
+	/** Apply the current Changes/Snapshots split ratio to the Changes region. */
+	private applyChangesHeight(): void {
+		const body = this.viewBody;
+		const region = this.changesRegion;
+		if (!body || !region) {
+			return;
+		}
+		const h = body.clientHeight;
+		if (h > 0) {
+			region.style.height = `${Math.round(this.changesRatio * h)}px`;
+		}
+	}
+
+	/** Let the user drag the divider to resize the Changes vs Snapshots split. */
+	private installDividerDrag(divider: HTMLElement): void {
+		divider.addEventListener('mousedown', (e: MouseEvent) => {
+			e.preventDefault();
+			const body = this.viewBody;
+			if (!body) {
+				return;
+			}
+			const doc = divider.ownerDocument;
+			const prevUserSelect = body.style.userSelect;
+			body.style.userSelect = 'none';
+			const onMove = (ev: MouseEvent): void => {
+				const rect = body.getBoundingClientRect();
+				if (rect.height <= 0) {
+					return;
+				}
+				const ratio = (ev.clientY - rect.top) / rect.height;
+				this.changesRatio = Math.min(0.85, Math.max(0.15, ratio));
+				this.applyChangesHeight();
+			};
+			const onUp = (): void => {
+				body.style.userSelect = prevUserSelect;
+				doc.removeEventListener('mousemove', onMove);
+				doc.removeEventListener('mouseup', onUp);
+			};
+			doc.addEventListener('mousemove', onMove);
+			doc.addEventListener('mouseup', onUp);
+		});
 	}
 
 	/** Fetch everything, then (only for the latest call) clear + render both

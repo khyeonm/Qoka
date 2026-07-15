@@ -12,7 +12,7 @@ import { initLogger, log, showLogger } from './common/logger';
 import { setSkillAutoApprove } from './common/permissions';
 import { ensureEnvFile } from './common/envManager';
 import { ensureAriaHook } from './common/ariaHooks';
-import { syncSkillsToProviders, resyncBundledSkills } from './common/skillsManager';
+import { syncSkillsToProviders, resyncBundledSkills, cleanupEnvDescriptions } from './common/skillsManager';
 import { reconcileCategories } from './common/skillManifest';
 import { installProviderCli } from './installProviderCli';
 import { ensureAriaBinsOnPath } from './common/headlessCli';
@@ -68,6 +68,9 @@ export function activate(context: vscode.ExtensionContext): void {
 	// builds seeded the manifest with. Categories are now fully
 	// user-driven and only ones a real skill claims should remain.
 	reconcileCategories();
+	// Repair garbled env-var descriptions cached by older builds (markdown-table
+	// fragments) now that the parser is table-aware.
+	cleanupEnvDescriptions();
 
 	context.subscriptions.push(
 		// Single read endpoint the sidebar calls on mount + after every

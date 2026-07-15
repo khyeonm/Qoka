@@ -16,8 +16,10 @@ import {
 	findSkill,
 	readManifest,
 	removeSkill as removeSkillFromManifest,
+	updateSkill,
 	upsertSkill,
 } from './skillManifest';
+import { parseSkillMd } from './parseSkillMd';
 import { writeEnv } from './envManager';
 
 // Prefer execFile (argv array, no shell) for anything with file PATHS: it needs
@@ -451,6 +453,36 @@ export async function reinstall(
  */
 export function listManaged(): SkillInfo[] {
 	return readManifest().skills;
+}
+
+/**
+ * One-shot repair of env-var descriptions cached by OLDER builds: a skill that
+ * documents its variables in a markdown TABLE ended up with garbled `| cell |`
+ * / `---|---` fragments as the "description" (the regex fallback ran before a CLI
+ * could produce a clean summary, and the result was cached in the manifest).
+ * Re-parse with the current, table-aware parser and replace ONLY the garbage
+ * descriptions — genuine prose / LLM-generated ones are left untouched. Fast,
+ * offline, best-effort. Runs on startup.
+ */
+export function cleanupEnvDescriptions(): void {
+	const isGarbage = (d?: string): boolean => !!d && (/\|/.test(d) || /-{3,}/.test(d));
+	for (const skill of listManaged()) {
+		try {
+			if (!skill.envVars?.some(v => isGarbage(v.description))) {
+				continue;
+			}
+			const md = readSkillMd(skill.name);
+			if (!md) {
+				continue;
+			}
+			const fresh = new Map(parseSkillMd(md).envVars.map(v => [v.name, v.description]));
+			const envVars = skill.envVars.map(v =>
+				isGarbage(v.description) ? { ...v, description: fresh.get(v.name) } : v);
+			updateSkill(skill.name, { envVars });
+		} catch {
+			// best-effort per skill — a stale description is harmless.
+		}
+	}
 }
 
 /**
