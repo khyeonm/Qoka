@@ -40,7 +40,12 @@ interface StandinSpec { host: string; port: number; username: string; key_path: 
 
 const GUEST_USER = 'aria';
 const GUEST_REPO = `/home/${GUEST_USER}/aria`;
-const READY_TIMEOUT_MS = 180_000;
+// Generous: a FIRST boot runs cloud-init (which mounts the seed, creates the
+// user + SSH key, then starts sshd) and, on a software-emulated (TCG) fallback,
+// the whole guest runs many times slower. 180s wasn't enough — the guest was
+// still mid-cloud-init when we gave up. sshd comes up well before this ceiling
+// on a hardware-accelerated boot; the extra headroom only matters for slow ones.
+const READY_TIMEOUT_MS = 360_000;
 
 export class VMManager {
 	private _status: VmStatus = 'stopped';
@@ -251,12 +256,21 @@ export class VMManager {
 		}
 	}
 
-	/** `-machine`/`-accel`/`-cpu` args for a specific accelerator. `-cpu host`
-	 *  requires a hardware accelerator; TCG (software) needs `-cpu max` instead. */
+	/** `-machine`/`-accel`/`-cpu` args for a specific accelerator.
+	 *  - hvf/kvm: `-cpu host` (host passthrough — required and fast).
+	 *  - whpx: NO `-cpu host` — the Windows Hypervisor Platform rejects/degrades
+	 *    the host model, which makes qemu fall back to (slow) TCG. Letting qemu
+	 *    pick the machine default keeps WHPX engaged and fast.
+	 *  - tcg: `-cpu max` (host is invalid under software emulation). */
 	private cpuMachineArgs(accel: string): string[] {
-		return accel === 'tcg'
-			? ['-machine', this.machineType(), '-accel', 'tcg', '-cpu', 'max']
-			: ['-machine', this.machineType(), '-accel', accel, '-cpu', 'host'];
+		const machine = this.machineType();
+		if (accel === 'tcg') {
+			return ['-machine', machine, '-accel', 'tcg', '-cpu', 'max'];
+		}
+		if (accel === 'whpx') {
+			return ['-machine', machine, '-accel', 'whpx'];
+		}
+		return ['-machine', machine, '-accel', accel, '-cpu', 'host'];
 	}
 
 	/** Machine type per guest arch: Apple Silicon (arm64) uses `virt` (+UEFI);

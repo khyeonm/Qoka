@@ -59,10 +59,21 @@ export class VcsService {
 
 	async getStatus(workspacePath: string): Promise<StatusInfo> {
 		const repoPath = path.join(workspacePath, '.git');
-		const isRepo = fs.existsSync(repoPath);
-		if (!isRepo) {
-			return { isRepo: false, unsavedChanges: 0, hasHead: false };
+		if (!fs.existsSync(repoPath)) {
+			// Start tracking on first look so the Versions view works out of the box
+			// — the header + Changes list both go through here, and without this a
+			// brand-new project reports "no changes" forever even after the user
+			// adds files. Best-effort: stays untracked if the machine has no git.
+			try {
+				await this.initRepo(workspacePath);
+			} catch {
+				return { isRepo: false, unsavedChanges: 0, hasHead: false };
+			}
+			if (!fs.existsSync(repoPath)) {
+				return { isRepo: false, unsavedChanges: 0, hasHead: false };
+			}
 		}
+		const isRepo = true;
 
 		let hasHead = true;
 		try {

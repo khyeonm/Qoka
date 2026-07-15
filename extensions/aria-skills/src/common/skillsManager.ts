@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
@@ -20,7 +20,11 @@ import {
 } from './skillManifest';
 import { writeEnv } from './envManager';
 
-const execAsync = promisify(exec);
+// Prefer execFile (argv array, no shell) for anything with file PATHS: it needs
+// no quoting, so paths with spaces (e.g. `C:\Users\kyung min\...`) work on
+// Windows cmd.exe too — plain `exec` with our Unix-style single quotes broke
+// there ("Too many arguments" / "Failed to open ''...''").
+const execFileAsync = promisify(execFile);
 
 /**
  * Manages the on-disk skill directories under ~/.claude/skills/. Aria's
@@ -151,18 +155,16 @@ export async function cloneFromGithub(
 	try {
 		if (!subPath) {
 			// Full clone — simplest path. depth=1 so the .git dir stays small.
-			const branchArg = branch ? `--branch ${quote(branch)} ` : '';
-			await execAsync(`git clone --depth 1 ${branchArg}${quote(repoUrl)} ${quote(dest)}`, { timeout: 60000 });
+			const branchArgs = branch ? ['--branch', branch] : [];
+			await execFileAsync('git', ['clone', '--depth', '1', ...branchArgs, repoUrl, dest], { timeout: 60000 });
 			return dest;
 		}
 		// Sparse checkout — clone with --no-checkout, set sparse cone to the
 		// sub-path, then checkout. Saves bandwidth on large repos.
-		const branchArg = branch ? `-b ${quote(branch)} ` : '';
-		const stepClone = `git clone --depth 1 --filter=blob:none --sparse ${branchArg}${quote(repoUrl)} ${quote(tmp)}`;
-		const stepSparse = `cd ${quote(tmp)} && git sparse-checkout set ${quote(subPath)}`;
+		const branchArgs = branch ? ['-b', branch] : [];
 		try {
-			await execAsync(stepClone, { timeout: 60000 });
-			await execAsync(stepSparse, { timeout: 30000 });
+			await execFileAsync('git', ['clone', '--depth', '1', '--filter=blob:none', '--sparse', ...branchArgs, repoUrl, tmp], { timeout: 60000 });
+			await execFileAsync('git', ['sparse-checkout', 'set', subPath], { cwd: tmp, timeout: 30000 });
 			const sub = path.join(tmp, subPath);
 			if (!fs.existsSync(sub)) {
 				throw new Error(`Sub-path "${subPath}" not found in cloned repo.`);
@@ -192,7 +194,7 @@ async function fetchGithubTarball(parsed: { owner: string; repo: string; branch?
 	const tgz = path.join(tmpRoot, 'skill.tar.gz');
 	try {
 		await httpsDownload(url, tgz);
-		await execAsync(`tar -xzf ${quote(tgz)} -C ${quote(tmpRoot)}`, { timeout: 60000 });
+		await execFileAsync('tar', ['-xzf', tgz, '-C', tmpRoot], { timeout: 60000 });
 		// The archive's single top-level dir is `${repo}-<resolved-ref>`, whose
 		// exact name we can't predict for HEAD — so pick the one extracted dir.
 		const dirs = fs.readdirSync(tmpRoot, { withFileTypes: true }).filter(e => e.isDirectory());
