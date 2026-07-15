@@ -1075,11 +1075,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// showSaveDialog URI can differ enough on Windows that the reload lands in
 		// an empty window and bounces back to the picker.
 		const folderUri = URI.file(target.fsPath);
-		// Create the folder + a fresh EMPTY roadmap file. We use createEmptyAt
-		// (not saveTo) so the new project never inherits a roadmap that might be
-		// in memory - each project's roadmap is independent.
+		// Create the project FOLDER via the file service (main process): immediate
+		// and reliable. Routing this through the aria-roadmap command instead meant
+		// that on a FIRST launch the folder was created only AFTER that extension
+		// finished ACTIVATING - a delay of seconds during which openWindow already
+		// reloaded into an empty window and Started bounced back to the picker.
+		// (After a sign-out the extension is already active, so it worked then.)
 		try {
-			await this.commandService.executeCommand('aria.roadmap.createEmptyAt', folderUri.fsPath);
+			await this.fileService.createFolder(folderUri);
 		} catch (e) {
 			this.notificationService.notify({
 				severity: Severity.Error,
@@ -1087,17 +1090,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			});
 			return;
 		}
-		// The folder is created in the EXTENSION HOST, but openWindow runs in the
-		// MAIN process. On Windows that mkdir can lag the reload, so openWindow
-		// sees "folder not found", opens an empty window (still recording it in
-		// recent), and Started re-shows its picker. Wait until the workbench's own
-		// file service can see the folder before reloading into it.
-		for (let i = 0; i < 30; i++) {
-			try {
-				if (await this.fileService.exists(folderUri)) { break; }
-			} catch { /* provider not ready yet - keep polling */ }
-			await new Promise(r => setTimeout(r, 100));
-		}
+		// Best-effort: seed a fresh empty roadmap so the new project starts blank.
+		// Don't block the reload on it - the folder is all openWindow needs, and
+		// aria-roadmap writes this when it activates in the new project window.
+		void this.commandService.executeCommand('aria.roadmap.createEmptyAt', folderUri.fsPath);
 		try {
 			sessionStorage.setItem('aria.roadmap.autoOpenWizard', '1');
 			// One-shot: tell the roadmap pulse to fire on the next load (this New

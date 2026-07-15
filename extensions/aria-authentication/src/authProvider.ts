@@ -194,7 +194,13 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 			providerId = pick.id;
 		}
 
-		const callback = await this._loopbackLogin(providerId);
+		// Show a cancellable notification while we wait for the browser callback,
+		// so a user who changes their mind or closes the tab can Cancel and get
+		// the sign-in screen back at once (the loopback otherwise waits 5 min).
+		const callback = await vscode.window.withProgress(
+			{ location: vscode.ProgressLocation.Notification, title: 'Finish signing in to Aria in your browser, or Cancel to go back…', cancellable: true },
+			(_progress, token) => this._loopbackLogin(providerId, token),
+		);
 
 		const q = new URLSearchParams(callback.query);
 		const access = q.get('access');
@@ -228,7 +234,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 	 * browser at the backend's app-login URL (carrying that port), and resolve
 	 * with the `/callback?…tokens…` URI the backend redirects the browser to.
 	 */
-	private _loopbackLogin(providerId: string): Promise<vscode.Uri> {
+	private _loopbackLogin(providerId: string, token?: vscode.CancellationToken): Promise<vscode.Uri> {
 		return new Promise<vscode.Uri>((resolve, reject) => {
 			const server = http.createServer((req, res) => {
 				const reqUrl = req.url || '/';
@@ -262,6 +268,14 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 				clearTimeout(timer);
 				try { server.close(); } catch { /* ignore */ }
 			};
+
+			// Let the user bail out (changed their mind, closed the browser tab)
+			// and return to the sign-in screen immediately instead of waiting out
+			// the 5-minute timeout.
+			token?.onCancellationRequested(() => {
+				cleanup();
+				reject(new Error('Aria sign-in cancelled.'));
+			});
 
 			server.on('error', err => { cleanup(); reject(err); });
 

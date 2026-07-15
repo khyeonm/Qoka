@@ -135,22 +135,43 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		}
 	}
 
-	/** Run the reconcile on startup and whenever the installed extension set
-	 *  changes (a provider installed later). Each trigger fires a few DELAYED
-	 *  passes too, because a provider's CLI can land a couple of seconds after
-	 *  its extension - a bounded catch-up, not a perpetual poll. */
-	private _wireMcpReconcile(): void {
-		const kick = (): void => {
-			if (this._mcpKickScheduled) {
-				return;
+	/** A few DELAYED reconcile passes, because a provider's CLI can land a couple
+	 *  of seconds after we ask - a bounded catch-up, not a perpetual poll. */
+	private _scheduleMcpReconcile(): void {
+		if (this._mcpKickScheduled) {
+			return;
+		}
+		this._mcpKickScheduled = true;
+		void this._reconcileMcp();
+		setTimeout(() => void this._reconcileMcp(), 6000);
+		setTimeout(() => { void this._reconcileMcp(); this._mcpKickScheduled = false; }, 15000);
+	}
+
+	/** When a provider EXTENSION is present, make sure its CLI is installed too,
+	 *  then reconcile. Covers a provider installed AFTER onboarding (the user
+	 *  picked Claude, then adds Codex): installing the extension now also gets its
+	 *  CLI, and only then can its MCPs register. installCli is idempotent. */
+	private async _ensureClisForInstalledProviders(): Promise<void> {
+		// aria-skills owns the install command; make sure it's active or the
+		// executeCommand below is a no-op (dynamically-registered commands don't
+		// auto-activate their extension).
+		try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
+		for (const p of ARIA_ALL_PROVIDERS) {
+			if (await this.extensionService.getExtension(PROVIDER_EXTENSION_ID[p])) {
+				try { await this.commandService.executeCommand('aria.provider.installCli', p); } catch { /* ignore */ }
 			}
-			this._mcpKickScheduled = true;
-			void this._reconcileMcp();
-			setTimeout(() => void this._reconcileMcp(), 6000);
-			setTimeout(() => { void this._reconcileMcp(); this._mcpKickScheduled = false; }, 15000);
-		};
-		void Promise.race([whenAriaSetupReady(), timeout(30000)]).then(kick, kick);
-		this._register(this.extensionService.onDidChangeExtensions(() => kick()));
+		}
+		this._scheduleMcpReconcile();
+	}
+
+	/** On startup AND whenever the installed extension set changes, make sure the
+	 *  CLI for every installed provider EXTENSION is present, then reconcile. This
+	 *  is keyed off the installed extension, NOT the "picked provider" flag, which
+	 *  can be missing (its localStorage entry didn't persist / onboarding was
+	 *  interrupted) and would otherwise leave the CLI - and every MCP - uninstalled. */
+	private _wireMcpReconcile(): void {
+		void Promise.race([whenAriaSetupReady(), timeout(30000)]).then(() => this._ensureClisForInstalledProviders(), () => this._ensureClisForInstalledProviders());
+		this._register(this.extensionService.onDidChangeExtensions(() => { void this._ensureClisForInstalledProviders(); }));
 	}
 
 	/** Auto-install the CLI for each provider the user chose (from the
@@ -179,6 +200,11 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				console.log(`[aria] ensureProviderClis: install command failed for ${p}:`, e);
 			}
 		}
+		// The CLI(s) are now installed (installCli awaits + verifies). MCP
+		// registration that ran at extension-activation time happened BEFORE the
+		// CLI existed and silently failed ("Claude CLI not found"); re-run it now
+		// that the CLI is present so every Aria MCP actually registers.
+		void this._reconcileMcp();
 	}
 
 	/** The provider EXTENSIONS the user opted into (via aria.aiProvider: an
