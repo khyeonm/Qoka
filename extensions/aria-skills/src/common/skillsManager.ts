@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import * as fs from 'fs';
+import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -142,38 +143,96 @@ export async function cloneFromGithub(
 	const branch = parsed.branch;
 	const subPath = parsed.subPath;
 
-	if (!subPath) {
-		// Full clone — simplest path. depth=1 so the .git dir stays small.
-		const branchArg = branch ? `--branch ${quote(branch)} ` : '';
-		const cmd = `git clone --depth 1 ${branchArg}${quote(repoUrl)} ${quote(dest)}`;
-		await execAsync(cmd, { timeout: 60000 });
-		return dest;
-	}
-
-	// Sparse checkout — clone with --no-checkout, set sparse cone to the
-	// sub-path, then checkout. Saves bandwidth on large repos.
-	const branchArg = branch ? `-b ${quote(branch)} ` : '';
-	const stepClone = `git clone --depth 1 --filter=blob:none --sparse ${branchArg}${quote(repoUrl)} ${quote(tmp)}`;
-	const stepSparse = `cd ${quote(tmp)} && git sparse-checkout set ${quote(subPath)}`;
+	// Prefer git (fast, sparse), but a non-developer machine — especially on
+	// Windows — often has NO git on PATH, which is why default skills like
+	// paper-lookup silently failed to install there. Fall back to a plain HTTPS
+	// tarball download (needs no git, just the `tar` that ships with Windows 10+,
+	// macOS and Linux) so skill install works everywhere.
 	try {
-		await execAsync(stepClone, { timeout: 60000 });
-		await execAsync(stepSparse, { timeout: 30000 });
-		const sub = path.join(tmp, subPath);
-		if (!fs.existsSync(sub)) {
-			throw new Error(`Sub-path "${subPath}" not found in cloned repo.`);
+		if (!subPath) {
+			// Full clone — simplest path. depth=1 so the .git dir stays small.
+			const branchArg = branch ? `--branch ${quote(branch)} ` : '';
+			await execAsync(`git clone --depth 1 ${branchArg}${quote(repoUrl)} ${quote(dest)}`, { timeout: 60000 });
+			return dest;
 		}
-		// COPY (not rename) the checked-out tree into the final location.
-		// Rename would conflict with anything left at `dest`, and a copy
-		// also crosses filesystem boundaries cleanly. Then nuke the tmp
-		// tree with shell rm so git pack objects (which can be readonly)
-		// and other quirks don't trip Node's fs.rmSync.
-		fs.cpSync(sub, dest, { recursive: true });
-		hardRemove(tmp);
-		return dest;
-	} catch (err) {
-		hardRemove(tmp);
-		throw err;
+		// Sparse checkout — clone with --no-checkout, set sparse cone to the
+		// sub-path, then checkout. Saves bandwidth on large repos.
+		const branchArg = branch ? `-b ${quote(branch)} ` : '';
+		const stepClone = `git clone --depth 1 --filter=blob:none --sparse ${branchArg}${quote(repoUrl)} ${quote(tmp)}`;
+		const stepSparse = `cd ${quote(tmp)} && git sparse-checkout set ${quote(subPath)}`;
+		try {
+			await execAsync(stepClone, { timeout: 60000 });
+			await execAsync(stepSparse, { timeout: 30000 });
+			const sub = path.join(tmp, subPath);
+			if (!fs.existsSync(sub)) {
+				throw new Error(`Sub-path "${subPath}" not found in cloned repo.`);
+			}
+			// COPY (not rename) the checked-out tree into the final location.
+			fs.cpSync(sub, dest, { recursive: true });
+			return dest;
+		} finally {
+			hardRemove(tmp);
+		}
+	} catch (gitErr) {
+		try {
+			return await fetchGithubTarball(parsed, dest);
+		} catch (tarErr) {
+			throw new Error(`Could not install "${targetName}": git failed (${(gitErr as Error).message}) and the tarball fallback failed (${(tarErr as Error).message}).`);
+		}
 	}
+}
+
+/** Install a GitHub skill WITHOUT git: download the repo tarball over HTTPS and
+ *  extract (optionally just the sub-path). Uses the `tar` that ships with
+ *  Windows 10+/macOS/Linux, so a machine with no git still gets default skills. */
+async function fetchGithubTarball(parsed: { owner: string; repo: string; branch?: string; subPath?: string }, dest: string): Promise<string> {
+	const ref = parsed.branch || 'HEAD';
+	const url = `https://codeload.github.com/${parsed.owner}/${parsed.repo}/tar.gz/${ref}`;
+	const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-skill-'));
+	const tgz = path.join(tmpRoot, 'skill.tar.gz');
+	try {
+		await httpsDownload(url, tgz);
+		await execAsync(`tar -xzf ${quote(tgz)} -C ${quote(tmpRoot)}`, { timeout: 60000 });
+		// The archive's single top-level dir is `${repo}-<resolved-ref>`, whose
+		// exact name we can't predict for HEAD — so pick the one extracted dir.
+		const dirs = fs.readdirSync(tmpRoot, { withFileTypes: true }).filter(e => e.isDirectory());
+		if (!dirs.length) {
+			throw new Error('Downloaded tarball contained no directory.');
+		}
+		const top = path.join(tmpRoot, dirs[0].name);
+		const src = parsed.subPath ? path.join(top, parsed.subPath) : top;
+		if (!fs.existsSync(src)) {
+			throw new Error(`Sub-path "${parsed.subPath ?? ''}" not found in the downloaded repo.`);
+		}
+		hardRemove(dest);
+		fs.cpSync(src, dest, { recursive: true });
+		return dest;
+	} finally {
+		hardRemove(tmpRoot);
+	}
+}
+
+/** GET `url` to `dest`, following redirects (GitHub → codeload → S3). */
+function httpsDownload(url: string, dest: string, redirects = 0): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (redirects > 5) { reject(new Error(`Too many redirects for ${url}`)); return; }
+		https.get(url, { headers: { 'User-Agent': 'Aria' } }, (res) => {
+			if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+				res.resume();
+				httpsDownload(res.headers.location, dest, redirects + 1).then(resolve, reject);
+				return;
+			}
+			if (res.statusCode !== 200) {
+				res.resume();
+				reject(new Error(`Download failed (${res.statusCode}) for ${url}`));
+				return;
+			}
+			const out = fs.createWriteStream(dest);
+			res.pipe(out);
+			out.on('finish', () => out.close(() => resolve()));
+			out.on('error', (e) => reject(e));
+		}).on('error', reject);
+	});
 }
 
 /**

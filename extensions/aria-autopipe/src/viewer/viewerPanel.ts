@@ -34,9 +34,11 @@ function pdfjsDir(): string {
  * filename)` API; we satisfy that contract by giving the plugin a blob:
  * URL pointing at the bytes we just streamed over SSH.
  *
- * Navigation is locked: rootDir is set to the parent of the directory
- * show_results was opened on, so the user can move between sibling runs
- * but can't walk up past the output directory.
+ * Navigation is locked to the RUN-NAME directory (the segment just below an
+ * autopipe output dir — see detectRunDir): the user can browse freely WITHIN
+ * that run, but cannot walk up to sibling runs or above the output directory.
+ * (If show_results targets the output dir itself, the ceiling is that output
+ * dir so the run list is browsable.)
  */
 let activePanel: vscode.WebviewPanel | undefined;
 let activeRootDir: string | undefined;

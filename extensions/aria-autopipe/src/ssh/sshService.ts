@@ -71,7 +71,12 @@ export class SshService {
 		if (exitCode !== 0) {
 			throw new Error(`read_file failed (exit ${exitCode}): ${stderr.trim()}`);
 		}
-		return stdout;
+		// Same spurious `{"success":true}` banner some remotes prepend to command
+		// output (see stripSuccessPrefix) — on a BINARY read it corrupts the file
+		// (e.g. a PNG gets 16 junk bytes before its \x89PNG magic → "error loading
+		// image"). Strip the exact literal from the buffer head; a real binary file
+		// never starts with those bytes, so this is safe.
+		return stripSuccessPrefixBytes(stdout);
 	}
 
 	async writeFile(profile: SshProfile, remotePath: string, content: string): Promise<void> {
@@ -211,6 +216,18 @@ function stripSuccessPrefix(s: string): string {
 		}
 	}
 	return s;
+}
+
+/** Buffer (binary) variant of stripSuccessPrefix — removes the banner from the
+ *  head of a raw file read so binary payloads (images, PDFs, BAM) stay intact. */
+function stripSuccessPrefixBytes(buf: Buffer): Buffer {
+	for (const prefix of ['{"success":true}', '{"success": true}', '{"success" : true}']) {
+		const p = Buffer.from(prefix, 'ascii');
+		if (buf.length >= p.length && buf.subarray(0, p.length).equals(p)) {
+			return buf.subarray(p.length);
+		}
+	}
+	return buf;
 }
 
 /**

@@ -113,11 +113,23 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 	}
 
 	const addCmd = `${q(codex)} mcp add ${MCP_NAME} --url ${q(url)}`;
-	try {
-		await execAsync(addCmd, { timeout: 10000 });
-	} catch (err) {
-		const stderr = (err as { stderr?: string }).stderr ?? String(err);
-		return { ok: false, changed: false, message: `codex mcp add failed: ${stderr.trim()}` };
+	// Aria's many extensions run `codex mcp add` concurrently, all writing the one
+	// ~/.codex/config.toml. On Windows they collide on the file lock and fail with
+	// "failed to persist config ... (os error 5 / access denied)". Retry a few
+	// times with jittered backoff so contending writers each succeed in turn.
+	let addErr = '';
+	for (let attempt = 0; attempt < 5; attempt++) {
+		try {
+			await execAsync(addCmd, { timeout: 10000 });
+			addErr = '';
+			break;
+		} catch (err) {
+			addErr = (err as { stderr?: string }).stderr ?? String(err);
+			await new Promise(r => setTimeout(r, 120 + Math.floor(Math.random() * 400) * (attempt + 1)));
+		}
+	}
+	if (addErr) {
+		return { ok: false, changed: false, message: `codex mcp add failed: ${addErr.trim()}` };
 	}
 
 	try {

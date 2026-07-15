@@ -134,14 +134,26 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 
 	const addCmd = `${q} mcp add ${MCP_NAME} --url ${quoteArg(url)}`;
 	console.log(`[aria-autopipe] running: ${addCmd}`);
-	try {
-		const out = await execAsync(addCmd, { timeout: 10000 });
-		console.log(`[aria-autopipe] codex mcp add stdout:`, out.stdout.trim());
-		console.log(`[aria-autopipe] codex mcp add stderr:`, out.stderr.trim());
-	} catch (err) {
-		const stderr = (err as { stderr?: string }).stderr ?? String(err);
-		console.error('[aria-autopipe] codex mcp add failed:', stderr);
-		return { ok: false, changed: false, message: `codex mcp add failed: ${stderr.trim()}` };
+	// Aria's many extensions run `codex mcp add` concurrently, all writing the one
+	// ~/.codex/config.toml. On Windows they collide on the file lock and fail with
+	// "failed to persist config ... (os error 5 / access denied)". Retry a few
+	// times with jittered backoff so contending writers each succeed in turn.
+	let addErr = '';
+	for (let attempt = 0; attempt < 5; attempt++) {
+		try {
+			const out = await execAsync(addCmd, { timeout: 10000 });
+			console.log(`[aria-autopipe] codex mcp add stdout:`, out.stdout.trim());
+			console.log(`[aria-autopipe] codex mcp add stderr:`, out.stderr.trim());
+			addErr = '';
+			break;
+		} catch (err) {
+			addErr = (err as { stderr?: string }).stderr ?? String(err);
+			await new Promise(r => setTimeout(r, 120 + Math.floor(Math.random() * 400) * (attempt + 1)));
+		}
+	}
+	if (addErr) {
+		console.error('[aria-autopipe] codex mcp add failed:', addErr);
+		return { ok: false, changed: false, message: `codex mcp add failed: ${addErr.trim()}` };
 	}
 
 	// Verify via `codex mcp list`. A successful add should be reflected

@@ -84,12 +84,40 @@ export class VcsService {
 
 	async initRepo(workspacePath: string): Promise<void> {
 		await git(['init'], workspacePath);
+		// Keep assistant/app working files out of the user's snapshots — they're
+		// tool machinery (session config, MCP ports that change every launch),
+		// not research content, and would only add noise to every snapshot diff.
+		this.ensureGitignore(workspacePath);
 		// Make sure commits will succeed without any user setup. If the user
 		// already has user.name / user.email configured globally we keep
 		// using those — only fall back to an Aria-local identity when no
 		// global config is found, so we don't override the user's real
 		// name on shared / multi-tool machines.
 		await this.ensureLocalIdentity(workspacePath);
+	}
+
+	/** Write (or top up) a project `.gitignore` so Aria's own working files never
+	 *  land in a snapshot. Idempotent — the Aria block is only appended once. */
+	private ensureGitignore(workspacePath: string): void {
+		const HEADER = '# --- Aria: assistant/app working files (kept out of snapshots) ---';
+		const block = [
+			HEADER,
+			'.claude/',        // Claude Code project/session config (MCP, settings)
+			'.codex/',         // Codex working dir
+			'.mcp.json',       // MCP server config — ports change every launch
+			'.aria/',          // Aria app state (roadmaps etc.) — managed by the app
+			'node_modules/',
+			'.DS_Store',
+			'',
+		].join('\n');
+		const gitignorePath = path.join(workspacePath, '.gitignore');
+		let existing = '';
+		try { existing = fs.readFileSync(gitignorePath, 'utf8'); } catch { /* no file yet */ }
+		if (existing.includes(HEADER)) {
+			return;
+		}
+		const sep = existing && !existing.endsWith('\n') ? '\n' : '';
+		try { fs.writeFileSync(gitignorePath, existing + sep + block); } catch { /* best-effort */ }
 	}
 
 	private async ensureLocalIdentity(workspacePath: string): Promise<void> {
@@ -181,9 +209,22 @@ export class VcsService {
 	}
 
 	async getChanges(workspacePath: string): Promise<FileChange[]> {
-		const status = await this.getStatus(workspacePath);
+		let status = await this.getStatus(workspacePath);
 		if (!status.isRepo) {
-			return [];
+			// The folder isn't tracked yet. Start tracking now (git init) so files
+			// the user has ALREADY added show up as changes for their first
+			// snapshot — otherwise the panel looks empty and they think nothing was
+			// detected. No-op after the first time; returns [] if the machine has
+			// no git available (e.g. Windows without git installed).
+			try {
+				await this.initRepo(workspacePath);
+			} catch {
+				return [];
+			}
+			status = await this.getStatus(workspacePath);
+			if (!status.isRepo) {
+				return [];
+			}
 		}
 
 		// `--untracked-files=all` makes git report every file inside untracked

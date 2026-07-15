@@ -153,8 +153,51 @@ export class VMManager {
 		}
 
 		const vm = this.config.get().local_vm;
-		const args = [
-			'-name', 'aria-builtin', ...this.cpuMachineArgs(),
+		// Boot with hardware acceleration first, but fall back to (slow) TCG
+		// software emulation if qemu exits before SSH comes up. That covers a
+		// broken host accelerator such as the QEMU HVF/SME assertion crash seen on
+		// some Apple Silicon Macs, or a Windows host without the Hypervisor
+		// Platform feature — the VM still boots, just slower.
+		const primary = this.accel();
+		const accels = primary === 'tcg' ? ['tcg'] : [primary, 'tcg'];
+		const sshProfile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
+		let lastErr: Error | undefined;
+		for (let i = 0; i < accels.length; i++) {
+			const args = this.buildQemuArgs(accels[i], vm, qemu, overlay, seed, port);
+			// Capture QEMU's own stderr (accel/argument errors) to qemu-stderr.log
+			// so a silent timeout is still diagnosable.
+			const errLog = fs.openSync(path.join(this.dir, 'qemu-stderr.log'), 'w');
+			this.proc = spawn(qemu, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
+			this.proc.on('exit', (code) => {
+				try { fs.closeSync(errLog); } catch { /* already closed */ }
+				// Only a hard error once we're READY (qemu died mid-run). During
+				// boot, waitForSsh detects the exit and the loop below retries.
+				if (this._status === 'ready') {
+					this.set('error', `VM exited unexpectedly (code ${code}; see qemu-stderr.log / console.log).`);
+					this.config.setLocalVmEndpoint(null);
+				}
+			});
+			try {
+				await this.waitForSsh(sshProfile);
+				this.config.setLocalVmEndpoint(sshProfile);
+				this.set('ready');
+				return;
+			} catch (err) {
+				lastErr = err instanceof Error ? err : new Error(String(err));
+				try { this.proc?.kill('SIGKILL'); } catch { /* ignore */ }
+				this.proc = undefined;
+				if (i < accels.length - 1) {
+					progress('Hardware acceleration unavailable — retrying with software emulation (slower)…');
+				}
+			}
+		}
+		throw lastErr ?? new Error('The VM failed to start.');
+	}
+
+	/** Assemble the qemu command line for one accelerator choice. */
+	private buildQemuArgs(accel: string, vm: { cpus: number; memoryMB: number }, qemu: string, overlay: string, seed: string, port: number): string[] {
+		return [
+			'-name', 'aria-builtin', ...this.cpuMachineArgs(accel),
 			'-smp', String(vm.cpus), '-m', String(vm.memoryMB),
 			...this.dataDirArgs(qemu),
 			...this.firmwareArgs(qemu),
@@ -165,31 +208,13 @@ export class VMManager {
 			'-netdev', `user,id=n0,hostfwd=tcp:127.0.0.1:${port}-:22`, '-device', 'virtio-net-pci,netdev=n0',
 			// 9p host-workspace share — Linux/macOS qemu only. The Windows qemu build
 			// (choco) has virtfs DISABLED, and passing -virtfs makes it exit at start
-			// ("There is no option group 'virtfs'"), which is why the VM never booted
-			// on Windows. Omit it there; the guest keeps its data in the persisted
-			// overlay instead (see overlay handling above).
+			// ("There is no option group 'virtfs'"). Omit it there; the guest keeps
+			// its data in the persisted overlay instead (see overlay handling above).
 			...(process.platform === 'win32'
 				? []
 				: ['-virtfs', `local,path=${this.workspace},mount_tag=aria,security_model=mapped-xattr,id=aria`]),
 			'-display', 'none', '-serial', `file:${path.join(this.dir, 'console.log')}`,
 		];
-		// Capture QEMU's own stderr — HVF/accel/argument errors that otherwise
-		// vanish with stdio:'ignore' and leave us with only a silent timeout — to
-		// qemu-stderr.log next to console.log, so failures are diagnosable.
-		const errLog = fs.openSync(path.join(this.dir, 'qemu-stderr.log'), 'w');
-		this.proc = spawn(qemu, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
-		this.proc.on('exit', (code) => {
-			try { fs.closeSync(errLog); } catch { /* already closed */ }
-			if (this._status !== 'stopped') {
-				this.set('error', `VM exited unexpectedly (code ${code}; see qemu-stderr.log / console.log).`);
-				this.config.setLocalVmEndpoint(null);
-			}
-		});
-
-		const profile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
-		await this.waitForSsh(profile);
-		this.config.setLocalVmEndpoint(profile);
-		this.set('ready');
 	}
 
 	async stop(): Promise<void> {
@@ -226,18 +251,12 @@ export class VMManager {
 		}
 	}
 
-	private cpuModel(): string { return this.accel() === 'tcg' ? 'max' : 'host'; }
-
-	/** `-machine`/`-accel`/`-cpu` args. On Windows we fold the accelerator into the
-	 *  machine as `whpx:tcg` so qemu falls back to (slow) TCG when the Windows
-	 *  Hypervisor Platform feature isn't enabled — otherwise the VM won't boot at
-	 *  all there. `-cpu max` is used because it's valid under BOTH whpx and TCG
-	 *  (`-cpu host` is rejected by TCG). */
-	private cpuMachineArgs(): string[] {
-		if (process.platform === 'win32') {
-			return ['-machine', `${this.machineType()},accel=whpx:tcg`, '-cpu', 'max'];
-		}
-		return ['-machine', this.machineType(), '-accel', this.accel(), '-cpu', this.cpuModel()];
+	/** `-machine`/`-accel`/`-cpu` args for a specific accelerator. `-cpu host`
+	 *  requires a hardware accelerator; TCG (software) needs `-cpu max` instead. */
+	private cpuMachineArgs(accel: string): string[] {
+		return accel === 'tcg'
+			? ['-machine', this.machineType(), '-accel', 'tcg', '-cpu', 'max']
+			: ['-machine', this.machineType(), '-accel', accel, '-cpu', 'host'];
 	}
 
 	/** Machine type per guest arch: Apple Silicon (arm64) uses `virt` (+UEFI);

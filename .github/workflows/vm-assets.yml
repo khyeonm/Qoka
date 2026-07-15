@@ -58,24 +58,16 @@ jobs:
             fi
             BREW=/usr/local/bin/brew
             arch -x86_64 "$BREW" install qemu
-            QEMU_FORMULA=qemu
           else
             BREW=brew
-            # Pin the Apple Silicon build to a qemu whose HVF code PREDATES the SME
-            # sysreg assertion that crashes on M-series (e.g. M4):
-            #   hvf_arch_init_vcpu: assertion failed (HV_SYS_REG_SMCR_EL1 == ...)
-            # The latest qemu (11.x) still has this bug, so build an older release
-            # from its extracted historical formula (the CI runner has a modern
-            # Xcode, unlike many user machines that can't build it locally).
-            # If 9.0.2 still asserts on the target hardware, drop QEMU_VER to 8.2.2.
-            QEMU_VER=9.0.2
-            brew tap homebrew/core --force
-            brew tap-new local/qemu || true
-            brew extract --version="$QEMU_VER" qemu local/qemu
-            brew install "local/qemu/qemu@${QEMU_VER}"
-            QEMU_FORMULA="qemu@${QEMU_VER}"
+            # Latest qemu: HVF works on M1–M3 (no SME). Apple Silicon M4 has a qemu
+            # HVF bug either way (old qemu → HV_BAD_ARGUMENT, new qemu → an SME
+            # sysreg assertion), so pinning an old version buys nothing there; the
+            # app's TCG software-emulation fallback covers M4. (A proper M4 fast
+            # path means Apple's Virtualization.framework / vfkit, not qemu HVF.)
+            brew install qemu
           fi
-          QPREFIX=$("$BREW" --prefix "$QEMU_FORMULA")
+          QPREFIX=$("$BREW" --prefix qemu)
           # Homebrew symlinks every keg's libs into <prefix>/lib, so this is the
           # search path dylibbundler needs to locate keg-only deps like capstone.
           HBLIB=$("$BREW" --prefix)/lib

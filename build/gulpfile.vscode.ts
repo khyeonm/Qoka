@@ -107,8 +107,11 @@ const vscodeResourceIncludes = [
 	'out-build/vs/workbench/contrib/extensions/browser/media/{theme-icon.png,language-icon.svg}',
 	'out-build/vs/workbench/services/extensionManagement/common/media/*.{svg,png}',
 
-	// Aria — view icons loaded at runtime via FileAccess.asBrowserUri
-	'out-build/vs/workbench/contrib/aria*/browser/media/*.{svg,png}',
+	// Aria — view icons + webview bundles (e.g. ariaNotes' notesEditor.css/.js)
+	// loaded at runtime via FileAccess.asBrowserUri. Without css/js here the
+	// packaged app 404s on those media files (the source out/ has them, but the
+	// release resource list must opt each extension in).
+	'out-build/vs/workbench/contrib/aria*/browser/media/*.{svg,png,css,js}',
 
 	// Webview
 	'out-build/vs/workbench/contrib/webview/browser/pre/*.{js,html}',
