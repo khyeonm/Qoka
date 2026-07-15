@@ -66,8 +66,15 @@ jobs:
           # Route the kernel console to hvc0 too (vfkit's virtio console) while
           # keeping ttyS0 (qemu's serial) - so boot logs are visible on BOTH
           # backends. Without hvc0 a vfkit boot is a black box.
+          # The guest's /etc/resolv.conf points at the systemd-resolved stub
+          # (127.0.0.53), which isn't running inside the appliance, so DNS fails
+          # ("Could not resolve host"). Point it at public DNS reachable through
+          # SLIRP's NAT before anything that needs the network. Download the
+          # docker script to a file first so a fetch failure errors loudly
+          # instead of being swallowed by the `| sh` pipe.
           sudo -E virt-customize -a base.qcow2 \
-            --run-command 'curl -fsSL https://get.docker.com | sh' \
+            --run-command 'rm -f /etc/resolv.conf; printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf' \
+            --run-command 'curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh' \
             --run-command 'groupadd -f docker' \
             --run-command 'systemctl enable docker.service containerd.service' \
             --run-command 'echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg' \
