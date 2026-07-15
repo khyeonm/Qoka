@@ -36,7 +36,7 @@ type PaperFormat = 'markdown' | 'docx' | 'latex';
 interface ReviewMeta { execId: string; title: string; reviewers: string[]; paperId?: string; paperFormat?: PaperFormat; draftFile?: string; figureFiles?: string[]; supplementaryFiles?: string[]; createdAt: string; iteration: number }
 interface ConcernsFile { iteration: number; reviewers: Record<string, { concerns: Concern[]; recordedAt: string }> }
 interface Proposal { original: string; replacement: string; explanation: string }
-// New shape carries `proposals` + `documentKey`; older records may be flat — normalize via proposalsOf().
+// New shape carries `proposals` + `documentKey`; older records may be flat - normalize via proposalsOf().
 interface Revision { documentKey?: string; proposals?: Proposal[]; recordedAt: string; original?: string; replacement?: string; explanation?: string }
 interface PaperItem { id: string; title: string }
 
@@ -45,10 +45,10 @@ const FORMAT_LABEL: Record<PaperFormat, string> = { markdown: 'Markdown (.md)', 
 
 /**
  * AI Peer Review tab.
- *  - new: pick ONE source (attach files, unclassified — the reviewer decides;
+ *  - new: pick ONE source (attach files, unclassified - the reviewer decides;
  *    or a Paper Writer manuscript via a dropdown), pick reviewers, copy the
  *    prompt into your AI chat. When concerns land, the run opens.
- *  - run: two columns with sticky headers — the paper body on the left (with a
+ *  - run: two columns with sticky headers - the paper body on the left (with a
  *    Save-paper menu), per-reviewer Major/Minor Concern cards on the right, each
  *    with Suggest Revision → Accept (applies to the paper, marks the concern
  *    resolved) and a Re-run button pinned in the comments header.
@@ -75,7 +75,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	private selectedFormat: PaperFormat = 'markdown';
 	private availableFormats: PaperFormat[] = ['markdown'];
 	private reviewers: Record<string, boolean> = { claude: true };
-	/** Each reviewer CLI present on this machine (gates that reviewer — the review
+	/** Each reviewer CLI present on this machine (gates that reviewer - the review
 	 *  runs `claude --print` / `codex exec`, not the VS Code extension). Optimistic
 	 *  default; refreshed async from the extension when the editor is shown. */
 	private codexAvailable = true;
@@ -121,7 +121,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	}
 
 	/** Ask the extension whether each reviewer CLI is installed, then re-render so
-	 *  the reviewer checkboxes reflect it. Best-effort — assumes available on
+	 *  the reviewer checkboxes reflect it. Best-effort - assumes available on
 	 *  failure so we never wrongly block a working setup. */
 	private async refreshCliAvailability(): Promise<void> {
 		const probe = async (command: string): Promise<boolean> => {
@@ -340,7 +340,19 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	}
 	private label(parent: HTMLElement, text: string): void {
 		const l = append(parent, $('div')); l.textContent = text;
-		Object.assign(l.style, { fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', opacity: '0.65', margin: '20px 0 8px' });
+		Object.assign(l.style, { fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', opacity: '0.65', margin: '2px 0 10px' });
+	}
+
+	/** A bordered box that visually groups one numbered step of the New Review
+	 *  form (1 · What to review, 2 · Reviewers). */
+	private section(parent: HTMLElement): HTMLElement {
+		const box = append(parent, $('div'));
+		Object.assign(box.style, {
+			border: '1px solid rgba(127,127,127,0.28)', borderRadius: '10px',
+			padding: '14px 16px 16px', marginTop: '16px',
+			background: 'rgba(127,127,127,0.03)',
+		});
+		return box;
 	}
 
 	// --- new-review form ----------------------------------------------------
@@ -348,21 +360,22 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	private renderNew(root: HTMLElement): void {
 		const h = append(root, $('div')); h.textContent = localize('aria.peerReview.newTitle', "AI Peer Review");
 		Object.assign(h.style, { fontSize: '20px', fontWeight: '600', margin: '2px 0 4px' });
-		const sub = append(root, $('div')); sub.textContent = localize('aria.peerReview.newSub', "Pick ONE source to review, choose reviewers, then run independent AI reviewers to surface major concerns — without fabricating anything.");
+		const sub = append(root, $('div')); sub.textContent = localize('aria.peerReview.newSub', "Pick ONE source to review, choose reviewers, then run independent AI reviewers to surface major concerns - without fabricating anything.");
 		Object.assign(sub.style, { fontSize: '13px', opacity: '0.7', marginBottom: '4px' });
 
-		this.label(root, localize('aria.peerReview.source', "1 · What to review"));
-		const cards = append(root, $('div'));
+		const s1 = this.section(root);
+		this.label(s1, localize('aria.peerReview.source', "1 · What to review"));
+		const cards = append(s1, $('div'));
 		Object.assign(cards.style, { display: 'flex', gap: '12px', flexWrap: 'wrap' });
 		cards.appendChild(this.sourceCard('file', localize('aria.peerReview.optFile', "Upload a file"), localize('aria.peerReview.optFileHint', "A paper on your computer (.md, .txt, .docx, .pdf, .tex). Add supplementary files too."), true));
 		const hasPapers = this.papers.length > 0;
-		cards.appendChild(this.sourceCard('manuscript', localize('aria.peerReview.optManuscript', "A paper written in Paper Writer"), hasPapers ? localize('aria.peerReview.optManuscriptHint', "Review a manuscript you drafted in the Paper Writer tab.") : localize('aria.peerReview.optManuscriptNone', "No Paper Writer manuscripts yet — create one in the Paper Writer tab first."), hasPapers));
+		cards.appendChild(this.sourceCard('manuscript', localize('aria.peerReview.optManuscript', "A paper written in Paper Writer"), hasPapers ? localize('aria.peerReview.optManuscriptHint', "Review a manuscript you drafted in the Paper Writer tab.") : localize('aria.peerReview.optManuscriptNone', "No Paper Writer manuscripts yet - create one in the Paper Writer tab first."), hasPapers));
 
 		// selected-source detail
-		const detail = append(root, $('div')); detail.style.marginTop = '12px';
+		const detail = append(s1, $('div')); detail.style.marginTop = '12px';
 		if (this.sourceMode === 'file') {
 			// Three slots so the reviewer knows exactly which file is the main text.
-			this.fileSlot(detail, localize('aria.peerReview.draft', "Draft (main manuscript)"), localize('aria.peerReview.draftHint', "The paper text to review (.md, .txt, .docx, .pdf, .tex). Required — this is what's previewed and revised."),
+			this.fileSlot(detail, localize('aria.peerReview.draft', "Draft (main manuscript)"), localize('aria.peerReview.draftHint', "The paper text to review (.md, .txt, .docx, .pdf, .tex). Required - this is what's previewed and revised."),
 				this.draft ? [this.draft] : [], false,
 				() => void this.pickDraft(),
 				() => { this.draft = undefined; this.render(); });
@@ -411,11 +424,12 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		}
 
 		// reviewers
-		this.label(root, localize('aria.peerReview.reviewers', "2 · Reviewers"));
-		const rw = append(root, $('div'));
+		const s2 = this.section(root);
+		this.label(s2, localize('aria.peerReview.reviewers', "2 · Reviewers"));
+		const rw = append(s2, $('div'));
 		Object.assign(rw.style, { display: 'flex', flexDirection: 'column', gap: '6px' });
-		rw.appendChild(this.reviewerCheckbox('claude', this.claudeAvailable ? 'Claude' : localize('aria.peerReview.claudeMissing', "Claude — CLI not installed"), this.claudeAvailable));
-		rw.appendChild(this.reviewerCheckbox('codex', this.codexAvailable ? 'Codex' : localize('aria.peerReview.codexMissing', "Codex — CLI not installed"), this.codexAvailable));
+		rw.appendChild(this.reviewerCheckbox('claude', this.claudeAvailable ? 'Claude' : localize('aria.peerReview.claudeMissing', "Claude - CLI not installed"), this.claudeAvailable));
+		rw.appendChild(this.reviewerCheckbox('codex', this.codexAvailable ? 'Codex' : localize('aria.peerReview.codexMissing', "Codex - CLI not installed"), this.codexAvailable));
 
 		// copy prompt
 		const bar = append(root, $('div'));
@@ -476,7 +490,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		wrap.appendChild(box);
 		if (enabled) { wrap.onclick = () => { this.reviewers[id] = !this.reviewers[id]; this.render(); }; }
 		const t = append(wrap, $('span')); t.textContent = text; t.style.opacity = enabled ? '1' : '0.55';
-		// When a reviewer's CLI is missing, offer a belated install right here — a
+		// When a reviewer's CLI is missing, offer a belated install right here - a
 		// plain underlined link (not a button, so it isn't confused with the
 		// actions below). It installs only this provider's CLI.
 		if (!enabled && (id === 'claude' || id === 'codex')) {
@@ -491,7 +505,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	/** Belated CLI install for a reviewer whose CLI is missing. Runs the shared
 	 *  installer (auto Node bootstrap + provider install, in a visible terminal)
 	 *  for ONLY this provider, then polls availability so the checkbox re-enables
-	 *  once the CLI lands — no reload needed. */
+	 *  once the CLI lands - no reload needed. */
 	private async installReviewerCli(provider: 'claude' | 'codex'): Promise<void> {
 		try {
 			await this.commandService.executeCommand('aria.provider.installCli', provider);
@@ -601,11 +615,11 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	}
 
 	private reviewPrompt(execId: string, _title: string, reviewers: string[]): string {
-		return `Using the Aria peer reviewer, run an AI peer review for review run "${execId}". Follow the iterative-paper-defense skill: call get_review("${execId}"), then for each reviewer run it independently — you are the driver, so review with your own model directly and run any other reviewer's model headless via its CLI — and record each reviewer's Major/Minor concerns with record_review. Reviewers: ${reviewers.join(', ')}.`;
+		return `Using the Aria peer reviewer, run an AI peer review for review run "${execId}". Follow the iterative-paper-defense skill: call get_review("${execId}"), then for each reviewer run it independently - you are the driver, so review with your own model directly and run any other reviewer's model headless via its CLI - and record each reviewer's Major/Minor concerns with record_review. Reviewers: ${reviewers.join(', ')}.`;
 	}
 
 	private revisePrompt(concernId: string, c: Concern): string {
-		return `Using the Aria peer reviewer, suggest revisions for concern "${concernId}" ("${c.title}") in review run "${this.execId}". Follow the iterative-paper-defense skill: call get_review("${this.execId}"), devise up to 3 alternative strategies (each an Argument / Edit footprint / Risk), and record them together in ONE record_revision call as the proposals array. Set documentKey to the document you are editing — "main" for the manuscript, or a supplementary key like "suppl-1".`;
+		return `Using the Aria peer reviewer, suggest revisions for concern "${concernId}" ("${c.title}") in review run "${this.execId}". Follow the iterative-paper-defense skill: call get_review("${this.execId}"), devise up to 3 alternative strategies (each an Argument / Edit footprint / Risk), and record them together in ONE record_revision call as the proposals array. Set documentKey to the document you are editing - "main" for the manuscript, or a supplementary key like "suppl-1".`;
 	}
 
 	private async sendToChat(query: string): Promise<void> {
@@ -614,7 +628,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		// the user to paste it and press Enter.
 		await this.clipboardService.writeText(query);
 		await revealAiProviderChat(this.commandService, this.configurationService);
-		this.notificationService.info(localize('aria.peerReview.promptCopied', "Prompt copied — paste it into your AI chat (Ctrl/Cmd+V) and press Enter."));
+		this.notificationService.info(localize('aria.peerReview.promptCopied', "Prompt copied - paste it into your AI chat (Ctrl/Cmd+V) and press Enter."));
 	}
 
 	// --- run results (two columns, sticky headers) --------------------------
@@ -627,7 +641,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		// line up and the Save-paper / Re-run buttons sit on one horizontal line.
 		const HEADER_H = '54px';
 
-		// LEFT — paper body, sticky header with title/date/id + Save menu.
+		// LEFT - paper body, sticky header with title/date/id + Save menu.
 		const left = append(root, $('div'));
 		this.leftCol = left;
 		Object.assign(left.style, { flex: '1', minWidth: '0', overflow: 'auto' });
@@ -642,7 +656,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		Object.assign(pm.style, { fontSize: '11px', opacity: '0.55', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 		lhead.appendChild(this.saveMenu());
 
-		// Document tabs (Draft · Suppl 1 · …) — mirror of the reviewer tabs on the right.
+		// Document tabs (Draft · Suppl 1 · …) - mirror of the reviewer tabs on the right.
 		if (this.docs.length > 1) {
 			const dtabs = append(left, $('div'));
 			Object.assign(dtabs.style, { position: 'sticky', top: HEADER_H, zIndex: '1', background: bg, display: 'flex', gap: '4px', padding: '6px 18px 0', borderBottom: '1px solid rgba(127,127,127,0.18)', overflowX: 'auto' });
@@ -657,13 +671,13 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 
 		this.renderPaperBody(left);
 
-		// DIVIDER — draggable sash to resize the two columns.
+		// DIVIDER - draggable sash to resize the two columns.
 		const divider = append(root, $('div'));
 		Object.assign(divider.style, { width: '6px', flexShrink: '0', cursor: 'col-resize', borderLeft: '1px solid rgba(127,127,127,0.2)', boxSizing: 'border-box', zIndex: '3' });
 		divider.onmouseenter = () => { divider.style.borderLeftColor = 'var(--vscode-focusBorder, #4c8bf5)'; };
 		divider.onmouseleave = () => { divider.style.borderLeftColor = 'rgba(127,127,127,0.2)'; };
 
-		// RIGHT — comments; short sticky header (title + Re-run), tabs below.
+		// RIGHT - comments; short sticky header (title + Re-run), tabs below.
 		const right = append(root, $('div'));
 		Object.assign(right.style, { width: `${this.rightWidth}px`, flexShrink: '0', overflow: 'auto' });
 		applyAriaScrollbar(right);
@@ -675,7 +689,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 
 		this.wireResize(root, divider, right);
 
-		// reviewer tabs (Claude · Codex) — sticky under the header, mirror of the left document tabs.
+		// reviewer tabs (Claude · Codex) - sticky under the header, mirror of the left document tabs.
 		if (meta.reviewers.length > 1 || this.concerns) {
 			const tabs = append(right, $('div'));
 			Object.assign(tabs.style, { position: 'sticky', top: HEADER_H, zIndex: '1', background: bg, display: 'flex', gap: '4px', padding: '6px 18px 0', borderBottom: '1px solid rgba(127,127,127,0.18)', overflowX: 'auto' });
@@ -704,7 +718,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 			const withIdx = rec.concerns.map((c, i) => ({ c, id: `${this.activeReviewer}#${i}` }));
 			const major = withIdx.filter(x => x.c.severity === 'major');
 			const minor = withIdx.filter(x => x.c.severity === 'minor');
-			this.renderConcernGroup(rbody, localize('aria.peerReview.major', "Major Concerns"), major, '#e05a4e', localize('aria.peerReview.noMajor', "No major concerns — looking good!"));
+			this.renderConcernGroup(rbody, localize('aria.peerReview.major', "Major Concerns"), major, '#e05a4e', localize('aria.peerReview.noMajor', "No major concerns - looking good!"));
 			this.renderConcernGroup(rbody, localize('aria.peerReview.minor', "Minor Concerns"), minor, '#e0b040', localize('aria.peerReview.noMinor', "No minor concerns."));
 		}
 	}
@@ -720,8 +734,8 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		const text = this.paperText;
 		if (!text) { body.textContent = localize('aria.peerReview.noBody', "(The paper body appears once a reviewer loads it.)"); return; }
 
-		// Every pending (proposed, unresolved) revision for the CURRENT document —
-		// both concern-tied and standalone (user-requested) — placed at the FIRST
+		// Every pending (proposed, unresolved) revision for the CURRENT document -
+		// both concern-tied and standalone (user-requested) - placed at the FIRST
 		// proposal's span. Keep only non-overlapping ones, in order.
 		const pend: { id: string; rev: Revision; index: number; len: number }[] = [];
 		for (const [id, rev] of Object.entries(this.revisions)) {
@@ -771,7 +785,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	private scrollToRevision(id: string): void {
 		const w = this.revWidgets.get(id);
 		if (!w) { return; }
-		// Only move the viewport when the target span differs from the current focus —
+		// Only move the viewport when the target span differs from the current focus -
 		// re-suggesting / editing the SAME sentence keeps the view put (just pulses).
 		const rev = this.revisions[id];
 		const anchor = rev ? (this.proposalsOf(rev)[0]?.original ?? '') : '';
@@ -843,7 +857,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		if (c) {
 			leftg.appendChild(this.button(localize('aria.peerReview.reSuggest', "Re-suggest"), 'ghost', () => void this.sendToChat(this.revisePrompt(id, c))));
 		} else {
-			// standalone (user-requested) edit — no concern to re-suggest against
+			// standalone (user-requested) edit - no concern to re-suggest against
 			leftg.appendChild(this.button(localize('aria.peerReview.discard', "Discard"), 'ghost', () => void this.discardRevision(id)));
 		}
 		if (props.length > 1) {
@@ -909,16 +923,16 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 
 	private async exportPaper(format: string): Promise<void> {
 		if (!this.execId) { return; }
-		// Save ALL documents (main + supplementary) in the chosen format — the user
+		// Save ALL documents (main + supplementary) in the chosen format - the user
 		// may have revised supplementary docs too.
 		const saved: string[] = [];
 		for (const d of this.docs) {
 			try {
 				const out = await this.commandService.executeCommand<string>('aria.peerReview.exportPaper', this.execId, format, d.key);
 				if (out) { saved.push(out); }
-			} catch { /* a document with no text yet — skip it */ }
+			} catch { /* a document with no text yet - skip it */ }
 		}
-		if (!saved.length) { this.notificationService.error(localize('aria.peerReview.saveNone', "Nothing to save yet — run the review first.")); return; }
+		if (!saved.length) { this.notificationService.error(localize('aria.peerReview.saveNone', "Nothing to save yet - run the review first.")); return; }
 		this.notificationService.info(localize('aria.peerReview.savedN', "Saved {0} document(s) to the review's export/ folder.", saved.length));
 	}
 
@@ -955,8 +969,8 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 				const nProps = this.proposalsOf(rev).length;
 				const lt = append(link, $('span'));
 				lt.textContent = nProps > 1
-					? localize('aria.peerReview.seeInPaperN', "{0} revision strategies — review them in the paper", nProps)
-					: localize('aria.peerReview.seeInPaper', "Revision proposed — review it in the paper");
+					? localize('aria.peerReview.seeInPaperN', "{0} revision strategies - review them in the paper", nProps)
+					: localize('aria.peerReview.seeInPaper', "Revision proposed - review it in the paper");
 				link.onclick = () => void this.focusRevision(id);
 				card.style.cursor = 'pointer';
 				card.onclick = ev => { if (!(ev.target instanceof HTMLElement) || ev.target.tagName !== 'BUTTON') { void this.focusRevision(id); } };

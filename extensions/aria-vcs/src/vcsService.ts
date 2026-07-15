@@ -61,7 +61,7 @@ export class VcsService {
 		const repoPath = path.join(workspacePath, '.git');
 		if (!fs.existsSync(repoPath)) {
 			// Start tracking on first look so the Versions view works out of the box
-			// — the header + Changes list both go through here, and without this a
+			// - the header + Changes list both go through here, and without this a
 			// brand-new project reports "no changes" forever even after the user
 			// adds files. Best-effort: stays untracked if the machine has no git.
 			try {
@@ -95,28 +95,28 @@ export class VcsService {
 
 	async initRepo(workspacePath: string): Promise<void> {
 		await git(['init'], workspacePath);
-		// Keep assistant/app working files out of the user's snapshots — they're
+		// Keep assistant/app working files out of the user's snapshots - they're
 		// tool machinery (session config, MCP ports that change every launch),
 		// not research content, and would only add noise to every snapshot diff.
 		this.ensureGitignore(workspacePath);
 		// Make sure commits will succeed without any user setup. If the user
 		// already has user.name / user.email configured globally we keep
-		// using those — only fall back to an Aria-local identity when no
+		// using those - only fall back to an Aria-local identity when no
 		// global config is found, so we don't override the user's real
 		// name on shared / multi-tool machines.
 		await this.ensureLocalIdentity(workspacePath);
 	}
 
 	/** Write (or top up) a project `.gitignore` so Aria's own working files never
-	 *  land in a snapshot. Idempotent — the Aria block is only appended once. */
+	 *  land in a snapshot. Idempotent - the Aria block is only appended once. */
 	private ensureGitignore(workspacePath: string): void {
 		const HEADER = '# --- Aria: assistant/app working files (kept out of snapshots) ---';
 		const block = [
 			HEADER,
 			'.claude/',        // Claude Code project/session config (MCP, settings)
 			'.codex/',         // Codex working dir
-			'.mcp.json',       // MCP server config — ports change every launch
-			'.aria/',          // Aria app state (roadmaps etc.) — managed by the app
+			'.mcp.json',       // MCP server config - ports change every launch
+			'.aria/',          // Aria app state (roadmaps etc.) - managed by the app
 			'node_modules/',
 			'.DS_Store',
 			'',
@@ -224,7 +224,7 @@ export class VcsService {
 		if (!status.isRepo) {
 			// The folder isn't tracked yet. Start tracking now (git init) so files
 			// the user has ALREADY added show up as changes for their first
-			// snapshot — otherwise the panel looks empty and they think nothing was
+			// snapshot - otherwise the panel looks empty and they think nothing was
 			// detected. No-op after the first time; returns [] if the machine has
 			// no git available (e.g. Windows without git installed).
 			try {
@@ -294,14 +294,14 @@ export class VcsService {
 				}
 			}
 		} catch {
-			// no HEAD yet (no snapshots) — skip line counts
+			// no HEAD yet (no snapshots) - skip line counts
 		}
 
 		return changes;
 	}
 
 	/**
-	 * Plain-text diff of what changed since the last snapshot — fed to the AI
+	 * Plain-text diff of what changed since the last snapshot - fed to the AI
 	 * summariser. Includes tracked changes (`git diff HEAD`) plus the contents of
 	 * untracked files (which git diff omits). Scoped to `paths` when the caller
 	 * saved only a subset, so the summary matches the actual snapshot. Bounded so
@@ -347,7 +347,7 @@ export class VcsService {
 					const content = fs.readFileSync(path.join(workspacePath, p), 'utf8');
 					out += `\n=== new file: ${p} ===\n${content}\n`;
 				} catch {
-					// binary or unreadable — skip
+					// binary or unreadable - skip
 				}
 			}
 		} catch {
@@ -381,7 +381,7 @@ export class VcsService {
 			const tagName = `aria-pre-goback-${Date.now()}`;
 			await git(['tag', tagName, 'HEAD'], workspacePath);
 		} catch {
-			// best-effort — proceed even if the tag couldn't be created
+			// best-effort - proceed even if the tag couldn't be created
 		}
 
 		// The actual go-back. Working tree is untouched, so files that

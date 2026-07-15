@@ -22,7 +22,7 @@ const ARIA_VERSIONS_CONTAINER_ID = 'workbench.view.ariaVersions';
 /**
  * Versions is a SINGLE merged view (Changes + Snapshots in one body) with
  * `mergeViewWithContainerWhenSingleView: true`, so the container shows just the
- * "Versions" title — no collapsible sub-headers. The "How to use?" link lives in
+ * "Versions" title - no collapsible sub-headers. The "How to use?" link lives in
  * the container title bar; this subclass renders it as a blue text link. It adds
  * no constructor, so it inherits ViewPaneContainer's injected dependencies.
  */

@@ -43,7 +43,7 @@ function readSettings(): ClaudeSettings {
 		const parsed = JSON.parse(raw);
 		return (parsed && typeof parsed === 'object') ? parsed : {};
 	} catch {
-		// Corrupt JSON — return empty rather than throw, the writer will
+		// Corrupt JSON - return empty rather than throw, the writer will
 		// regenerate on save.
 		return {};
 	}
@@ -58,8 +58,8 @@ function writeSettings(settings: ClaudeSettings): void {
 
 /**
  * The permission token Claude Code matches against when a skill is
- * invoked. Format mirrors Claude Code's tool-pattern syntax —
- * `Skill(name)` — so an entry in `permissions.allow` whitelists this
+ * invoked. Format mirrors Claude Code's tool-pattern syntax -
+ * `Skill(name)` - so an entry in `permissions.allow` whitelists this
  * skill without affecting unrelated tools.
  */
 export function skillPermissionToken(name: string): string {
@@ -69,7 +69,7 @@ export function skillPermissionToken(name: string): string {
 /**
  * Toggle a single skill's allow-list membership. `desired === true`
  * adds the token if absent; `desired === false` removes it if present.
- * Idempotent on either side — calling twice with the same value is a
+ * Idempotent on either side - calling twice with the same value is a
  * no-op.
  */
 export function setSkillAutoApprove(skillName: string, desired: boolean): void {

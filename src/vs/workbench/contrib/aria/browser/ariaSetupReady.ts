@@ -8,7 +8,7 @@
  *
  * Aria's MCP servers (aria-paper, aria-notes, …) boot during extension
  * activation and register with Claude Code. The Claude chat connects to MCP
- * when its session starts — and if a previous session is RESTORED on window
+ * when its session starts - and if a previous session is RESTORED on window
  * load, it connects before those servers are up, leaving them "Failed" until a
  * manual /mcp reconnect.
  *

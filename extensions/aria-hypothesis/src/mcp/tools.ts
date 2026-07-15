@@ -12,7 +12,7 @@ import { searchHypothesis, getFulltext } from '../client';
  *                              hypothesis, returning candidate papers + context
  *                              windows. The CALLER (the chat model) does keyword
  *                              extraction before, and verdict/method judgment after
- *                              — this tool is only the deterministic grep step.
+ *                              - this tool is only the deterministic grep step.
  *  - get_hypothesis_fulltext:  pull one candidate's full packed content for a wider
  *                              read when the context windows are insufficient to judge.
  */
@@ -55,13 +55,13 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'search_hypothesis',
 		description:
-			'Search the local research corpus (~1M PMC open-access research articles, 2023-2026, reviews/protocols already excluded) for papers that may actually contain or test a given hypothesis, and see the methods each used. This is a deterministic literal-substring grep — YOU do the reasoning around it:\n\n' +
-			'STEP 1 (before calling) — extract keywords from the hypothesis:\n' +
-			'  • `primary`: the single most specific / rarest term — a gene, protein, molecule, drug, disease, or cell type. It anchors the AND. NEVER use a generic word (cell, cancer, expression, study).\n' +
-			'  • `kw`: 1-3 other defining terms — the phenotype/outcome, the mechanism/process, and/or the model system.\n' +
+			'Search the local research corpus (~1M PMC open-access research articles, 2023-2026, reviews/protocols already excluded) for papers that may actually contain or test a given hypothesis, and see the methods each used. This is a deterministic literal-substring grep - YOU do the reasoning around it:\n\n' +
+			'STEP 1 (before calling) - extract keywords from the hypothesis:\n' +
+			'  • `primary`: the single most specific / rarest term - a gene, protein, molecule, drug, disease, or cell type. It anchors the AND. NEVER use a generic word (cell, cancer, expression, study).\n' +
+			'  • `kw`: 1-3 other defining terms - the phenotype/outcome, the mechanism/process, and/or the model system.\n' +
 			'  • Matching is literal, case-insensitive SUBSTRING. Use the spelling most likely to appear verbatim; prefer a shared stem when a word has variants (e.g. "autophag" matches autophagy/autophagic, "phosphoryl" matches phosphorylation). Mind hyphen-vs-space.\n' +
 			'  • Keep 2-4 keywords total. Tighter AND = fewer, more precise candidates; the server auto-falls back AND -> OR -> primary-only if AND is empty.\n\n' +
-			'STEP 2 (after calling) — judge each candidate from its `context` windows: co-occurrence of keywords does NOT mean the hypothesis is present, so be strict. Classify match / partial / no, and for match/partial extract the concrete experimental methods used. If a context window is insufficient, call get_hypothesis_fulltext for that pmcid.\n\n' +
+			'STEP 2 (after calling) - judge each candidate from its `context` windows: co-occurrence of keywords does NOT mean the hypothesis is present, so be strict. Classify match / partial / no, and for match/partial extract the concrete experimental methods used. If a context window is insufficient, call get_hypothesis_fulltext for that pmcid.\n\n' +
 			'Returns { match_mode, n, results: [{ pmcid, title, year, journal, context[] }] }. `match_mode` is which tier matched (AND / OR-fallback / primary-only).',
 		inputSchema: {
 			type: 'object',
@@ -75,7 +75,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 		handler: async (args) => {
 			const primary = typeof args.primary === 'string' ? args.primary.trim() : '';
 			if (!primary) {
-				return errorResult('`primary` is required — the most specific/rarest anchoring keyword from the hypothesis.');
+				return errorResult('`primary` is required - the most specific/rarest anchoring keyword from the hypothesis.');
 			}
 			const kw = Array.isArray(args.kw)
 				? args.kw.map(k => String(k).trim()).filter(Boolean)

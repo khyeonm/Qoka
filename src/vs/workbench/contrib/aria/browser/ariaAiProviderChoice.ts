@@ -10,8 +10,8 @@ import { AriaAiProvider, AriaConcreteProvider } from '../common/ariaConfiguratio
  * the Started overlay) and the startup chat auto-open. Kept UI-free so both a
  * contribution and a plain module can import it without a dependency cycle.
  *
- * Aria's chat is provided by a Marketplace extension — Claude Code
- * (`anthropic.claude-code`) or Codex (`openai.chatgpt`) — so the picker's job is
+ * Aria's chat is provided by a Marketplace extension - Claude Code
+ * (`anthropic.claude-code`) or Codex (`openai.chatgpt`) - so the picker's job is
  * to let the user choose which one(s) to use and route them to install when a
  * chosen provider isn't present yet.
  */
@@ -20,7 +20,7 @@ import { AriaAiProvider, AriaConcreteProvider } from '../common/ariaConfiguratio
  *  overlay/startup code keeps its familiar name while sharing one source. */
 export type ConcreteProvider = AriaConcreteProvider;
 
-/** Marketplace extension identifiers per provider — used both to detect
+/** Marketplace extension identifiers per provider - used both to detect
  *  installation (IExtensionService.getExtension) and to install/open the
  *  extension page (workbench.extensions.installExtension / extension.open). */
 export const PROVIDER_EXTENSION_ID: Record<ConcreteProvider, string> = {
@@ -49,17 +49,17 @@ export function markPickedAiProvider(): void {
 	try {
 		localStorage.setItem(PICKED_KEY, '1');
 	} catch {
-		// Storage unavailable — the picker may show again next launch; harmless.
+		// Storage unavailable - the picker may show again next launch; harmless.
 	}
 }
 
-/** Forget the AI-provider choice so the picker step shows again — called on
+/** Forget the AI-provider choice so the picker step shows again - called on
  *  sign-out so the next sign-in re-runs the login → AI → project flow. */
 export function clearPickedAiProvider(): void {
 	try {
 		localStorage.removeItem(PICKED_KEY);
 	} catch {
-		// Storage unavailable — nothing to clear; harmless.
+		// Storage unavailable - nothing to clear; harmless.
 	}
 }
 
@@ -79,8 +79,8 @@ export function providerSettingFor(claude: boolean, codex: boolean): AriaAiProvi
 
 /**
  * Providers the user chose but hasn't installed yet. Recorded when they Continue
- * past the AI picker with a not-yet-installed selection, and consumed once —
- * AFTER a project is opened — to open each one's Marketplace page there (rather
+ * past the AI picker with a not-yet-installed selection, and consumed once -
+ * AFTER a project is opened - to open each one's Marketplace page there (rather
  * than in the empty picker window). Survives the openFolder reload via
  * localStorage.
  */
@@ -94,7 +94,7 @@ export function setPendingInstall(providers: ConcreteProvider[]): void {
 			localStorage.setItem(PENDING_INSTALL_KEY, JSON.stringify(providers));
 		}
 	} catch {
-		// Storage unavailable — the deferred install just won't auto-open; harmless.
+		// Storage unavailable - the deferred install just won't auto-open; harmless.
 	}
 }
 

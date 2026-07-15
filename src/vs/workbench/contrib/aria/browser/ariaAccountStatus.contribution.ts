@@ -24,7 +24,7 @@ const ACCOUNT_CACHE_KEY = 'aria.account.displayCache';
 /**
  * In easy mode the developer status bar is stripped down; the signed-in account
  * and a Sign out button (previously only in the launch overlay) move to the
- * bottom-right of the (thicker) status bar. Only shown in easy mode — advanced
+ * bottom-right of the (thicker) status bar. Only shown in easy mode - advanced
  * mode keeps the stock status bar.
  */
 export class AriaAccountStatusContribution extends Disposable implements IWorkbenchContribution {
@@ -111,7 +111,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	/**
 	 * Decide what the bottom-right shows from the current mode + session. Favours
 	 * the cached account so a slow or racing session restore (e.g. in the freshly
-	 * reloaded New Project window) never blanks the bar — only an explicit Sign out
+	 * reloaded New Project window) never blanks the bar - only an explicit Sign out
 	 * clears it (see signOut).
 	 */
 	private reconcile(): void {
@@ -155,7 +155,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 			ariaLabel: localize('aria.changeProject.ariaLabel', "Change project"),
 			tooltip: localize('aria.changeProject.tooltip', "Open a different project (stays signed in)"),
 			command: CHANGE_PROJECT_COMMAND,
-			// NOTE: fresh entry id (not the earlier 'aria.changeProject') — that id
+			// NOTE: fresh entry id (not the earlier 'aria.changeProject') - that id
 			// ended up in the persisted `workbench.statusbar.hidden` set during an
 			// early buggy build and stayed display:none. A new id is visible by default.
 		}, 'aria.switchProject', StatusbarAlignment.RIGHT, 99);
@@ -171,13 +171,13 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 
 	private async changeProject(): Promise<void> {
 		// Close the folder WITHOUT signing out. The window reloads into an empty
-		// workbench where the Started overlay — since a session and an AI-provider
-		// choice already exist — skips login and the AI picker and shows the
+		// workbench where the Started overlay - since a session and an AI-provider
+		// choice already exist - skips login and the AI picker and shows the
 		// project picker directly, so the user can open/create another project.
 		try {
 			await this.commandService.executeCommand('workbench.action.closeFolder');
 		} catch {
-			// ignore — e.g. already an empty workbench.
+			// ignore - e.g. already an empty workbench.
 		}
 	}
 
@@ -188,7 +188,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		try {
 			await this.authService.removeSession(AUTH_ID, this.session.id);
 		} catch {
-			// ignore — onDidChangeSessions will refresh regardless.
+			// ignore - onDidChangeSessions will refresh regardless.
 		}
 		// Explicit sign-out: forget the cached account so the bar clears now and
 		// doesn't optimistically repaint it.
@@ -198,12 +198,12 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 
 		// The login gate only checks at startup, so signing out inside a project
 		// window won't return us to the login screen on its own. Close the folder
-		// (same as the gate) — VS Code reopens as an empty workbench where the
+		// (same as the gate) - VS Code reopens as an empty workbench where the
 		// Started overlay shows the login surface.
 		try {
 			await this.commandService.executeCommand('workbench.action.closeFolder');
 		} catch {
-			// ignore — e.g. already an empty workbench.
+			// ignore - e.g. already an empty workbench.
 		}
 	}
 }

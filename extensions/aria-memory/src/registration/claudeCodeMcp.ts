@@ -26,7 +26,7 @@ export interface RegistrationResult {
 /**
  * Shell-installed locations the Claude CLI lands in. The Aria launcher
  * inherits a minimal PATH that often misses these; mirrors the candidate
- * list used by the other aria-* extensions so behaviour stays consistent —
+ * list used by the other aria-* extensions so behaviour stays consistent -
  * including the nvm-managed node bins, which is how the Claude CLI is
  * actually reachable on this user's box.
  */

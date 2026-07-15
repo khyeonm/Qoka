@@ -9,7 +9,7 @@ import * as path from 'path';
 import { SshProfile } from '../common/types';
 
 /**
- * SSH access via the pure-JS `ssh2` library — NO external `ssh`/`sshpass`
+ * SSH access via the pure-JS `ssh2` library - NO external `ssh`/`sshpass`
  * process and no dependency on the system OpenSSH. This mirrors how the
  * reference autopipe backend works (its Rust `ssh2` crate over libssh2): the
  * library performs the TCP connection and password/key authentication itself,
@@ -72,7 +72,7 @@ export class SshService {
 			throw new Error(`read_file failed (exit ${exitCode}): ${stderr.trim()}`);
 		}
 		// Same spurious `{"success":true}` banner some remotes prepend to command
-		// output (see stripSuccessPrefix) — on a BINARY read it corrupts the file
+		// output (see stripSuccessPrefix) - on a BINARY read it corrupts the file
 		// (e.g. a PNG gets 16 junk bytes before its \x89PNG magic → "error loading
 		// image"). Strip the exact literal from the buffer head; a real binary file
 		// never starts with those bytes, so this is safe.
@@ -201,7 +201,7 @@ function connectConfig(profile: SshProfile, timeoutMs?: number): ConnectConfig {
 
 /**
  * Some remote environments prepend a spurious `{"success":true}` banner to the
- * FIRST line of command output (a known autopipe-server quirk — roCrate's
+ * FIRST line of command output (a known autopipe-server quirk - roCrate's
  * `cleanContent` strips it too). Left in, it corrupts the first entry of every
  * command: e.g. `list_files` returns `{"success":true}data.fq` as a filename,
  * which then gets used to create a garbage-named file. Strip the exact known
@@ -218,7 +218,7 @@ function stripSuccessPrefix(s: string): string {
 	return s;
 }
 
-/** Buffer (binary) variant of stripSuccessPrefix — removes the banner from the
+/** Buffer (binary) variant of stripSuccessPrefix - removes the banner from the
  *  head of a raw file read so binary payloads (images, PDFs, BAM) stay intact. */
 function stripSuccessPrefixBytes(buf: Buffer): Buffer {
 	for (const prefix of ['{"success":true}', '{"success": true}', '{"success" : true}']) {

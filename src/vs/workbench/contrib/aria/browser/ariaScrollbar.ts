@@ -8,7 +8,7 @@
  *
  * Aria builds several surfaces (the sidebar views and the Paper Writer editor
  * pane) as plain DOM with `overflow: auto`, which renders the chunky default OS
- * scrollbar — visually inconsistent with the rest of VS Code, whose scrollbars
+ * scrollbar - visually inconsistent with the rest of VS Code, whose scrollbars
  * are thin, square, and theme-coloured. Tagging a scroll container with the
  * `aria-themed-scrollable` class (via `applyAriaScrollbar`) makes its scrollbar
  * match VS Code's, so every Aria surface scrolls the same way.

@@ -6,12 +6,12 @@
 /**
  * Names a snapshot for the Versions view by asking the user's own AI CLI
  * (Claude Code or Codex) to summarise the diff. Runs the CLI HEADLESS (prompt
- * on stdin, plain stdout) — it never touches the visible chat.
+ * on stdin, plain stdout) - it never touches the visible chat.
  *
  * Two jobs in one call:
  *   - a one-line English title for the snapshot;
  *   - whether the change CONTINUES the previous snapshot's work (used to group
- *     consecutive saves in the timeline — display only, no history rewriting).
+ *     consecutive saves in the timeline - display only, no history rewriting).
  *
  * Provider follows the app-wide `aria.aiProvider` setting (auto → Claude first).
  * Everything is best-effort: if no provider is installed / logged in, or the
@@ -66,7 +66,7 @@ function withNvm(name: AiProvider, candidates: string[]): string[] {
 
 /** Resolve an executable path for a provider, or undefined if not found.
  *  GUI-launched Electron apps often run with a truncated PATH that omits
- *  ~/.local/bin, nvm, and /opt/homebrew/bin — so we must NOT just trust the
+ *  ~/.local/bin, nvm, and /opt/homebrew/bin - so we must NOT just trust the
  *  bare name. Prefer an absolute candidate that exists on disk; only fall back
  *  to resolving the bare name against whatever PATH we do have. This always
  *  returns a concrete, spawnable path (or undefined), which also keeps
@@ -119,7 +119,7 @@ function providerOrder(): AiProvider[] {
 		: base;
 }
 
-/** Headless argv per provider — prompt is fed on stdin. */
+/** Headless argv per provider - prompt is fed on stdin. */
 function headlessArgs(provider: AiProvider): string[] {
 	return provider === 'claude'
 		? ['--print', '--output-format', 'text']
@@ -142,7 +142,7 @@ function runWithStdin(bin: string, args: string[], input: string, timeoutMs: num
 		});
 		// A CLI that exits before reading stdin (not logged in / fast failure)
 		// closes the pipe; without this listener the resulting EPIPE surfaces as
-		// an uncaught exception in the extension host. Swallow it — the 'close'
+		// an uncaught exception in the extension host. Swallow it - the 'close'
 		// handler already reports the real exit code.
 		child.stdin.on('error', () => { });
 		child.stdin.write(input);

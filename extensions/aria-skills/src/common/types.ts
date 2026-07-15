@@ -36,11 +36,11 @@ export interface SkillDependency {
 	reason?: string;
 }
 
-/** An installed skill — what Aria's manifest tracks per entry. */
+/** An installed skill - what Aria's manifest tracks per entry. */
 export interface SkillInfo {
 	/** Stable identifier (matches the directory name in ~/.claude/skills/). */
 	name: string;
-	/** Aria-assigned category — used only for filtering in the Skills tab. */
+	/** Aria-assigned category - used only for filtering in the Skills tab. */
 	category: string;
 	/** Short description for the Skills tab card. */
 	description: string;
@@ -72,11 +72,11 @@ export interface SkillsManifest {
 	firstRunCompleted: boolean;
 }
 
-/** Categories are fully user-defined now — the manifest starts with an
+/** Categories are fully user-defined now - the manifest starts with an
  *  empty list and grows as the user adds skills or types a new value into
  *  the Category pill. Keeping the export name so older imports compile,
  *  but the array is intentionally empty. */
 export const DEFAULT_CATEGORIES: string[] = [];
 
-/** Manifest version — bump when the on-disk shape changes incompatibly. */
+/** Manifest version - bump when the on-disk shape changes incompatibly. */
 export const MANIFEST_VERSION = 1;

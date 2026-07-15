@@ -11,15 +11,15 @@ import { RoadmapState, RoadmapNode, COLUMN_LABELS } from './state';
 /**
  * Multi-roadmap store.
  *
- * A project holds MANY roadmaps — one per hypothesis — each persisted as its own
+ * A project holds MANY roadmaps - one per hypothesis - each persisted as its own
  * `<workspace>/.aria/roadmaps/<id>.json`. Exactly one roadmap is "active" at a
  * time; the shared `RoadmapState` always mirrors the active roadmap, so every
  * existing MCP tool and workbench command (which operate on that one state)
  * transparently edits whichever roadmap is active. Switching active = reloading
  * the shared state from another file.
  *
- * A roadmap's display name is DERIVED from its first Goal (column-0) node — the
- * hypothesis sentence — so the sidebar can list roadmaps by hypothesis with no
+ * A roadmap's display name is DERIVED from its first Goal (column-0) node - the
+ * hypothesis sentence - so the sidebar can list roadmaps by hypothesis with no
  * separate title to keep in sync. Empty roadmaps show "Untitled roadmap".
  */
 
@@ -104,7 +104,7 @@ export class RoadmapStore {
 		}
 		try {
 			if (fs.existsSync(this.dir) && fs.readdirSync(this.dir).some(f => f.endsWith('.json'))) {
-				return; // already have roadmaps/ — nothing to migrate
+				return; // already have roadmaps/ - nothing to migrate
 			}
 			const legacy = path.join(path.dirname(this.dir), 'roadmap.json');
 			if (!fs.existsSync(legacy)) {
@@ -112,7 +112,7 @@ export class RoadmapStore {
 			}
 			const parsed = JSON.parse(fs.readFileSync(legacy, 'utf8')) as PersistedRoadmap;
 			if (!Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
-				return; // empty legacy roadmap — skip, a fresh one will be created
+				return; // empty legacy roadmap - skip, a fresh one will be created
 			}
 			this.ensureDir();
 			const id = this.newId();

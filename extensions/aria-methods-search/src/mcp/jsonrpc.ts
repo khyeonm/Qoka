@@ -6,7 +6,7 @@
 /**
  * Minimal JSON-RPC 2.0 types covering the subset MCP uses over HTTP+SSE.
  * The full MCP spec also defines notifications and several error codes but
- * we keep the surface thin — the implementation only needs request/response
+ * we keep the surface thin - the implementation only needs request/response
  * with `id`, `method`, `params`, and either `result` or `error`.
  */
 

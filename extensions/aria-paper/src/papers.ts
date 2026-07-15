@@ -24,7 +24,7 @@ export interface PaperFormat {
 	/** e.g. 'research-article' | 'review' | 'case-report' | 'preprint' */
 	paperType: string;
 	targetWords: number;
-	/** CSL style key — maps to a bundled .csl file (ieee, apa, nature, vancouver, chicago). */
+	/** CSL style key - maps to a bundled .csl file (ieee, apa, nature, vancouver, chicago). */
 	citationStyle: string;
 	/** Output language (BCP-47), e.g. 'en'. */
 	language: string;
@@ -43,7 +43,7 @@ export interface PaperMeta {
 	id: string;
 	title: string;
 	format: PaperFormat;
-	/** Research focus (SPWA "focus" step) — bullet-point statement of problem,
+	/** Research focus (SPWA "focus" step) - bullet-point statement of problem,
 	 *  objectives, gap/contribution. Set by the user or by Claude via set_focus. */
 	focus: string;
 	outline: OutlineSection[];
@@ -250,7 +250,7 @@ export function getManuscriptOriginal(id: string): string {
 	try { return fs.readFileSync(p, 'utf8'); } catch { return ''; }
 }
 
-/** True when the working copy has diverged from the frozen baseline — i.e. the
+/** True when the working copy has diverged from the frozen baseline - i.e. the
  *  user accepted review edits that a re-generation would discard. */
 export function hasUnsavedEdits(id: string): boolean {
 	const orig = getManuscriptOriginal(id);
@@ -309,7 +309,7 @@ export function clearProposal(id: string): void {
 export function syncManuscriptTitle(id: string): void {
 	const meta = getMeta(id);
 	if (!meta) { return; }
-	// Title is metadata, not a content edit — apply the H1 to BOTH the working
+	// Title is metadata, not a content edit - apply the H1 to BOTH the working
 	// copy and the frozen baseline so a title-only change doesn't read as an
 	// "unsaved edit" (which would otherwise trigger the re-write warning).
 	for (const p of [manuscriptPath(id), originalPath(id)]) {
@@ -426,7 +426,7 @@ export function addCitation(id: string, item: Record<string, unknown>): string {
 }
 
 /**
- * Build a clean, citeproc-friendly citekey from a CSL item — `familyYear`
+ * Build a clean, citeproc-friendly citekey from a CSL item - `familyYear`
  * (e.g. "lu2026"). BibTeX exported by reference managers (RefWorks, EndNote)
  * carries opaque keys like `RefWorks:RefID:149-lu2026towards`; those work in
  * pandoc but are ugly and fragile, so on import we regenerate from author+year.

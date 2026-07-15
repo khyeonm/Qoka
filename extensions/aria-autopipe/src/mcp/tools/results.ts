@@ -108,7 +108,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'show_results',
-		description: 'Open the in-app Results Viewer panel (a built-in Aria panel, NOT a web browser — never tell the user to open a browser or a 127.0.0.1 URL) for inspecting result files. Pass a DIRECTORY path to view all files in it, or a single FILE path to view only that file. File formats are handled by viewer plugins (auto-routed by file extension): defaults include images, PDF, text, CSV, FASTA/FASTQ, BAM/BED/GFF/CRAM/VCF/BCF, and HDF5 (h5ad).',
+		description: 'Open the in-app Results Viewer panel (a built-in Aria panel, NOT a web browser - never tell the user to open a browser or a 127.0.0.1 URL) for inspecting result files. Pass a DIRECTORY path to view all files in it, or a single FILE path to view only that file. File formats are handled by viewer plugins (auto-routed by file extension): defaults include images, PDF, text, CSV, FASTA/FASTQ, BAM/BED/GFF/CRAM/VCF/BCF, and HDF5 (h5ad).',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -148,7 +148,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 					const plugin = ext ? plugins.findForExtension(ext) : null;
 					const hint = plugin
 						? `Selected ${path.basename(target)} (${plugin.manifest.name} v${plugin.manifest.version}).`
-						: `No installed plugin handles "${ext}" yet — install one from the Plugins tab to view this file.`;
+						: `No installed plugin handles "${ext}" yet - install one from the Plugins tab to view this file.`;
 					return textResult([
 						`Opened the Autopipe Viewer at ${parent}.`,
 						hint,
@@ -157,7 +157,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 
 				// Directory: open the Autopipe Viewer rooted on this folder.
 				// The user navigates the file list inside the viewer and
-				// picks what they want to render — much less noisy than
+				// picks what they want to render - much less noisy than
 				// spawning a tab per file.
 				const { stdout } = await ssh.run(profile, `ls -1 -- ${q(target)}`);
 				const entries = stdout.trim().split('\n').filter(Boolean);

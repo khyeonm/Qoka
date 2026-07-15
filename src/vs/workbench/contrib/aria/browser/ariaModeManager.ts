@@ -82,7 +82,7 @@ function savePerFolderMode(storageService: IStorageService, contextService: IWor
 	try {
 		storageService.store(PER_FOLDER_MODE_KEY, JSON.stringify(map), StorageScope.APPLICATION, StorageTarget.MACHINE);
 	} catch {
-		// Storage unavailable — per-folder memory just won't persist; harmless.
+		// Storage unavailable - per-folder memory just won't persist; harmless.
 	}
 }
 
@@ -136,7 +136,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 			if (e.affectsConfiguration(ARIA_MODE_SETTING)) {
 				this.update(true);
 				// A mode change while a project is open is (almost always) a user
-				// action — remember it for this folder so reopening restores it.
+				// action - remember it for this folder so reopening restores it.
 				savePerFolderMode(this.storageService, this.contextService, this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '');
 			}
 		}));
@@ -156,7 +156,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 	private restoreFolderMode(): void {
 		const key = folderModeKey(this.contextService);
 		if (!key) {
-			return; // EMPTY workbench — the Started overlay owns mode selection.
+			return; // EMPTY workbench - the Started overlay owns mode selection.
 		}
 		const stored = readPerFolderModes(this.storageService)[key];
 		const current = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
@@ -197,7 +197,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 
 	private update(animate: boolean): void {
 		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
-		this.modeKey.set(mode); // context key only — no visual change.
+		this.modeKey.set(mode); // context key only - no visual change.
 
 		// Every visual change of a mode switch, grouped so the animated path can run
 		// them ALL behind the cover:
@@ -205,7 +205,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		//                       batch of `--vscode-*` overrides instantly.
 		//  - syncEasyChromeFor  hides/shows menu bar + command center (title re-layout).
 		//  - syncEasyThemeFor   swaps the whole color theme (the slow, blocking part).
-		// Applying the class/chrome changes BEFORE the theme swap — while visible —
+		// Applying the class/chrome changes BEFORE the theme swap - while visible -
 		// paints a half-converted workbench (widgets already light, editor still dark)
 		// for a frame or two: that inconsistent state WAS the switch "flash". So for an
 		// animated switch we defer all of it until the opaque cover is up.
@@ -244,10 +244,10 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		// The overlay is a solid TARGET-coloured panel that we fade IN over the
 		// workbench, then fade back OUT once the new theme has painted. Crucially the
 		// only animated property is `opacity`, which the compositor drives on its own
-		// thread — so even when the FIRST (uncached) theme load blocks the main thread,
+		// thread - so even when the FIRST (uncached) theme load blocks the main thread,
 		// the cover can't freeze half-drawn. (The previous version animated
 		// `background-color`, a main-thread property: a blocking load froze it mid-fade
-		// and the old colour flashed through — the "white-then-black on the first
+		// and the old colour flashed through - the "white-then-black on the first
 		// switch" bug.)
 		const targetColor = toDark ? '#1e1e1e' : '#ffffff';
 
@@ -274,8 +274,8 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		mainWindow.requestAnimationFrame(() => { overlay.style.opacity = '1'; });
 
 		// Apply the mode's visual changes (class + chrome + theme swap) only AFTER the
-		// cover is fully opaque (fade-in is 200ms), so every repaint — including the
-		// half-converted intermediate frames — happens entirely hidden behind it.
+		// cover is fully opaque (fade-in is 200ms), so every repaint - including the
+		// half-converted intermediate frames - happens entirely hidden behind it.
 		let swapped = false;
 		const doSwap = () => { if (!swapped) { swapped = true; swapTheme(); } };
 		this.transitionStore.add(disposableTimeout(doSwap, 260, this.transitionStore));
@@ -372,9 +372,9 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		await this.setUserValue('window.menuBarVisibility', easy ? 'hidden' : undefined);
 		await this.setUserValue('workbench.layoutControl.enabled', easy ? false : undefined);
 		// The title-bar command center (the center "search" box + its nav arrows)
-		// is developer chrome — hide it in easy so only the "Aria" brand + title show.
+		// is developer chrome - hide it in easy so only the "Aria" brand + title show.
 		await this.setUserValue('window.commandCenter', easy ? false : undefined);
-		// Dialogs default to the OS-native style, which the OS paints in ITS theme —
+		// Dialogs default to the OS-native style, which the OS paints in ITS theme -
 		// on a dark desktop a confirm ("Delete this review?") shows up dark even though
 		// easy mode's workbench is white. Force the in-app custom dialog in easy mode so
 		// it renders as `.monaco-dialog-box` DOM: it then follows the (light) easy theme
@@ -388,12 +388,12 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 			if (this.configurationService.getValue(key) === value) {
 				return;
 			}
-			// `handleDirtyFile: 'save'` — if settings.json is open with unsaved edits,
+			// `handleDirtyFile: 'save'` - if settings.json is open with unsaved edits,
 			// save it first and then write, instead of throwing "Unable to write into
 			// user settings because the file has unsaved changes" (the config-editing
 			// service shows that as a modal-ish notification we can't catch). This is
 			// exactly what that notification's "Save and retry" action does.
-			// `donotNotifyError: true` — suppress any remaining error popup; mode-switch
+			// `donotNotifyError: true` - suppress any remaining error popup; mode-switch
 			// writes are best-effort.
 			await this.configurationService.updateValue(key, value, {}, ConfigurationTarget.USER, { handleDirtyFile: 'save', donotNotifyError: true });
 		} catch {
@@ -421,7 +421,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 	}
 }
 
-// Command — switch mode (used by status bar entry and other UI)
+// Command - switch mode (used by status bar entry and other UI)
 export const ARIA_SWITCH_MODE_COMMAND = 'aria.switchMode';
 export const ARIA_SET_MODE_COMMAND = 'aria.setMode';
 
@@ -456,7 +456,7 @@ CommandsRegistry.registerCommand(ARIA_SET_MODE_COMMAND, async (accessor: Service
 		return;
 	}
 
-	// Instant switch — no confirmation, no reload. The aria.mode context key
+	// Instant switch - no confirmation, no reload. The aria.mode context key
 	// updates immediately, which is enough for `when` clauses and view filters.
 	// (If later we add settings that are only read at startup, we can reload
 	// selectively from those code paths.)

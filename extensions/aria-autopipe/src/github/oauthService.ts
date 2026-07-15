@@ -4,13 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * GitHub OAuth Device Flow — no browser callback needed, just shows a code
+ * GitHub OAuth Device Flow - no browser callback needed, just shows a code
  * the user types into github.com/login/device. Mirrors the same flow
  * autopipe-app implements in `crates/desktop/src/github.rs`.
  *
  * The CLIENT_ID is the public identifier for Aria's GitHub OAuth App; it
  * needs no secret because Device Flow is designed for installed apps.
- * Plug a real CLIENT_ID in here before shipping — the placeholder below
+ * Plug a real CLIENT_ID in here before shipping - the placeholder below
  * lets the type-check pass but won't actually authenticate.
  */
 
@@ -89,7 +89,7 @@ export class GitHubAuthService {
 		if (!token) {
 			return { status: 'error', message: 'no token in response' };
 		}
-		// Look up the user's login so we can store it alongside the token —
+		// Look up the user's login so we can store it alongside the token -
 		// the upload flow needs it to attribute commits.
 		const login = await this.fetchLogin(token).catch(() => undefined);
 		return { status: 'authorized', token, login };

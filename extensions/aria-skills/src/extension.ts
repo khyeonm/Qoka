@@ -33,8 +33,8 @@ export function activate(context: vscode.ExtensionContext): void {
 	log('Aria Skills extension activated.');
 
 	// Put Aria's Node + ~/.local/bin on the shared extension-host PATH so every
-	// extension (autopipe, paper, …) can run the codex CLI — an npm script that
-	// needs `node` — even when the machine has no system Node.
+	// extension (autopipe, paper, …) can run the codex CLI - an npm script that
+	// needs `node` - even when the machine has no system Node.
 	ensureAriaBinsOnPath();
 
 	// Touch ~/.env on startup so "Open ~/.env" always opens something.
@@ -43,7 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Register the Aria PreToolUse hook with Claude Code. The hook
 	// injects Aria's environment rules whenever Claude is about to run
 	// a shell command that touches .env files, pip/conda installs, or
-	// credential env vars — so skill SKILL.md instructions to "create a
+	// credential env vars - so skill SKILL.md instructions to "create a
 	// .env file" get overridden in favour of Aria's Skills tab.
 	ensureAriaHook();
 
@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Mirror installed skills into any non-Claude provider's skills dir so
 	// Codex discovers them too, and re-mirror when a provider is
-	// installed later (debounced — installs fire onDidChange rapidly).
+	// installed later (debounced - installs fire onDidChange rapidly).
 	syncSkillsToProviders();
 	let providerSyncTimer: NodeJS.Timeout | undefined;
 	context.subscriptions.push(vscode.extensions.onDidChange(() => {
@@ -92,7 +92,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			await vscode.window.showTextDocument(doc);
 		}),
 
-		// Wizard B — the actual "Add Skill" flow. We keep the legacy
+		// Wizard B - the actual "Add Skill" flow. We keep the legacy
 		// `addSkillStub` command name so the workbench-side button
 		// wiring stays the same, and add `openAddWizard` as the canonical
 		// alias for future call sites.
@@ -106,7 +106,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		// Per-skill key configuration. Called from the sidebar when the
 		// user clicks the "Configure keys" button on a skill card. Loops
 		// through that skill's declared env vars and writes whatever the
-		// user types straight to ~/.env via the env service — keys never
+		// user types straight to ~/.env via the env service - keys never
 		// leave Aria's TS code (no Claude prompt, no log line).
 		vscode.commands.registerCommand('aria.skills.configureKeys', (skillName: unknown) => {
 			if (typeof skillName !== 'string') {
@@ -119,7 +119,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		// to each env var in the Environment Variables section. Shows
 		// the current value UNMASKED so the user can see+edit it. This
 		// is OK because: the input is the user's own editor, in their
-		// own UI, on their own machine — masking it there would just
+		// own UI, on their own machine - masking it there would just
 		// stop them from editing a typo'd key.
 		vscode.commands.registerCommand('aria.skills.editEnvVar', (name: unknown) => {
 			if (typeof name !== 'string') {
@@ -154,10 +154,10 @@ export function activate(context: vscode.ExtensionContext): void {
 		// setup tasks finish. Shows a single, unified "Setup complete"
 		// toast with a click-through to a modal listing each task's
 		// outcome. Living in aria-skills (not in the workbench) so we
-		// can use vscode.window APIs — workbench code can't.
+		// can use vscode.window APIs - workbench code can't.
 		vscode.commands.registerCommand('aria.startup.showSummaryToast', (summaries: unknown) => showStartupSummaryToast(summaries)),
 
-		// Uninstall a user skill. Defaults are excluded by the UI — the
+		// Uninstall a user skill. Defaults are excluded by the UI - the
 		// user is expected to re-run first-run setup if they want to
 		// replace a default.
 		vscode.commands.registerCommand('aria.skills.uninstallSkill', async (skillName: unknown) => {
@@ -255,7 +255,7 @@ async function getState(): Promise<AriaSkillsState> {
 
 	// Union of env vars across all installed skills. Each var lists which
 	// skills depend on it AND carries the first non-empty description we
-	// find — usually written by Claude during skill analysis, occasionally
+	// find - usually written by Claude during skill analysis, occasionally
 	// the regex fallback. Lets the sidebar surface a one-liner above the
 	// "Used by:" row.
 	const usageByVar = new Map<string, {
@@ -314,7 +314,7 @@ async function getState(): Promise<AriaSkillsState> {
 /**
  * Walk the user through every env var a single skill expects, filling
  * in whichever values they want and saving them to ~/.env. We don't
- * touch values the user leaves blank — that way they can update one
+ * touch values the user leaves blank - that way they can update one
  * key without re-typing the others.
  */
 async function configureKeysForSkill(skillName: string): Promise<void> {
@@ -339,14 +339,14 @@ async function configureKeysForSkill(skillName: string): Promise<void> {
 			currentValue ? '(Leave blank to keep the existing value.)' : '',
 		].filter(Boolean);
 		const value = await vscode.window.showInputBox({
-			title: `Configure ${skillName} — ${i + 1}/${skill.envVars.length}`,
+			title: `Configure ${skillName} - ${i + 1}/${skill.envVars.length}`,
 			prompt: promptParts.join(' '),
 			placeHolder: v.required ? `${v.name} (required)` : `${v.name} (optional)`,
 			ignoreFocusOut: true,
 			password: !/EMAIL$|_URL$/.test(v.name),
 		});
 		if (value === undefined) {
-			// User dismissed the prompt — write whatever we've collected
+			// User dismissed the prompt - write whatever we've collected
 			// so far and stop. Partial saves beat losing progress.
 			break;
 		}
@@ -440,7 +440,7 @@ async function editSingleEnvVar(name: string): Promise<void> {
 /**
  * Open an input box pre-filled with the skill's current category so the
  * user can rename it. Wired to the category pill's click handler in the
- * sidebar. Empty input is treated as "clear" — the manifest stores an
+ * sidebar. Empty input is treated as "clear" - the manifest stores an
  * empty string, which the view renders as "+ Set category".
  */
 async function promptEditCategory(skillName: string): Promise<void> {
@@ -511,7 +511,7 @@ async function showStartupSummaryToast(raw: unknown): Promise<void> {
 		return;
 	}
 
-	// Standalone notification — only when an MCP was newly (re-)registered
+	// Standalone notification - only when an MCP was newly (re-)registered
 	// this run. Claude Code caches the active MCP server list at chat-
 	// session start, so an open chat won't see the new tools until the
 	// user starts a new conversation. We surface this on its own (NOT

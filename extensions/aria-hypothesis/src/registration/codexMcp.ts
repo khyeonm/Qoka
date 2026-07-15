@@ -20,7 +20,7 @@ const CODEX_CANDIDATES = [
 	'/opt/homebrew/bin/codex',
 	path.join(os.homedir(), '.local/bin/codex'),
 	// Windows: `npm install -g` drops codex as a .cmd shim at the npm prefix root
-	// (Aria-managed ~/.aria/npm, or the OS default %APPDATA%/npm) — neither is on
+	// (Aria-managed ~/.aria/npm, or the OS default %APPDATA%/npm) - neither is on
 	// the GUI process PATH, so probe them directly or Codex MCP never registers.
 	path.join(os.homedir(), '.aria', 'npm', 'codex.cmd'),
 	path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'npm', 'codex.cmd'),
@@ -82,7 +82,7 @@ async function readRegisteredPort(codex: string): Promise<number | null> {
 
 /**
  * Register hypothesis with the Codex CLI. Codex uses Streamable HTTP
- * (MCP protocol 2025-03-26+) at /mcp — different transport from Claude
+ * (MCP protocol 2025-03-26+) at /mcp - different transport from Claude
  * Code's /sse.
  */
 export async function registerWithCodex(port: number): Promise<RegistrationResult> {

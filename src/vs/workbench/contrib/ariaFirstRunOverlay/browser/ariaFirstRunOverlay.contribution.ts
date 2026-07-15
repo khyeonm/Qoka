@@ -15,23 +15,23 @@ import { markAriaSetupReady } from '../../aria/browser/ariaSetupReady.js';
  * Full-screen "Aria is setting up" overlay. We mount a fixed div at the
  * top of <body> on workbench mount, blocking clicks and keyboard focus
  * underneath. The overlay stays up until every extension that opted into
- * tracking has reported completion — there is NO arbitrary safety
+ * tracking has reported completion - there is NO arbitrary safety
  * timeout, so the screen only clears when setup is genuinely done.
  *
  * Tracking commands:
- *   aria.startup.beginTracking(name)              — extension says "I'm setting up"
- *   aria.startup.markComplete(name, summary, ch)  — extension says "I'm done"
+ *   aria.startup.beginTracking(name)              - extension says "I'm setting up"
+ *   aria.startup.markComplete(name, summary, ch)  - extension says "I'm done"
  *
  * Legacy commands (still supported for back-compat with the first-run
  * wizard's earlier integration):
- *   aria.firstRun.showOverlay()    — alias for beginTracking('aria-first-run-legacy')
- *   aria.firstRun.updateOverlay(s) — replace the secondary line of text
- *   aria.firstRun.hideOverlay()    — alias for markComplete('aria-first-run-legacy', '', false)
+ *   aria.firstRun.showOverlay()    - alias for beginTracking('aria-first-run-legacy')
+ *   aria.firstRun.updateOverlay(s) - replace the secondary line of text
+ *   aria.firstRun.hideOverlay()    - alias for markComplete('aria-first-run-legacy', '', false)
  *
  * When the tracking set is empty (and stays empty for POST_TRACKING_SETTLE_MS
  * so a slow-activating extension can still register), the overlay fades
  * out and we forward the collected summaries to the workbench command
- * `aria.startup.showSummaryToast` — an extension-side command shows the
+ * `aria.startup.showSummaryToast` - an extension-side command shows the
  * toast itself because the workbench can't open a native VS Code modal.
  */
 
@@ -44,7 +44,7 @@ const POST_TRACKING_SETTLE_MS = 2000;
 /** Initial cushion: if no extension calls beginTracking within this
  *  window, assume there's nothing to set up and dismiss the overlay.
  *  Sized generously so a slow-activating extension (e.g. autopipe on
- *  onStartupFinished) has time to register before we declare done —
+ *  onStartupFinished) has time to register before we declare done -
  *  otherwise the overlay would fade out at 8s and our late-arrival
  *  guard in beginTracking would leave the user staring at the bare
  *  workbench while setup continues invisibly in the background. */
@@ -53,7 +53,7 @@ const INITIAL_SETTLE_MS = 30000;
 /**
  * Minimum visible time after the FIRST beginTracking call. Without this,
  * a quick-activating extension (paper-search via onCommand) finishes
- * before a slower one (autopipe via onStartupFinished) even starts —
+ * before a slower one (autopipe via onStartupFinished) even starts -
  * tracking goes empty, settle fires, overlay fades out, then the slow
  * extension begins and the overlay snaps back. The user-visible effect
  * is a flicker. Holding the overlay for at least 5s after the first
@@ -72,7 +72,7 @@ const MAX_DURATION_AFTER_FIRST_TRACK_MS = 60000;
 /** localStorage key for summaries that completed while the Started
  *  overlay was up. Setup runs in the background during Started, but
  *  the workbench-hide stylesheet that locks the screen also hides the
- *  notification VS Code would have raised — so the toast we dispatched
+ *  notification VS Code would have raised - so the toast we dispatched
  *  would have been invisible. Instead we stash the summaries here, and
  *  the next window (the project window that vscode.openFolder reloads
  *  into) reads them on construction and shows the toast there. */
@@ -98,7 +98,7 @@ function markFirstRunShown(): void {
 	try {
 		localStorage.setItem(FIRST_RUN_SHOWN_KEY, '1');
 	} catch {
-		// Storage unavailable — the overlay may show again next launch; harmless.
+		// Storage unavailable - the overlay may show again next launch; harmless.
 	}
 }
 
@@ -106,11 +106,11 @@ function markFirstRunShown(): void {
  * The setup trackers that ship with Aria's vendored extensions and ALWAYS
  * call `aria.startup.beginTracking` at activate time. We wait for every one
  * of them to `markComplete` before we even consider dispatching the
- * summary toast — independent of any millisecond timer — so the user
+ * summary toast - independent of any millisecond timer - so the user
  * never sees a partial "Setup complete" list because a slow MCP
  * registration missed the cushion. After they're all done we still give
  * `POST_TRACKING_SETTLE_MS` to catch any user-installed plugin that
- * decided to participate (Option A' — known list + cushion for unknowns).
+ * decided to participate (Option A' - known list + cushion for unknowns).
  *
  * Update this set whenever a new vendored extension/skill/MCP joins the
  * boot sequence with its own `beginTracking` call.
@@ -159,7 +159,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 	) {
 		super();
 
-		// Tracking-based commands — the canonical entry points.
+		// Tracking-based commands - the canonical entry points.
 		CommandsRegistry.registerCommand('aria.startup.beginTracking', (_accessor, name?: string) => {
 			if (typeof name !== 'string' || !name) {
 				return;
@@ -173,7 +173,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			this.markComplete(name, typeof summary === 'string' ? summary : '', !!changed);
 		});
 
-		// Legacy aliases — keep the first-run wizard working without
+		// Legacy aliases - keep the first-run wizard working without
 		// requiring a touch to that file. `showOverlay` re-enters the
 		// tracking set; `hideOverlay` exits it. The subtitle helper
 		// stays as a pure UI poke.
@@ -193,7 +193,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// Show the overlay only when a workspace folder is open. The
 		// Started page (Aria Start Page editor) takes over the screen
 		// when no folder is loaded, so we don't need a separate blocker
-		// then — the page itself absorbs user input while setup runs.
+		// then - the page itself absorbs user input while setup runs.
 		// When a folder *is* open, the user expects the workbench to be
 		// usable immediately, so we keep the overlay up until setup
 		// finishes.
@@ -202,7 +202,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// and the summary toast is delivered when tracked extensions
 		// complete.
 		if (this.shouldShowOverlay()) {
-			// Project window — inherit any summaries the Started-window
+			// Project window - inherit any summaries the Started-window
 			// finish() persisted, so finish() here dispatches the toast
 			// with both the Started-window run and this window's run.
 			this.loadPendingSummaries();
@@ -225,7 +225,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		try {
 			parsed = JSON.parse(raw);
 		} catch {
-			// Corrupt payload — drop it so it doesn't keep failing.
+			// Corrupt payload - drop it so it doesn't keep failing.
 			try { localStorage.removeItem(PENDING_SUMMARIES_KEY); } catch { /* ignore */ }
 			return;
 		}
@@ -251,7 +251,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		try {
 			localStorage.setItem(PENDING_SUMMARIES_KEY, JSON.stringify(summaries));
 		} catch {
-			// Storage unavailable — nothing we can do; the toast just
+			// Storage unavailable - nothing we can do; the toast just
 			// won't appear in the next window. Not worth crashing over.
 		}
 	}
@@ -321,11 +321,11 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		}
 
 		// Two reasons to defer the dispatch:
-		//  1. A KNOWN_TRACKERS member hasn't markComplete'd yet — we wait
+		//  1. A KNOWN_TRACKERS member hasn't markComplete'd yet - we wait
 		//     for the full vendored set so the toast never ships a
-		//     partial summary (Option A — known list).
-		//  2. An unknown/user-installed tracker is still in flight — we
-		//     give it the same post-tracking cushion (Option A' suffix —
+		//     partial summary (Option A - known list).
+		//  2. An unknown/user-installed tracker is still in flight - we
+		//     give it the same post-tracking cushion (Option A' suffix -
 		//     unknown plugins are caught by the POST_TRACKING_SETTLE
 		//     period that markComplete schedules when tracking empties).
 		// Hard cap: once we've been open longer than
@@ -359,7 +359,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 
 		this.finished = true;
 		// Setup is genuinely done (all known MCP trackers reported, or the hard
-		// cap elapsed) — let the Claude chat session start/connect to MCP now.
+		// cap elapsed) - let the Claude chat session start/connect to MCP now.
 		markAriaSetupReady();
 		if (this.settleTimer) {
 			clearTimeout(this.settleTimer);
@@ -381,7 +381,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// (the project window vscode.openFolder reloads into) picks it
 		// up via loadPendingSummaries() and dispatches the toast there.
 		if (!this.shouldShowOverlay()) {
-			// Overwrite — each Aria launch's run is the freshest view of
+			// Overwrite - each Aria launch's run is the freshest view of
 			// what the user should see when they finally open a project.
 			this.savePendingSummaries(drained);
 			return;
@@ -392,7 +392,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// Dedupe by name so identical entries from the Started run and
 		// this run don't double up; the current run's entry is the
 		// authoritative one because it reflects the latest tracking
-		// outcome — Map.set on a later iteration overwrites the
+		// outcome - Map.set on a later iteration overwrites the
 		// previous insertion's value but preserves order, so the
 		// fresher result wins and the toast stays one-line-per-source.
 		this.clearPendingSummaries();
@@ -409,7 +409,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			return;
 		}
 
-		// Showing counts as the one-and-only first-run setup screen — record it so
+		// Showing counts as the one-and-only first-run setup screen - record it so
 		// no future launch blocks the screen again.
 		markFirstRunShown();
 

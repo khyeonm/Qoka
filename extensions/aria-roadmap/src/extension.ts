@@ -17,7 +17,7 @@ let store: RoadmapStore | undefined;
 let finalized = false;
 
 /**
- * Aria Roadmap — extension entry.
+ * Aria Roadmap - extension entry.
  *
  * Phase 1 scope:
  *  1. Boot the in-process RoadmapState.
@@ -57,7 +57,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; s
 	});
 	const summary = registered.length
 		? `Roadmap MCP registered with ${registered.join(', ')}`
-		: 'Roadmap MCP — no AI provider CLI found yet';
+		: 'Roadmap MCP - no AI provider CLI found yet';
 	return { changed, summary };
 }
 
@@ -86,10 +86,10 @@ export function activate(context: vscode.ExtensionContext): void {
 	registerWorkbenchCommands(context, store, () => finalized, value => { finalized = value; });
 
 	// Push the (possibly hydrated) state once so an already-open roadmap editor
-	// — e.g. auto-opened on a fresh project window — renders the saved tree.
+	// - e.g. auto-opened on a fresh project window - renders the saved tree.
 	notify();
 
-	// Detect which AI assistant the user installed — do NOT force-install one.
+	// Detect which AI assistant the user installed - do NOT force-install one.
 	// Aria works with Claude Code or Codex; installing a specific one
 	// (previously Claude) would fight a user who intentionally chose another.
 	// The onboarding surface guides installation when none is present.
@@ -104,7 +104,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			const installed = providers.filter(p => !!vscode.extensions.getExtension(p.id));
 			summary = installed.length
 				? `AI assistant detected: ${installed.map(p => p.name).join(', ')}`
-				: 'No AI assistant installed yet — install Claude Code or Codex to use the chat.';
+				: 'No AI assistant installed yet - install Claude Code or Codex to use the chat.';
 		} finally {
 			await vscode.commands.executeCommand('aria.startup.markComplete', 'aria-roadmap-claude-code-install', summary, false);
 		}
@@ -114,7 +114,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-roadmap-mcp');
-		let summary = 'Roadmap MCP — already configured';
+		let summary = 'Roadmap MCP - already configured';
 		let changed = false;
 		try {
 			const port = await mcpServer!.start();
@@ -150,7 +150,7 @@ export function activate(context: vscode.ExtensionContext): void {
 export async function deactivate(): Promise<void> {
 	console.log('[aria-roadmap] deactivate()');
 	// Intentionally leave the Claude Code MCP registration in place on
-	// shutdown — same pattern aria-autopipe uses. The next activate()
+	// shutdown - same pattern aria-autopipe uses. The next activate()
 	// reads the registered port back and skips re-registration when it
 	// matches our live port, so a reload-window cycle doesn't churn
 	// Claude Code's MCP config (which would otherwise force Claude Code

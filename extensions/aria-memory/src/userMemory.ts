@@ -9,7 +9,7 @@ import * as https from 'https';
 import { URL } from 'url';
 
 /**
- * Client for the cross-project ("user") memory — mem0 on the Aria server, behind
+ * Client for the cross-project ("user") memory - mem0 on the Aria server, behind
  * login. This is the counterpart to the local per-project wiki: where the wiki
  * stores project-scoped markdown on disk, this stores user-scoped facts
  * (preferences, working style, identity) in the server's pgvector via mem0, so
@@ -35,7 +35,7 @@ const ALLOW_SELF_SIGNED = process.env.ARIA_MEMORY_INSECURE_TLS !== '0';
 async function authToken(): Promise<string> {
 	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
 	if (!session) {
-		throw new Error('Not signed in to Aria — cross-project memory requires sign-in.');
+		throw new Error('Not signed in to Aria - cross-project memory requires sign-in.');
 	}
 	return session.accessToken;
 }
@@ -81,7 +81,7 @@ function postJson(path: string, body: unknown, token: string, timeoutMs = 20000)
  * Store a cross-project user fact. `infer: false` stores it as-is: the
  * extraction/judgment was already done by the user's own provider (the agent
  * that decided this is a durable cross-project fact and called this tool), so
- * mem0's server-side LLM does NOT re-extract — one extraction pass, consistent
+ * mem0's server-side LLM does NOT re-extract - one extraction pass, consistent
  * with the project wiki.
  */
 export async function rememberUser(content: string, metadata?: Record<string, unknown>): Promise<unknown> {

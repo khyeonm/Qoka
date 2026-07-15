@@ -48,7 +48,7 @@ function resolveOrErr(arg: unknown): { id: string } | CallToolResult {
 /**
  * Paper-writing tools. Reads/structure/citations/export operate on the
  * per-project paper store; the actual prose is written by the agent following
- * get_writing_guide. (HITL propose/accept editing arrives in a later phase —
+ * get_writing_guide. (HITL propose/accept editing arrives in a later phase -
  * for now set_manuscript writes directly.)
  */
 export function buildTools(): ToolDefinition[] {
@@ -176,7 +176,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'set_focus',
-			description: 'Set the research focus — a bullet-point statement of the problem, objectives, gap/contribution, and (if figures exist) where each figure belongs. Develop it with the user one question at a time, then record it here. See get_writing_guide → Focus.',
+			description: 'Set the research focus - a bullet-point statement of the problem, objectives, gap/contribution, and (if figures exist) where each figure belongs. Develop it with the user one question at a time, then record it here. See get_writing_guide → Focus.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -234,7 +234,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'set_manuscript',
-			description: 'Write a FULL draft (initial draft or full re-generation). This RESETS both the working copy and the frozen original baseline to this text and clears any pending review. Use this ONLY for a fresh/whole draft — for editing an existing manuscript use propose_manuscript_revision instead. Use [@citekey] for in-text citations; the chosen style is applied at export. Follow get_writing_guide.',
+			description: 'Write a FULL draft (initial draft or full re-generation). This RESETS both the working copy and the frozen original baseline to this text and clears any pending review. Use this ONLY for a fresh/whole draft - for editing an existing manuscript use propose_manuscript_revision instead. Use [@citekey] for in-text citations; the chosen style is applied at export. Follow get_writing_guide.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -264,7 +264,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'propose_manuscript_revision',
-			description: 'Propose a revised manuscript for the user to REVIEW before it is applied. Pass the FULL revised Markdown (keep unchanged sections/paragraphs verbatim so only your actual edits are highlighted). This does NOT overwrite manuscript.md — it stages the change; Aria opens a review tab where the user accepts/rejects each changed section or paragraph (added = yellow, removed = red). Use this for partial edits/revisions; use set_manuscript only for the initial full draft. After the user reviews, run export_paper and tell them the output path.',
+			description: 'Propose a revised manuscript for the user to REVIEW before it is applied. Pass the FULL revised Markdown (keep unchanged sections/paragraphs verbatim so only your actual edits are highlighted). This does NOT overwrite manuscript.md - it stages the change; Aria opens a review tab where the user accepts/rejects each changed section or paragraph (added = yellow, removed = red). Use this for partial edits/revisions; use set_manuscript only for the initial full draft. After the user reviews, run export_paper and tell them the output path.',
 			inputSchema: {
 				type: 'object',
 				properties: {

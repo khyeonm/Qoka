@@ -44,7 +44,7 @@ export function candidateClaudePaths(): string[] {
 }
 
 /** Candidate locations for the Codex CLI. Mirrors `candidateClaudePaths`
- *  but probes the Codex install spots — the extension typically installs
+ *  but probes the Codex install spots - the extension typically installs
  *  codex via the same nvm-managed node, so the candidate set is similar. */
 export function candidateCodexPaths(): string[] {
 	return candidateBinaryPaths('codex');
@@ -103,7 +103,7 @@ async function tryClaudeVersion(binary: string): Promise<string | null> {
 }
 
 /**
- * Detect installed AI assistants — currently Claude Code and Codex. We also
+ * Detect installed AI assistants - currently Claude Code and Codex. We also
  * probe for the Claude CLI on disk because MCP registration uses
  * `claude mcp add`; the CLI presence is part of the detection payload
  * (consumed only by the registration code path, not surfaced in UI).
@@ -129,7 +129,7 @@ export async function detectAiProviders(): Promise<AiDetection> {
 		active: codexExt?.isActive ?? false,
 	});
 
-	// Claude CLI probe — internal use only.
+	// Claude CLI probe - internal use only.
 	let cliVersion: string | null = await tryClaudeVersion('claude');
 	if (!cliVersion) {
 		for (const candidate of candidateClaudePaths()) {

@@ -37,7 +37,7 @@ export class HubApiClient {
 
 	async searchPipelines(query: string): Promise<Pipeline[]> {
 		// Hub treats `/api/pipelines/{anything}` as an ID lookup, so the
-		// search isn't a sub-route — it's the same `/api/pipelines`
+		// search isn't a sub-route - it's the same `/api/pipelines`
 		// endpoint with a `?q=` query parameter. The 400 we saw earlier
 		// came from the server parsing "search" as a pipeline ID.
 		const url = `/api/pipelines?q=${encodeURIComponent(query)}`;
@@ -98,7 +98,7 @@ export class HubApiClient {
 		if (res.ok) {
 			return;
 		}
-		// Hub error responses are JSON with a `message` field — fall back to
+		// Hub error responses are JSON with a `message` field - fall back to
 		// status text when parsing fails.
 		let body = '';
 		try { body = await res.text(); } catch { /* ignore */ }

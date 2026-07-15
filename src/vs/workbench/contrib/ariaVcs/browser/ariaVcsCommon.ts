@@ -7,7 +7,7 @@ import { localize } from '../../../../nls.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 
 /**
- * Fired whenever the snapshot history changes — a snapshot was saved (Changes
+ * Fired whenever the snapshot history changes - a snapshot was saved (Changes
  * view) or restored (Snapshots view). The two views are independent sibling
  * ViewPanes with no reference to each other, so this app-lifetime emitter is
  * how an action in one view tells the other to re-read git and refresh.
@@ -58,7 +58,7 @@ export interface FileChange {
  * view re-renders and are only injected once per workbench window.
  *
  * We took this route because the obvious `import './media/foo.css'` only
- * works when the build step is configured to bundle CSS — at the moment our
+ * works when the build step is configured to bundle CSS - at the moment our
  * Aria-build step is not, and the symlinked dev workbench loads the .css as
  * a JS module and errors out. Inline injection sidesteps the build path
  * entirely.
@@ -66,7 +66,7 @@ export interface FileChange {
 export function injectAriaVcsStyles(): void {
 	const ATTR = 'data-aria-vcs-styles';
 	// Reuse the existing <style> tag when present so iterating on the
-	// stylesheet at dev time doesn't require closing the window — a
+	// stylesheet at dev time doesn't require closing the window - a
 	// Reload Window is enough to re-evaluate this function and rewrite
 	// the textContent.
 	let style = document.head.querySelector(`style[${ATTR}]`) as HTMLStyleElement | null;
@@ -119,7 +119,7 @@ export function injectAriaVcsStyles(): void {
 			text-align: left;
 			flex-shrink: 0;
 			/* No min-width: badge hugs its text. The row's 4px flex gap
-			   plus this 4px margin gives an 8px gap total — roughly
+			   plus this 4px margin gives an 8px gap total - roughly
 			   three space-bar widths between the badge and filename. */
 			margin-right: 4px;
 		}
@@ -197,7 +197,7 @@ export function injectAriaVcsStyles(): void {
 }
 
 /**
- * Last path segment only — Easy mode users only care about the filename in
+ * Last path segment only - Easy mode users only care about the filename in
  * the Changes list; the diff editor (and its title) already shows the full
  * path when they click in.
  */

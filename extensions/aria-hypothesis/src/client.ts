@@ -12,7 +12,7 @@ import { URL } from 'url';
  * Client for the hypothesis-search endpoint on the Aria server, behind login.
  *
  * The server holds the ~1M-paper research corpus (flat shards) and greps it via
- * `search_corpus.py`. This extension never touches the corpus directly — it sends
+ * `search_corpus.py`. This extension never touches the corpus directly - it sends
  * the app's JWT (from the `aria` auth session) as a Bearer token to the Django
  * API, which runs the grep and returns candidate papers + context windows.
  *
@@ -35,7 +35,7 @@ const SEARCH_TIMEOUT_MS = 70000;
 async function authToken(): Promise<string> {
 	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
 	if (!session) {
-		throw new Error('Not signed in to Aria — hypothesis search requires sign-in.');
+		throw new Error('Not signed in to Aria - hypothesis search requires sign-in.');
 	}
 	return session.accessToken;
 }

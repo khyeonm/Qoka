@@ -10,9 +10,9 @@ import { URL } from 'url';
 import type { AddressInfo } from 'net';
 
 /**
- * Authentication provider for Aria — ORCID / Google sign-in via the Aria backend.
+ * Authentication provider for Aria - ORCID / Google sign-in via the Aria backend.
  *
- * Flow (localhost loopback — reliable on every OS, no URI-scheme registration):
+ * Flow (localhost loopback - reliable on every OS, no URI-scheme registration):
  *   createSession() → start a throwaway HTTP server on 127.0.0.1:<port> → open the
  *   system browser at `<server>/auth/app-login?provider=<p>&port=<port>` → allauth
  *   runs OAuth and logs the user in → the backend redirects the browser to
@@ -34,7 +34,7 @@ const SERVER_URL = process.env.ARIA_SERVER_URL || 'https://aria.pnucolab.com';
 const ALLOW_SELF_SIGNED = process.env.ARIA_INSECURE_TLS !== '0';
 // Refresh the access token when it's within this many seconds of expiry. Large
 // (12h) so a periodic background check comfortably renews it well before the
-// 7-day access token would ever expire — the user shouldn't notice.
+// 7-day access token would ever expire - the user shouldn't notice.
 const REFRESH_SKEW_SEC = 12 * 60 * 60;
 
 /** Read the `exp` (unix seconds) claim from a JWT without verifying it. */
@@ -96,7 +96,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 				this._promptReSignIn();
 				return [];
 			}
-			// else: refresh failed but the current token is still valid — keep using it.
+			// else: refresh failed but the current token is still valid - keep using it.
 		}
 		return [this._toSession(stored)];
 	}
@@ -244,7 +244,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 					'<h2>&#10003; Signed in to Aria</h2>' +
 					'<p>You can close this tab and return to Aria.</p>' +
 					// Best-effort auto-close. Browsers only honour window.close() for
-					// script-opened tabs, so this may be a no-op — the message above is
+					// script-opened tabs, so this may be a no-op - the message above is
 					// the fallback.
 					'<script>setTimeout(function(){try{window.close();}catch(e){}},300);</script>' +
 					'</body>',

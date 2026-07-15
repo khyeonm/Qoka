@@ -47,8 +47,8 @@ export interface Snapshot {
 	committed: RoadmapNode[];
 	proposed: RoadmapProposal[];
 	finalized: boolean;
-	/** Which roadmap this snapshot describes. A project holds many roadmaps —
-	 *  one per hypothesis — so a pane only re-renders snapshots for its own id.
+	/** Which roadmap this snapshot describes. A project holds many roadmaps -
+	 *  one per hypothesis - so a pane only re-renders snapshots for its own id.
 	 *  Undefined only in the folder-less empty-wizard window. */
 	roadmapId?: string;
 	/** The active roadmap's hypothesis sentence (first Goal node), for the tab

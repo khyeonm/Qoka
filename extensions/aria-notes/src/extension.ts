@@ -39,12 +39,12 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; s
 	});
 	const summary = registered.length
 		? `Notes MCP registered with ${registered.join(', ')}`
-		: 'Notes MCP — no AI provider CLI found yet';
+		: 'Notes MCP - no AI provider CLI found yet';
 	return { changed, summary };
 }
 
 /**
- * Aria Notes — boots a local MCP server so an AI assistant can read notes
+ * Aria Notes - boots a local MCP server so an AI assistant can read notes
  * (as Markdown) and propose edits. Edits are not written directly: the server
  * fires `aria.notes.workbench.onProposal`, and the workbench note editor shows
  * the change for the user to Accept/Reject.
@@ -71,7 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-notes-mcp');
-		let summary = 'Notes MCP — already configured';
+		let summary = 'Notes MCP - already configured';
 		let changed = false;
 		try {
 			const port = await mcpServer!.start();

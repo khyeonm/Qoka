@@ -11,7 +11,7 @@ import { RoadmapStore } from './roadmaps';
 
 /**
  * VS Code commands that the workbench-side wizard UI calls. They operate on the
- * store's shared state — the ACTIVE roadmap — so a node Claude Code proposes via
+ * store's shared state - the ACTIVE roadmap - so a node Claude Code proposes via
  * MCP shows up in the canvas, and a node the user adds manually shows up to the
  * AI on its next get_tree() call. Multi-roadmap: the workbench switches the
  * active roadmap (switchActive) when the user opens a different one, and every
@@ -47,14 +47,14 @@ export function registerWorkbenchCommands(
 		// List every roadmap in the project (id + hypothesis sentence + counts).
 		vscode.commands.registerCommand('aria.roadmap.list', () => store.list()),
 
-		// Create a new empty roadmap; returns its id. Does NOT switch active — the
+		// Create a new empty roadmap; returns its id. Does NOT switch active - the
 		// caller (sidebar / New Project) opens it, which switches active.
 		vscode.commands.registerCommand('aria.roadmap.createRoadmap', () => store.create()),
 
 		// Make `id` the active roadmap and return its snapshot. The pane calls
 		// this on open/focus so edits target the roadmap the user is looking at.
 		vscode.commands.registerCommand('aria.roadmap.switchActive', (id: string) => {
-			// Skip the notify/persist churn when this roadmap is already active —
+			// Skip the notify/persist churn when this roadmap is already active -
 			// the pane re-asserts active on every focus, which would otherwise
 			// re-render and rewrite the file needlessly.
 			const changed = store.activeId !== id;
@@ -150,7 +150,7 @@ export function registerWorkbenchCommands(
 			return writeNewRoadmapAt(folderPath, state.snapshot().committed);
 		}),
 
-		// Explicit save from the canvas — the roadmap already auto-persists on
+		// Explicit save from the canvas - the roadmap already auto-persists on
 		// every edit, so this just flushes the active roadmap to disk.
 		vscode.commands.registerCommand('aria.roadmap.persist', async () => {
 			store.persistActive();

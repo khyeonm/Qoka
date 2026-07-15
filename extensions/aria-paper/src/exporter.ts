@@ -52,7 +52,7 @@ export interface ExportResult {
 /**
  * Export a paper to one format via pandoc + citeproc. The manuscript Markdown
  * (with [@citekey] markers) is rendered against the paper's CSL-JSON
- * bibliography in the chosen style — in-text citations and the reference list
+ * bibliography in the chosen style - in-text citations and the reference list
  * are produced together (numeric styles numbered in order of appearance).
  */
 export async function exportPaper(id: string, format: ExportFormat): Promise<ExportResult> {
@@ -62,7 +62,7 @@ export async function exportPaper(id: string, format: ExportFormat): Promise<Exp
 	const bib = citationsPath(id);
 	const outDir = exportDir(id);
 	if (!manuscript || !bib || !outDir) { throw new Error('No workspace folder is open.'); }
-	if (!fs.existsSync(manuscript)) { throw new Error('Manuscript not found — nothing to export.'); }
+	if (!fs.existsSync(manuscript)) { throw new Error('Manuscript not found - nothing to export.'); }
 
 	fs.mkdirSync(outDir, { recursive: true });
 	const outputPath = path.join(outDir, `paper.${EXT[format]}`);
@@ -92,11 +92,11 @@ export async function exportPaper(id: string, format: ExportFormat): Promise<Exp
 	const args = [inputPath, '--citeproc'];
 	if (csl) { args.push('--csl', csl); }
 	if (hasBib) { args.push('--bibliography', bib); }
-	// Resolve relative image paths (figures/fig1.png) — relative to the paper dir
+	// Resolve relative image paths (figures/fig1.png) - relative to the paper dir
 	// even though the input may be a temp file inside export/.
 	args.push('--resource-path', path.dirname(manuscript));
 	// The title is carried as the manuscript's leading `# {title}` H1 (kept in
-	// sync from meta.title), so we do NOT also pass --metadata title — that would
+	// sync from meta.title), so we do NOT also pass --metadata title - that would
 	// render a second, duplicate title in standalone formats like DOCX.
 	// Document language drives citeproc's locale (e.g. ko -> Korean terms).
 	if (meta.format.language) { args.push('--metadata', `lang=${meta.format.language}`); }

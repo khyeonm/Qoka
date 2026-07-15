@@ -15,7 +15,7 @@ const execFileAsync = promisify(execFile);
 export const PANDOC_VERSION = '3.10';
 
 export interface EnsureOpts {
-	/** Extension dir — checked for a bundled binary (<root>/bin/pandoc). */
+	/** Extension dir - checked for a bundled binary (<root>/bin/pandoc). */
 	resourceRoot?: string;
 	/** Writable cache dir (extension globalStorage) for the downloaded binary. */
 	cacheDir: string;

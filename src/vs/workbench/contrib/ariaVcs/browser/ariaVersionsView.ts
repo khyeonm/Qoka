@@ -28,7 +28,7 @@ interface SnapshotGroup {
 }
 
 /**
- * Versions view — the single view in the Versions container (Easy mode). Merges
+ * Versions view - the single view in the Versions container (Easy mode). Merges
  * what were two sub-panels (Changes + Snapshots) into one body so the container
  * shows just the "Versions" title, with no collapsible sub-headers. Top: the
  * unsaved-change list + Save. Bottom: the snapshot timeline + Go back.
@@ -42,7 +42,7 @@ export class AriaVersionsView extends ViewPane {
 	private changesRegion: HTMLElement | undefined;
 	/** Bottom region (snapshots), pinned to the bottom, scrolls independently. */
 	private snapshotsRegion: HTMLElement | undefined;
-	/** Fraction of the body height given to the Changes region — dragged via the
+	/** Fraction of the body height given to the Changes region - dragged via the
 	 *  divider between the two sections. */
 	private changesRatio = 0.48;
 
@@ -226,7 +226,7 @@ export class AriaVersionsView extends ViewPane {
 		bannerText.style.marginBottom = '6px';
 		bannerText.style.fontSize = '12px';
 		if (!status || !status.isRepo) {
-			bannerText.textContent = localize('aria.vcs.notInitialized', "No snapshots yet — your first Save will set things up.");
+			bannerText.textContent = localize('aria.vcs.notInitialized', "No snapshots yet - your first Save will set things up.");
 		} else if (status.unsavedChanges > 0) {
 			bannerText.textContent = localize('aria.vcs.unsavedCount', "{0} unsaved change{1}", status.unsavedChanges, status.unsavedChanges === 1 ? '' : 's');
 		} else {
@@ -267,7 +267,7 @@ export class AriaVersionsView extends ViewPane {
 			saveBtn.style.opacity = '0.7';
 			saveBtn.style.cursor = 'progress';
 			saveBtn.textContent = localize('aria.vcs.preparing', "Preparing snapshot…");
-			bannerText.textContent = localize('aria.vcs.preparingHint', "This can take a moment — keep working. The naming box opens when it's ready.");
+			bannerText.textContent = localize('aria.vcs.preparingHint', "This can take a moment - keep working. The naming box opens when it's ready.");
 			let draft: SnapshotDraft | undefined;
 			try {
 				draft = await this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths);
@@ -386,7 +386,7 @@ export class AriaVersionsView extends ViewPane {
 		}
 	}
 
-	/** Custom "name this snapshot" modal — a growing textarea so a long title is
+	/** Custom "name this snapshot" modal - a growing textarea so a long title is
 	 *  fully visible, plus a "merge with previous" checkbox. */
 	private showSaveDialog(suggested: string, previousTitle: string | undefined, groupDefault: boolean): Promise<{ title: string; group: boolean } | undefined> {
 		return new Promise(resolve => {
@@ -483,7 +483,7 @@ export class AriaVersionsView extends ViewPane {
 	private renderSnapshotsArea(root: HTMLElement, snapshots: Snapshot[]): void {
 		const divider = append(root, $('div'));
 		// Down-arrow marks the bottom-pinned Snapshots section. Uppercase, small,
-		// non-bold, muted — matching the "VERSIONS" pane title's treatment.
+		// non-bold, muted - matching the "VERSIONS" pane title's treatment.
 		divider.textContent = '▾ ' + localize('aria.vcs.snapshotsHeading', "Snapshots");
 		Object.assign(divider.style, {
 			margin: '2px 0 8px', fontSize: '11px', fontWeight: 'normal',
@@ -506,7 +506,7 @@ export class AriaVersionsView extends ViewPane {
 
 		const list = append(root, $('div'));
 		if (snapshots.length === 0) {
-			this.renderInfo(list, localize('aria.vcs.noSnapshots', "No snapshots yet — save your first one above."));
+			this.renderInfo(list, localize('aria.vcs.noSnapshots', "No snapshots yet - save your first one above."));
 		} else {
 			for (const group of this.groupSnapshots(snapshots)) {
 				this.renderGroup(list, group);
@@ -534,10 +534,10 @@ export class AriaVersionsView extends ViewPane {
 		if (!hash || this.goingBack) {
 			return;
 		}
-		// Going back to the newest snapshot (= current version) does nothing —
+		// Going back to the newest snapshot (= current version) does nothing -
 		// there's nothing after it to undo. Tell the user instead of a silent no-op.
 		if (hash === this.newestHash) {
-			this.notificationService.info(localize('aria.vcs.alreadyLatest', "You're already at this version — pick an older snapshot to go back to."));
+			this.notificationService.info(localize('aria.vcs.alreadyLatest', "You're already at this version - pick an older snapshot to go back to."));
 			return;
 		}
 		this.goingBack = true;
@@ -554,7 +554,7 @@ export class AriaVersionsView extends ViewPane {
 			this.goingBack = false;
 			this.updateGoBackButton();
 		}
-		// A restore rewrites the working tree — refresh so the Changes list shows
+		// A restore rewrites the working tree - refresh so the Changes list shows
 		// the undone changes and the timeline updates.
 		notifySnapshotsChanged();
 	}
@@ -606,7 +606,7 @@ export class AriaVersionsView extends ViewPane {
 		const row = append(container, $('.aria-vcs-row')) as HTMLElement;
 		if (indent) { row.style.paddingLeft = '24px'; }
 
-		// The newest snapshot IS the current version — going back to it is a no-op,
+		// The newest snapshot IS the current version - going back to it is a no-op,
 		// so its checkbox is disabled and greyed (not selectable).
 		const isNewest = snapshot.hash === this.newestHash;
 		const cb = append(row, $('input')) as HTMLInputElement;

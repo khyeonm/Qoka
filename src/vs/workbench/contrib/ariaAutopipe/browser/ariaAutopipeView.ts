@@ -74,9 +74,9 @@ interface SettingsDraft {
 /**
  * Autopipe panel. Hosts:
  *   1. Title bar with the autopipe label and a small refresh button.
- *   2. Status section — installed AI assistant only (Claude Code / Codex).
- *   3. SSH section — profile dropdown + add-new inline form (password auth).
- *   4. GitHub section — connect/disconnect + upload-mode controls.
+ *   2. Status section - installed AI assistant only (Claude Code / Codex).
+ *   3. SSH section - profile dropdown + add-new inline form (password auth).
+ *   4. GitHub section - connect/disconnect + upload-mode controls.
  *
  * Earlier iterations also showed CLI status, MCP server port, the Claude
  * Code registration string, and a separate "Autopipe Hub" section.
@@ -162,7 +162,7 @@ export class AriaAutopipeView extends ViewPane {
 		}
 		// Keep the built-in server row in sync with reality. While it's
 		// downloading/booting, poll fast for progress. Also poll (slower) whenever
-		// the built-in server is the active target but not yet ready — so a start
+		// the built-in server is the active target but not yet ready - so a start
 		// kicked off elsewhere (e.g. the assistant calling start_built_in_server
 		// from chat) flips the row to "Running" on its own, without the user
 		// reopening the tab. Stops once it's ready or no longer the target.
@@ -178,7 +178,7 @@ export class AriaAutopipeView extends ViewPane {
 
 		// Full-width one-line summary. The container title bar already shows
 		// "AUTOPIPE" and the "How to use?" link, so we don't repeat the title or a
-		// description here — just keep the refresh control in the summary's slot.
+		// description here - just keep the refresh control in the summary's slot.
 		const summaryActions = renderAriaTabSummary(root, 'autopipe');
 		if (summaryActions) {
 			const refreshBtn = append(summaryActions, $('span.codicon.codicon-refresh')) as HTMLElement;
@@ -208,7 +208,7 @@ export class AriaAutopipeView extends ViewPane {
 		this.renderStatusSection(root, status);
 		this.renderSshSection(root, status);
 		this.renderGithubSection(root, status);
-		// No Save button — every setting (run environment, upload mode, repo
+		// No Save button - every setting (run environment, upload mode, repo
 		// name, GitHub) auto-saves the moment it changes.
 		this.renderDivider(root);
 		this.renderBrowseSection(root);
@@ -248,12 +248,12 @@ export class AriaAutopipeView extends ViewPane {
 	}
 
 	private renderStatusSection(root: HTMLElement, status: AutopipeStatus): void {
-		// No per-section refresh here — the single refresh in the summary row at
+		// No per-section refresh here - the single refresh in the summary row at
 		// the top re-fetches status too (it calls refresh(), which re-runs
 		// detection), so a freshly installed AI assistant shows up from there.
 		const section = appendSection(root, 'Status');
 		// Always show every supported provider so the user knows which AI
-		// assistants Aria works with — even the ones they haven't installed.
+		// assistants Aria works with - even the ones they haven't installed.
 		// Color and label change to reflect installed-and-active vs
 		// installed vs not installed.
 		const providers = status.providers ?? [];
@@ -292,7 +292,7 @@ export class AriaAutopipeView extends ViewPane {
 		const profiles = status.sshProfiles ?? [];
 		const activeId = status.sshActiveProfileId ?? null;
 
-		// Built-in local VM — the default target on Mac/Windows.
+		// Built-in local VM - the default target on Mac/Windows.
 		this.renderBuiltInVmRow(section, activeId);
 
 		// Each saved SSH profile as a selectable row, matching the built-in server
@@ -336,11 +336,11 @@ export class AriaAutopipeView extends ViewPane {
 
 	/** The "Aria built-in" run target: a radio row whose subtitle shows live
 	 *  status. Clicking it makes the built-in VM active and starts it; the gear
-	 *  edits its memory/CPU. (Windows/macOS only — hidden on Linux.) */
+	 *  edits its memory/CPU. (Windows/macOS only - hidden on Linux.) */
 	private renderBuiltInVmRow(section: HTMLElement, activeId: string | null): void {
 		// The built-in server (local VM) is the default run environment only on
-		// Windows/macOS. On Linux it isn't offered — those users connect an SSH
-		// server instead — so don't render the row there.
+		// Windows/macOS. On Linux it isn't offered - those users connect an SSH
+		// server instead - so don't render the row there.
 		if (isLinux) {
 			return;
 		}
@@ -366,7 +366,7 @@ export class AriaAutopipeView extends ViewPane {
 		// Subtitle carries the live status instead of a separate button: idle, or
 		// downloading / starting / running / error while it's the active target.
 		const sub = append(text, $('div'));
-		let subText = 'Runs on this computer — no server needed';
+		let subText = 'Runs on this computer - no server needed';
 		if (isActive) {
 			if (st === 'provisioning') {
 				subText = this.vmStatus?.progress?.pct != null ? `Downloading ${this.vmStatus.progress.pct}%…` : 'Preparing…';
@@ -390,7 +390,7 @@ export class AriaAutopipeView extends ViewPane {
 
 		// Clicking the row selects the built-in server AND starts it (idempotent;
 		// downloads qemu/image on first use, retries after an error). No separate
-		// "Set up" button — the subtitle shows progress, the gear restarts on change.
+		// "Set up" button - the subtitle shows progress, the gear restarts on change.
 		row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh()); };
 	}
 
@@ -490,7 +490,7 @@ export class AriaAutopipeView extends ViewPane {
 				void this.refresh();
 			};
 		} else {
-			appendRow(section, false, 'Not connected — needed to upload pipelines');
+			appendRow(section, false, 'Not connected - needed to upload pipelines');
 			const buttons = append(section, $('div'));
 			buttons.style.marginTop = '8px';
 			const btn = append(buttons, $('button')) as HTMLButtonElement;
@@ -561,7 +561,7 @@ export class AriaAutopipeView extends ViewPane {
 						this.settingsDraft.uploadRepoName = v;
 					}
 				});
-			// Auto-save on blur (no Save button) — persist the typed name once
+			// Auto-save on blur (no Save button) - persist the typed name once
 			// the user leaves the field rather than on every keystroke.
 			repoInput.onchange = () => {
 				void this.commandService.executeCommand('aria.autopipe.repo.setRepoName', repoInput.value.trim());

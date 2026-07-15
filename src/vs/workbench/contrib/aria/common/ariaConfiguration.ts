@@ -23,7 +23,7 @@ export type AriaAiProvider = 'auto' | 'claude' | 'codex';
 /** The concrete AI providers Aria supports (Gemini intentionally excluded). */
 export type AriaConcreteProvider = 'claude' | 'codex';
 
-/** All concrete providers in Aria's default (Claude-first) order — the single
+/** All concrete providers in Aria's default (Claude-first) order - the single
  *  list every "iterate over both providers" site should reuse instead of
  *  re-writing `['claude', 'codex']`. */
 export const ARIA_ALL_PROVIDERS: readonly AriaConcreteProvider[] = ['claude', 'codex'];
@@ -33,7 +33,7 @@ export const ARIA_ALL_PROVIDERS: readonly AriaConcreteProvider[] = ['claude', 'c
  * setting into an ordered list: `auto` keeps the default Claude-first order; an
  * explicit choice moves that provider to the front. Callers try them in order
  * (e.g. reveal the first installed one). Note this is preference ORDER, not the
- * "which did the user opt into" set — a `codex` preference still lists both.
+ * "which did the user opt into" set - a `codex` preference still lists both.
  */
 export function ariaProviderOrder(configurationService: IConfigurationService): AriaConcreteProvider[] {
 	const preferred = configurationService.getValue<AriaAiProvider>(ARIA_AI_PROVIDER_SETTING) ?? 'auto';
@@ -52,7 +52,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'string',
 			enum: ['', 'easy', 'advanced'],
 			enumDescriptions: [
-				localize('aria.mode.unset', "Not yet selected — Aria will show the mode picker on next start."),
+				localize('aria.mode.unset', "Not yet selected - Aria will show the mode picker on next start."),
 				localize('aria.mode.easy', "Simplified UI focused on research workflows."),
 				localize('aria.mode.advanced', "Full IDE with all VS Code features."),
 			],

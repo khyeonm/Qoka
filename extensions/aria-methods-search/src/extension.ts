@@ -71,7 +71,7 @@ async function bootMcp(): Promise<void> {
 	// every tracked component reports complete, so the user can't poke Claude
 	// Code mid-registration.
 	await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-methods-search-mcp');
-	let summary = 'Methods Search MCP — already configured';
+	let summary = 'Methods Search MCP - already configured';
 	let changed = false;
 	try {
 		const port = await mcpServer.start();
@@ -85,13 +85,13 @@ async function bootMcp(): Promise<void> {
 		console.log(`[aria-methods-search] final changed flag = ${changed}`);
 		summary = changed
 			? 'Methods Search MCP registered'
-			: 'Methods Search MCP — already configured';
+			: 'Methods Search MCP - already configured';
 	} catch (err) {
 		console.error('[aria-methods-search] MCP boot failed:', (err as Error).message);
 		summary = `Methods Search MCP failed: ${(err as Error).message}`;
 		changed = false;
 	} finally {
-		// Always report — drops us out of the tracking set so the overlay can
+		// Always report - drops us out of the tracking set so the overlay can
 		// settle even when registration fails.
 		await vscode.commands.executeCommand(
 			'aria.startup.markComplete',
@@ -104,7 +104,7 @@ async function bootMcp(): Promise<void> {
 
 export async function deactivate(): Promise<void> {
 	console.log('[aria-methods-search] deactivate()');
-	// Deliberately DO NOT unregister from Claude / Codex on shutdown — removing
+	// Deliberately DO NOT unregister from Claude / Codex on shutdown - removing
 	// the entry on every close means the next launch always re-adds and the UI
 	// shows "registered" every time. The registration persists across runs so
 	// the already-configured fast path can actually fire (same as paper-search).

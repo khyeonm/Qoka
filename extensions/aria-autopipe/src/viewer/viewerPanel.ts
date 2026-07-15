@@ -14,10 +14,10 @@ import { InstalledPlugin, DataSourceCommands } from '../plugins/pluginService';
  * (out/viewer at runtime) so the lookup works whether the extension is
  * loaded from the source tree or a built VSIX. The two files are:
  *
- *   media/pdfjs/pdf.mjs         — main API (window.pdfjsLib)
- *   media/pdfjs/pdf.worker.mjs  — Web Worker that does the parsing
+ *   media/pdfjs/pdf.mjs         - main API (window.pdfjsLib)
+ *   media/pdfjs/pdf.worker.mjs  - Web Worker that does the parsing
  *
- * We don't bundle them through tsc — they're large ES modules pulled
+ * We don't bundle them through tsc - they're large ES modules pulled
  * verbatim from Mozilla's release. The webview loads them via
  * `asWebviewUri` so the strict CSP can include the cspSource.
  */
@@ -35,7 +35,7 @@ function pdfjsDir(): string {
  * URL pointing at the bytes we just streamed over SSH.
  *
  * Navigation is locked to the RUN-NAME directory (the segment just below an
- * autopipe output dir — see detectRunDir): the user can browse freely WITHIN
+ * autopipe output dir - see detectRunDir): the user can browse freely WITHIN
  * that run, but cannot walk up to sibling runs or above the output directory.
  * (If show_results targets the output dir itself, the ceiling is that output
  * dir so the run list is browsable.)
@@ -80,7 +80,7 @@ function parentOf(p: string): string {
  * Pick the upper bound for viewer navigation. Walks the path looking for
  * the run-name directory just below an autopipe output dir
  * (`pipelines_output`, `outputs`, or `output`) and uses that as the
- * navigation ceiling — so the user can move freely WITHIN the run but
+ * navigation ceiling - so the user can move freely WITHIN the run but
  * can't step over to sibling runs or above the output dir.
  *
  * Examples (run-name segments in CAPS):
@@ -96,7 +96,7 @@ function detectRunDir(p: string): string {
 	for (let i = segs.length - 1; i >= 0; i--) {
 		if (OUTPUT_DIRS.has(segs[i])) {
 			// Found the output dir at index i. The run-name directory is
-			// segs[i+1] — if it exists we lock to it, otherwise the user
+			// segs[i+1] - if it exists we lock to it, otherwise the user
 			// passed the output dir itself and we fall back to listing
 			// the runs at that level.
 			if (i + 1 < segs.length) {
@@ -115,7 +115,7 @@ function detectRunDir(p: string): string {
  */
 export async function openViewerForDirectory(initialDir: string, initialFile?: string): Promise<void> {
 	// Lock navigation to the run-name directory if the path contains an
-	// autopipe output dir — the user can browse INTO subdirectories of
+	// autopipe output dir - the user can browse INTO subdirectories of
 	// the run, but never up to sibling runs or above the output dir.
 	const rootDir = detectRunDir(initialDir);
 	activeRootDir = rootDir;
@@ -142,7 +142,7 @@ export async function openViewerForDirectory(initialDir: string, initialFile?: s
 			// The PDF.js bundle lives under media/pdfjs. Webviews refuse to
 			// load resources from anywhere outside `localResourceRoots`, so
 			// we explicitly allow that directory here. Plugin install dirs
-			// (~/.aria-autopipe-plugins) are intentionally NOT listed —
+			// (~/.aria-autopipe-plugins) are intentionally NOT listed -
 			// their JS is injected inline so the file paths themselves
 			// never appear on the webview side.
 			localResourceRoots: [vscode.Uri.file(pdfjsDir())],
@@ -211,7 +211,7 @@ async function listDirectory(dirPath: string): Promise<DirEntry[]> {
 	}
 	// `-1p` lists one per line and appends `/` to directories so we can
 	// classify each entry in a single round trip. No `-A` so dotfiles stay
-	// hidden — autopipe writes its bookkeeping into `.autopipe-run.json`
+	// hidden - autopipe writes its bookkeeping into `.autopipe-run.json`
 	// and the user shouldn't have to scroll past those.
 	const cmd = `ls -1p -- ${shellQuote(dirPath)}`;
 	const { stdout, exitCode, stderr } = await services().ssh.run(profile, cmd);
@@ -227,7 +227,7 @@ async function listDirectory(dirPath: string): Promise<DirEntry[]> {
 		const isDir = line.endsWith('/');
 		const name = isDir ? line.slice(0, -1) : line;
 		if (name.startsWith('.')) {
-			// belt-and-braces dotfile filter — `ls` already hides them,
+			// belt-and-braces dotfile filter - `ls` already hides them,
 			// but if the user later flips on `-A` for debugging this
 			// guard keeps the UI consistent.
 			continue;
@@ -268,7 +268,7 @@ async function openFileInPanel(panel: vscode.WebviewPanel, filePath: string): Pr
 	remoteFiles.set(filename, { remotePath: filePath, plugin });
 
 	// Big binary formats (BAM, CRAM, h5ad, ...) are paginated via the
-	// /data/ endpoint — their plugin never touches the blob URL. Reading
+	// /data/ endpoint - their plugin never touches the blob URL. Reading
 	// the full file just to hand it a blob URL is a great way to crash
 	// the extension host on multi-GB inputs (the user saw this with BAM).
 	// Skip the blob read when the plugin declares a data_source.
@@ -311,8 +311,8 @@ async function openFileInPanel(panel: vscode.WebviewPanel, filePath: string): Pr
  * Plugin's `fetch("/data/{filename}?page=N&page_size=K")` lands here.
  * Ports autopipe-app's `data_handler` (Rust) so the plugins (text-viewer,
  * csv-viewer, hdf5-viewer, etc.) work unchanged. The shape of the JSON
- * response — `{rows, total, page, page_size, meta?, header?, refs?,
- * col_headers?}` — matches what the plugins parse.
+ * response - `{rows, total, page, page_size, meta?, header?, refs?,
+ * col_headers?}` - matches what the plugins parse.
  */
 async function handleDataFetch(url: string): Promise<unknown> {
 	const parsed = parseDataUrl(url);
@@ -380,7 +380,7 @@ async function handleDataFetch(url: string): Promise<unknown> {
 		};
 	}
 
-	// 1) Row count — cached.
+	// 1) Row count - cached.
 	let total = entry.totalRows;
 	if (total === undefined && active.row_count) {
 		const countCmd = buildDataCmd(active, active.row_count, entry.remotePath, 0, 0);
@@ -454,7 +454,7 @@ async function handleDataFetch(url: string): Promise<unknown> {
 					meta = m;
 				}
 			} else {
-				// Metadata is best-effort — many formats don't have any
+				// Metadata is best-effort - many formats don't have any
 				// (the GTF the user hit just has no `#` comment lines, so
 				// grep exits 1 without writing anything to stderr). Don't
 				// fail the whole request; let the rows phase still run.
@@ -533,7 +533,7 @@ function buildDataCmd(ds: DataSourceCommands, template: string, remotePath: stri
 			.replace(/\{end\}/g, String(end));
 		// We don't drop docker's stderr here even though autopipe-app does.
 		// Letting it through lets the plugin (and the user) see why an image
-		// pull / Python execution actually failed — silent failure was the
+		// pull / Python execution actually failed - silent failure was the
 		// reason h5ad showed "Server returned no structure" with no clue.
 		return `docker run --rm -v "${dir}:/data:ro" ${ds.image ?? ''} sh -c "${inner}"`;
 	}
@@ -543,7 +543,7 @@ function buildDataCmd(ds: DataSourceCommands, template: string, remotePath: stri
 		.replace(/\{end\}/g, String(end));
 }
 
-/** Minimal MIME-type guesser — enough for blob-URL plugins (PDF/image
+/** Minimal MIME-type guesser - enough for blob-URL plugins (PDF/image
  *  rendering needs the right Content-Type to feed into embed/img tags).
  *  Everything else falls back to octet-stream and plugins handle parsing
  *  themselves. */
@@ -610,7 +610,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 		// a blob URL internally).
 		`worker-src ${cspSource} blob:`,
 		// frame/object covers <iframe>/<embed>/<object>. The pdf-viewer
-		// plugin still emits <embed src="blob:..."> — Aria intercepts
+		// plugin still emits <embed src="blob:..."> - Aria intercepts
 		// those before they actually try to load anything, but allowing
 		// blob: here keeps the DOM from spewing CSP warnings while the
 		// MutationObserver swaps them out.
@@ -744,7 +744,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 			return _origFetch(input, opts);
 		};
 
-		// Emoji palette — unified per the user's brief:
+		// Emoji palette - unified per the user's brief:
 		//   log / txt  → 📜 (same)
 		//   csv / json → 📋 (same)
 		//   images (the "plots" bucket) → 📊 (chart)
@@ -794,7 +794,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 		function setBreadcrumbs(dir) {
 			const r = (rootDir || '/').replace(/\\/+$/, '');
 			const d = (dir || '/').replace(/\\/+$/, '');
-			// Show breadcrumbs only from rootDir down — the user explicitly
+			// Show breadcrumbs only from rootDir down - the user explicitly
 			// asked that we don't expose the path above the output dir.
 			let rest = '';
 			if (d === r) {
@@ -833,7 +833,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 		function renderListing(entries) {
 			let html = '';
 			// ".." entry only when going up stays within rootDir. At root
-			// we drop the affordance entirely — there's nowhere allowed
+			// we drop the affordance entirely - there's nowhere allowed
 			// to navigate above us.
 			if (currentDir && currentDir !== rootDir) {
 				const parent = parentOf(currentDir);
@@ -913,7 +913,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 
 		let currentPayload = null;
 
-		// PDF.js — loaded once on viewer panel boot. We import the module
+		// PDF.js - loaded once on viewer panel boot. We import the module
 		// lazily and stash the lib object so subsequent embed swaps reuse
 		// the same instance. workerSrc must be set BEFORE the first call
 		// to getDocument(), otherwise PDF.js spawns a fake worker on the
@@ -1016,7 +1016,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 			}
 
 			// Drag-to-pan. We listen on the container itself so the user
-			// can grab anywhere — over a canvas or over the whitespace
+			// can grab anywhere - over a canvas or over the whitespace
 			// between pages. scrollLeft/Top only matters when a zoomed-in
 			// canvas overflows; at 100% (fit) there's nothing to pan to,
 			// but the drag is still harmless.
@@ -1061,7 +1061,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 			// Reset the viewer host with a single container element the
 			// plugin can take ownership of. Inject the plugin's style
 			// once, then load the plugin script and call its render().
-			// The padding leaves a little breathing room on every side —
+			// The padding leaves a little breathing room on every side -
 			// plugins (hdf5-viewer in particular) draw their tree right
 			// up to the edge otherwise.
 			const host = $('viewer-host');

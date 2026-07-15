@@ -16,11 +16,11 @@ export interface DefaultSkillSpec {
 	/** Folder name used under ~/.claude/skills/. Also the manifest key. */
 	name: string;
 	/** GitHub URL the wizard will clone from (sub-paths supported). Provide this
-	 *  OR `bundledPath` — not both. */
+	 *  OR `bundledPath` - not both. */
 	url?: string;
 	/** App-bundled skill folder, relative to the aria-skills extension root
 	 *  (e.g. 'skills/iterative-paper-defense'). When set, the wizard copies it
-	 *  into ~/.claude/skills/ instead of cloning from GitHub — no network. */
+	 *  into ~/.claude/skills/ instead of cloning from GitHub - no network. */
 	bundledPath?: string;
 	/** Category label shown in the Skills tab. */
 	category: string;

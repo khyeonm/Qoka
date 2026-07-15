@@ -109,7 +109,7 @@ export async function discoverSkillsInRepo(url: string): Promise<DiscoveredSkill
 			}
 			if (json.truncated) {
 				// Best-effort: trees API truncates after 100k entries. The
-				// caller can still show the partial list — large monorepos
+				// caller can still show the partial list - large monorepos
 				// are rare for skills today.
 			}
 			// If the user pasted a subpath, only surface SKILL.md files
@@ -136,7 +136,7 @@ export async function discoverSkillsInRepo(url: string): Promise<DiscoveredSkill
 
 /**
  * Fetch SKILL.md at a specific (owner, repo, branch, subPath). Lower
- * level than fetchSkillMd — used after the user picks a sub-path from
+ * level than fetchSkillMd - used after the user picks a sub-path from
  * a multi-skill repo so we can analyze it before cloning.
  */
 export async function fetchSkillMdAtPath(

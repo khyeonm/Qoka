@@ -10,7 +10,7 @@ import * as uvChecker from './uvChecker';
 
 /**
  * Shared service container for the Skills extension. The pattern mirrors
- * aria-autopipe's services.ts — one place to grab dependencies from so
+ * aria-autopipe's services.ts - one place to grab dependencies from so
  * panels and command handlers don't have to import each module
  * individually.
  *
@@ -35,12 +35,12 @@ export function setSkillsServices(s: SkillsServices): void {
 
 export function skillsServices(): SkillsServices {
 	if (!_services) {
-		throw new Error('SkillsServices not initialised — extension.activate() did not run');
+		throw new Error('SkillsServices not initialised - extension.activate() did not run');
 	}
 	return _services;
 }
 
-/** Default wiring used by extension.activate() — real modules, no mocks. */
+/** Default wiring used by extension.activate() - real modules, no mocks. */
 export function buildDefaultServices(): SkillsServices {
 	return {
 		env: envManager,

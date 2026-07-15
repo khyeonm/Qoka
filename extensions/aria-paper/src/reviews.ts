@@ -45,12 +45,12 @@ export interface ReviewMeta {
 	 * Defaults to markdown. docx/latex are extracted to text via pandoc.
 	 */
 	paperFormat?: 'markdown' | 'docx' | 'latex';
-	/** The MAIN manuscript file (relative to the review dir) — the text reviewed,
+	/** The MAIN manuscript file (relative to the review dir) - the text reviewed,
 	 *  previewed, and revised. Set for attached-file reviews. */
 	draftFile?: string;
-	/** Figure files (relative) — passed to the reviewer by name only. */
+	/** Figure files (relative) - passed to the reviewer by name only. */
 	figureFiles?: string[];
-	/** Supplementary/data files (relative) — extracted to text as extra context. */
+	/** Supplementary/data files (relative) - extracted to text as extra context. */
 	supplementaryFiles?: string[];
 	createdAt: string;
 	iteration: number;
@@ -104,7 +104,7 @@ async function extractText(absFile: string): Promise<string> {
 			const { stdout } = await execFileAsync('pdftotext', ['-layout', absFile, '-'], { timeout: 60000, maxBuffer: 32 * 1024 * 1024 });
 			return stdout;
 		} catch {
-			return `[Could not extract PDF text — 'pdftotext' is not available. Convert the paper to .md or .docx and attach that. File: ${path.basename(absFile)}]`;
+			return `[Could not extract PDF text - 'pdftotext' is not available. Convert the paper to .md or .docx and attach that. File: ${path.basename(absFile)}]`;
 		}
 	}
 	// Unknown extension: best-effort as UTF-8 text.
@@ -182,7 +182,7 @@ export async function exportReviewPaper(execId: string, format: ReviewExportForm
 	const dir = reviewDir(execId);
 	if (!dir) { throw new Error('No workspace folder is open.'); }
 	const text = reviewWorkingText(execId, docKey);
-	if (text === undefined) { throw new Error('No paper text to export yet — run the review first.'); }
+	if (text === undefined) { throw new Error('No paper text to export yet - run the review first.'); }
 	const outDir = path.join(dir, 'export');
 	fs.mkdirSync(outDir, { recursive: true });
 	const base = docKey === 'main' ? 'paper' : docKey;
@@ -235,7 +235,7 @@ export function buildReviewTools(): ToolDefinition[] {
 				const meta = getReviewMeta(execId);
 				if (!meta) { return err(`No review run "${execId}". It may not have been created yet.`); }
 				const dir = reviewDir(execId)!;
-				// The MAIN manuscript — the text to review, preview, and revise.
+				// The MAIN manuscript - the text to review, preview, and revise.
 				let manuscript: { name: string; text: string } | undefined;
 				if (meta.paperId) {
 					const fmt = meta.paperFormat ?? 'markdown';
@@ -282,7 +282,7 @@ export function buildReviewTools(): ToolDefinition[] {
 					manuscript: { key: 'main', name: mainDoc.name, text: mainDoc.text },
 					supplementary: supplDocs,
 					figures,
-					note: 'Review the MAIN manuscript (documentKey "main"). supplementary items (each has a key like "suppl-1") are extra data/context — check the manuscript claims against them, and if a fix belongs in a supplementary document target it via that key. figures are filenames only (you cannot see the images). When proposing a revision, pass the document key as documentKey.',
+					note: 'Review the MAIN manuscript (documentKey "main"). supplementary items (each has a key like "suppl-1") are extra data/context - check the manuscript claims against them, and if a fix belongs in a supplementary document target it via that key. figures are filenames only (you cannot see the images). When proposing a revision, pass the document key as documentKey.',
 				}));
 			},
 		},
@@ -327,7 +327,7 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'record_revision',
-			description: 'Propose UP TO 3 alternative revision strategies that resolve ONE concern from a review run. Aria shows them in a "< N/3 >" carousel with an Accept button; the user browses the strategies and accepts one, which replaces that span in the paper. Call get_review first to read the CURRENT paper. Each proposal is a distinct strategy (different argument / edit footprint / risk) with the EXACT original span to replace (verbatim, long enough to be unique) and the full replacement. Only add reasoning/scoping/framing grounded in the existing paper — never invent data, numbers, procedures, or citations.',
+			description: 'Propose UP TO 3 alternative revision strategies that resolve ONE concern from a review run. Aria shows them in a "< N/3 >" carousel with an Accept button; the user browses the strategies and accepts one, which replaces that span in the paper. Call get_review first to read the CURRENT paper. Each proposal is a distinct strategy (different argument / edit footprint / risk) with the EXACT original span to replace (verbatim, long enough to be unique) and the full replacement. Only add reasoning/scoping/framing grounded in the existing paper - never invent data, numbers, procedures, or citations.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -384,7 +384,7 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'propose_document_edit',
-			description: 'Propose an edit to ONE document of a review (the "main" manuscript or a supplementary doc like "suppl-1") that the USER directly asked for and is NOT tied to a review concern — e.g. "delete the title in the supplementary", "fix this typo". Aria shows it inline in that document (auto-switching to its tab) with an Accept button; nothing changes until the user accepts. This is for the REVIEW\'s documents — do NOT use Paper Writer tools for these. (For fixing a specific review concern, use record_revision instead.) You may give up to 3 alternative `proposals`; the user browses "< N/3 >" and accepts one. Call get_review first and copy the exact text. Set `replacement` to "" to delete a span.',
+			description: 'Propose an edit to ONE document of a review (the "main" manuscript or a supplementary doc like "suppl-1") that the USER directly asked for and is NOT tied to a review concern - e.g. "delete the title in the supplementary", "fix this typo". Aria shows it inline in that document (auto-switching to its tab) with an Accept button; nothing changes until the user accepts. This is for the REVIEW\'s documents - do NOT use Paper Writer tools for these. (For fixing a specific review concern, use record_revision instead.) You may give up to 3 alternative `proposals`; the user browses "< N/3 >" and accepts one. Call get_review first and copy the exact text. Set `replacement` to "" to delete a span.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -434,7 +434,7 @@ export function buildReviewTools(): ToolDefinition[] {
 				} catch (e) {
 					return err(`propose_document_edit failed: ${(e as Error).message}`);
 				}
-				return ok(`Proposed ${proposals.length} edit option(s) for "${documentKey}". Aria switched to that document and shows an Accept button — nothing is applied until the user accepts.`);
+				return ok(`Proposed ${proposals.length} edit option(s) for "${documentKey}". Aria switched to that document and shows an Accept button - nothing is applied until the user accepts.`);
 			},
 		},
 	];

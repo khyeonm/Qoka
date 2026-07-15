@@ -12,8 +12,8 @@ import * as path from 'path';
 const execFileAsync = promisify(execFile);
 
 /**
- * Downloads the assets the built-in VM needs — a PORTABLE QEMU build and the base
- * disk image — from GitHub Releases into Aria's app-data. This is what lets a
+ * Downloads the assets the built-in VM needs - a PORTABLE QEMU build and the base
+ * disk image - from GitHub Releases into Aria's app-data. This is what lets a
  * user with no admin rights run the VM: nothing is installed system-wide; qemu
  * runs in-place from the app folder.
  *
@@ -59,7 +59,7 @@ export class Provisioner {
 	gvproxyBinPath(): string { return path.join(this.vfkitDir(), 'bin', 'gvproxy'); }
 
 	/** Ensure the vfkit + gvproxy bundle is present; download + extract if missing.
-	 *  macOS only — vfkit drives Apple's Virtualization.framework, which works on
+	 *  macOS only - vfkit drives Apple's Virtualization.framework, which works on
 	 *  every Apple Silicon generation (unlike qemu's HVF, broken on M4). */
 	async ensureVfkit(progress: ProgressFn): Promise<{ vfkit: string; gvproxy: string }> {
 		const vfkit = this.vfkitBinPath();
@@ -111,7 +111,7 @@ export class Provisioner {
 			// Re-validate the cached bundle: a `--version` that fails means an
 			// unresolved dylib (e.g. a previously-cached build missing
 			// libcapstone). Without this, a fixed vm-assets release never reaches
-			// anyone who already downloaded the broken one — existsSync alone would
+			// anyone who already downloaded the broken one - existsSync alone would
 			// keep using it forever. Wipe and re-download when it can't even load.
 			if (await this.qemuRuns(bin)) { return bin; }
 			progress('Updating the local run environment (QEMU)…');
@@ -147,7 +147,7 @@ export class Provisioner {
 		if (fs.existsSync(img) && currentTag === IMAGE_TAG) { return img; }
 		// Missing, or a stale generation: discard the old base AND its overlay
 		// (the overlay's backing file / size no longer matches the new base, so
-		// on Windows — where the overlay is persisted — it would fail to open).
+		// on Windows - where the overlay is persisted - it would fail to open).
 		if (fs.existsSync(img)) {
 			try { fs.rmSync(img); } catch { /* overwritten below */ }
 		}

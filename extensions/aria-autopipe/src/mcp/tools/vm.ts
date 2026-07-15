@@ -8,13 +8,13 @@ import { ToolDefinition, textResult } from './types';
 import { services } from '../../common/services';
 
 // Built-in server (local QEMU VM) resource tools. These ONLY apply when the
-// active run environment is the built-in VM — an SSH server's resources are the
+// active run environment is the built-in VM - an SSH server's resources are the
 // remote machine's and aren't ours to change.
 
 export const VM_TOOLS: ToolDefinition[] = [
 	{
 		name: 'start_built_in_server',
-		description: 'Start the Aria built-in server (local VM) when it is the selected run environment but is not running yet — e.g. when get_workspace_info reports it is not running. This begins downloading/booting it (about a minute or two). Call this instead of asking the user to press any button. After calling, tell the user it is starting, wait ~60-90 seconds, call get_workspace_info again, and once it reports a reachable endpoint, retry the pipeline step.',
+		description: 'Start the Aria built-in server (local VM) when it is the selected run environment but is not running yet - e.g. when get_workspace_info reports it is not running. This begins downloading/booting it (about a minute or two). Call this instead of asking the user to press any button. After calling, tell the user it is starting, wait ~60-90 seconds, call get_workspace_info again, and once it reports a reachable endpoint, retry the pipeline step.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config } = services();
@@ -26,22 +26,22 @@ export const VM_TOOLS: ToolDefinition[] = [
 			} catch (e) {
 				return textResult(`Could not start the built-in server: ${e instanceof Error ? e.message : String(e)}`);
 			}
-			return textResult('Starting the Aria built-in server — it downloads/boots in the background (about a minute or two). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again; once it reports a reachable endpoint, retry the pipeline step.');
+			return textResult('Starting the Aria built-in server - it downloads/boots in the background (about a minute or two). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again; once it reports a reachable endpoint, retry the pipeline step.');
 		},
 	},
 	{
 		name: 'get_vm_resources',
-		description: 'Read the built-in server (Aria built-in VM) resource allocation — memory (MB), CPU cores, disk (GB). Only relevant when the built-in server is the ACTIVE run environment (not an SSH server). Call this to check capacity before running a heavy pipeline, or when a run fails with an out-of-memory error.',
+		description: 'Read the built-in server (Aria built-in VM) resource allocation - memory (MB), CPU cores, disk (GB). Only relevant when the built-in server is the ACTIVE run environment (not an SSH server). Call this to check capacity before running a heavy pipeline, or when a run fails with an out-of-memory error.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config } = services();
 			const vm = config.get().local_vm;
 			const active = config.isLocalVmActive();
 			return textResult([
-				`Built-in server (VM) resources — memory: ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores: ${vm.cpus}, disk: ${vm.diskGB} GB.`,
+				`Built-in server (VM) resources - memory: ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores: ${vm.cpus}, disk: ${vm.diskGB} GB.`,
 				active
 					? 'The built-in server IS the active run environment.'
-					: 'NOTE: an SSH server is currently active, not the built-in server — these settings only affect the built-in server.',
+					: 'NOTE: an SSH server is currently active, not the built-in server - these settings only affect the built-in server.',
 				"These are bounded by the host machine's physical RAM/CPU.",
 			].join('\n'));
 		},
@@ -59,7 +59,7 @@ export const VM_TOOLS: ToolDefinition[] = [
 		handler: async (args) => {
 			const { config } = services();
 			if (!config.isLocalVmActive()) {
-				return textResult('The built-in server is not the active run environment (an SSH server is active). Resource changes only apply to the built-in server — ask the user to switch to it first.');
+				return textResult('The built-in server is not the active run environment (an SSH server is active). Resource changes only apply to the built-in server - ask the user to switch to it first.');
 			}
 			const patch: { memoryMB?: number; cpus?: number } = {};
 			const mem = args?.memoryMB;
@@ -71,7 +71,7 @@ export const VM_TOOLS: ToolDefinition[] = [
 			}
 			await config.setLocalVmResources(patch);
 			const vm = config.get().local_vm;
-			return textResult(`Built-in server resources updated — memory: ${vm.memoryMB} MB, CPU cores: ${vm.cpus}. Restart the built-in server to apply (Autopipe tab → built-in server gear, or it applies on next launch).`);
+			return textResult(`Built-in server resources updated - memory: ${vm.memoryMB} MB, CPU cores: ${vm.cpus}. Restart the built-in server to apply (Autopipe tab → built-in server gear, or it applies on next launch).`);
 		},
 	},
 ];

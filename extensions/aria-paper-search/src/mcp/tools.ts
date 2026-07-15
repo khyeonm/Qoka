@@ -14,7 +14,7 @@ import { listPapers, savePaper } from '../library';
  *                     my library" or wants to filter against the saved
  *                     set rather than search the web.
  *
- * Deliberately small surface area — delete / note edits / tag edits
+ * Deliberately small surface area - delete / note edits / tag edits
  * live in the Paper Search sidebar tab, not the MCP. Keeping Claude
  * away from destructive operations means the user's library can't be
  * silently emptied by a misinterpreted prompt.
@@ -57,7 +57,7 @@ function errorResult(text: string): CallToolResult {
 export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'save_paper',
-		description: 'Save a paper to the user\'s Aria paper library. Pass whatever metadata you have — title and authors are required, the rest are optional but enrich the library entry. Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags.',
+		description: 'Save a paper to the user\'s Aria paper library. Pass whatever metadata you have - title and authors are required, the rest are optional but enrich the library entry. Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags.',
 		inputSchema: {
 			type: 'object',
 			required: ['title', 'authors'],

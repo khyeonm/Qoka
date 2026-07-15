@@ -103,7 +103,7 @@ export const RO_CRATE_METADATA_TEMPLATE = `{
       "name": "pipeline-name",
       "description": "One paragraph description of what this pipeline does.",
       "version": "1.0.0",
-      "license": {"@id": "https://spdx.org/licenses/<SPDX_ID — ask the user before filling this in; recommend MIT if they are unsure>"},
+      "license": {"@id": "https://spdx.org/licenses/<SPDX_ID - ask the user before filling this in; recommend MIT if they are unsure>"},
       "programmingLanguage": {"@id": "#snakemake"},
       "creator": [{"@id": "#author"}],
       "dateCreated": "",
@@ -232,14 +232,14 @@ Every pipeline is a directory with 5 required files:
 ## Author (use GitHub login as default; do NOT prompt)
 Read the \`GitHub: <login>\` line from \`get_workspace_info\` and use the login
 as the **default** value for the \`#author\` node's \`name\` field. Do NOT ask
-the user for an author name — the default is good enough for most users.
+the user for an author name - the default is good enough for most users.
 If the user explicitly says they want a different author (e.g., "publish
 as 'Smith Lab'"), use what they specified instead.
 
 If \`get_workspace_info\` shows \`GitHub: (not connected)\`: generate the
 pipeline anyway with \`#author.name\` left empty, and tell the user once, in
 chat, that they will need to complete the GitHub connection step in the
-AutoPipe app before publishing. Do not block generation on this — when the
+AutoPipe app before publishing. Do not block generation on this - when the
 user later runs \`validate_pipeline\`, the validator will automatically fill
 \`#author.name\` from the GitHub login once it is available, and will return
 a clear error pointing back to the AutoPipe app if GitHub is still not
@@ -247,19 +247,19 @@ connected at that point.
 
 ## License Selection (ASK USER before generating ro-crate-metadata.json)
 Before writing the metadata file, ask the user which open-source license to apply.
-You MUST present ALL FIVE options below — do not collapse, omit, or summarise any
+You MUST present ALL FIVE options below - do not collapse, omit, or summarise any
 of them. Option 5 is REQUIRED so users with a non-listed license still know what to
 do; never drop it because you assume the user will pick one of the first four.
 
 Render the choices exactly like this (translate the prose into the user's chat
 language but keep the SPDX identifiers and the URL verbatim):
 
-  1. MIT — recommended default. The most permissive and widely-used license; pick
+  1. MIT - recommended default. The most permissive and widely-used license; pick
      this if you are unsure or unfamiliar with software licensing.
-  2. BSD-3-Clause — permissive, similar to MIT with a no-endorsement clause.
-  3. Apache-2.0 — permissive with an explicit patent grant.
-  4. GPL-3.0 — copyleft; downstream forks must also be GPL-licensed.
-  5. Other — look up the SPDX identifier of your preferred license at
+  2. BSD-3-Clause - permissive, similar to MIT with a no-endorsement clause.
+  3. Apache-2.0 - permissive with an explicit patent grant.
+  4. GPL-3.0 - copyleft; downstream forks must also be GPL-licensed.
+  5. Other - look up the SPDX identifier of your preferred license at
      https://opensource.org/licenses and tell me which one to use.
 
 If the user is unsure or asks for guidance, suggest MIT explicitly and explain
@@ -296,9 +296,9 @@ Examples:
 
 ## Path Convention
 - Pipelines always use Docker mount points for data paths:
-  - \`/input\` — input data (mounted read-only at runtime)
-  - \`/output\` — output directory (mounted at runtime)
-  - \`/pipeline\` — pipeline files (Snakefile, config.yaml, etc.)
+  - \`/input\` - input data (mounted read-only at runtime)
+  - \`/output\` - output directory (mounted at runtime)
+  - \`/pipeline\` - pipeline files (Snakefile, config.yaml, etc.)
 - Actual host paths are provided at execution time, not in pipeline files.
 - Example in Snakefile: \`"input/{sample}.fastq.gz"\` (relative to Docker workdir)
 - Example in config.yaml: \`reference: "/input/reference.fa"\`

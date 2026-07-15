@@ -23,7 +23,7 @@ interface SseSession {
  * aria-autopipe so Claude Code (HTTP+SSE) and Codex (Streamable HTTP) both
  * work without per-client branches in the AI layer.
  *
- * The server owns no state of its own — every tool call is dispatched into
+ * The server owns no state of its own - every tool call is dispatched into
  * the RoadmapState instance the caller provided through the tool table.
  */
 export class AriaRoadmapMcpServer {
@@ -259,7 +259,7 @@ export class AriaRoadmapMcpServer {
 					serverInfo: { name: 'aria-roadmap', version: '0.0.1' },
 					capabilities: { tools: {} },
 					// Primes the model with the roadmap brainstorming method the
-					// moment Claude Code connects — so every new project gets the
+					// moment Claude Code connects - so every new project gets the
 					// same facilitation behaviour with no chat message to send.
 					// Mirrored by the get_roadmap_guide tool for clients that do
 					// not forward `instructions`.

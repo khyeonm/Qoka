@@ -19,7 +19,7 @@ import { recommendMethods, searchHypotheses } from '../methodsClient';
  *
  * The chat model is expected to first compose the user's idea into one clear
  * hypothesis sentence and confirm it with the user, THEN call recommend_methods
- * — the confirmation step lives in the conversation, not in these tools.
+ * - the confirmation step lives in the conversation, not in these tools.
  *
  * Data comes from the logic-graph Neo4j on the Aria server (see methodsClient).
  * While the graph is only partially loaded a mode returns an `unavailable`
@@ -70,7 +70,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'recommend_methods',
 		description:
-			'ALWAYS use this tool — never a web search — when the user wants experimental, analytical, or statistical METHODS to test / validate / investigate a research HYPOTHESIS. It queries Aria\'s own logic-graph of ~1M papers (a curated knowledge base you cannot reach by web search) and returns the methods that tested SIMILAR hypotheses, ranked by how many papers/hypotheses used each one — evidence-grounded, not guessed. Input: the hypothesis as one clear sentence (ideally subject–relation–object); compose it from the conversation and briefly confirm it with the user first, then call this. Returns BOTH a `keyword` list (full-text word overlap) and a `semantic` list (meaning-based vector match) so they can be shown side by side — semantic is robust to paraphrase, keyword to exact terms. Each method has {method, type, paper_support, hypothesis_support}. A mode may report `unavailable` while the graph is still being built — that is expected; report what the other mode returns.',
+			'ALWAYS use this tool - never a web search - when the user wants experimental, analytical, or statistical METHODS to test / validate / investigate a research HYPOTHESIS. It queries Aria\'s own logic-graph of ~1M papers (a curated knowledge base you cannot reach by web search) and returns the methods that tested SIMILAR hypotheses, ranked by how many papers/hypotheses used each one - evidence-grounded, not guessed. Input: the hypothesis as one clear sentence (ideally subject–relation–object); compose it from the conversation and briefly confirm it with the user first, then call this. Returns BOTH a `keyword` list (full-text word overlap) and a `semantic` list (meaning-based vector match) so they can be shown side by side - semantic is robust to paraphrase, keyword to exact terms. Each method has {method, type, paper_support, hypothesis_support}. A mode may report `unavailable` while the graph is still being built - that is expected; report what the other mode returns.',
 		inputSchema: {
 			type: 'object',
 			required: ['hypothesis'],
@@ -95,7 +95,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'search_hypotheses',
 		description:
-			'Inspect which stored hypotheses in the logic-graph match a query (full-text). Use for transparency — to show the user the actual hypotheses behind a method recommendation, or to check coverage. Returns {hypothesis, example_pmcid, score} rows.',
+			'Inspect which stored hypotheses in the logic-graph match a query (full-text). Use for transparency - to show the user the actual hypotheses behind a method recommendation, or to check coverage. Returns {hypothesis, example_pmcid, score} rows.',
 		inputSchema: {
 			type: 'object',
 			required: ['query'],

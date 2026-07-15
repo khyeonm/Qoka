@@ -15,7 +15,7 @@ import { PaperLibraryState } from './types';
  * registers it with Claude Code + Codex, and exposes the commands the
  * Paper Search sidebar view uses to read/write the on-disk library.
  *
- * The MCP exposes only two tools — save_paper, list_saved_papers. All
+ * The MCP exposes only two tools - save_paper, list_saved_papers. All
  * mutating operations on existing library entries (note edit, tag edit,
  * delete) happen here via VS Code commands the sidebar invokes; Claude
  * never gets the chance to silently destroy data.
@@ -56,7 +56,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	mcpServer = new AriaPaperLibraryMcpServer();
 
 	context.subscriptions.push(
-		// Sidebar reads — getState shape mirrors the workbench view's
+		// Sidebar reads - getState shape mirrors the workbench view's
 		// expectations, single round-trip per refresh.
 		vscode.commands.registerCommand('aria.paperSearch.list', (): PaperLibraryState => ({
 			papers: listPapers(),
@@ -104,7 +104,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		}),
 
 		// Sidebar-driven edit flows. The view fires these because it
-		// can't invoke vscode.window directly — workbench-side code
+		// can't invoke vscode.window directly - workbench-side code
 		// only has access to the command bus.
 		vscode.commands.registerCommand('aria.paperSearch.promptAndUpdateNote', async (id: unknown) => {
 			if (typeof id !== 'string') {
@@ -195,7 +195,7 @@ async function bootMcp(): Promise<void> {
 	// up until every tracked component reports complete, so the user
 	// can't poke Claude Code mid-registration.
 	await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-paper-search-mcp');
-	let summary = 'Paper Library MCP — already configured';
+	let summary = 'Paper Library MCP - already configured';
 	let changed = false;
 	try {
 		const port = await mcpServer.start();
@@ -210,13 +210,13 @@ async function bootMcp(): Promise<void> {
 		console.log(`[aria-paper-search] final changed flag = ${changed}`);
 		summary = changed
 			? 'Paper Library MCP registered'
-			: 'Paper Library MCP — already configured';
+			: 'Paper Library MCP - already configured';
 	} catch (err) {
 		console.error('[aria-paper-search] MCP boot failed:', (err as Error).message);
 		summary = `Paper Library MCP failed: ${(err as Error).message}`;
 		changed = false;
 	} finally {
-		// Always report — drops us out of the tracking set so the
+		// Always report - drops us out of the tracking set so the
 		// overlay can settle even when registration fails.
 		await vscode.commands.executeCommand(
 			'aria.startup.markComplete',
@@ -238,7 +238,7 @@ export async function deactivate(): Promise<void> {
 	console.log('[aria-paper-search] deactivate()');
 	// Deliberately DO NOT unregister from Claude / Codex on shutdown.
 	// Removing the entry from ~/.claude.json on every Aria close means
-	// the next launch always has to re-add — Aria UI then shows
+	// the next launch always has to re-add - Aria UI then shows
 	// "Paper Library MCP registered" every time even though the
 	// effective state is unchanged. autopipe follows the same pattern:
 	// the registration persists across runs so the optimization can

@@ -48,7 +48,7 @@ export class AriaHelpInput extends EditorInput {
 	override get editorId(): string | undefined { return AriaHelpInput.EDITOR_ID; }
 	override get resource(): URI { return this._resource; }
 	override getName(): string {
-		return localize('aria.help.tabName', "{0} — How to use", ARIA_TAB_HELP[this.key]?.title ?? this.key);
+		return localize('aria.help.tabName', "{0} - How to use", ARIA_TAB_HELP[this.key]?.title ?? this.key);
 	}
 
 	override matches(other: EditorInput | IUntypedEditorInput): boolean {

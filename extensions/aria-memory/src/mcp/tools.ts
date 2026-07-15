@@ -34,7 +34,7 @@ function asStringArray(v: unknown): string[] | undefined {
  * memory system.
  *
  * Cross-project ("user"/assistant) memory is served by a separate mem0 store
- * and its own tools — added in a later phase. Everything here is scoped to the
+ * and its own tools - added in a later phase. Everything here is scoped to the
  * currently-open workspace folder.
  *
  * Note on writes: `remember_project_memory` writes the page immediately.
@@ -50,7 +50,7 @@ export function buildTools(): ToolDefinition[] {
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				const index = readIndex();
-				return ok(index || 'Project memory is empty — no pages yet.');
+				return ok(index || 'Project memory is empty - no pages yet.');
 			},
 		},
 		{
@@ -71,7 +71,7 @@ export function buildTools(): ToolDefinition[] {
 				const limit = typeof args.limit === 'number' ? args.limit : 5;
 				const hits = searchPages(query, limit);
 				if (!hits.length) { return ok(`No project memory matches "${query}".`); }
-				const rendered = hits.map(h => `- [[${h.slug}]] (${h.type}) — ${h.title}\n  ${h.excerpt}`).join('\n');
+				const rendered = hits.map(h => `- [[${h.slug}]] (${h.type}) - ${h.title}\n  ${h.excerpt}`).join('\n');
 				return ok(rendered);
 			},
 		},
@@ -95,7 +95,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'remember_project_memory',
-			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). Only for project-scoped facts — cross-project user preferences belong in user memory. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
+			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). Only for project-scoped facts - cross-project user preferences belong in user memory. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -135,7 +135,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'forget_project_memory',
-			description: 'Delete a project memory page. Writes immediately and is irreversible — only do this when the user explicitly asks to remove that memory. `page` is a slug or title.',
+			description: 'Delete a project memory page. Writes immediately and is irreversible - only do this when the user explicitly asks to remove that memory. `page` is a slug or title.',
 			inputSchema: {
 				type: 'object',
 				properties: { page: { type: 'string', description: 'Page slug or title to delete.' } },
@@ -158,14 +158,14 @@ export function buildTools(): ToolDefinition[] {
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				const pages = listPages();
-				if (!pages.length) { return ok('Project memory is empty — no pages yet.'); }
+				if (!pages.length) { return ok('Project memory is empty - no pages yet.'); }
 				return ok(JSON.stringify(pages.map(p => ({ slug: p.slug, title: p.title, type: p.type })), null, 2));
 			},
 		},
-		// --- cross-project ("user") memory — backed by the mem0 server ---------
+		// --- cross-project ("user") memory - backed by the mem0 server ---------
 		{
 			name: 'remember_user_memory',
-			description: 'Save a CROSS-PROJECT fact about the USER — something that stays true and useful in ANY project (their preferences, working style, identity, tools they favour, cross-cutting conventions). Do NOT use this for facts specific to the current project — those go to remember_project_memory. When unsure whether a fact is project-specific or cross-project, prefer remember_project_memory.',
+			description: 'Save a CROSS-PROJECT fact about the USER - something that stays true and useful in ANY project (their preferences, working style, identity, tools they favour, cross-cutting conventions). Do NOT use this for facts specific to the current project - those go to remember_project_memory. When unsure whether a fact is project-specific or cross-project, prefer remember_project_memory.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -187,7 +187,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'recall_user_memory',
-			description: 'Search the USER\'s cross-project memory (preferences, working style, identity) by meaning — regardless of which project is open. Use this to recall what you know about the user before answering.',
+			description: 'Search the USER\'s cross-project memory (preferences, working style, identity) by meaning - regardless of which project is open. Use this to recall what you know about the user before answering.',
 			inputSchema: {
 				type: 'object',
 				properties: {

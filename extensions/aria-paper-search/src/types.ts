@@ -5,7 +5,7 @@
 
 /** One paper as stored in the user's Aria paper library. */
 export interface PaperLibraryEntry {
-	/** Stable identifier — DOI when available, otherwise a hash of URL/title. */
+	/** Stable identifier - DOI when available, otherwise a hash of URL/title. */
 	id: string;
 	title: string;
 	authors: string[];
@@ -15,7 +15,7 @@ export interface PaperLibraryEntry {
 	url: string | undefined;
 	pdfUrl: string | undefined;
 	abstract: string | undefined;
-	/** Where the paper was found — used for badge display, no special handling. */
+	/** Where the paper was found - used for badge display, no special handling. */
 	source: 'openalex' | 'crossref' | 'arxiv' | 'biorxiv' | 'pubmed' | 'other';
 	/** ISO timestamp the paper was added. */
 	savedAt: string;

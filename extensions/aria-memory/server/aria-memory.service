@@ -1,4 +1,4 @@
-# systemd unit for the Aria memory (mem0) service — makes it always-on:
+# systemd unit for the Aria memory (mem0) service - makes it always-on:
 # auto-starts on boot, auto-restarts on crash. Template; adjust User /
 # WorkingDirectory / paths to your server. Secrets come from EnvironmentFile
 # (~/.env), never from this committed file.

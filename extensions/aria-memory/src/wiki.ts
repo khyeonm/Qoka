@@ -8,21 +8,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Per-project "LLM wiki" storage — the single-project half of Aria's memory
+ * Per-project "LLM wiki" storage - the single-project half of Aria's memory
  * system. (The cross-project half is a mem0 store added later; see the
  * project plan.)
  *
  * The wiki is just Markdown on disk under `<workspace>/.aria/memory/wiki/`:
  *
- *   index.md          — a generated catalog of pages, grouped by type
- *   log.md            — append-only record of every ingest (audit / rollback)
- *   pages/<slug>.md   — one page per topic, with YAML-ish frontmatter
+ *   index.md          - a generated catalog of pages, grouped by type
+ *   log.md            - append-only record of every ingest (audit / rollback)
+ *   pages/<slug>.md   - one page per topic, with YAML-ish frontmatter
  *
  * There is deliberately no database and no embedding index at this stage:
  * plain files stay transparent, git-versionable, and human-readable, and the
  * `index.md` catalog is enough to drive retrieval at moderate scale (per the
- * Karpathy "LLM wiki" approach). The intelligence — deciding whether a new
- * fact is a fresh page or an edit to an existing one — lives in the caller
+ * Karpathy "LLM wiki" approach). The intelligence - deciding whether a new
+ * fact is a fresh page or an edit to an existing one - lives in the caller
  * (the foreground agent or, later, the background extractor); this module
  * only provides the read/write/search primitives.
  *
@@ -82,7 +82,7 @@ export function ensureWiki(): string {
 	}
 	fs.mkdirSync(pagesDir(root), { recursive: true });
 	if (!fs.existsSync(indexPath(root))) {
-		fs.writeFileSync(indexPath(root), '# Project Memory — Index\n\n_No pages yet._\n', 'utf8');
+		fs.writeFileSync(indexPath(root), '# Project Memory - Index\n\n_No pages yet._\n', 'utf8');
 	}
 	if (!fs.existsSync(logPath(root))) {
 		fs.writeFileSync(logPath(root), '# Memory Log\n\n', 'utf8');
@@ -216,7 +216,7 @@ export function writePage(input: WritePageInput): PageInfo {
 	const contents = `${serializeFrontmatter(fm)}\n\n${input.body.trim()}\n`;
 	fs.writeFileSync(filePath, contents, 'utf8');
 	rebuildIndex(root);
-	appendLog(root, `${existing ? 'update' : 'create'} [[${slug}]] — ${input.title}`);
+	appendLog(root, `${existing ? 'update' : 'create'} [[${slug}]] - ${input.title}`);
 	return { slug, title: input.title, type: fm.type || 'other', filePath };
 }
 
@@ -286,14 +286,14 @@ export function rebuildIndex(root: string): void {
 		(byType.get(key) ?? byType.set(key, []).get(key)!).push(p);
 	}
 
-	const lines: string[] = ['# Project Memory — Index', ''];
+	const lines: string[] = ['# Project Memory - Index', ''];
 	if (!pages.length) {
 		lines.push('_No pages yet._', '');
 	} else {
 		for (const type of [...byType.keys()].sort()) {
 			lines.push(`## ${capitalize(type)}`);
 			for (const p of byType.get(type)!) {
-				lines.push(`- [[${p.slug}]] — ${p.title}`);
+				lines.push(`- [[${p.slug}]] - ${p.title}`);
 			}
 			lines.push('');
 		}
@@ -309,7 +309,7 @@ export function readIndex(): string {
 
 function appendLog(root: string, entry: string): void {
 	const stamp = new Date().toISOString();
-	fs.appendFileSync(logPath(root), `- ${stamp} — ${entry}\n`, 'utf8');
+	fs.appendFileSync(logPath(root), `- ${stamp} - ${entry}\n`, 'utf8');
 }
 
 // --- helpers ----------------------------------------------------------------

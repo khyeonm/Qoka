@@ -8,7 +8,7 @@ import * as crypto from 'crypto';
 /**
  * Roadmap state for the New Project wizard.
  *
- * The wizard's tree has four fixed columns (0..3) — the research-domain
+ * The wizard's tree has four fixed columns (0..3) - the research-domain
  * progression the user locked in: 목표 → 마일스톤 → 작업 → 세부. Nodes are
  * either committed (the canvas's stable tree) or proposed (an AI suggestion
  * that the user must accept, edit, or reject). Both kinds are kept here so
@@ -18,7 +18,7 @@ import * as crypto from 'crypto';
 
 /** Depth of a node in the roadmap tree. Columns 0..3 are the named research
  *  stages (see COLUMN_LABELS); the tree may extend deeper (4, 5, …) as the user
- *  keeps adding children under a Detail node — those deeper columns are
+ *  keeps adding children under a Detail node - those deeper columns are
  *  unnamed and simply nest further. */
 export type Column = number;
 
@@ -158,7 +158,7 @@ export class RoadmapState {
 		if (!proposal) {
 			throw new Error(`no proposal with id ${id}`);
 		}
-		// Re-validate at accept time — the parent could have been deleted
+		// Re-validate at accept time - the parent could have been deleted
 		// between propose and accept.
 		const err = this.validateParentForColumn(proposal.column, proposal.parent);
 		if (err) {
@@ -192,7 +192,7 @@ export class RoadmapState {
 			try {
 				accepted.push(this.acceptProposal(proposal.id));
 			} catch {
-				// Skip ones whose parent never made it — they'll stay in the
+				// Skip ones whose parent never made it - they'll stay in the
 				// proposed set so the user can decide what to do with them.
 			}
 		}

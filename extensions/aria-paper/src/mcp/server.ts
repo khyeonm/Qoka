@@ -20,7 +20,7 @@ interface SseSession {
 /**
  * Aria Paper MCP server. Same dual-transport (HTTP+SSE / Streamable HTTP)
  * implementation as Aria's other MCP servers so Claude Code and Codex both
- * work without per-client branches. Owns no state — every tool call is
+ * work without per-client branches. Owns no state - every tool call is
  * dispatched into the tool table the caller provided.
  */
 export class AriaPaperMcpServer {

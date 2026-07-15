@@ -14,7 +14,7 @@ import * as path from 'path';
  * consistency later).
  *
  * The native engine only honours this from an on-disk settings file loaded via
- * `settingSources` — inline SDK options (`settings` / `managedSettings`) are
+ * `settingSources` - inline SDK options (`settings` / `managedSettings`) are
  * ignored for `autoMemoryEnabled`, confirmed by testing. We write it into
  * `.claude/settings.local.json` (the 'local' scope), NOT `.claude/settings.json`:
  *   - `settings.local.json` is gitignored by convention, so we never pollute
@@ -28,7 +28,7 @@ import * as path from 'path';
  *
  * Non-destructive: merges the one key into whatever else is in the file, and
  * bails without writing if the file is present but unparseable or not an
- * object — better to leave native memory on than to clobber the user's config.
+ * object - better to leave native memory on than to clobber the user's config.
  */
 export function ensureNativeMemoryDisabled(): void {
 	const folder = vscode.workspace.workspaceFolders?.[0];
@@ -54,7 +54,7 @@ export function ensureNativeMemoryDisabled(): void {
 	}
 
 	if (settings.autoMemoryEnabled === false) {
-		return; // already disabled — no write, no git noise
+		return; // already disabled - no write, no git noise
 	}
 
 	settings.autoMemoryEnabled = false;

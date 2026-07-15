@@ -16,7 +16,7 @@ import {
 } from '../../common/dockerEnv';
 
 /**
- * Docker / Snakemake execution tools — faithful ports of build_image,
+ * Docker / Snakemake execution tools - faithful ports of build_image,
  * check_build_status, dry_run, execute_pipeline, list_running_pipelines,
  * check_status, and cleanup_failed from autopipe-app's `mcp/server.rs`.
  */
@@ -33,7 +33,7 @@ function requireProfile() {
 export const EXECUTION_TOOLS: ToolDefinition[] = [
 	{
 		name: 'build_image',
-		description: 'Build a Docker image for a pipeline on the remote server via SSH. The build runs in the background and returns immediately. After calling this, automatically call check_build_status every 10 seconds until the build completes. Do NOT ask the user to check — poll automatically. If the build fails, analyze the log, call cleanup_failed, fix the pipeline, and retry. Multi-client note: do not start two builds for the same image_name from different AI clients at once.',
+		description: 'Build a Docker image for a pipeline on the remote server via SSH. The build runs in the background and returns immediately. After calling this, automatically call check_build_status every 10 seconds until the build completes. Do NOT ask the user to check - poll automatically. If the build fails, analyze the log, call cleanup_failed, fix the pipeline, and retry. Multi-client note: do not start two builds for the same image_name from different AI clients at once.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -77,7 +77,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'check_build_status',
-		description: 'Check the status of a background Docker build started by build_image. Returns building/success/failed status with recent log output. Call this automatically every 10 seconds after build_image — do NOT wait for the user to ask.',
+		description: 'Check the status of a background Docker build started by build_image. Returns building/success/failed status with recent log output. Call this automatically every 10 seconds after build_image - do NOT wait for the user to ask.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -218,7 +218,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'execute_pipeline',
-		description: 'Execute a pipeline in the background on the remote server via SSH. Outputs are stored at {configured_output_dir}/{run_name}/. Logs are written to {output_dir}/{run_name}/pipeline.log. This tool monitors the first ~90 seconds for early failures before returning. Snakemake automatically skips completed steps, so if a pipeline fails you can fix the code and re-run with the SAME run_name — only the failed and downstream steps will re-execute. Do NOT call cleanup_failed after execution failures; instead fix the Snakefile and re-run. Tell the user they can check progress later with list_running_pipelines, even from a new conversation session. Multi-client note: this AutoPipe instance may be shared by multiple AI clients (Claude Desktop, Cursor, Codex, etc.); avoid running pipelines with the same run_name simultaneously from different clients — only one execution per run_name at a time.',
+		description: 'Execute a pipeline in the background on the remote server via SSH. Outputs are stored at {configured_output_dir}/{run_name}/. Logs are written to {output_dir}/{run_name}/pipeline.log. This tool monitors the first ~90 seconds for early failures before returning. Snakemake automatically skips completed steps, so if a pipeline fails you can fix the code and re-run with the SAME run_name - only the failed and downstream steps will re-execute. Do NOT call cleanup_failed after execution failures; instead fix the Snakefile and re-run. Tell the user they can check progress later with list_running_pipelines, even from a new conversation session. Multi-client note: this AutoPipe instance may be shared by multiple AI clients (Claude Desktop, Cursor, Codex, etc.); avoid running pipelines with the same run_name simultaneously from different clients - only one execution per run_name at a time.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -283,7 +283,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 				try { await ssh.writeFile(profile, metaPath, runMeta); } catch { /* best-effort */ }
 
 				// Run the container as the server-side user (computed on the server)
-				// so result files land user-owned — important for the built-in VM,
+				// so result files land user-owned - important for the built-in VM,
 				// whose workspace is a 9p share back to the host: otherwise root-owned
 				// outputs would be awkward for the user to open/delete. Skipped for the
 				// docker-socket (nextflow) path, which needs root to drive the socket.
@@ -323,7 +323,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 						}
 						if (hasError) {
 							return errorResult(
-								`Pipeline FAILED early (within 90s). Do NOT call cleanup_failed — intermediate results are preserved.\n`
+								`Pipeline FAILED early (within 90s). Do NOT call cleanup_failed - intermediate results are preserved.\n`
 								+ `Fix the Snakefile and re-run execute_pipeline with the SAME run_name. Snakemake will skip completed steps automatically.\n`
 								+ `Container: ${containerName}\n`
 								+ `Output directory: ${outputDir}\n`
@@ -346,7 +346,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'list_running_pipelines',
-		description: 'List all pipeline runs (running, completed, or failed). Scans the output directory for .autopipe-run.json metadata files and checks container status. No parameters needed — call this when the user asks about pipeline status, progress, or running jobs.',
+		description: 'List all pipeline runs (running, completed, or failed). Scans the output directory for .autopipe-run.json metadata files and checks container status. No parameters needed - call this when the user asks about pipeline status, progress, or running jobs.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			try {
@@ -527,7 +527,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'cleanup_failed',
-		description: "Clean up artifacts from a failed pipeline. By default, preserves the output directory (so Snakemake can resume from completed steps) and only removes the Docker image. Set remove_output=true ONLY when you want a completely fresh start. Uses Docker to handle root-owned files when normal rm fails due to permissions. For execution failures, prefer fixing the Snakefile and re-running execute_pipeline with the same run_name instead of calling this tool. Multi-client note: do NOT call this on a run_name that another AI client may currently be executing — coordinate with the user first.",
+		description: "Clean up artifacts from a failed pipeline. By default, preserves the output directory (so Snakemake can resume from completed steps) and only removes the Docker image. Set remove_output=true ONLY when you want a completely fresh start. Uses Docker to handle root-owned files when normal rm fails due to permissions. For execution failures, prefer fixing the Snakefile and re-running execute_pipeline with the same run_name instead of calling this tool. Multi-client note: do NOT call this on a run_name that another AI client may currently be executing - coordinate with the user first.",
 		inputSchema: {
 			type: 'object',
 			properties: {

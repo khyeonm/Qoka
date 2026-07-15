@@ -10,7 +10,7 @@ import { shellEscape } from '../../common/roCrate';
 import { windowsToWsl } from '../../common/dockerEnv';
 
 /**
- * File tools — faithful ports of create_symlink, remove_symlink, list_files,
+ * File tools - faithful ports of create_symlink, remove_symlink, list_files,
  * read_file, write_file, prepare_input, check_download_status, and
  * remove_input from autopipe-app's `mcp/server.rs`.
  */
@@ -134,7 +134,7 @@ export const FILE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'read_file',
-		description: "Read a file's contents on the remote SSH server. Two valid uses:\n(1) INTERNAL ANALYSIS — you (the AI) need to inspect a code or config file for your own work, e.g. the pre-download security review required by download_pipeline. In this mode read silently: do NOT echo the full contents to the user.\n(2) USER ASKED FOR ONE FILE'S CONTENTS — the user explicitly said something like 'show me X'. For binary/image/large/genomic files do NOT use read_file — direct the user to show_results instead.\nINPUT DATA — SENSITIVE: Files under the input directory must NOT be read without the user's consent. If you call read_file on one, the tool returns a consent request — relay it to the user and only re-call with confirm_read=true after they explicitly agree.",
+		description: "Read a file's contents on the remote SSH server. Two valid uses:\n(1) INTERNAL ANALYSIS - you (the AI) need to inspect a code or config file for your own work, e.g. the pre-download security review required by download_pipeline. In this mode read silently: do NOT echo the full contents to the user.\n(2) USER ASKED FOR ONE FILE'S CONTENTS - the user explicitly said something like 'show me X'. For binary/image/large/genomic files do NOT use read_file - direct the user to show_results instead.\nINPUT DATA - SENSITIVE: Files under the input directory must NOT be read without the user's consent. If you call read_file on one, the tool returns a consent request - relay it to the user and only re-call with confirm_read=true after they explicitly agree.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -156,10 +156,10 @@ export const FILE_TOOLS: ToolDefinition[] = [
 				const underInput = inputTrim.length > 0 && (path === inputTrim || path.startsWith(`${inputTrim}/`));
 				if (underInput && args.confirm_read !== true) {
 					return textResult(
-						`NOT READ — consent required. '${path}' is in the input directory and may be user-provided data, which can be sensitive (e.g. patient/PHI data). Do NOT load it into the conversation without the user's permission.\n\n`
+						`NOT READ - consent required. '${path}' is in the input directory and may be user-provided data, which can be sensitive (e.g. patient/PHI data). Do NOT load it into the conversation without the user's permission.\n\n`
 						+ 'Ask the user, in their language, whether you may read this input file:\n'
 						+ '- If they agree: call read_file again with confirm_read=true.\n'
-						+ '- If they decline: do NOT read it — instead ask them to tell you the specific information you need (e.g. column names, group labels, sample IDs) so you can proceed without exposing the data.',
+						+ '- If they decline: do NOT read it - instead ask them to tell you the specific information you need (e.g. column names, group labels, sample IDs) so you can proceed without exposing the data.',
 					);
 				}
 
@@ -172,13 +172,13 @@ export const FILE_TOOLS: ToolDefinition[] = [
 				const content = r.stdout;
 				if (content.length > MAX) {
 					return textResult(
-						`NOT READ — '${path}' is too large to load into the conversation (> ${MAX / (1024 * 1024)} MB). Large files are usually raw data; view it with show_results (in the browser) or save it with download_results instead.`,
+						`NOT READ - '${path}' is too large to load into the conversation (> ${MAX / (1024 * 1024)} MB). Large files are usually raw data; view it with show_results (in the browser) or save it with download_results instead.`,
 					);
 				}
 				const head = content.slice(0, 8192);
 				if (head.includes('\x00')) {
 					return textResult(
-						`NOT READ — '${path}' looks like a binary file (contains NUL bytes). Use show_results to view it in the browser instead of read_file.`,
+						`NOT READ - '${path}' looks like a binary file (contains NUL bytes). Use show_results to view it in the browser instead of read_file.`,
 					);
 				}
 				return textResult(content);
@@ -224,7 +224,7 @@ export const FILE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'prepare_input',
-		description: 'Prepare input data for pipeline execution by downloading a file from a URL or symlinking an existing file on the remote server into the configured pipelines_input directory. If source starts with http://, https://, or ftp://, the download runs in the background and returns immediately. After calling this for a URL, automatically call check_download_status with the returned filename every 10 seconds until complete. Otherwise, a symlink is created pointing to the given absolute path. Returns the destination directory path — pass this as input_dir to dry_run or execute_pipeline. Always stage user-provided data here before inspecting it: read_file applies a consent gate to files in this input directory.',
+		description: 'Prepare input data for pipeline execution by downloading a file from a URL or symlinking an existing file on the remote server into the configured pipelines_input directory. If source starts with http://, https://, or ftp://, the download runs in the background and returns immediately. After calling this for a URL, automatically call check_download_status with the returned filename every 10 seconds until complete. Otherwise, a symlink is created pointing to the given absolute path. Returns the destination directory path - pass this as input_dir to dry_run or execute_pipeline. Always stage user-provided data here before inspecting it: read_file applies a consent gate to files in this input directory.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -327,7 +327,7 @@ export const FILE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'check_download_status',
-		description: 'Check the status of a background file download started by prepare_input. Returns downloading/success/failed status with recent log output. Call this automatically every 10 seconds after prepare_input — do NOT wait for the user to ask.',
+		description: 'Check the status of a background file download started by prepare_input. Returns downloading/success/failed status with recent log output. Call this automatically every 10 seconds after prepare_input - do NOT wait for the user to ask.',
 		inputSchema: {
 			type: 'object',
 			properties: { filename: { type: 'string' } },

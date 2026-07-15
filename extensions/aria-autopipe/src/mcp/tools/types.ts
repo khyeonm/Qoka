@@ -24,7 +24,7 @@ export interface CallToolResult {
 
 /**
  * Loose JSON-Schema-ish type. MCP accepts any JSON Schema, but in practice
- * every autopipe tool's schema is an object with named properties — we
+ * every autopipe tool's schema is an object with named properties - we
  * encode that constraint at the type level.
  */
 export interface JsonSchemaObject {
@@ -41,7 +41,7 @@ export type JsonSchemaProp =
 	| { type: 'boolean'; description?: string }
 	| { type: 'array'; description?: string; items: JsonSchemaProp }
 	| { type: 'object'; description?: string; properties?: Record<string, JsonSchemaProp> }
-	// `nullable` represents Rust's `Option<T>` — the Open API style is what
+	// `nullable` represents Rust's `Option<T>` - the Open API style is what
 	// autopipe-app's rmcp emits, so we match it.
 	| { type: 'string'; description?: string; nullable: true };
 
@@ -55,7 +55,7 @@ export function textResult(text: string): CallToolResult {
 
 /**
  * Build a CallToolResult marked as an error. The AI assistant will see this
- * and treat it as a failed call — same shape as `textResult` plus the
+ * and treat it as a failed call - same shape as `textResult` plus the
  * `isError` flag.
  */
 export function errorResult(text: string): CallToolResult {

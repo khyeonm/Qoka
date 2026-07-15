@@ -10,7 +10,7 @@ import { candidateClaudePaths } from '../detection/claudeCodeDetector';
 const execAsync = promisify(exec);
 
 // `autopipe` is the same name the standalone autopipe-app Tauri build
-// registers under. Aria now replaces it — the user is expected to shut down
+// registers under. Aria now replaces it - the user is expected to shut down
 // autopipe-app and rely on Aria alone, so we adopt the original name so
 // existing Claude Code conversations / saved prompts referring to
 // "autopipe" tools continue to work without any user-side rename.
@@ -63,7 +63,7 @@ async function readClaudeRegisteredPort(claude: string): Promise<number | null> 
 		const m = out.stdout.match(/127\.0\.0\.1:(\d+)/);
 		return m ? parseInt(m[1], 10) : null;
 	} catch {
-		// Not registered, or this CLI lacks `mcp get` — treat as unknown so the
+		// Not registered, or this CLI lacks `mcp get` - treat as unknown so the
 		// caller registers (never skip when we're unsure).
 		return null;
 	}
@@ -72,7 +72,7 @@ async function readClaudeRegisteredPort(claude: string): Promise<number | null> 
 /**
  * (Re-)register Aria's MCP server with Claude Code so the CLI advertises
  * Autopipe's tools in every new conversation. Always removes the existing
- * `aria-autopipe` entry first — the port can change between Aria runs when
+ * `aria-autopipe` entry first - the port can change between Aria runs when
  * autopipe-app holds 3748, so re-running the same `claude mcp add` would
  * fail with "already exists". Removing first makes the operation idempotent.
  */
@@ -99,7 +99,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	}
 
 	// Best-effort removal across all three scopes. `claude mcp add`
-	// defaults to "local" (per-project) — that's what tied the previous
+	// defaults to "local" (per-project) - that's what tied the previous
 	// registration to a single workspace and made autopipe invisible
 	// everywhere else. We clear out any straggler entries in user/project
 	// scope too so the next add lands clean.
@@ -117,7 +117,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	}
 
 	// `--scope user` writes to the per-user config so autopipe is
-	// reachable from every project Claude Code opens — not just the
+	// reachable from every project Claude Code opens - not just the
 	// directory Aria happened to launch from.
 	const addCmd = `${q} mcp add --scope user ${MCP_NAME} ${quoteArg(url)} --transport sse`;
 	console.log(`[aria-autopipe] running: ${addCmd}`);

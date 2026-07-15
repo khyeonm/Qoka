@@ -34,13 +34,13 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 			});
 			if (!profile) {
 				// The user may have chosen the built-in server (no SSH profile). When
-				// it isn't running yet, activeProfile() is null — but do NOT tell the
+				// it isn't running yet, activeProfile() is null - but do NOT tell the
 				// AI to add an SSH server; guide it to start the built-in one instead.
 				if (config.isLocalVmActive()) {
 					const vm = cfg.local_vm;
 					return textResult([
 						'Run environment: the Aria built-in server (local VM) is selected, but it is NOT running yet, so there is no reachable endpoint right now.',
-						'Do NOT ask the user to add an SSH server, and do NOT tell them to press a button — that is not the flow.',
+						'Do NOT ask the user to add an SSH server, and do NOT tell them to press a button - that is not the flow.',
 						'If it is not running, call the start_built_in_server tool to start it (downloads/boots in a minute or two), tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again and retry. If it is already downloading/booting, just wait and retry.',
 						`Configured resources (apply on start): memory ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores ${vm.cpus}, disk ${vm.diskGB} GB.`,
 						'',
@@ -51,7 +51,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				return textResult([
 					'No active SSH profile configured yet.',
 					'',
-					'Open the Autopipe tab in the activity bar, click "+" on the SSH connection section, fill in host / port / username / password / remote workspace, then Save profile and press Save settings. Or use the built-in server instead — no SSH needed.',
+					'Open the Autopipe tab in the activity bar, click "+" on the SSH connection section, fill in host / port / username / password / remote workspace, then Save profile and press Save settings. Or use the built-in server instead - no SSH needed.',
 					'',
 					`Registry: ${cfg.registry_url}`,
 					`GitHub: ${cfg.github?.login ? `connected as @${cfg.github.login}` : 'not connected'}`,
@@ -63,16 +63,16 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 
 			const paths = workspacePathsFor(profile);
 			// GitHub is "connected" iff we have a token. The login field is
-			// best-effort metadata from /user — it can be missing if the API
+			// best-effort metadata from /user - it can be missing if the API
 			// call failed at OAuth time, but the token is still good for
 			// uploads, so we shouldn't tell the user they're disconnected.
 			const ghLine = cfg.github?.token
 				? `GitHub: connected${cfg.github.login ? ` as @${cfg.github.login}` : ''}`
-				: 'GitHub: Not connected — open the Autopipe tab in the activity bar, find the GitHub section, and click "Connect to GitHub" to log in.';
+				: 'GitHub: Not connected - open the Autopipe tab in the activity bar, find the GitHub section, and click "Connect to GitHub" to log in.';
 			return textResult([
 				`SSH: ${profile.username}@${profile.host}:${profile.port}`,
 				config.isLocalVmActive()
-					? `Run environment: Aria built-in server (local VM) — memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings — honour them for this run; if the run needs more, propose set_vm_resources.`
+					? `Run environment: Aria built-in server (local VM) - memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`
 					: 'Run environment: user-provided SSH server.',
 				`Repo path: ${paths.repo_path}`,
 				`Pipelines: ${paths.pipelines_dir}`,

@@ -32,7 +32,7 @@ const skillsIcon = registerIcon(
 	localize('aria.skills.iconLabel', "Aria Skills activity bar icon")
 );
 
-// Lucide-style puzzle piece — the user-approved icon from the earlier
+// Lucide-style puzzle piece - the user-approved icon from the earlier
 // design pass. Outline only so the `mask-image` rule below can paint it
 // with the activity bar's `currentColor`, matching codicon behavior.
 const SKILLS_ICON_SVG_DATA_URI = 'data:image/svg+xml;utf8,'

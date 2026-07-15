@@ -21,25 +21,25 @@ interface SseSession {
  * Minimal MCP HTTP server. Implements BOTH MCP transports so we can serve
  * the two AI clients that have different protocol expectations:
  *
- *   1) HTTP+SSE (protocol 2024-11-05) — Claude Code
- *      GET  /sse                  — SSE stream. First event is `endpoint` with
+ *   1) HTTP+SSE (protocol 2024-11-05) - Claude Code
+ *      GET  /sse                  - SSE stream. First event is `endpoint` with
  *                                   the message URL (`/messages?sessionId=...`).
  *                                   Subsequent events are `message` with JSON-RPC.
- *      POST /messages?sessionId=X — JSON-RPC requests; response is delivered
+ *      POST /messages?sessionId=X - JSON-RPC requests; response is delivered
  *                                   asynchronously via the SSE stream.
  *
- *   2) Streamable HTTP (protocol 2025-03-26) — Codex
- *      POST /mcp                  — JSON-RPC request body. Response is returned
+ *   2) Streamable HTTP (protocol 2025-03-26) - Codex
+ *      POST /mcp                  - JSON-RPC request body. Response is returned
  *                                   inline as JSON (Content-Type application/json),
  *                                   not via SSE. `Mcp-Session-Id` header on
  *                                   initialize / required on subsequent requests.
  *
  * MCP methods handled (same set for both transports):
- *   initialize    — server info + capabilities
- *   tools/list    — array of every tool's name/description/inputSchema
- *   tools/call    — invoke a tool by name with arguments
+ *   initialize    - server info + capabilities
+ *   tools/list    - array of every tool's name/description/inputSchema
+ *   tools/call    - invoke a tool by name with arguments
  *
- * Notifications (`notifications/initialized`, etc.) are accepted silently —
+ * Notifications (`notifications/initialized`, etc.) are accepted silently -
  * MCP uses them to signal lifecycle but no client work is required here.
  */
 export class AriaAutopipeMcpServer {
@@ -62,7 +62,7 @@ export class AriaAutopipeMcpServer {
 		}
 
 		// Try the default port first, then fall back through a small range.
-		// 3748 is autopipe-app's port — when the user has the Tauri app open
+		// 3748 is autopipe-app's port - when the user has the Tauri app open
 		// at the same time we'd otherwise crash with EADDRINUSE.
 		const candidates = [DEFAULT_PORT, 3749, 3750, 3751, 3752, 3753, 0 /* OS-assigned */];
 
@@ -128,7 +128,7 @@ export class AriaAutopipeMcpServer {
 			this.handleMessages(req, res, url);
 		} else if (req.method === 'POST' && url.pathname === '/mcp') {
 			// Streamable HTTP transport (Codex). Single endpoint, synchronous
-			// JSON response — no separate /sse stream needed.
+			// JSON response - no separate /sse stream needed.
 			this.handleStreamable(req, res);
 		} else if (req.method === 'GET' && url.pathname === '/mcp') {
 			// Streamable HTTP supports a GET on the same endpoint for
@@ -170,7 +170,7 @@ export class AriaAutopipeMcpServer {
 		this.sessions.set(sessionId, session);
 
 		// Heartbeat so proxies don't drop the connection. SSE comments are
-		// any line that starts with a colon — clients ignore them.
+		// any line that starts with a colon - clients ignore them.
 		const heartbeat = setInterval(() => {
 			try {
 				res.write(': heartbeat\n\n');
@@ -193,7 +193,7 @@ export class AriaAutopipeMcpServer {
 	 * One POST = one JSON-RPC request; response is returned inline as JSON
 	 * (or 202 No Content for notifications). Mcp-Session-Id is generated on
 	 * the initialize response and echoed back on subsequent requests, but
-	 * we don't validate session contents — Aria runs single-user.
+	 * we don't validate session contents - Aria runs single-user.
 	 */
 	private handleStreamable(req: http.IncomingMessage, res: http.ServerResponse): void {
 		let body = '';
@@ -272,7 +272,7 @@ export class AriaAutopipeMcpServer {
 				return;
 			}
 
-			// Ack the POST immediately — the actual JSON-RPC response is
+			// Ack the POST immediately - the actual JSON-RPC response is
 			// delivered over the SSE stream for the same session.
 			res.writeHead(202);
 			res.end();

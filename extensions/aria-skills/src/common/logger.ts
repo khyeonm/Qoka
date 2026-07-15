@@ -29,7 +29,7 @@ export function log(message: string): void {
 		channel.appendLine(stamped);
 	}
 	// Mirror to Extension Host console so the same line shows up in two
-	// places — handy when the Output channel isn't open yet.
+	// places - handy when the Output channel isn't open yet.
 	console.log(`[aria-skills] ${stamped}`);
 }
 

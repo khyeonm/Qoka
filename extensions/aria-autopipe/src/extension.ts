@@ -90,7 +90,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			await vm.reset();
 			await vm.start();
 		}),
-		// Resource overrides (RAM/CPU) — applied on next VM start.
+		// Resource overrides (RAM/CPU) - applied on next VM start.
 		vscode.commands.registerCommand('aria.autopipe.vm.setResources', (patch: unknown) =>
 			config.setLocalVmResources((patch ?? {}) as { memoryMB?: number; cpus?: number })),
 		// Interactive editor invoked by the panel's gear button: simple RAM/CPU
@@ -98,13 +98,13 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.autopipe.vm.editResources', async () => {
 			const cur = config.get().local_vm;
 			const memGB = await vscode.window.showInputBox({
-				title: 'Built-in server — Memory (GB)',
+				title: 'Built-in server - Memory (GB)',
 				value: String(Math.max(1, Math.round(cur.memoryMB / 1024))),
 				validateInput: v => /^\d+$/.test(v) && +v >= 1 && +v <= 128 ? undefined : 'Whole number of GB (1–128)',
 			});
 			if (memGB === undefined) { return; }
 			const cpus = await vscode.window.showInputBox({
-				title: 'Built-in server — CPU cores',
+				title: 'Built-in server - CPU cores',
 				value: String(cur.cpus),
 				validateInput: v => /^\d+$/.test(v) && +v >= 1 && +v <= 32 ? undefined : 'Whole number of cores (1–32)',
 			});
@@ -116,7 +116,7 @@ export function activate(context: vscode.ExtensionContext): void {
 				if (restart === 'Restart now') {
 					await vm.stop();
 					// Fire-and-forget: vm.start() blocks up to 3 min waiting for SSH.
-					// Don't await it here or the command appears frozen — the panel
+					// Don't await it here or the command appears frozen - the panel
 					// polls vm.status() and shows the booting/progress state instead.
 					void vm.start().catch(err => console.error('[aria-autopipe] VM restart failed:', err));
 				}
@@ -155,7 +155,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Wrap the MCP boot + register flow in a notification so the user sees
 	// a bottom-right toast while it's running. The toast also signals that
-	// the user should start a NEW chat — sessions open before Aria
+	// the user should start a NEW chat - sessions open before Aria
 	// activated cache their MCP list at session-start and won't pick up
 	// our registration mid-session.
 	//
@@ -170,7 +170,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// registration is settled.
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-autopipe-mcp');
-		let summary = 'Autopipe MCP — already configured';
+		let summary = 'Autopipe MCP - already configured';
 		let changed = false;
 		let shouldOfferReload = false;
 		try {
@@ -182,7 +182,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			const wantCodex = detection.providers.some(p => p.kind === 'codex' && p.installed);
 
 			if (!wantClaude && !wantCodex) {
-				summary = 'Autopipe MCP — no Claude Code or Codex extension installed';
+				summary = 'Autopipe MCP - no Claude Code or Codex extension installed';
 				return;
 			}
 
@@ -228,7 +228,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			} else if (changed) {
 				summary = 'Autopipe MCP registered';
 			} else {
-				summary = 'Autopipe MCP — already configured';
+				summary = 'Autopipe MCP - already configured';
 			}
 
 			// Codex reload prompt is still its own concern (it asks the
@@ -296,7 +296,7 @@ export function activate(context: vscode.ExtensionContext): void {
 					: 'MCP: not running';
 				const ssh = status.sshActiveProfile ?? 'SSH: no active profile';
 				const gh = status.githubConnected ? `GitHub: @${status.githubLogin}` : 'GitHub: not connected';
-				vscode.window.showInformationMessage(`Autopipe — ${ai} · ${mcp} · ${ssh} · ${gh}`);
+				vscode.window.showInformationMessage(`Autopipe - ${ai} · ${mcp} · ${ssh} · ${gh}`);
 			}
 			return status;
 		}),
@@ -304,7 +304,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.autopipe.openPlugins', () => openPluginsPanel()),
 		vscode.commands.registerCommand('aria.autopipe.reregister', async (silent?: boolean) => {
 			// Re-runs the auto-register flow for every detected client. The
-			// `silent` flag is set when Save Settings calls us internally —
+			// `silent` flag is set when Save Settings calls us internally -
 			// that flow already shows its own "Settings saved" toast, so we
 			// suppress success notifications here to avoid back-to-back
 			// messages. Errors still bubble up so the user knows the wiring
@@ -359,7 +359,7 @@ export function activate(context: vscode.ExtensionContext): void {
  * tab once it ships, and Aria's other features don't depend on plugins.
  *
  * The reference list (`DEFAULT_PLUGIN_NAMES`) is the canonical 13 viewer
- * plugins the autopipe team ships with — every common bioinformatics
+ * plugins the autopipe team ships with - every common bioinformatics
  * file type Aria knows how to render at install time.
  */
 async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient): Promise<void> {
@@ -374,7 +374,7 @@ async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient
 	await vscode.window.withProgress(
 		{
 			location: vscode.ProgressLocation.Notification,
-			title: isFirstRun ? 'Autopipe — installing default viewer plugins' : 'Autopipe — checking for plugin updates',
+			title: isFirstRun ? 'Autopipe - installing default viewer plugins' : 'Autopipe - checking for plugin updates',
 			cancellable: false,
 		},
 		async (progress) => {
@@ -399,11 +399,11 @@ async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient
 					summaryParts.push(`${result.failed.length} failed`);
 				}
 				if (summaryParts.length === 0) {
-					// Quiet success — everything was already up to date.
+					// Quiet success - everything was already up to date.
 					console.log('[aria-autopipe] default plugins up to date');
 					return;
 				}
-				const msg = `Autopipe plugins — ${summaryParts.join(', ')}.`;
+				const msg = `Autopipe plugins - ${summaryParts.join(', ')}.`;
 				if (result.failed.length > 0) {
 					vscode.window.showWarningMessage(`${msg} See Autopipe panel → Plugins to retry: ${result.failed.map(f => f.name).join(', ')}`);
 				} else {
@@ -421,7 +421,7 @@ async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient
 
 /**
  * Re-run MCP registration when an AI extension is installed/removed after
- * Aria booted. Only acts on transitions — Claude/Codex newly available
+ * Aria booted. Only acts on transitions - Claude/Codex newly available
  * gets registered; previously-registered client now uninstalled gets
  * cleaned up. Idempotent because the underlying register/unregister
  * functions remove any prior entry before adding.
@@ -454,7 +454,7 @@ async function refreshAiRegistrations(): Promise<void> {
 					newlyConnected.push('Claude Code');
 				}
 			} else if (!wantClaude && lastRegistration.claude.ok) {
-				// Extension uninstalled — remove the stale entry.
+				// Extension uninstalled - remove the stale entry.
 				await unregisterFromClaudeCode();
 				lastRegistration.claude = { ok: false, message: 'extension uninstalled', port: null };
 			}
@@ -489,7 +489,7 @@ async function refreshAiRegistrations(): Promise<void> {
 export async function deactivate(): Promise<void> {
 	// Intentionally leave the client registrations in place on shutdown.
 	// The next Aria launch validates them by comparing the registered port to
-	// the live MCP port and only rewrites when stale — so persisting the entry
+	// the live MCP port and only rewrites when stale - so persisting the entry
 	// lets that fast path skip a redundant remove+add (and the "start a new
 	// chat" toast) on every restart. A stale entry (port changed while Aria was
 	// closed) is self-healed on the next launch; the only lingering case is a

@@ -229,7 +229,7 @@ export class PluginService {
 		try {
 			fs.mkdirSync(dir, { recursive: true });
 		} catch (err) {
-			// Surface mkdir failures right away — without this log we
+			// Surface mkdir failures right away - without this log we
 			// silently end up with an empty plugin set and no obvious
 			// reason. Permission and "exists as file" both land here.
 			console.error(`[aria-autopipe] mkdirSync(${dir}) failed:`, err);

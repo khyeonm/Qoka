@@ -15,7 +15,7 @@ const REVEAL_COMMANDS: Record<AriaConcreteProvider, string[]> = {
 };
 
 /**
- * Reveal whichever AI provider chat the user has installed — Claude Code
+ * Reveal whichever AI provider chat the user has installed - Claude Code
  * or Codex. Aria does NOT own the chat UI: each provider is a
  * separate VS Code extension contributing its own sidebar view, so we can't
  * open "the Aria chat". Instead we focus the auxiliary bar and then try each
@@ -50,7 +50,7 @@ export async function revealAiProviderChat(
 				try {
 					await commandService.executeCommand(command);
 					return; // revealed
-				} catch { /* not this provider / not ready — try the next */ }
+				} catch { /* not this provider / not ready - try the next */ }
 			}
 		}
 		if (deadline) {

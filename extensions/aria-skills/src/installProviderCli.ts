@@ -14,17 +14,17 @@ import { log } from './common/logger';
 /**
  * Install a provider's command-line tool when onboarding picks that AI. The chat
  * panel and Aria's background features (version summaries, peer review) are
- * CLI-backed, so choosing a provider means its CLI must exist — not just its VS
+ * CLI-backed, so choosing a provider means its CLI must exist - not just its VS
  * Code extension.
  *
- * We install AUTOMATICALLY (no confirm) in a HIDDEN background process — never a
+ * We install AUTOMATICALLY (no confirm) in a HIDDEN background process - never a
  * visible terminal (which would pop the panel open, flash a console window on
  * Windows, and give no completion signal so the UI could never say "done"). A
  * progress notification shows it's working; on Windows every child is spawned
  * with `windowsHide` so no console flashes.
  *
  * Cross-platform, so a non-developer never installs anything by hand:
- *   - Claude ships a self-contained binary — `install.sh` on Unix (run through a
+ *   - Claude ships a self-contained binary - `install.sh` on Unix (run through a
  *     login shell so `curl` and the install dir resolve), the native PowerShell
  *     installer on Windows. Neither needs Node.
  *   - Codex is an npm package, so it needs Node. When the machine has none we
@@ -32,7 +32,7 @@ import { log } from './common/logger';
  *     own prefix, which headlessCli also probes.
  *
  * The "already attempted" guard is per-SESSION (in-memory), so it never nags
- * twice within one run but always re-tries on a fresh launch — which is exactly
+ * twice within one run but always re-tries on a fresh launch - which is exactly
  * what you want while testing (delete the CLI, relaunch, it re-installs).
  */
 
@@ -79,10 +79,10 @@ async function installCodex(): Promise<RunResult> {
 		nodeBin = await ensureNode();
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		log(`installProviderCli: ensureNode failed — ${message}`);
+		log(`installProviderCli: ensureNode failed - ${message}`);
 		return { code: -1, output: `Couldn't set up Node for Codex: ${message}` };
 	}
-	// Install into ~/.local on Unix so the codex bin lands in ~/.local/bin — a
+	// Install into ~/.local on Unix so the codex bin lands in ~/.local/bin - a
 	// directory EVERY Aria extension's resolver already probes (peer-review
 	// availability, MCP registration), not just aria-skills' headlessCli. On
 	// Windows keep Aria's own prefix (those resolvers are Windows-agnostic).
@@ -109,11 +109,11 @@ export async function installProviderCli(arg: unknown): Promise<void> {
 		return;
 	}
 	if (isProviderInstalled(provider)) {
-		log(`installProviderCli: ${provider} CLI already installed — nothing to do.`);
+		log(`installProviderCli: ${provider} CLI already installed - nothing to do.`);
 		return;
 	}
 	if (attemptedThisSession.has(provider)) {
-		log(`installProviderCli: ${provider} CLI install already attempted this session — skipping.`);
+		log(`installProviderCli: ${provider} CLI install already attempted this session - skipping.`);
 		return;
 	}
 	attemptedThisSession.add(provider);

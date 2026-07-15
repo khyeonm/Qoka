@@ -95,7 +95,7 @@ CommandsRegistry.registerCommand('aria.notes.rename', async (accessor, resource?
 		const content = await fileService.readFile(uri);
 		parsed = JSON.parse(content.value.toString());
 	} catch {
-		// new/empty — rename still allowed
+		// new/empty - rename still allowed
 	}
 	const name = await quickInputService.input({
 		prompt: localize('aria.notes.renamePrompt', "Rename note"),
@@ -112,7 +112,7 @@ CommandsRegistry.registerCommand('aria.notes.rename', async (accessor, resource?
 CommandsRegistry.registerCommand('aria.notes.delete', async (accessor, resource?: unknown) => {
 	const uri = reviveUri(resource);
 	if (!uri) { return; }
-	// Capture services BEFORE any await — the accessor is only valid during the
+	// Capture services BEFORE any await - the accessor is only valid during the
 	// synchronous part of the command invocation.
 	const dialogService = accessor.get(IDialogService);
 	const fileService = accessor.get(IFileService);

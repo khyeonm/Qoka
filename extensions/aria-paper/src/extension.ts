@@ -24,7 +24,7 @@ const execFileAsync = promisify(execFile);
  * True when the given reviewer CLI (`claude` or `codex`) is on this machine. The
  * Peer Review tab gates each reviewer on THIS (not the VS Code extension): the
  * review skill runs `claude --print` / `codex exec` via the shell, so the CLI is
- * the real requirement — installing the extension does not install the CLI. We
+ * the real requirement - installing the extension does not install the CLI. We
  * probe the same locations the skill's resolver checks (abs install dirs, PATH,
  * nvm) so the UI gate and the actual run agree even when the app's PATH is thin.
  */
@@ -33,7 +33,7 @@ function cliAvailable(name: 'claude' | 'codex'): boolean {
 	const isWin = process.platform === 'win32';
 	// On Windows the CLIs are `.cmd`/`.exe` shims, never a bare extension-less
 	// file, and they land under the npm prefix root (~/.aria/npm or %APPDATA%/npm)
-	// or Claude's ~/.local/bin — none on the GUI process PATH. Probe all of these
+	// or Claude's ~/.local/bin - none on the GUI process PATH. Probe all of these
 	// with the right extensions so the reviewer gate matches reality on Windows.
 	const names = isWin ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name];
 	const dirs = isWin
@@ -70,7 +70,7 @@ function cliAvailable(name: 'claude' | 'codex'): boolean {
 }
 
 /** Static, instant samples of how citations look per style (for the wizard's
- *  Format-step preview — no pandoc download needed). */
+ *  Format-step preview - no pandoc download needed). */
 const CITATION_PREVIEWS: Record<string, string> = {
 	ieee: 'In-text:\n… as reported previously [1].\n\nBibliography:\n[1] J. Kim and S. Lee, “Tau aggregation drives neuronal loss,” Nature Neuroscience, vol. 27, pp. 100–110, 2024.',
 	apa: 'In-text:\n… as reported previously (Kim & Lee, 2024).\n\nBibliography:\nKim, J., & Lee, S. (2024). Tau aggregation drives neuronal loss. Nature Neuroscience, 27, 100–110.',
@@ -122,12 +122,12 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; s
 	});
 	const summary = registered.length
 		? `Paper MCP registered with ${registered.join(', ')}`
-		: 'Paper MCP — no AI provider CLI found yet';
+		: 'Paper MCP - no AI provider CLI found yet';
 	return { changed, summary };
 }
 
 /**
- * Aria Paper Writer — boots a local MCP server so an AI assistant can draft,
+ * Aria Paper Writer - boots a local MCP server so an AI assistant can draft,
  * cite, and export scientific manuscripts. Reads/structure/export are
  * deterministic; the prose is written by the agent following get_writing_guide.
  */
@@ -151,7 +151,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.exportPaper', (execId: string, format: string, docKey?: string) =>
 		exportReviewPaper(execId, format as ReviewExportFormat, docKey ?? 'main')));
 
-	// Whether the Codex CLI is available — the Peer Review tab uses this to gate
+	// Whether the Codex CLI is available - the Peer Review tab uses this to gate
 	// its Codex reviewer checkbox (the reviewer runs `codex exec`).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.codexAvailable', () => cliAvailable('codex')));
 	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.claudeAvailable', () => cliAvailable('claude')));
@@ -169,7 +169,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		let items: Array<Record<string, unknown>> = [];
 		try { items = JSON.parse(stdout); } catch { throw new Error('Could not parse the BibTeX file.'); }
 		if (!Array.isArray(items)) { items = []; }
-		// Regenerate clean `familyYear` citekeys — reference managers (e.g.
+		// Regenerate clean `familyYear` citekeys - reference managers (e.g.
 		// RefWorks) export opaque keys like `RefWorks:RefID:149-lu2026towards`.
 		for (const item of items) { addCitationCleanKey(id, item); }
 		return items.length;
@@ -210,7 +210,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-paper-mcp');
-		let summary = 'Paper MCP — already configured';
+		let summary = 'Paper MCP - already configured';
 		let changed = false;
 		try {
 			const port = await mcpServer!.start();

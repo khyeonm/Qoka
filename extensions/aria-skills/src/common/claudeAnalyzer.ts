@@ -47,11 +47,11 @@ export async function analyzeSkillMd(content: string): Promise<AnalysisResult> {
 	const provider = resolveActiveProvider();
 	const bin = provider ? resolveProviderBin(provider) : undefined;
 	if (!provider || !bin) {
-		log('No AI CLI located — skipping LLM analysis.');
+		log('No AI CLI located - skipping LLM analysis.');
 		return {
 			...regex,
 			usedLlm: false,
-			fallbackReason: 'No AI CLI (Claude or Codex) found — using built-in pattern matcher.',
+			fallbackReason: 'No AI CLI (Claude or Codex) found - using built-in pattern matcher.',
 		};
 	}
 	const label = PROVIDER_LABEL[provider];
@@ -63,10 +63,10 @@ export async function analyzeSkillMd(content: string): Promise<AnalysisResult> {
 		try {
 			const llm = await runAnalysis(provider, bin, content);
 			if (llm) {
-				log(`${label} attempt ${attempt} parsed successfully — merging with regex pass.`);
+				log(`${label} attempt ${attempt} parsed successfully - merging with regex pass.`);
 				return mergeResults(regex, llm, true);
 			}
-			log(`${label} attempt ${attempt} returned a response we could not parse as JSON — retrying.`);
+			log(`${label} attempt ${attempt} returned a response we could not parse as JSON - retrying.`);
 		} catch (err) {
 			lastError = err instanceof Error ? err.message : String(err);
 			log(`${label} attempt ${attempt} failed: ${lastError}`);
@@ -77,7 +77,7 @@ export async function analyzeSkillMd(content: string): Promise<AnalysisResult> {
 	return {
 		...regex,
 		usedLlm: false,
-		fallbackReason: `${label} analysis failed after ${MAX_ATTEMPTS} attempts (${lastError ?? 'no response'}) — using built-in pattern matcher.`,
+		fallbackReason: `${label} analysis failed after ${MAX_ATTEMPTS} attempts (${lastError ?? 'no response'}) - using built-in pattern matcher.`,
 	};
 }
 
@@ -91,7 +91,7 @@ function buildPrompt(skillMd: string): string {
 		'{',
 		'  "name": "string or null",',
 		'  "description": "string or null",',
-		'  "category": "string or null — a short, generic topic label like \\"Literature\\", \\"Protein\\", or whatever fits; freeform",',
+		'  "category": "string or null - a short, generic topic label like \\"Literature\\", \\"Protein\\", or whatever fits; freeform",',
 		'  "envVars": [{ "name": "ALL_CAPS_NAME", "required": true/false, "description": "string or null", "obtainUrl": "string or null" }],',
 		'  "dependencies": [{ "name": "skill-name", "required": true/false, "reason": "string or null" }]',
 		'}',
@@ -101,7 +101,7 @@ function buildPrompt(skillMd: string): string {
 		'telling them WHAT VALUE TO ENTER. Use 1 short sentence (under 100 chars).',
 		'Good examples:',
 		'  "Your NCBI account API key for E-utilities."',
-		'  "Your email address — NCBI uses it to identify your requests."',
+		'  "Your email address - NCBI uses it to identify your requests."',
 		'  "Your OpenAI API key from platform.openai.com."',
 		'  "A Bearer token from the Crossref dashboard."',
 		'Bad examples (do NOT write these):',
@@ -113,7 +113,7 @@ function buildPrompt(skillMd: string): string {
 		'For the `required` flag, evaluate against the skill\'s PRIMARY PURPOSE',
 		'(what the skill\'s name + first paragraph describe).',
 		'  Set required=true ONLY when the skill can NOT fulfill its primary',
-		'  purpose without the value — the skill would emit errors on basic',
+		'  purpose without the value - the skill would emit errors on basic',
 		'  use, or one of its main capabilities literally cannot run.',
 		'  Set required=false when the skill\'s primary purpose still works without',
 		'  the value. This includes ALL of:',
@@ -126,16 +126,16 @@ function buildPrompt(skillMd: string): string {
 		'      "No", "No (...)", "optional", "recommended"',
 		'      "higher rate limit", "shared pool", "without it"',
 		'      "falls back to public access", "increases quota"',
-		'      "Yes for full text" — full text is one feature among many',
+		'      "Yes for full text" - full text is one feature among many',
 		'      Python `os.environ.get("X")` or `os.getenv("X", default)` (returns None / default)',
 		'    REQUIRED (required=true):',
 		'      "Yes" without qualifiers, "Mandatory", "Required" (in a Required? column or as a header)',
 		'      "must set", "must provide", "skill requires"',
 		'      Explicit headers like "**Required credentials**" or "Required environment variables"',
-		'      Python `os.environ["X"]` (bracket access — throws KeyError if missing)',
+		'      Python `os.environ["X"]` (bracket access - throws KeyError if missing)',
 		'      Python `os.getenv("X")` without a default argument',
 		'      The skill literally fails or returns errors without the value',
-		'  Examples (skill: paper-lookup — searches 10 paper databases):',
+		'  Examples (skill: paper-lookup - searches 10 paper databases):',
 		'    NCBI_API_KEY: "No (3 req/s without, 10 with)" → required=false',
 		'    CORE_API_KEY: "Yes for full text" → required=false (search still works without it,',
 		'      full text is just one optional output among many)',

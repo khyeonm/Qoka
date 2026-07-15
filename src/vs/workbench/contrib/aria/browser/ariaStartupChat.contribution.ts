@@ -22,15 +22,15 @@ import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConf
 /**
  * On startup in a project window:
  *   1. If the user chose an assistant they hadn't installed yet (deferred from
- *      the AI picker), open its Marketplace page(s) HERE — now that a real
- *      project window exists — so they can install, then reload. We don't also
+ *      the AI picker), open its Marketplace page(s) HERE - now that a real
+ *      project window exists - so they can install, then reload. We don't also
  *      reveal the chat that run (they're installing).
  *   2. Otherwise auto-open the chosen provider's chat so the chat surface is
  *      present the moment Aria opens.
  *
  * Sequencing:
  *   - EMPTY workbench (no folder): skip. The Started overlay owns the screen.
- *   - First run before a project is picked: skip — nothing to do until a
+ *   - First run before a project is picked: skip - nothing to do until a
  *     project window exists.
  *   - Provider installed but signed out: revealing shows its own login screen
  *     (the natural place to sign in); nothing installed and no pending install
@@ -53,12 +53,12 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		}
 
 		// Keep the right-hand chat panel (auxiliary bar) pinned open in every
-		// project window, even before any assistant is installed — the chat
+		// project window, even before any assistant is installed - the chat
 		// surface should always be present, and a just-installed provider's chat
 		// then appears in that same spot instead of the panel popping in later.
 		try { this.layoutService.setPartHidden(false, Parts.AUXILIARYBAR_PART); } catch { /* layout not ready */ }
 
-		// Make sure the CLI for each chosen provider is installed — the chat panel
+		// Make sure the CLI for each chosen provider is installed - the chat panel
 		// and background features are CLI-backed, so this is needed even when the
 		// provider's Marketplace extension is already present (no pending install).
 		// Independent of MCP setup: it only needs aria-skills active (it activates
@@ -72,7 +72,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		takePendingInstall();
 		void (async () => {
 			// Surface any provider EXTENSION the user opted into (via aria.aiProvider)
-			// that isn't installed — checked LIVE every launch, not from the one-shot
+			// that isn't installed - checked LIVE every launch, not from the one-shot
 			// pending list. This re-appears on re-entry (e.g. a bounce back into the
 			// picker) and correctly covers "auto" (both providers). Open the
 			// Extensions view over the missing ids and reveal a chat once installed.

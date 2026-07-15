@@ -124,7 +124,7 @@ export class AriaNoteEditorPane extends EditorPane {
 		bar.style.fontFamily = 'var(--vscode-font-family, system-ui, sans-serif)';
 
 		const label = document.createElement('span');
-		label.textContent = localize('aria.notes.proposedBanner', "✦ The AI proposed changes — additions in yellow, removals struck through in red. Accept to apply, or Reject to discard.");
+		label.textContent = localize('aria.notes.proposedBanner', "✦ The AI proposed changes - additions in yellow, removals struck through in red. Accept to apply, or Reject to discard.");
 		label.style.fontSize = '12.5px';
 		label.style.flex = '1';
 		label.style.color = 'var(--vscode-foreground, #ccc)';
@@ -172,7 +172,7 @@ export class AriaNoteEditorPane extends EditorPane {
 			blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
 			title = typeof parsed.title === 'string' ? parsed.title : '';
 		} catch {
-			// New / empty note — start blank.
+			// New / empty note - start blank.
 		}
 		if (token.isCancellationRequested) {
 			return;
@@ -212,7 +212,7 @@ export class AriaNoteEditorPane extends EditorPane {
 		}
 		const webview = this.webviewStore.add(this.webviewService.createWebviewElement({
 			title: undefined,
-			// Keep the service worker — it serves our local bundle (notesEditor.js/.css).
+			// Keep the service worker - it serves our local bundle (notesEditor.js/.css).
 			options: {},
 			contentOptions: { allowScripts: true, localResourceRoots: [MEDIA_ROOT] },
 			extension: undefined,
@@ -270,7 +270,7 @@ export class AriaNoteEditorPane extends EditorPane {
 	 * with removed blocks kept in place. Each changed block gets a stable review
 	 * id; `decorations` maps that id to 'add' (yellow) or 'del' (red + struck).
 	 * The webview applies these as CSS classes by data-id, so the tint works for
-	 * ALL block types (tables, images, …) — not just ones with a backgroundColor
+	 * ALL block types (tables, images, …) - not just ones with a backgroundColor
 	 * prop. Accept writes the clean proposal (no ids, no deletions).
 	 */
 	private buildReviewDisplay(current: unknown[], proposed: unknown[]): { blocks: unknown[]; decorations: ReviewDecorations } {
@@ -342,7 +342,7 @@ export class AriaNoteEditorPane extends EditorPane {
 			blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
 			title = typeof parsed.title === 'string' ? parsed.title : '';
 		} catch {
-			return; // file gone/unreadable — leave current view
+			return; // file gone/unreadable - leave current view
 		}
 		this.lastBlocks = blocks;
 		if (this.input instanceof AriaNoteEditorInput && title) {
@@ -369,7 +369,7 @@ export class AriaNoteEditorPane extends EditorPane {
 			await this.fileService.writeFile(resource, VSBuffer.fromString(JSON.stringify(payload, null, 2)));
 			this.lastSelfWriteAt = Date.now();
 		} catch {
-			// Disk error — keep the in-webview content; next change retries.
+			// Disk error - keep the in-webview content; next change retries.
 		}
 	}
 
@@ -386,12 +386,12 @@ export class AriaNoteEditorPane extends EditorPane {
 <style>
 html,body,#root{height:100%;margin:0;padding:0;background:var(--vscode-editor-background);}
 /* Review decorations (applied by data-id in the webview app). Highlighter-like
-   tints that work for ALL block types — yellow = added, red = removed. */
+   tints that work for ALL block types - yellow = added, red = removed. */
 .aria-review-add{background-color:rgba(255,221,64,0.6) !important;border-radius:3px;}
 .aria-review-del{background-color:rgba(255,86,86,0.6) !important;border-radius:3px;text-decoration:line-through;}
 .aria-review-del *{text-decoration:line-through;}
 /* Tables paint their own cell backgrounds, which would otherwise hide the block
-   tint. Clear them so the SINGLE block tint shows through uniformly — tinting the
+   tint. Clear them so the SINGLE block tint shows through uniformly - tinting the
    cells too would stack alpha and look darker than the rest of the block. */
 .aria-review-add table,.aria-review-add th,.aria-review-add td,
 .aria-review-del table,.aria-review-del th,.aria-review-del td{background-color:transparent !important;}

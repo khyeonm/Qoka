@@ -130,7 +130,7 @@ export class AriaPaperSearchView extends ViewPane {
 		};
 		this.tagSelect = tagSelect;
 
-		// Stats row — "N papers" / "N of M filtered" on the left, refresh on the right.
+		// Stats row - "N papers" / "N of M filtered" on the left, refresh on the right.
 		const statsRow = append(root, $('div'));
 		statsRow.style.display = 'flex';
 		statsRow.style.alignItems = 'center';
@@ -152,7 +152,7 @@ export class AriaPaperSearchView extends ViewPane {
 		refreshBtn.style.flexShrink = '0';
 		refreshBtn.onclick = () => { void this.refresh(); };
 
-		// Papers list container (clearNode-able — two levels deep).
+		// Papers list container (clearNode-able - two levels deep).
 		const list = append(root, $('div'));
 		list.style.display = 'flex';
 		list.style.flexDirection = 'column';
@@ -277,7 +277,7 @@ export class AriaPaperSearchView extends ViewPane {
 		card.style.flexDirection = 'column';
 		card.style.gap = '4px';
 
-		// Title — clickable to expand details.
+		// Title - clickable to expand details.
 		const titleEl = append(card, $('div'));
 		titleEl.style.fontWeight = '600';
 		titleEl.style.fontSize = '12.5px';
@@ -294,7 +294,7 @@ export class AriaPaperSearchView extends ViewPane {
 			this.renderList();
 		};
 
-		// Meta line — Authors et al. · Venue · Year.
+		// Meta line - Authors et al. · Venue · Year.
 		const meta = append(card, $('div'));
 		meta.style.fontSize = '11px';
 		meta.style.opacity = '0.75';
@@ -312,7 +312,7 @@ export class AriaPaperSearchView extends ViewPane {
 		}
 		meta.textContent = parts.join(' · ');
 
-		// Action row — Details (toggle expansion) + Delete. The title is
+		// Action row - Details (toggle expansion) + Delete. The title is
 		// also clickable, but a dedicated Details button is easier to
 		// discover for users who don't realize the title is the toggle.
 		const actions = append(card, $('div'));
@@ -419,7 +419,7 @@ export class AriaPaperSearchView extends ViewPane {
 			void this.addTag(paper);
 		};
 
-		// Note section — sits below Tags. Layout depends on whether a
+		// Note section - sits below Tags. Layout depends on whether a
 		// note already exists:
 		//   no note  →  Note: [+ Add note]
 		//   has note →  Note:
@@ -471,7 +471,7 @@ export class AriaPaperSearchView extends ViewPane {
 	}
 
 	private async editNote(paper: PaperLibraryEntry): Promise<void> {
-		// Defer to the extension — workbench code can't call
+		// Defer to the extension - workbench code can't call
 		// vscode.window directly, so we let the aria-paper-search
 		// extension show the input box and persist the result. We
 		// refresh after to pick up the new note.

@@ -293,7 +293,7 @@ const desktopResourcePatterns = [
 	'vs/workbench/browser/parts/editor/media/*.png',
 	'vs/workbench/contrib/debug/browser/media/*.png',
 
-	// Aria — view icons + webview bundles (e.g. ariaNotes' notesEditor.css/.js)
+	// Aria - view icons + webview bundles (e.g. ariaNotes' notesEditor.css/.js)
 	// loaded at runtime via FileAccess.asFileUri. Without these the packaged app
 	// 404s on the note editor bundle; icons happen to survive because they are
 	// imported (esbuild-bundled) rather than loaded from disk at runtime.

@@ -67,13 +67,13 @@ export function buildTools(
 		},
 		{
 			name: 'list_roadmaps',
-			description: 'List every roadmap in this project. Each project holds MANY roadmaps — one per hypothesis — and each is identified by its hypothesis sentence (the first Goal node). Returns [{id, name, nodeCount}] where `name` is that hypothesis sentence. Call this when the user refers to "the roadmap for hypothesis X / that thyroid roadmap / my other roadmap" so you can find its id, then switch_roadmap to it before editing. The currently active roadmap is the one get_tree/propose_node act on.',
+			description: 'List every roadmap in this project. Each project holds MANY roadmaps - one per hypothesis - and each is identified by its hypothesis sentence (the first Goal node). Returns [{id, name, nodeCount}] where `name` is that hypothesis sentence. Call this when the user refers to "the roadmap for hypothesis X / that thyroid roadmap / my other roadmap" so you can find its id, then switch_roadmap to it before editing. The currently active roadmap is the one get_tree/propose_node act on.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(JSON.stringify({ active: store.activeId, roadmaps: store.list() })),
 		},
 		{
 			name: 'create_roadmap',
-			description: 'Create a NEW, separate roadmap for a NEW hypothesis and make it the active one. Use this when the user wants to start planning a different hypothesis (including a new hypothesis that emerged from a previous roadmap\'s findings) rather than adding to the current one. After creating, propose the column-0 Goal node stating that hypothesis — the roadmap is then listed/identified by that sentence. Returns the new roadmap id.',
+			description: 'Create a NEW, separate roadmap for a NEW hypothesis and make it the active one. Use this when the user wants to start planning a different hypothesis (including a new hypothesis that emerged from a previous roadmap\'s findings) rather than adding to the current one. After creating, propose the column-0 Goal node stating that hypothesis - the roadmap is then listed/identified by that sentence. Returns the new roadmap id.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -118,7 +118,7 @@ export function buildTools(
 		},
 		{
 			name: 'propose_node',
-			description: 'Suggest a new node. Renders on the canvas with a "proposed" treatment so the user can accept, edit, or reject it. column is 0 (Goal), 1 (Milestone), 2 (Task), 3 (Detail), and may go deeper (4, 5, …) for sub-details. parent must be null for column 0 and otherwise reference a COMMITTED node id in the previous column. Keep label SHORT (a card headline) and put any longer text in description — the user reads the full description by clicking the node. Write all labels and descriptions in English.',
+			description: 'Suggest a new node. Renders on the canvas with a "proposed" treatment so the user can accept, edit, or reject it. column is 0 (Goal), 1 (Milestone), 2 (Task), 3 (Detail), and may go deeper (4, 5, …) for sub-details. parent must be null for column 0 and otherwise reference a COMMITTED node id in the previous column. Keep label SHORT (a card headline) and put any longer text in description - the user reads the full description by clicking the node. Write all labels and descriptions in English.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -239,7 +239,7 @@ export function buildTools(
 		},
 		{
 			name: 'list_proposals',
-			description: 'Return the ordered list of pending proposal ids — the order the sequential review tour visits them in.',
+			description: 'Return the ordered list of pending proposal ids - the order the sequential review tour visits them in.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(JSON.stringify(state.listProposalIds())),
 		},

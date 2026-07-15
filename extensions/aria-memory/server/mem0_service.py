@@ -1,10 +1,10 @@
 """
-Aria cross-project memory service — a thin FastAPI wrapper around mem0.
+Aria cross-project memory service - a thin FastAPI wrapper around mem0.
 
 This is the "mem0" half of Aria's memory system (the cross-project / user-wide
 layer; the per-project half is the local LLM wiki in the extension). It runs on
 the shared server (gemma4) so no per-user machine needs Postgres or an embedding
-model — Aria clients just call this HTTP API with the user's user_id.
+model - Aria clients just call this HTTP API with the user's user_id.
 
 Everything is mem0's standard implementation; only the models are swapped to
 local ones:
@@ -15,7 +15,7 @@ local ones:
 Per-user isolation is by `user_id` (mem0's native multi-tenancy): every add/
 search is scoped to one user_id, exactly like mem0's own implementation. The
 caller (Aria, after ORCID/Google login) is responsible for passing the correct
-user_id — mem0 itself has no auth. For testing before login exists, pass a
+user_id - mem0 itself has no auth. For testing before login exists, pass a
 fixed id like "test-user".
 
 Config is entirely env-driven (see .env.example); defaults target the local
@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from mem0 import Memory
 
 # ---------------------------------------------------------------------------
-# mem0 configuration — mem0-standard, only the model/store backends swapped.
+# mem0 configuration - mem0-standard, only the model/store backends swapped.
 # ---------------------------------------------------------------------------
 
 EMBED_DIMS = int(os.environ.get("EMBED_DIMS", "768"))  # embeddinggemma-300m
@@ -67,7 +67,7 @@ MEM0_CONFIG = {
         # mem0 uses the LLM to EXTRACT salient facts from the conversation and to
         # reconcile them (ADD/UPDATE/DELETE) against existing memories. Kept local
         # here so testing needs no external keys. Later this can be switched to
-        # the user's chosen provider (Claude / Codex) per request — see NOTE below.
+        # the user's chosen provider (Claude / Codex) per request - see NOTE below.
         "provider": "openai",
         "config": {
             "model": os.environ.get("LLM_MODEL", "llama3.1:8b"),
@@ -93,7 +93,7 @@ class AddRequest(BaseModel):
     user_id: str
     metadata: dict | None = None
     # infer=True (default) runs mem0's LLM fact-extraction pipeline (the standard
-    # behaviour). infer=False stores the text verbatim (embed + pgvector only) —
+    # behaviour). infer=False stores the text verbatim (embed + pgvector only) -
     # handy for smoke-testing the store/search path without the LLM.
     infer: bool = True
     # Reserved for later: the user's active provider ("claude" | "codex"), so the

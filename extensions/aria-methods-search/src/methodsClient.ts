@@ -14,7 +14,7 @@ import { URL } from 'url';
  * the desktop app can't reach directly, so all queries go through the Django
  * API (`/api/methods/...`), exactly like the cross-project memory client.
  *
- * Auth mirrors aria-memory: we never construct a user id — the app's JWT (from
+ * Auth mirrors aria-memory: we never construct a user id - the app's JWT (from
  * the `aria` auth session) is sent as a Bearer token and the server authorizes
  * the request. Sign-in is therefore required.
  *
@@ -57,7 +57,7 @@ export interface HypothesisMatch {
 async function authToken(): Promise<string> {
 	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
 	if (!session) {
-		throw new Error('Not signed in to Aria — methods search requires sign-in.');
+		throw new Error('Not signed in to Aria - methods search requires sign-in.');
 	}
 	return session.accessToken;
 }

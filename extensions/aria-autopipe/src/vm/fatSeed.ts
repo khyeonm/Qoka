@@ -6,10 +6,10 @@
 // Pure-JS FAT12 image builder for cloud-init NoCloud seeds.
 //
 // cloud-init's NoCloud datasource reads `user-data` / `meta-data` from any
-// filesystem whose volume label is `cidata` — it does NOT have to be ISO9660.
+// filesystem whose volume label is `cidata` - it does NOT have to be ISO9660.
 // Building a tiny FAT12 image here (standard 1.44 MB floppy geometry) lets us
 // produce the seed with ZERO external tools, so the built-in VM works on a
-// vanilla Windows machine — which ships no oscdimg / mkisofs / genisoimage and
+// vanilla Windows machine - which ships no oscdimg / mkisofs / genisoimage and
 // otherwise fails to build the seed at all.
 //
 // The 1.44 MB floppy geometry is used verbatim because every FAT driver
@@ -75,9 +75,9 @@ function shortEntry(short11: Buffer, firstCluster: number, size: number): Buffer
 	short11.copy(e, 0, 0, 11);
 	e[11] = 0x20; // archive
 	e.writeUInt16LE(firstCluster & 0xffff, 26); // first cluster (low word)
-	// cluster high (offset 20) stays 0 — FAT12 has no high word.
+	// cluster high (offset 20) stays 0 - FAT12 has no high word.
 	e.writeUInt32LE(size >>> 0, 28);
-	// date/time fields left 0 — cloud-init ignores them, and no clock is available.
+	// date/time fields left 0 - cloud-init ignores them, and no clock is available.
 	return e;
 }
 
@@ -121,10 +121,10 @@ export function buildFatSeedImage(files: SeedFile[], volumeLabel = 'cidata'): Bu
 	img.writeUInt16LE(18, 24); // sectors per track
 	img.writeUInt16LE(2, 26);  // heads
 	img.writeUInt32LE(0, 28);  // hidden sectors
-	img.writeUInt32LE(0, 32);  // total sectors (32-bit) — 0, the 16-bit field is used
+	img.writeUInt32LE(0, 32);  // total sectors (32-bit) - 0, the 16-bit field is used
 	img[36] = 0x00; // drive number
 	img[38] = 0x29; // extended boot signature
-	img.writeUInt32LE(0x41524941, 39); // volume id ("ARIA", fixed — no RNG available)
+	img.writeUInt32LE(0x41524941, 39); // volume id ("ARIA", fixed - no RNG available)
 	Buffer.from(volumeLabel.toUpperCase().padEnd(11, ' ').slice(0, 11), 'ascii').copy(img, 43);
 	Buffer.from('FAT12   ', 'ascii').copy(img, 54);
 	img[510] = 0x55; img[511] = 0xaa;

@@ -62,7 +62,7 @@ const TYPES = ['research-article', 'review', 'case-report', 'preprint'];
 const STEPS = ['Format', 'Sources', 'Focus', 'Outline', 'Write'];
 
 /**
- * Editor pane for a paper project — a 5-step wizard mirroring SPWA:
+ * Editor pane for a paper project - a 5-step wizard mirroring SPWA:
  * Format → Sources → Focus → Outline → Write. Each "✨ with AI" button
  * auto-sends a prompt to your AI chat; Claude writes back via the aria-paper
  * MCP (set_focus / set_outline / set_manuscript) and the form refreshes.
@@ -206,10 +206,10 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	private async sendToChat(query: string): Promise<void> {
 		// Copy (reliable) + reveal whichever AI provider chat the user installed
 		// (Claude / Codex / Gemini). Provider sidebars can't be injected with a
-		// query, so the clipboard is the real delivery path — the user pastes it.
+		// query, so the clipboard is the real delivery path - the user pastes it.
 		await this.clipboardService.writeText(query);
 		await revealAiProviderChat(this.commandService, this.configurationService);
-		this.notificationService.info(localize('aria.paperWriter.promptSent', "Prompt copied — paste it into your AI chat (Ctrl/Cmd+V) and press Enter."));
+		this.notificationService.info(localize('aria.paperWriter.promptSent', "Prompt copied - paste it into your AI chat (Ctrl/Cmd+V) and press Enter."));
 	}
 
 	// --- Rendering ----------------------------------------------------------
@@ -321,7 +321,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	private renderSourcesStep(root: HTMLElement): void {
 		this.header(root, localize('aria.paperWriter.citationsHeader', "② Sources / Citations"));
 
-		// Selected citations — a bordered, scrollable box so they stand out.
+		// Selected citations - a bordered, scrollable box so they stand out.
 		const label = append(root, $('div'));
 		label.textContent = localize('aria.paperWriter.selectedCitations', "Citations in this paper ({0})", this.citations.length);
 		Object.assign(label.style, { fontSize: '13px', opacity: '0.7', marginBottom: '4px' });
@@ -330,7 +330,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		Object.assign(box.style, { border: '1px solid rgba(127,127,127,0.35)', borderRadius: '6px', padding: '8px 10px', maxHeight: '200px', overflowY: 'auto' });
 		if (this.citations.length === 0) {
 			const e = append(box, $('div'));
-			e.textContent = localize('aria.paperWriter.noCitations', "No citations yet — import a BibTeX file or pick from your Paper Library below.");
+			e.textContent = localize('aria.paperWriter.noCitations', "No citations yet - import a BibTeX file or pick from your Paper Library below.");
 			Object.assign(e.style, { fontSize: '13px', opacity: '0.55' });
 		} else {
 			for (const c of this.citations) {
@@ -382,8 +382,8 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		if (items.length === 0) {
 			const e = append(box, $('div'));
 			e.textContent = kind === 'figure'
-				? localize('aria.paperWriter.noFigures', "No figures yet — add images the AI should reference as (Figure N).")
-				: localize('aria.paperWriter.noSources', "No supplementary files yet — add data, PDFs, or code the AI should draw facts from.");
+				? localize('aria.paperWriter.noFigures', "No figures yet - add images the AI should reference as (Figure N).")
+				: localize('aria.paperWriter.noSources', "No supplementary files yet - add data, PDFs, or code the AI should draw facts from.");
 			Object.assign(e.style, { fontSize: '13px', opacity: '0.55' });
 		} else {
 			for (const it of items) {
@@ -489,7 +489,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			cb.type = 'checkbox'; cb.style.flexShrink = '0';
 			cb.onchange = () => { if (cb.checked) { selected.add(p); } else { selected.delete(p); } };
 			const txt = append(row, $('span'));
-			txt.textContent = `${p.authors?.[0] ?? ''}${p.year ? ` (${p.year})` : ''} — ${p.title}`;
+			txt.textContent = `${p.authors?.[0] ?? ''}${p.year ? ` (${p.year})` : ''} - ${p.title}`;
 			Object.assign(txt.style, { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 		}
 
@@ -663,7 +663,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			const banner = append(root, $('div'));
 			Object.assign(banner.style, { display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'space-between', border: '1px solid rgba(240,200,0,0.5)', background: 'rgba(240,200,0,0.12)', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px' });
 			const t = append(banner, $('span'));
-			t.textContent = localize('aria.paperWriter.proposalPending', "✦ The AI proposed edits to the manuscript — review and accept them.");
+			t.textContent = localize('aria.paperWriter.proposalPending', "✦ The AI proposed edits to the manuscript - review and accept them.");
 			t.style.fontSize = '13px';
 			banner.appendChild(this.button(localize('aria.paperWriter.openReview', "Review edits"), 'primary', () => {
 				if (this.folder) { void this.editorService.openEditor(new AriaManuscriptReviewInput(this.folder), { pinned: true }); }
@@ -707,13 +707,13 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			};
 			bullet(
 				localize('aria.paperWriter.noteDraftLabel', "Working draft"),
-				localize('aria.paperWriter.noteDraft', " — paper/{0}/manuscript.md. Your current manuscript; the title and AI edits are saved here.", id));
+				localize('aria.paperWriter.noteDraft', " - paper/{0}/manuscript.md. Your current manuscript; the title and AI edits are saved here.", id));
 			bullet(
 				localize('aria.paperWriter.noteOriginalLabel', "Original draft"),
-				localize('aria.paperWriter.noteOriginal', " — paper/{0}/manuscript.original.md. The first generated draft, kept unchanged even when you revise with AI.", id));
+				localize('aria.paperWriter.noteOriginal', " - paper/{0}/manuscript.original.md. The first generated draft, kept unchanged even when you revise with AI.", id));
 			bullet(
 				localize('aria.paperWriter.noteExportLabel', "Exports"),
-				localize('aria.paperWriter.noteExport', " — paper/{0}/export/ (paper.md / .docx / .tex). These are snapshots: they only change when you Export again, so re-export after any update.", id));
+				localize('aria.paperWriter.noteExport', " - paper/{0}/export/ (paper.md / .docx / .tex). These are snapshots: they only change when you Export again, so re-export after any update.", id));
 		}
 	}
 
@@ -768,8 +768,8 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	}
 
 	private draftPrompt(force: boolean): string {
-		const forceClause = force ? ' I have confirmed replacing my edited version — call set_manuscript with force=true.' : '';
-		return `Using the Aria paper writer, write a COMPLETELY NEW full draft from scratch for the paper "${this.meta!.id}". Read get_writing_guide (Write stage) and get_paper for the focus, outline, citations, and my sources — but base the prose ONLY on those. Do NOT reuse the current manuscript text or any pendingRevision; this is a fresh re-write that fully replaces them. Write section by section and save with set_manuscript.${forceClause}${this.langClause()}`;
+		const forceClause = force ? ' I have confirmed replacing my edited version - call set_manuscript with force=true.' : '';
+		return `Using the Aria paper writer, write a COMPLETELY NEW full draft from scratch for the paper "${this.meta!.id}". Read get_writing_guide (Write stage) and get_paper for the focus, outline, citations, and my sources - but base the prose ONLY on those. Do NOT reuse the current manuscript text or any pendingRevision; this is a fresh re-write that fully replaces them. Write section by section and save with set_manuscript.${forceClause}${this.langClause()}`;
 	}
 	private revisePrompt(): string {
 		return `Using the Aria paper writer, I want to revise PART of the manuscript for the paper "${this.meta!.id}". Read get_writing_guide (Revise stage) and get_paper, ask me what to change, then make only those edits (keeping everything else verbatim) and call propose_manuscript_revision so I can review the highlighted changes before they apply.${this.langClause()}`;

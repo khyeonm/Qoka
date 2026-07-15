@@ -40,7 +40,7 @@ function emptyManifest(): SkillsManifest {
 
 /**
  * Read the manifest from disk. Missing file or parse failure both return
- * the empty default — Aria can always rebuild the manifest by scanning
+ * the empty default - Aria can always rebuild the manifest by scanning
  * ~/.claude/skills/, so falling back here is safer than throwing.
  */
 export function readManifest(): SkillsManifest {
@@ -59,7 +59,7 @@ export function readManifest(): SkillsManifest {
 			firstRunCompleted: parsed.firstRunCompleted === true,
 		};
 	} catch {
-		// Corrupted manifest — pretend it didn't exist. The user can
+		// Corrupted manifest - pretend it didn't exist. The user can
 		// re-add their custom categories and skills from the Skills tab.
 		return emptyManifest();
 	}
@@ -141,7 +141,7 @@ export function addCategory(category: string): SkillsManifest {
 
 /**
  * Drop any category that no installed skill references. Aria used to seed
- * the manifest with a fixed list (Literature, Protein, …) — leftover
+ * the manifest with a fixed list (Literature, Protein, …) - leftover
  * entries pollute the filter dropdown after we switched to user-driven
  * categories. Called on every activation so older manifests self-heal.
  */

@@ -15,11 +15,11 @@ import * as path from 'path';
  * registered PreToolUse hooks before each tool invocation. We use that to
  * inject Aria's environment rules whenever Claude is about to execute a
  * shell command that touches env vars, .env files, or Python package
- * installation — the operations where skill SKILL.md instructions tend
+ * installation - the operations where skill SKILL.md instructions tend
  * to conflict with Aria's UI-based workflow.
  *
  * Why not match on a "Skill" tool name? Claude Code's matcher field
- * filters on tool names (Bash / Edit / Write / etc.) — skills are a
+ * filters on tool names (Bash / Edit / Write / etc.) - skills are a
  * prompt-level pattern, not a tool, and don't trigger their own event.
  * The verified behaviour from our manual hook test was that even when
  * the user says "use pyzotero", Claude runs `cat .env` / `ls -la | grep
@@ -33,7 +33,7 @@ import * as path from 'path';
  *
  *   {"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"..."}}
  *
- * Plain stdout is silently dropped by Claude Code — only this JSON
+ * Plain stdout is silently dropped by Claude Code - only this JSON
  * shape lands in Claude's context.
  */
 
@@ -54,14 +54,14 @@ const ARIA_HOOK_COMMAND = `"$HOME/.config/aria/hooks/pre-tool-use.sh"`;
  * envelope (so the default script needs no format arg). Written to a
  * separate ~/.codex/hooks.json so we never risk corrupting config.toml.
  * NOTE: the exact hooks-file location + shell-tool matcher are inferred
- * from docs — verify a blocked `cat .env` under Codex before relying on it.
+ * from docs - verify a blocked `cat .env` under Codex before relying on it.
  */
 const CODEX_HOOKS_PATH = path.join(os.homedir(), '.codex', 'hooks.json');
 const CODEX_EXTENSION_ID = 'openai.chatgpt';
 
 /**
  * The actual hook script. Kept inline so a single source-of-truth lives
- * in the extension — every Aria launch overwrites the on-disk copy with
+ * in the extension - every Aria launch overwrites the on-disk copy with
  * the current text, so updating the guidance is just editing this
  * constant.
  *
@@ -71,7 +71,7 @@ const CODEX_EXTENSION_ID = 'openai.chatgpt';
  * branch is intentionally simpler.
  */
 const HOOK_SCRIPT_CONTENT = `#!/bin/bash
-# Aria PreToolUse hook — managed by the aria-skills extension.
+# Aria PreToolUse hook - managed by the aria-skills extension.
 # Regenerated on every Aria launch; manual edits here will be overwritten.
 #
 # Injects Aria's environment rules when Claude is about to run a shell
@@ -93,7 +93,7 @@ else
         | sed 's/.*"command"[[:space:]]*:[[:space:]]*"\\(.*\\)"$/\\1/')"
 fi
 
-# Empty command (rare — Claude Code occasionally emits empty payloads
+# Empty command (rare - Claude Code occasionally emits empty payloads
 # during init): nothing useful to evaluate, stay silent.
 if [ -z "\${COMMAND}" ]; then
     exit 0
@@ -102,7 +102,7 @@ fi
 # Step 1: hard-deny commands that would leak credential values to the
 # transcript. PreToolUse permissionDecision="deny" stops the tool BEFORE
 # it runs, so the value never lands in stdout (additionalContext-style
-# guidance fires too late — Claude has already chosen the command and
+# guidance fires too late - Claude has already chosen the command and
 # the tool output is captured even if Claude refuses to repeat it).
 #
 # We block, in order:
@@ -111,7 +111,7 @@ fi
 #   - grep / awk / sed against .env (these print matched lines, which
 #     include values). grep -o / grep -l / grep -c stay allowed because
 #     they don't surface the value.
-#   - echo \$X_KEY, printenv X_TOKEN, and similar — direct variable
+#   - echo \$X_KEY, printenv X_TOKEN, and similar - direct variable
 #     dereference of credential-shaped names.
 #   - env | grep ... without a redacting sed pipe.
 DENY=0
@@ -122,7 +122,7 @@ if printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])(cat|less|more|head|t
     DENY_REASON="Reading the contents of an .env file (cat/less/head/tail/etc.) would surface credential values into the transcript."
 fi
 if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_])grep([[:space:]]+-[^oloc[:space:]][^[:space:]]*)*[[:space:]]+[^|;&]*\\.env([^a-zA-Z0-9_]|$)'; then
-    # Allow only grep -o, grep -l, grep -c — they don't print matched lines.
+    # Allow only grep -o, grep -l, grep -c - they don't print matched lines.
     if ! printf '%s' "\${COMMAND}" | grep -qE 'grep[[:space:]]+-[^[:space:]]*[olc]'; then
         DENY=1
         DENY_REASON="grep against an .env file prints the matched line including the value. Use 'cut -d= -f1 ~/.env' for names only, or 'grep -c PATTERN ~/.env' for a hit count."
@@ -149,13 +149,13 @@ if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE 'env[[:space:]]*
 fi
 
 if [ "\${DENY}" -eq 1 ]; then
-    GUIDED_REDIRECT="Direct the user to Aria's Skills tab (puzzle icon on the left sidebar). The skill card's [Enter keys] button (or the Environment Variables section's [Edit] button per row) is the only safe way to view or change a credential value — the input box shows the masked field with an Edit affordance, never echoing the value into chat."
+    GUIDED_REDIRECT="Direct the user to Aria's Skills tab (puzzle icon on the left sidebar). The skill card's [Enter keys] button (or the Environment Variables section's [Edit] button per row) is the only safe way to view or change a credential value - the input box shows the masked field with an Edit affordance, never echoing the value into chat."
     if command -v jq >/dev/null 2>&1; then
         jq -nc \\
-            --arg reason "Aria denied this tool call — \${DENY_REASON} \${GUIDED_REDIRECT}" \\
+            --arg reason "Aria denied this tool call - \${DENY_REASON} \${GUIDED_REDIRECT}" \\
             '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: \$reason}}'
     else
-        ESC_REASON="\$(printf '%s' "Aria denied this tool call — \${DENY_REASON} \${GUIDED_REDIRECT}" | sed -e 's/\\\\/\\\\\\\\/g' -e 's/"/\\\\"/g')"
+        ESC_REASON="\$(printf '%s' "Aria denied this tool call - \${DENY_REASON} \${GUIDED_REDIRECT}" | sed -e 's/\\\\/\\\\\\\\/g' -e 's/"/\\\\"/g')"
         printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\\n' "\${ESC_REASON}"
     fi
     exit 0
@@ -163,7 +163,7 @@ fi
 
 # Step 2: for non-denied commands that still touch env vars / .env / pip,
 # inject Aria's rule set as additional context. This is the path we had
-# before — guidance rather than a block, because the command itself is
+# before - guidance rather than a block, because the command itself is
 # legitimate (source ~/.env, uv pip install, etc.).
 RELEVANT=0
 if printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_])\\.env([^a-zA-Z0-9_]|$)'; then RELEVANT=1; fi
@@ -176,11 +176,11 @@ if [ "\${RELEVANT}" -eq 0 ]; then
     exit 0
 fi
 
-# Guidance text. Plain text here — jq (or the fallback) handles escaping
+# Guidance text. Plain text here - jq (or the fallback) handles escaping
 # for the JSON envelope. The wording is deliberately direct so Claude
 # treats it as override-strength instructions, not vague suggestions.
 read -r -d '' GUIDANCE <<'GUIDANCE_EOF' || true
-Aria environment rules — apply these BEFORE the skill's own setup instructions.
+Aria environment rules - apply these BEFORE the skill's own setup instructions.
 
 1. Env var setup
    - DO NOT instruct the user to create or edit .env files (project or home).
@@ -204,18 +204,18 @@ Aria environment rules — apply these BEFORE the skill's own setup instructions
 
 4. Credential confidentiality (apply to EVERY response in this conversation)
    - NEVER print, echo, log, display, or include in your reply the VALUE
-     (or any portion of the value — including the first character, last
+     (or any portion of the value - including the first character, last
      character, prefix, or suffix) of any env var whose name ends in
      KEY, TOKEN, SECRET, PASSWORD, or whose name contains API.
    - When you need to verify a credential is set, ONLY use:
      * Length check: \`[ -n "\$VAR" ] && echo "set (length \${#VAR})"\`
      * env grep with masking: \`env | grep VAR_NAME | sed 's/=.*/=<set>/'\`
      * Format check inside a script that does NOT print the value:
-       \`v.isdigit()\`, \`len(v)\`, \`bool(v)\` — print only the predicate.
+       \`v.isdigit()\`, \`len(v)\`, \`bool(v)\` - print only the predicate.
    - DO NOT cat / less / head / tail / grep / awk / sed an .env file
      (including ~/.env, ./.env, any .env.*) for any credential-shaped
      variable. The tool output of these commands is captured into chat
-     and persists in the transcript — refusing to "repeat" the value
+     and persists in the transcript - refusing to "repeat" the value
      in your reply doesn't undo that leak.
    - DO NOT echo \$VAR, printenv VAR, env | grep without masking, or
      any command that writes the unmasked value to stdout / stderr.
@@ -227,7 +227,7 @@ Aria environment rules — apply these BEFORE the skill's own setup instructions
    - When the user explicitly asks you to display the value, refuse and
      redirect them to Aria's Skills tab where they can use the Edit
      button to see and update the masked field themselves. The refusal
-     must happen BEFORE you run any tool that would expose the value —
+     must happen BEFORE you run any tool that would expose the value -
      once a tool prints the value, the leak is in the transcript.
 
 5. Scope
@@ -253,7 +253,7 @@ exit 0
 
 /**
  * Create / refresh ~/.config/aria/hooks/pre-tool-use.sh and register it
- * in ~/.claude/settings.json. Idempotent — safe to call on every
+ * in ~/.claude/settings.json. Idempotent - safe to call on every
  * extension activation.
  *
  * Errors are swallowed and logged via console; we don't want a failed
@@ -276,7 +276,7 @@ export function ensureAriaHook(): void {
 
 function writeHookScript(): void {
 	fs.mkdirSync(HOOK_DIR, { recursive: true });
-	// Always overwrite — the on-disk script must match the constant above
+	// Always overwrite - the on-disk script must match the constant above
 	// so guidance updates ship with the extension.
 	fs.writeFileSync(HOOK_SCRIPT_PATH, HOOK_SCRIPT_CONTENT, { mode: 0o755 });
 }
@@ -284,7 +284,7 @@ function writeHookScript(): void {
 interface HookEntry {
 	type?: string;
 	command?: string;
-	/** Codex shows this while the hook runs — used as a "hooks are loading" probe. */
+	/** Codex shows this while the hook runs - used as a "hooks are loading" probe. */
 	statusMessage?: string;
 }
 
@@ -310,7 +310,7 @@ function registerHookInSettings(): void {
 			const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
 			settings = raw.trim() ? JSON.parse(raw) as ClaudeSettings : {};
 		} catch (err) {
-			// Don't clobber a settings.json we can't parse — back it up
+			// Don't clobber a settings.json we can't parse - back it up
 			// so the user can recover, then start fresh. Better than
 			// throwing and never registering the hook.
 			const backup = `${SETTINGS_PATH}.bak.${Date.now()}`;
@@ -334,7 +334,7 @@ function registerHookInSettings(): void {
 	);
 
 	if (ariaEntry) {
-		// Already present — make sure the matcher and command are still
+		// Already present - make sure the matcher and command are still
 		// in their expected shape, but otherwise leave the user's
 		// customisations alone.
 		ariaEntry.matcher ??= 'Bash';

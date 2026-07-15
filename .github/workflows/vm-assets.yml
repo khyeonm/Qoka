@@ -50,7 +50,7 @@ jobs:
           if [ "${{ matrix.arch }}" = "x64" ]; then
             # Cross-produce Intel qemu on the Apple Silicon runner: install an
             # x86_64 Homebrew under Rosetta 2 and pull the Intel qemu bottle.
-            # (Intel HVF uses the x86 code path — no ARM SME assertion — so the
+            # (Intel HVF uses the x86 code path - no ARM SME assertion - so the
             # latest qemu is fine here.)
             softwareupdate --install-rosetta --agree-to-license || true
             if [ ! -x /usr/local/bin/brew ]; then
@@ -80,7 +80,7 @@ jobs:
           # to @executable_path/../lib so the binaries run from anywhere. The
           # `-s "$HBLIB"` search path is what lets dylibbundler actually COPY
           # keg-only libs (e.g. libcapstone) instead of rewriting the reference
-          # but leaving the file behind — the bug that shipped a bundle missing
+          # but leaving the file behind - the bug that shipped a bundle missing
           # libcapstone.5.dylib so qemu died in dyld before it ever booted.
           dylibbundler -od -b \
             -x "$OUT/bin/qemu-system-${{ matrix.qarch }}" \
@@ -104,7 +104,7 @@ jobs:
           done
           # dylibbundler's install_name_tool edits invalidate the code signature,
           # and macOS refuses HVF acceleration unless the binary is validly signed
-          # AND carries the hypervisor entitlement — otherwise QEMU falls back to
+          # AND carries the hypervisor entitlement - otherwise QEMU falls back to
           # slow TCG (or fails), which is what made the VM never come up. Ad-hoc
           # re-sign the bundled dylibs, then the binaries; qemu-system also gets
           # the hypervisor + library-validation-disable entitlements.
@@ -170,7 +170,7 @@ jobs:
 
   # macOS-only fast path: Apple Virtualization.framework (VZ) via vfkit. QEMU's
   # HVF accelerator is broken on Apple Silicon M4 (SME sysreg assertion), so on
-  # Mac the built-in VM boots under vfkit instead — same per-user local VM, no
+  # Mac the built-in VM boots under vfkit instead - same per-user local VM, no
   # HVF. Networking is user-mode via gvproxy (no vmnet entitlement required).
   vfkit:
     runs-on: macos-14
@@ -183,7 +183,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p out/bin
-          # vfkit: Apple Virtualization.framework CLI (Go static binary — no dylibs).
+          # vfkit: Apple Virtualization.framework CLI (Go static binary - no dylibs).
           curl -fL -o out/bin/vfkit \
             "https://github.com/crc-org/vfkit/releases/latest/download/vfkit"
           # gvproxy: user-mode networking, no privileged vmnet entitlement needed.

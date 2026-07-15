@@ -45,7 +45,7 @@ function nodeArch(): string {
 	}
 }
 
-/** True when a `node` (and `npm`) already resolves — system install or a Node
+/** True when a `node` (and `npm`) already resolves - system install or a Node
  *  Aria provisioned earlier. */
 function hasUsableNode(): boolean {
 	if (ariaNodeBinDir()) {
@@ -142,7 +142,7 @@ export async function ensureNode(): Promise<string> {
 	const ext = isWin ? 'zip' : 'tar.xz';
 	const url = `${DIST_BASE}/v${NODE_VERSION}/${folder}.${ext}`;
 
-	log(`nodeBootstrap: no system Node — downloading portable Node from ${url}`);
+	log(`nodeBootstrap: no system Node - downloading portable Node from ${url}`);
 	fs.mkdirSync(ARIA_NODE_DIR, { recursive: true });
 	const tmp = path.join(os.tmpdir(), `${folder}.${ext}`);
 	await download(url, tmp);

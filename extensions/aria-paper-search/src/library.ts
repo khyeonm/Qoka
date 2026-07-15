@@ -12,7 +12,7 @@ import { PaperLibrary, PaperLibraryEntry } from './types';
 /**
  * Storage layer for ~/.config/aria/paper-library.json.
  *
- * Tiny synchronous reads/writes — the file rarely exceeds a few KB and
+ * Tiny synchronous reads/writes - the file rarely exceeds a few KB and
  * the in-memory copy stays simple. Atomic writes (tmpfile + rename,
  * mode 0600) keep the file from being corrupted by a crash mid-save.
  */
@@ -27,7 +27,7 @@ export function libraryPath(): string {
 
 /**
  * Ensure the library file exists. Created with an empty papers array if
- * missing — calls into this module that don't change anything still
+ * missing - calls into this module that don't change anything still
  * leave a valid file on disk so the sidebar can read it.
  */
 export function ensureLibraryFile(): void {

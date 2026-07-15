@@ -27,7 +27,7 @@ export const PLUGIN_TOOLS: ToolDefinition[] = [
 					].join('\n'));
 				}
 				const lines = installed.map(p =>
-					`  ${p.manifest.name} v${p.manifest.version} — handles ${p.manifest.extensions.join(', ')}` +
+					`  ${p.manifest.name} v${p.manifest.version} - handles ${p.manifest.extensions.join(', ')}` +
 					(p.manifest.description ? `\n    ${p.manifest.description}` : ''),
 				);
 				return textResult([

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Snapshot grouping — a DISPLAY-only concept. Every save is its own git commit
+ * Snapshot grouping - a DISPLAY-only concept. Every save is its own git commit
  * (never amended), so any snapshot stays individually restorable. Consecutive
  * snapshots that continue the same task share a `groupId`; the Versions
  * timeline collapses them into one expandable entry.
@@ -12,7 +12,7 @@
  * The mapping `commitHash -> { groupId, continuation }` lives in a sidecar JSON
  * at `<workspace>/.aria/snapshot-groups.json`, kept OUT of git (added to
  * `.git/info/exclude`) so it never pollutes the user's history or the Advanced
- * mode diff. If the sidecar is lost the timeline just shows flat — no data loss.
+ * mode diff. If the sidecar is lost the timeline just shows flat - no data loss.
  */
 
 import * as fs from 'fs';
@@ -35,7 +35,7 @@ function sidecarPath(cwd: string): string {
 	return path.join(ariaDir(cwd), 'snapshot-groups.json');
 }
 
-/** Path we git-exclude — ONLY the sidecar, never the whole `.aria/` dir (which
+/** Path we git-exclude - ONLY the sidecar, never the whole `.aria/` dir (which
  *  may hold tracked project data like roadmap.json). Keeping it out of git also
  *  stops `git add -A` in saveSnapshot from committing it into every snapshot. */
 const EXCLUDE_LINE = '.aria/snapshot-groups.json';
@@ -53,7 +53,7 @@ function ensureExcluded(cwd: string): void {
 			fs.appendFileSync(excludePath, (content.endsWith('\n') || content === '' ? '' : '\n') + EXCLUDE_LINE + '\n');
 		}
 	} catch {
-		// no .git yet, or read-only — harmless; the sidecar is non-essential.
+		// no .git yet, or read-only - harmless; the sidecar is non-essential.
 	}
 }
 
@@ -74,7 +74,7 @@ function writeMap(cwd: string, map: GroupMap): void {
 		fs.mkdirSync(ariaDir(cwd), { recursive: true });
 		fs.writeFileSync(sidecarPath(cwd), JSON.stringify(map, null, 2), 'utf8');
 	} catch {
-		// Storage failure — grouping just won't persist; snapshots are unaffected.
+		// Storage failure - grouping just won't persist; snapshots are unaffected.
 	}
 }
 

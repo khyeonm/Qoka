@@ -60,7 +60,7 @@ const UNTITLED = 'Untitled roadmap';
 /**
  * Sidebar view for the project's roadmaps (`<workspace>/.aria/roadmaps/*.json`).
  *
- * A project holds MANY roadmaps — one per hypothesis. This lists them by their
+ * A project holds MANY roadmaps - one per hypothesis. This lists them by their
  * hypothesis sentence (each roadmap's first Goal node); clicking one opens its
  * full pan/zoom/editable canvas in the editor, each row has a Delete button, and
  * "+ New roadmap" starts a fresh one. Re-reads whenever a roadmap file changes.
@@ -92,7 +92,7 @@ export class AriaRoadmapView extends ViewPane {
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.refresh()));
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.refresh()));
 		// Re-read whenever any roadmap file changes (create/delete, the wizard
-		// auto-saving, manual edits) — the whole roadmaps dir is watched.
+		// auto-saving, manual edits) - the whole roadmaps dir is watched.
 		this._register(this.fileService.onDidFilesChange(e => {
 			const dir = this.roadmapsDirUri();
 			if (dir && e.affects(dir)) {
@@ -243,7 +243,7 @@ export class AriaRoadmapView extends ViewPane {
 		});
 		row.title = localize('aria.roadmap.openHint', "Open this roadmap");
 
-		// The hypothesis sentence — full text, single line, ellipsis on overflow.
+		// The hypothesis sentence - full text, single line, ellipsis on overflow.
 		const label = append(row, $('span'));
 		label.textContent = item.name;
 		label.style.flex = '1 1 auto';
@@ -270,7 +270,7 @@ export class AriaRoadmapView extends ViewPane {
 			date.style.marginRight = '2px';
 		}
 
-		// Pencil (rename) + trash (delete) — the same codicons the Research Note
+		// Pencil (rename) + trash (delete) - the same codicons the Research Note
 		// list uses. Both stop propagation so the row's open-on-click doesn't fire.
 		const rename = append(row, $('span.codicon.codicon-edit')) as HTMLElement;
 		rename.title = localize('aria.roadmap.rename', "Rename this roadmap");
@@ -315,7 +315,7 @@ export class AriaRoadmapView extends ViewPane {
 		void this.refresh();
 	}
 
-	/** "+ New roadmap" — create a fresh roadmap and open its canvas so the AI can
+	/** "+ New roadmap" - create a fresh roadmap and open its canvas so the AI can
 	 *  draft it. Each roadmap is one hypothesis. */
 	private renderNewRoadmapButton(root: HTMLElement): void {
 		const button = append(root, $('button')) as HTMLButtonElement;

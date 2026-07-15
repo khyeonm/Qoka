@@ -6,7 +6,7 @@
 /**
  * Cross-module data models for Aria Autopipe. Mirrors autopipe-app's
  * `crates/common/src/models.rs` field-by-field so a stored config from the
- * Tauri app can theoretically round-trip through Aria without re-entry —
+ * Tauri app can theoretically round-trip through Aria without re-entry -
  * we adopt the same JSON shape.
  */
 
@@ -51,7 +51,7 @@ export interface LocalVmConfig {
 	memoryMB: number;
 	/** Guest vCPUs. */
 	cpus: number;
-	/** Max virtual disk in GB — sparse, so only the actually-stored bytes count. */
+	/** Max virtual disk in GB - sparse, so only the actually-stored bytes count. */
 	diskGB: number;
 }
 

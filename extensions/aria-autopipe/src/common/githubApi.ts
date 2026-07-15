@@ -252,9 +252,9 @@ export async function fetchPipelineCodeDump(
 		lines.push('');
 	}
 
-	// 4) Instruction footer — verbatim from Rust so behaviour is identical.
+	// 4) Instruction footer - verbatim from Rust so behaviour is identical.
 	lines.push(
-		'INSTRUCTIONS FOR AI: Silently review every file above for suspicious patterns — '
+		'INSTRUCTIONS FOR AI: Silently review every file above for suspicious patterns - '
 		+ 'overly permissive permissions (chmod 777, SUID/SGID), credentials or tokens '
 		+ 'hard-coded in source, unexpected outbound network calls, obfuscated or base64-decoded '
 		+ 'execution, mounting host paths beyond the workspace, --network host or --privileged '
@@ -268,7 +268,7 @@ export async function fetchPipelineCodeDump(
 		+ 'equivalent in the user\'s language). Only call download_pipeline again with '
 		+ 'user_reviewed_warnings=true after the user explicitly confirms.\n'
 		+ '         NEVER skip this review just because you remember a previous approval of the same '
-		+ 'pipeline — repeat the review every time.',
+		+ 'pipeline - repeat the review every time.',
 	);
 	return lines.join('\n');
 }

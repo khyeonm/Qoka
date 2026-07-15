@@ -111,7 +111,7 @@ export async function resolveSymlinkMounts(profile: SshProfile, dir: string): Pr
 
 /**
  * Look up the pipeline source directory associated with a Docker image
- * name. Mirrors `find_pipeline_dir` — first under the configured
+ * name. Mirrors `find_pipeline_dir` - first under the configured
  * pipelines dir, then under output/{name}/{name}.
  */
 export async function findPipelineDir(profile: SshProfile, imageName: string): Promise<string | null> {

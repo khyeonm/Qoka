@@ -22,7 +22,7 @@ interface SseSession {
  * aria-autopipe so Claude Code (HTTP+SSE) and Codex (Streamable HTTP) both
  * work without per-client branches in the AI layer.
  *
- * The server owns no state of its own — every tool call is dispatched into
+ * The server owns no state of its own - every tool call is dispatched into
  * the RoadmapState instance the caller provided through the tool table.
  */
 export class AriaNotesMcpServer {

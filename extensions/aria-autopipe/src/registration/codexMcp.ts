@@ -117,7 +117,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 		return { ok: true, changed: false, message: `Already registered -> ${url}` };
 	}
 
-	// Best-effort removal of prior entries — including the legacy name —
+	// Best-effort removal of prior entries - including the legacy name -
 	// so the next add lands clean. Codex doesn't expose per-scope MCP
 	// configs (one user-level config.toml), so a single remove per name
 	// is enough.
@@ -126,7 +126,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 			const out = await execAsync(`${q} mcp remove ${name}`, { timeout: 10000 });
 			console.log(`[aria-autopipe] removed prior Codex MCP entry "${name}":`, out.stdout.trim());
 		} catch (err) {
-			// Codex returns non-zero when the entry doesn't exist — expected
+			// Codex returns non-zero when the entry doesn't exist - expected
 			// on first run.
 			console.log(`[aria-autopipe] no prior Codex MCP entry "${name}":`, (err as Error).message);
 		}

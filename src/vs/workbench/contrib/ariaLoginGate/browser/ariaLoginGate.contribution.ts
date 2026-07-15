@@ -29,7 +29,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
  *
  * No pre-paint workbench hide: on the common path (a restored project with a
  * valid session) the workbench should just load normally, with no artificial
- * black screen. A signed-out folder window briefly shows before it closes —
+ * black screen. A signed-out folder window briefly shows before it closes -
  * an acceptable, rare cost.
  */
 
@@ -56,7 +56,7 @@ class AriaLoginGateContribution extends Disposable implements IWorkbenchContribu
 		// The aria-authentication extension restores its session from SecretStorage
 		// asynchronously on activation. A short fixed poll can race that restore and
 		// wrongly report "no session", bouncing a just-signed-in user back to the
-		// picker the moment they open a project — most visibly right after "New
+		// picker the moment they open a project - most visibly right after "New
 		// Project", which creates a folder and reloads into it immediately. Poll for
 		// up to ~10s and return as soon as a valid (already stored) session appears,
 		// so the restore always wins the race before we give up.
@@ -74,7 +74,7 @@ class AriaLoginGateContribution extends Disposable implements IWorkbenchContribu
 
 		// Genuinely signed out after retries → close the folder. VS Code reloads
 		// into an empty workbench, where the Started overlay shows the login
-		// surface (login → AI picker → project — the intended first-run order).
+		// surface (login → AI picker → project - the intended first-run order).
 		try {
 			await this.commandService.executeCommand('workbench.action.closeFolder');
 		} catch {

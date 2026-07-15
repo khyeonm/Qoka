@@ -10,7 +10,7 @@
 #
 # Each arch is customized on a NATIVE-arch runner: virt-customize runs the
 # install commands INSIDE the guest via the libguestfs appliance, which is the
-# host arch — an x64 runner cannot execute the arm64 docker binaries. GitHub's
+# host arch - an x64 runner cannot execute the arm64 docker binaries. GitHub's
 # hosted arm64 Linux runner (ubuntu-24.04-arm) handles the arm64 image.
 #
 # Run manually from the Actions tab (workflow_dispatch).
@@ -53,13 +53,18 @@ jobs:
         run: |
           set -euxo pipefail
           sudo chmod 0644 /boot/vmlinuz-* || true
+          # libguestfs >= 1.54 defaults to passt for the appliance's user-mode
+          # network, which fails on GitHub runners ("passt exited with status 1")
+          # and breaks the --run-command docker install (needs internet). Hide
+          # passt so libguestfs falls back to qemu's built-in SLIRP user net.
+          sudo mv /usr/bin/passt /usr/bin/passt.disabled 2>/dev/null || true
           # Give docker room at runtime; cloud-init growpart expands the root
           # partition to fill this on first boot.
           qemu-img resize base.qcow2 20G
           # Install docker + enable it so the daemon is up right after boot.
           # groupadd here so the seed's `usermod -aG docker aria` succeeds.
           # Route the kernel console to hvc0 too (vfkit's virtio console) while
-          # keeping ttyS0 (qemu's serial) — so boot logs are visible on BOTH
+          # keeping ttyS0 (qemu's serial) - so boot logs are visible on BOTH
           # backends. Without hvc0 a vfkit boot is a black box.
           sudo -E virt-customize -a base.qcow2 \
             --run-command 'curl -fsSL https://get.docker.com | sh' \

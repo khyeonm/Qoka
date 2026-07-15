@@ -15,7 +15,7 @@ import { VM_TOOLS } from './vm';
 // Concatenated in the order they appear in autopipe-app's server.rs so that
 // `tools/list` returns tools in a consistent, predictable sequence.
 export const ALL_TOOLS: ToolDefinition[] = [
-	...WORKSPACE_TOOLS.slice(0, 1), // get_workspace_info up front — AI assistants are told to call it first
+	...WORKSPACE_TOOLS.slice(0, 1), // get_workspace_info up front - AI assistants are told to call it first
 	...PIPELINE_TOOLS.slice(0, 2),   // search_pipelines, list_pipelines
 	PIPELINE_TOOLS[2], // download_pipeline
 	PIPELINE_TOOLS[3], // upload_pipeline
@@ -32,7 +32,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	RESULT_TOOLS[1], // show_results
 	...WORKSPACE_TOOLS.slice(1), // get_templates, get_generation_guide
 	...PLUGIN_TOOLS,
-	...VM_TOOLS, // built-in server resources (get/set) — only for the local VM
+	...VM_TOOLS, // built-in server resources (get/set) - only for the local VM
 
 ];
 

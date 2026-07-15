@@ -14,7 +14,7 @@ import { services } from '../common/services';
  * the right, and a Run-Pipeline button that asks Claude to execute the
  * pipeline via the `execute_pipeline` MCP tool.
  *
- * Each pipeline gets its own webview tab — the user can keep several
+ * Each pipeline gets its own webview tab - the user can keep several
  * open side by side and switch between them like editor tabs.
  */
 const openPanels = new Map<number | null, vscode.WebviewPanel>();
@@ -213,7 +213,7 @@ function renderHtml(webview: vscode.Webview, pipeline: Pipeline): string {
 		// Build a nested directory tree from the flat list of paths we get
 		// from GitHub. Each entry's slash-separated path becomes a chain
 		// of directory nodes ending in a file node. We cache the original
-		// entries so toggling a folder doesn't refetch — we just re-render
+		// entries so toggling a folder doesn't refetch - we just re-render
 		// using the new expanded set.
 		function buildHierarchy(entries) {
 			const root = { name: '', path: '', type: 'dir', children: new Map() };

@@ -25,7 +25,7 @@ const CLAUDE_CANDIDATES = [
 ];
 
 async function resolveClaude(): Promise<string | null> {
-	// Probe the NVM installs FIRST — that's where Claude Code's npm
+	// Probe the NVM installs FIRST - that's where Claude Code's npm
 	// install lands on this user's machine, and PATH-based lookup is
 	// flaky from inside a shell-restricted child process. Try the well-
 	// known fixed paths next, then `claude` as a last resort.
@@ -107,7 +107,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	const url = `http://127.0.0.1:${port}/sse`;
 
 	// Skip work when the USER-scope entry already points at our live port. We
-	// deliberately ignore project/local scope — only the user-scope record is
+	// deliberately ignore project/local scope - only the user-scope record is
 	// visible to Claude Code sessions regardless of working directory.
 	const userScopePort = readUserScopeRegisteredPort();
 	console.log(`[aria-methods-search] existing methods-search port (user scope) = ${userScopePort}`);
@@ -123,7 +123,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 			try {
 				await execAsync(`${q(claude)} mcp remove ${name} --scope ${scope}`, { timeout: 10000 });
 				console.log(`[aria-methods-search] removed prior entry "${name}" --scope ${scope}`);
-			} catch { /* "No MCP server found" expected — silent */ }
+			} catch { /* "No MCP server found" expected - silent */ }
 		}
 	}
 

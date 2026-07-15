@@ -36,12 +36,12 @@ interface SkillRow {
 	/** ISO timestamp recorded when Aria first installed (or last
 	 *  reinstalled) the skill. Surfaced inside Details. */
 	installedAt?: string;
-	/** Where the skill came from — GitHub URL for user skills, the
+	/** Where the skill came from - GitHub URL for user skills, the
 	 *  upstream URL for defaults. Rendered as a clickable link in
 	 *  Details so the user can jump to the source. */
 	source?: string;
 	/** Set by the extension. How many declared env vars are still unset
-	 *  in ~/.env — drives the "Configure keys" affordance on the card. */
+	 *  in ~/.env - drives the "Configure keys" affordance on the card. */
 	missingKeyCount?: number;
 	/** Total env vars declared. Convenient for the pill text. */
 	totalKeyCount?: number;
@@ -78,11 +78,11 @@ interface SectionRefs {
 }
 
 /**
- * Skills view — Step 7. Wires the search field and category dropdown
+ * Skills view - Step 7. Wires the search field and category dropdown
  * into the skill list filtering. Filter changes update `searchQuery`
  * / `categoryFilter`, then re-render only the affected skill sections
  * (count text + cards container). The toolbar, env panel, and uv badge
- * stay put — no root-level rebuild happens.
+ * stay put - no root-level rebuild happens.
  */
 export class AriaSkillsView extends ViewPane {
 
@@ -122,7 +122,7 @@ export class AriaSkillsView extends ViewPane {
 
 		// Extension-fired refresh hook. The aria-skills first-run wizard
 		// installs default skills behind the overlay, so this view's
-		// onmount refresh has nothing yet — without this command call,
+		// onmount refresh has nothing yet - without this command call,
 		// the user would have to click ↻ before seeing paper-lookup
 		// land. Registered as a Disposable so a re-created pane doesn't
 		// leave a stale callback pointing at a disposed view instance.
@@ -147,7 +147,7 @@ export class AriaSkillsView extends ViewPane {
 		root.style.color = 'var(--vscode-foreground)';
 		root.style.fontSize = '12px';
 		// Make the panel scrollable. Without these, anything past the
-		// initial viewport just gets clipped — the user can't reach the
+		// initial viewport just gets clipped - the user can't reach the
 		// env vars section once a few skills land in the lists.
 		root.style.boxSizing = 'border-box';
 		root.style.overflowY = 'auto';
@@ -156,7 +156,7 @@ export class AriaSkillsView extends ViewPane {
 
 		// Full-width one-line summary. The container title bar already shows
 		// "SKILLS" and the "How to use?" link, so we don't repeat the title or a
-		// description here — the refresh control moves into the summary's slot.
+		// description here - the refresh control moves into the summary's slot.
 		const summaryActions = renderAriaTabSummary(root, 'skills');
 		if (summaryActions) {
 			const refreshBtn = append(summaryActions, $('span.codicon.codicon-refresh')) as HTMLElement;
@@ -219,7 +219,7 @@ export class AriaSkillsView extends ViewPane {
 		envHeader.style.padding = '4px 0';
 		envHeader.style.fontWeight = '600';
 
-		// Toggle target — only the chevron + label + count are
+		// Toggle target - only the chevron + label + count are
 		// clickable so the "Open ~/.env" button on the right doesn't
 		// double-fire the collapse handler.
 		const envHeaderToggle = append(envHeader, $('div'));
@@ -242,7 +242,7 @@ export class AriaSkillsView extends ViewPane {
 		envCount.textContent = '(0)';
 		this.envCountEl = envCount;
 
-		// "Open ~/.env" lives on the right edge of the header — close
+		// "Open ~/.env" lives on the right edge of the header - close
 		// to the section title it acts on. Stops propagation so the
 		// outer toggle doesn't fire when the user just wants the file.
 		const openEnvHeaderBtn = append(envHeader, $('button')) as HTMLButtonElement;
@@ -277,7 +277,7 @@ export class AriaSkillsView extends ViewPane {
 		this.styleEmpty(envEmpty);
 		this.envEmptyEl = envEmpty;
 
-		// uv install status removed from the sidebar — the first-run
+		// uv install status removed from the sidebar - the first-run
 		// wizard installs uv automatically and the user can verify by
 		// running `uv --version` in a terminal if they need to.
 		// `Open ~/.env` moved to the header for proximity to the title.
@@ -294,7 +294,7 @@ export class AriaSkillsView extends ViewPane {
 	protected override layoutBody(height: number, width: number): void {
 		super.layoutBody(height, width);
 		// Pin the scrollable root to the pane's measured size so the
-		// browser knows where the overflow boundary is — without an
+		// browser knows where the overflow boundary is - without an
 		// explicit height the inner div grows past the visible area and
 		// scrollbars never engage.
 		if (this.viewBody) {
@@ -323,7 +323,7 @@ export class AriaSkillsView extends ViewPane {
 	/**
 	 * Keep the category dropdown in sync with the extension's category
 	 * list. We rebuild the option set in-place rather than clearing the
-	 * select element entirely — the select itself stays put, only its
+	 * select element entirely - the select itself stays put, only its
 	 * children change. That's safe because the select sits inside the
 	 * toolbar, not at root level.
 	 */
@@ -537,7 +537,7 @@ export class AriaSkillsView extends ViewPane {
 			} else {
 				this.expandedSkills.add(skill.name);
 			}
-			// Toggling Details is a pure view change — re-render the cards from the
+			// Toggling Details is a pure view change - re-render the cards from the
 			// cached state instead of calling refresh(), which would re-run the
 			// extension's getState() (a full reconcileWithDisk scan of every skill)
 			// on every click. That disk round-trip was the "Details is slow" lag.
@@ -620,7 +620,7 @@ export class AriaSkillsView extends ViewPane {
 		details.style.gap = '6px';
 		details.style.fontSize = '11.5px';
 
-		// Category — user-editable pill. Click to overwrite, X to clear.
+		// Category - user-editable pill. Click to overwrite, X to clear.
 		// Empty category renders as a single "+ Set category" button.
 		const catRow = append(details, $('div'));
 		catRow.style.display = 'flex';
@@ -676,7 +676,7 @@ export class AriaSkillsView extends ViewPane {
 			value.textContent = formatInstalledDate(skill.installedAt);
 		}
 
-		// Source link — clickable so the user can open the upstream
+		// Source link - clickable so the user can open the upstream
 		// repo without re-typing it from memory.
 		if (skill.source) {
 			const sourceRow = append(details, $('div'));
@@ -699,7 +699,7 @@ export class AriaSkillsView extends ViewPane {
 			link.textContent = skill.source;
 		}
 
-		// Enter / Edit keys — kept inside Details so the collapsed
+		// Enter / Edit keys - kept inside Details so the collapsed
 		// card stays short. Only shown when the skill actually declares
 		// env vars (matches the previous configure-button behaviour).
 		if (hasKeys) {
@@ -789,7 +789,7 @@ export class AriaSkillsView extends ViewPane {
 		const editText = append(editBtn, $('span'));
 		editText.textContent = 'Edit';
 		// Await the input box so we can repaint the masked value
-		// immediately after the user saves — otherwise the old mask
+		// immediately after the user saves - otherwise the old mask
 		// hangs around until they hit the section refresh icon.
 		editBtn.onclick = async (e) => {
 			e.stopPropagation();
@@ -912,7 +912,7 @@ export class AriaSkillsView extends ViewPane {
 	}
 }
 
-/** Format an ISO timestamp as the locale's short date — "Jun 8, 2026"
+/** Format an ISO timestamp as the locale's short date - "Jun 8, 2026"
  *  on en-US, "2026. 6. 8." on ko-KR, etc. Falls back to the raw string
  *  if parsing fails so a malformed manifest doesn't blank the field. */
 function formatInstalledDate(iso: string): string {

@@ -9,7 +9,7 @@ import * as path from 'path';
 
 /**
  * Reads and writes the user's ~/.env file. Stays deliberately small and
- * synchronous-feeling so callers don't have to thread state — the file is
+ * synchronous-feeling so callers don't have to thread state - the file is
  * tiny (a few KB at most), so a fresh read every call is fine and avoids
  * stale-cache bugs when external editors or other skills touch the file.
  *
@@ -18,7 +18,7 @@ import * as path from 'path';
  *     surface where they're shown.
  *   - Writes are atomic via tmpfile + rename so a crash mid-write can't
  *     leave a half-written .env.
- *   - File mode is set to 0600 on every write — only the user can read it.
+ *   - File mode is set to 0600 on every write - only the user can read it.
  */
 
 const ENV_PATH = path.join(os.homedir(), '.env');
@@ -27,7 +27,7 @@ const ENV_TMP_PATH = `${ENV_PATH}.tmp`;
 /**
  * Parse the contents of ~/.env into a plain key-value map. Lines that are
  * blank or start with `#` are skipped. Quotes around values are
- * intentionally preserved as-is — `KEY="value"` becomes `KEY -> "value"` so
+ * intentionally preserved as-is - `KEY="value"` becomes `KEY -> "value"` so
  * round-tripping doesn't drop the quotes the user typed.
  */
 export function readEnv(): Record<string, string> {
@@ -79,7 +79,7 @@ export function writeEnv(
 	const body = keys.map(k => `${k}=${current[k]}`).join('\n');
 	const final = body.length > 0 ? body + '\n' : '';
 
-	// Atomic write — tmpfile + rename so a crash can't leave a half-written
+	// Atomic write - tmpfile + rename so a crash can't leave a half-written
 	// .env. fs.renameSync is atomic on POSIX when source and dest are on
 	// the same filesystem (and the home directory always is).
 	fs.writeFileSync(ENV_TMP_PATH, final, { mode: 0o600 });
@@ -114,7 +114,7 @@ export function envPath(): string {
  * Make sure ~/.env exists. Created empty with mode 0600 if missing. We
  * call this on extension activate so the "Open ~/.env" button in the
  * Skills tab always opens something, even before the user saves a
- * single key — opening "no such file" was the most common confusion.
+ * single key - opening "no such file" was the most common confusion.
  */
 export function ensureEnvFile(): void {
 	if (fs.existsSync(ENV_PATH)) {

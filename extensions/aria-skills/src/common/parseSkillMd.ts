@@ -13,7 +13,7 @@ import { EnvVarRequirement, SkillDependency } from './types';
  *
  * The parser is intentionally lenient: it scans the whole document for
  * env-var-shaped tokens, mentions of dependent skills, and a few common
- * "obtain key here" URLs. False positives are expected — the wizard
+ * "obtain key here" URLs. False positives are expected - the wizard
  * always asks the user to confirm before saving.
  */
 
@@ -88,7 +88,7 @@ function extractDescription(frontmatter: string, content: string): string | unde
 }
 
 function inferCategoryFromText(_content: string): string | undefined {
-	// Category is now fully user-driven — Aria no longer guesses one from
+	// Category is now fully user-driven - Aria no longer guesses one from
 	// keyword matches. Skill install leaves category blank; the user types
 	// whatever they want in the sidebar's Details pane.
 	return undefined;
@@ -103,7 +103,7 @@ function extractEnvVars(content: string): EnvVarRequirement[] {
 		}
 		const ctx = contextAround(content, name, 240);
 		// `os.environ['NAME']` (bracket access) throws KeyError on a
-		// missing key — strong signal that the skill genuinely requires
+		// missing key - strong signal that the skill genuinely requires
 		// this variable to be set. `os.environ.get('NAME')` only returns
 		// None and is the optional pattern. Same idea for `os.getenv('NAME')`
 		// without a default. Match anywhere in the file so we don't depend
@@ -135,7 +135,7 @@ function extractEnvVars(content: string): EnvVarRequirement[] {
 function looksRequired(ctx: string): boolean {
 	const lowered = ctx.toLowerCase();
 
-	// Explicit "optional" signals — checked first so a markdown table
+	// Explicit "optional" signals - checked first so a markdown table
 	// like "| No (3 req/s without, 10 with) |" classifies correctly
 	// even though the cell happens to mention rate limits.
 	if (/\b(optional|recommended)\b/.test(lowered)) {
@@ -194,7 +194,7 @@ function contextAround(content: string, anchor: string, span: number): string {
 
 function summariseContext(ctx: string): string | undefined {
 	// Many skills document env vars in a MARKDOWN TABLE, which has no sentence
-	// punctuation — the old "first sentence" logic then returned raw
+	// punctuation - the old "first sentence" logic then returned raw
 	// `| cell | cell | ---|--- |` gibberish. Bail on table-shaped context
 	// (better to show NO description than garbage; the LLM path produces a clean
 	// one for these). Then strip markup and keep only a real prose sentence.

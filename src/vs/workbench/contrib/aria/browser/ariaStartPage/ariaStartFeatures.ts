@@ -9,7 +9,7 @@ import { AriaMode } from '../../common/ariaConfiguration.js';
  * Catalog of "things you can start" on the Aria start page. A single feature
  * record carries everything needed to render its card (icon + text) and to
  * invoke the action (command id). The `modes` array controls which modes
- * the feature shows up in — changing the visibility for a mode is a one-line
+ * the feature shows up in - changing the visibility for a mode is a one-line
  * edit here, no UI changes required.
  */
 export interface IAriaStartFeature {

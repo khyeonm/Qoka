@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { AriaAuthProvider } from './authProvider';
 
 /**
- * Aria Authentication — registers the `aria` authentication provider (visible in
+ * Aria Authentication - registers the `aria` authentication provider (visible in
  * the Accounts menu, bottom-left) plus a status-bar presence: the signed-in
  * user's name + login provider, followed by a Sign out button. These sit
  * between the Aria mode toggle (priority 1000/999) and the Problems item
@@ -76,7 +76,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			accountItem!.show();
 			signOutItem!.show();
 		} else {
-			// Signed out — could be a real sign-out OR an expired session mid-work.
+			// Signed out - could be a real sign-out OR an expired session mid-work.
 			// Keep a visible, clickable "Sign in" cue so the user always knows how
 			// to recover (rather than memory silently failing).
 			accountItem!.text = '$(account) Sign in to Aria';
@@ -120,7 +120,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			// Return to the directory picker on the next sign-in: close the folder
 			// so the workbench reloads empty. The login gate then covers it, and
 			// after re-login the Aria "Started" overlay shows the picker again.
-			// (Setup is NOT re-run — its completion flag persists.)
+			// (Setup is NOT re-run - its completion flag persists.)
 			await vscode.commands.executeCommand('workbench.action.closeFolder');
 		}),
 		provider,
@@ -140,7 +140,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// The startup sign-in prompt is handled by the core ariaLoginGate overlay
 	// (full-screen gate before the workbench), which drives this provider via
-	// IAuthenticationService — so no prompt is raised here.
+	// IAuthenticationService - so no prompt is raised here.
 }
 
 export function deactivate(): void {

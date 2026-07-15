@@ -55,7 +55,7 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
  * (fired by the aria-roadmap extension after every mutation).
  *
  * Opening the wizard now means opening a real editor and revealing Claude Code's
- * chat in the auxiliary side bar alongside it — no full-viewport overlay, so the
+ * chat in the auxiliary side bar alongside it - no full-viewport overlay, so the
  * chat renders natively in the same window instead of behind a hide/restore CSS
  * mask. The Started overlay watches for this editor and steps aside / returns on
  * its own (see ariaStartedOverlay.contribution.ts).
@@ -76,13 +76,13 @@ class AriaRoadmapWizardContribution extends Disposable implements IWorkbenchCont
 		}));
 
 		// One-shot: New Project created a folder and reloaded into it with this
-		// flag set — auto-open the wizard canvas in the fresh project window.
+		// flag set - auto-open the wizard canvas in the fresh project window.
 		try {
 			if (sessionStorage.getItem('aria.roadmap.autoOpenWizard') === '1') {
 				sessionStorage.removeItem('aria.roadmap.autoOpenWizard');
 				void this.openWizard();
 			}
-		} catch { /* storage unavailable — user can open via the Roadmap sidebar */ }
+		} catch { /* storage unavailable - user can open via the Roadmap sidebar */ }
 
 		// The aria-roadmap extension fires this after every state mutation
 		// (MCP tool call or workbench-side action). Re-broadcast to the open
@@ -103,14 +103,14 @@ class AriaRoadmapWizardContribution extends Disposable implements IWorkbenchCont
 		let name = arg?.name;
 		// Resolving the active roadmap goes through the aria-roadmap EXTENSION's
 		// commands. Those throw if the extension hasn't activated yet (a real race
-		// on a fresh New Project window, seen on Windows) — which must NOT stop the
+		// on a fresh New Project window, seen on Windows) - which must NOT stop the
 		// tab from opening. Treat every step as best-effort and fall back to a
 		// transient id so the canvas always appears; it re-syncs once the
 		// extension's onStateChange fires.
 		if (!id) {
 			try {
 				id = await this.commandService.executeCommand<string | undefined>('aria.roadmap.ensureActive');
-			} catch { /* extension not ready — fall back below */ }
+			} catch { /* extension not ready - fall back below */ }
 		}
 		if (!id) {
 			id = 'wizard';
@@ -120,13 +120,13 @@ class AriaRoadmapWizardContribution extends Disposable implements IWorkbenchCont
 			if (!name) {
 				name = snap?.roadmapName;
 			}
-		} catch { /* non-fatal — open with the default name */ }
-		// Open (or focus — one tab per roadmap id) the roadmap editor.
+		} catch { /* non-fatal - open with the default name */ }
+		// Open (or focus - one tab per roadmap id) the roadmap editor.
 		await this.editorService.openEditor(new AriaRoadmapEditorInput(id, name ?? 'Roadmap'), { pinned: true });
 
 		// Reveal whichever AI provider chat the user installed (Claude / Codex /
 		// Gemini) in the auxiliary side bar next to the canvas. We do NOT seed a
-		// prompt here — the provider sidebars cannot be injected with one.
+		// prompt here - the provider sidebars cannot be injected with one.
 		// Instead the canvas shows a copyable "starter prompt" the user pastes
 		// into the chat to kick off brainstorming (see AriaRoadmapEditorPane's
 		// empty state). Fire-and-forget.
@@ -230,7 +230,7 @@ class AriaRoadmapContextContribution extends Disposable implements IWorkbenchCon
 		}
 		// The Roadmap tab shows when the project has a roadmap. New Project writes
 		// `.aria/roadmaps/<id>.json`; older projects used a single
-		// `.aria/roadmap.json`. Accept either — checking only the legacy path is
+		// `.aria/roadmap.json`. Accept either - checking only the legacy path is
 		// what previously hid the tab entirely after New Project.
 		let exists = false;
 		try {
@@ -292,10 +292,10 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 				sessionStorage.removeItem('aria.roadmap.pulseOnLoad');
 				this.pulseRequested = true;
 			}
-		} catch { /* storage unavailable — just don't pulse */ }
+		} catch { /* storage unavailable - just don't pulse */ }
 
 		// A provider installed DURING that New Project flow can leave the roadmap
-		// canvas hidden behind the Extensions view; re-pulse once one appears —
+		// canvas hidden behind the Extensions view; re-pulse once one appears -
 		// still gated on the New Project flag.
 		this._register(this.extensionService.onDidChangeExtensions(e => {
 			if (!this.pulseRequested) { return; }
@@ -305,7 +305,7 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 			}
 		}));
 
-		// Stop once the user opens the Roadmap view — they got the hint.
+		// Stop once the user opens the Roadmap view - they got the hint.
 		this._register(this.viewsService.onDidChangeViewVisibility(e => {
 			if (e.id === AriaRoadmapView.ID && e.visible) {
 				this.stop();
@@ -313,7 +313,7 @@ class AriaRoadmapPulseContribution extends Disposable implements IWorkbenchContr
 		}));
 
 		// The roadmap file is written just before the New Project reload, so the
-		// context can flip true slightly after we construct — pulse once it does.
+		// context can flip true slightly after we construct - pulse once it does.
 		this._register(this.contextKeyService.onDidChangeContext(e => {
 			if (e.affectsSome(new Set(['aria.roadmapFilePresent']))) {
 				this.maybePulseForRoadmap();

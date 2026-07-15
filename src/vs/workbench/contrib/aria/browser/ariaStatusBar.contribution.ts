@@ -12,7 +12,7 @@ import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
 import { localize } from '../../../../nls.js';
 
 /**
- * Two adjacent status bar entries — `[🧪 Easy] [👩‍💻 Advanced]` — that
+ * Two adjacent status bar entries - `[🧪 Easy] [👩‍💻 Advanced]` - that
  * behave like a segmented toggle. The active mode is highlighted with the
  * status bar's prominent style; clicking the inactive entry instantly
  * switches to that mode.
@@ -56,7 +56,7 @@ export class AriaModeStatusBarContribution extends Disposable implements IWorkbe
 		const advancedActive = mode === 'advanced';
 
 		const easyData = {
-			name: localize('aria.mode.easy.name', "Aria — Easy Mode"),
+			name: localize('aria.mode.easy.name', "Aria - Easy Mode"),
 			text: '$(beaker) Easy',
 			ariaLabel: localize('aria.mode.easy.aria', "Switch Aria to Easy mode"),
 			tooltip: easyActive
@@ -68,7 +68,7 @@ export class AriaModeStatusBarContribution extends Disposable implements IWorkbe
 		};
 
 		const advancedData = {
-			name: localize('aria.mode.advanced.name', "Aria — Advanced Mode"),
+			name: localize('aria.mode.advanced.name', "Aria - Advanced Mode"),
 			text: '$(tools) Advanced',
 			ariaLabel: localize('aria.mode.advanced.aria', "Switch Aria to Advanced mode"),
 			tooltip: advancedActive
@@ -86,7 +86,7 @@ export class AriaModeStatusBarContribution extends Disposable implements IWorkbe
 				easyData,
 				AriaModeStatusBarContribution.EASY_ENTRY_ID,
 				StatusbarAlignment.LEFT,
-				1000  // very high priority — leftmost
+				1000  // very high priority - leftmost
 			);
 		}
 

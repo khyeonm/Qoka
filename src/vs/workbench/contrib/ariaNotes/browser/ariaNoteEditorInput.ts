@@ -11,7 +11,7 @@ import { localize } from '../../../../nls.js';
 
 /** Synthetic scheme for the note editor input's identity URI. Using a real
  *  `file:` resource here would make VS Code open the note's JSON in the default
- *  text editor instead of our BlockNote pane — the same reason the roadmap
+ *  text editor instead of our BlockNote pane - the same reason the roadmap
  *  wizard uses its own `aria-roadmap:` scheme. The real file is `fileResource`. */
 export const ARIA_NOTE_SCHEME = 'aria-note';
 

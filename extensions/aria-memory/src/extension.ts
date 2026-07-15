@@ -39,12 +39,12 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; s
 	});
 	const summary = registered.length
 		? `Memory MCP registered with ${registered.join(', ')}`
-		: 'Memory MCP — no AI provider CLI found yet';
+		: 'Memory MCP - no AI provider CLI found yet';
 	return { changed, summary };
 }
 
 /**
- * Aria Memory — boots a local MCP server so Claude Code (and, later, Codex)
+ * Aria Memory - boots a local MCP server so Claude Code (and, later, Codex)
  * can read and write this project's long-term memory: a per-project "LLM
  * wiki" of Markdown pages under `<workspace>/.aria/memory/wiki/`.
  *
@@ -71,7 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-memory-mcp');
-		let summary = 'Memory MCP — already configured';
+		let summary = 'Memory MCP - already configured';
 		let changed = false;
 		try {
 			const port = await mcpServer!.start();

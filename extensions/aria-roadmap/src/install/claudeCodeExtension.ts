@@ -22,7 +22,7 @@ export interface InstallResult {
  *
  * Aria's first launch uses this to bring Claude Code in from the
  * Marketplace so the New Project wizard's chat panel works the moment
- * the user clicks it. We DO NOT vendor the extension — Anthropic
+ * the user clicks it. We DO NOT vendor the extension - Anthropic
  * publishes it on the Marketplace, redistributing the VSIX with Aria
  * would conflict with Marketplace terms / the extension EULA. The
  * Marketplace install path keeps Aria's distribution clean while
@@ -38,7 +38,7 @@ export async function ensureClaudeCodeInstalled(): Promise<InstallResult> {
 		return {
 			installed: true,
 			changed: false,
-			summary: 'Claude Code — already installed',
+			summary: 'Claude Code - already installed',
 		};
 	}
 
@@ -67,7 +67,7 @@ export async function ensureClaudeCodeInstalled(): Promise<InstallResult> {
 			return {
 				installed: true,
 				changed: true,
-				summary: 'Claude Code — installed from Marketplace',
+				summary: 'Claude Code - installed from Marketplace',
 			};
 		}
 		await new Promise(r => setTimeout(r, 250));
@@ -76,6 +76,6 @@ export async function ensureClaudeCodeInstalled(): Promise<InstallResult> {
 	return {
 		installed: false,
 		changed: true,
-		summary: 'Claude Code — install dispatched, not yet visible (you may need to reload Aria)',
+		summary: 'Claude Code - install dispatched, not yet visible (you may need to reload Aria)',
 	};
 }

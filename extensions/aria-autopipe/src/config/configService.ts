@@ -32,7 +32,7 @@ export class ConfigService {
 
 	/** Runtime SSH endpoint of the built-in local VM, set by the VMManager once
 	 *  the VM (or its dev stand-in) is reachable, cleared when it stops. Not
-	 *  persisted — the port/key are per-boot. `activeProfile()` returns this when
+	 *  persisted - the port/key are per-boot. `activeProfile()` returns this when
 	 *  the active target is the local VM. */
 	private localVmEndpoint: SshProfile | null = null;
 
@@ -66,7 +66,7 @@ export class ConfigService {
 
 	get(): AriaConfig {
 		// Return a shallow copy so callers can't mutate our internal state by
-		// reference. The arrays inside are still shared — callers that need to
+		// reference. The arrays inside are still shared - callers that need to
 		// mutate should call `update()` with a new object.
 		return { ...this.current };
 	}
@@ -96,7 +96,7 @@ export class ConfigService {
 	 */
 	private writeDiskMirror(): void {
 		try {
-			// Strip the GitHub token before mirroring — the rest of the
+			// Strip the GitHub token before mirroring - the rest of the
 			// config is non-sensitive (SSH host metadata, repo settings),
 			// but the OAuth token would let anyone reading the file
 			// impersonate the user against GitHub.
@@ -117,7 +117,7 @@ export class ConfigService {
 		if (!id) {
 			return null;
 		}
-		// The built-in VM has no stored profile — its concrete endpoint (host/port/
+		// The built-in VM has no stored profile - its concrete endpoint (host/port/
 		// key) is provided at runtime by the VMManager. Returns null until ready.
 		if (id === LOCAL_VM_ID) {
 			return this.localVmEndpoint;
@@ -134,7 +134,7 @@ export class ConfigService {
 		} else {
 			next.push(profile);
 		}
-		// Adding a NEW server takes over as the active target — this is how the
+		// Adding a NEW server takes over as the active target - this is how the
 		// user "switches off" the built-in VM by configuring their own server.
 		// (Also auto-activates the very first profile.)
 		const patch: Partial<AriaConfig> = { ssh_profiles: next };
@@ -149,7 +149,7 @@ export class ConfigService {
 		// If the removed profile was active, hand the active selection to another
 		// profile. When none remain, fall back to the built-in VM ONLY on
 		// Windows/macOS (their default run environment). On Linux the built-in VM
-		// is not the default, so leave it empty there — the user re-adds an SSH
+		// is not the default, so leave it empty there - the user re-adds an SSH
 		// server rather than being silently switched to the VM.
 		let newActive = this.current.active_ssh_profile_id;
 		if (newActive === id) {

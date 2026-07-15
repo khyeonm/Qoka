@@ -8,7 +8,7 @@ import { VcsService, Snapshot, StatusInfo, FileChange } from './vcsService';
 import { summarizeDiff, availableProviders, AiProvider } from './aiSummarizer';
 import { recordGroup, getGroup } from './snapshotGroups';
 
-/** Returned by aria.vcs.prepareSnapshot — everything the Save dialog needs. */
+/** Returned by aria.vcs.prepareSnapshot - everything the Save dialog needs. */
 export interface SnapshotDraft {
 	/** AI (or fallback) title to pre-fill the name field. */
 	suggestedTitle: string;
@@ -40,7 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Save Snapshot: prompts for a description (defaults to a timestamp) and commits.
 	// Optional second arg `selectedPaths` restricts the snapshot to a subset of
-	// changed files — this is what the Versions view passes when the user has
+	// changed files - this is what the Versions view passes when the user has
 	// unchecked some entries in the Changes list.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.saveSnapshot', async (presetMessage?: string, selectedPaths?: string[], groupWithPrevious?: boolean) => {
 		const cwd = activeWorkspacePath();
@@ -77,7 +77,7 @@ export function activate(context: vscode.ExtensionContext): void {
 				vscode.window.showInformationMessage(`Snapshot saved: ${snapshot.message}`);
 				return snapshot;
 			}
-			vscode.window.showInformationMessage('Nothing to save — no changes since the last snapshot.');
+			vscode.window.showInformationMessage('Nothing to save - no changes since the last snapshot.');
 			return undefined;
 		} catch (err) {
 			vscode.window.showErrorMessage(`Could not save snapshot: ${(err as Error).message}`);
@@ -114,7 +114,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		return { ...fallback, previousTitle: (await service.getRecentSnapshots(cwd, 1))[0]?.message };
 	}));
 
-	// Return recent snapshots — used by the Versions view to populate its list.
+	// Return recent snapshots - used by the Versions view to populate its list.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.getRecent', async (limit?: number): Promise<Snapshot[]> => {
 		const cwd = activeWorkspacePath();
 		if (!cwd) {
@@ -137,7 +137,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	}));
 
-	// Go back to a snapshot — truncates history to that point and surfaces
+	// Go back to a snapshot - truncates history to that point and surfaces
 	// the now-undone changes as snapshot candidates in the Changes list.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.restoreSnapshot', async (hash?: string) => {
 		const cwd = activeWorkspacePath();
@@ -170,7 +170,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	}));
 
-	// Files changed *in* a specific snapshot — used by the Versions view to
+	// Files changed *in* a specific snapshot - used by the Versions view to
 	// expand a snapshot row into its file list.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.getSnapshotChanges', async (hash?: string): Promise<FileChange[]> => {
 		const cwd = activeWorkspacePath();
@@ -196,7 +196,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		await vscode.commands.executeCommand('vscode.diff', beforeUri, afterUri, `${filePath} (${hash.slice(0, 7)})`);
 	}));
 
-	// List of files changed since the last snapshot — used to drill into "what
+	// List of files changed since the last snapshot - used to drill into "what
 	// changed". Each entry knows the relative path and kind of change.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.getChanges', async (): Promise<FileChange[]> => {
 		const cwd = activeWorkspacePath();
@@ -221,7 +221,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		const ref = against ?? 'HEAD';
 		const fileUri = vscode.Uri.file(`${cwd}/${filePath}`);
 		// VS Code's built-in `git:` URI scheme is only available with the
-		// git extension active — Easy mode disables it — so we materialize
+		// git extension active - Easy mode disables it - so we materialize
 		// the old version as a virtual document via the workbench's
 		// `vscode.diff` command + an in-memory provider.
 		const oldUri = vscode.Uri.parse(`aria-vcs-snapshot:${filePath}?${ref}`);
@@ -245,7 +245,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	}));
 
-	// Current repo / unsaved-changes status — used to drive the Versions view header.
+	// Current repo / unsaved-changes status - used to drive the Versions view header.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.getStatus', async (): Promise<StatusInfo> => {
 		const cwd = activeWorkspacePath();
 		if (!cwd) {
@@ -260,5 +260,5 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-	// Nothing to clean up — child processes are short-lived.
+	// Nothing to clean up - child processes are short-lived.
 }

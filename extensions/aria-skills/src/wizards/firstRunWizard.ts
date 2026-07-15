@@ -15,14 +15,14 @@ import { log } from '../common/logger';
 import { SkillInfo } from '../common/types';
 
 /**
- * Wizard A — runs once on a fresh install (or any time a default skill
+ * Wizard A - runs once on a fresh install (or any time a default skill
  * is missing). Installs uv if it's not already on PATH, then clones the
  * default skill set into ~/.claude/skills/ so the user has a working
  * paper-search experience on first launch.
  *
  * The wizard is intentionally light on choices: the welcome screen
  * confirms the user wants to set up, and everything else runs inside a
- * single progress notification. We never silently bail — if a step
+ * single progress notification. We never silently bail - if a step
  * fails, we surface the error and keep the manifest's first-run flag
  * unset so the next launch can retry.
  */
@@ -34,13 +34,13 @@ export async function runFirstRunWizardIfNeeded(): Promise<void> {
 	const missing = findMissingDefaultSkills(installedNames);
 
 	// Always join the workbench startup tracking, even when there's
-	// nothing to install — the summary toast still wants a line about
+	// nothing to install - the summary toast still wants a line about
 	// the default skills so the user sees their presence acknowledged.
 	// We avoid listing individual skill names so the row stays stable
 	// as the default set grows.
 	await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-skills-firstrun');
 
-	let summary = 'Default skills — already configured';
+	let summary = 'Default skills - already configured';
 	let changed = false;
 	let installedCount = 0;
 	let failedCount = 0;
@@ -96,14 +96,14 @@ export async function runFirstRunWizardIfNeeded(): Promise<void> {
 
 	// If anything actually changed on disk, ping the Skills sidebar so
 	// the new defaults show up without forcing the user to click the
-	// refresh icon. Best-effort — the command is a no-op when the view
+	// refresh icon. Best-effort - the command is a no-op when the view
 	// isn't mounted yet, and the view's own refresh-on-open will fill
 	// in when the user navigates to it.
 	if (installedCount > 0) {
 		void vscode.commands.executeCommand('aria.skills.requestRefresh');
 	}
 
-	// We deliberately drop the old success/failure toasts here — the
+	// We deliberately drop the old success/failure toasts here - the
 	// unified post-startup toast covers the success case, and a
 	// modal-style failure popup would clash with the overlay's
 	// timing. Errors still land in the Output channel via log().
@@ -120,7 +120,7 @@ async function ensureUvInstalled(): Promise<void> {
 		await svc.uv.installUv();
 		log('uv installed successfully');
 	} catch (err) {
-		// We don't abort the whole wizard for a uv failure — many skills
+		// We don't abort the whole wizard for a uv failure - many skills
 		// don't need Python at all, and the user can install uv later.
 		log(`uv install failed: ${(err as Error).message}`);
 		// Don't show a modal here; the overlay is still up. We'll surface
@@ -174,7 +174,7 @@ async function installOneDefault(spec: DefaultSkillSpec): Promise<void> {
 		const direct = await fetchSkillMd(specUrl);
 		skillMd = direct.content;
 	} catch {
-		// Try multi-skill discovery — paper-lookup happens to be at a
+		// Try multi-skill discovery - paper-lookup happens to be at a
 		// known sub-path, but other defaults might live in a monorepo
 		// where the URL only points at the root.
 		const discovered = await discoverSkillsInRepo(specUrl);

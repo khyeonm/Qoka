@@ -43,7 +43,7 @@ const GUEST_USER = 'aria';
 const GUEST_REPO = `/home/${GUEST_USER}/aria`;
 // Generous: a FIRST boot runs cloud-init (which mounts the seed, creates the
 // user + SSH key, then starts sshd) and, on a software-emulated (TCG) fallback,
-// the whole guest runs many times slower. 180s wasn't enough — the guest was
+// the whole guest runs many times slower. 180s wasn't enough - the guest was
 // still mid-cloud-init when we gave up. sshd comes up well before this ceiling
 // on a hardware-accelerated boot; the extra headroom only matters for slow ones.
 const READY_TIMEOUT_MS = 360_000;
@@ -126,7 +126,7 @@ export class VMManager {
 		this.set('ready');
 	}
 
-	/** Provision + boot the built-in VM. macOS uses vfkit (Apple VZ — works on
+	/** Provision + boot the built-in VM. macOS uses vfkit (Apple VZ - works on
 	 *  every Apple Silicon generation); Windows/Linux use portable QEMU. */
 	private async startReal(): Promise<void> {
 		this.set('provisioning');
@@ -157,7 +157,7 @@ export class VMManager {
 
 		// Mac/Linux: a fresh overlay each boot keeps the base image pristine because
 		// user DATA lives on the 9p-shared host workspace, not the overlay.
-		// Windows: qemu has no 9p/virtfs, so there is NO host share — user data
+		// Windows: qemu has no 9p/virtfs, so there is NO host share - user data
 		// lives inside the guest overlay, so we must PERSIST it across boots (never
 		// wipe; only create it the first time) or every restart loses the workspace.
 		const createArgs = ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', image, overlay, `${this.config.get().local_vm.diskGB}G`];
@@ -175,7 +175,7 @@ export class VMManager {
 		// software emulation if qemu exits before SSH comes up. That covers a
 		// broken host accelerator such as the QEMU HVF/SME assertion crash seen on
 		// some Apple Silicon Macs, or a Windows host without the Hypervisor
-		// Platform feature — the VM still boots, just slower.
+		// Platform feature - the VM still boots, just slower.
 		const primary = this.accel();
 		const accels = primary === 'tcg' ? ['tcg'] : [primary, 'tcg'];
 		const sshProfile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
@@ -205,7 +205,7 @@ export class VMManager {
 				try { this.proc?.kill('SIGKILL'); } catch { /* ignore */ }
 				this.proc = undefined;
 				if (i < accels.length - 1) {
-					progress('Hardware acceleration unavailable — retrying with software emulation (slower)…');
+					progress('Hardware acceleration unavailable - retrying with software emulation (slower)…');
 				}
 			}
 		}
@@ -328,7 +328,7 @@ export class VMManager {
 			// `cidata` label, and virtio attaches cleanly on both q35 and arm64 virt.
 			'-drive', `file=${seed},if=virtio,format=raw`,
 			'-netdev', `user,id=n0,hostfwd=tcp:127.0.0.1:${port}-:22`, '-device', 'virtio-net-pci,netdev=n0',
-			// 9p host-workspace share — Linux/macOS qemu only. The Windows qemu build
+			// 9p host-workspace share - Linux/macOS qemu only. The Windows qemu build
 			// (choco) has virtfs DISABLED, and passing -virtfs makes it exit at start
 			// ("There is no option group 'virtfs'"). Omit it there; the guest keeps
 			// its data in the persisted overlay instead (see overlay handling above).
@@ -375,8 +375,8 @@ export class VMManager {
 	}
 
 	/** `-machine`/`-accel`/`-cpu` args for a specific accelerator.
-	 *  - hvf/kvm: `-cpu host` (host passthrough — required and fast).
-	 *  - whpx: NO `-cpu host` — the Windows Hypervisor Platform rejects/degrades
+	 *  - hvf/kvm: `-cpu host` (host passthrough - required and fast).
+	 *  - whpx: NO `-cpu host` - the Windows Hypervisor Platform rejects/degrades
 	 *    the host model, which makes qemu fall back to (slow) TCG. Letting qemu
 	 *    pick the machine default keeps WHPX engaged and fast.
 	 *  - tcg: `-cpu max` (host is invalid under software emulation). */
@@ -430,7 +430,7 @@ export class VMManager {
 	 *  only carries per-user bits.)
 	 *
 	 *  The seed is a FAT12 image built in pure JS (fatSeed.ts) rather than an
-	 *  ISO — cloud-init reads `user-data`/`meta-data` from any `cidata`-labelled
+	 *  ISO - cloud-init reads `user-data`/`meta-data` from any `cidata`-labelled
 	 *  filesystem, and a hand-built FAT image needs NO external tool, so the
 	 *  built-in VM works on a vanilla Windows box (no oscdimg/mkisofs there). */
 	private async buildSeed(pubPath: string): Promise<string> {
@@ -466,7 +466,7 @@ export class VMManager {
 
 	/** vfkit/macOS cloud-init seed (ISO via hdiutil). Two differences from the
 	 *  qemu seed: (1) a STATIC IP of 192.168.127.2 so gvproxy's fixed forward
-	 *  (host:port -> 192.168.127.2:22) always hits the guest — gvproxy's DHCP
+	 *  (host:port -> 192.168.127.2:22) always hits the guest - gvproxy's DHCP
 	 *  hands out .3/.4/... unpredictably across boots; (2) no 9p mount (VZ has no
 	 *  host share). Built as an ISO because that is the seed format verified to
 	 *  mount under Apple VZ (the pure-JS FAT image is only proven under qemu). */

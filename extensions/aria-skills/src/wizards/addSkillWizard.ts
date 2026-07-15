@@ -17,7 +17,7 @@ import {
 } from '../common/skillsManager';
 
 /**
- * Wizard B — guides the user through adding a new skill from a GitHub
+ * Wizard B - guides the user through adding a new skill from a GitHub
  * URL. The flow is intentionally native: each step is a built-in
  * vscode.window prompt (input box / quick pick) instead of a webview,
  * so it stays available even in restricted profiles.
@@ -132,7 +132,7 @@ export async function runAddSkillWizard(): Promise<void> {
 			// `resolved.cloneUrl` may be a deeper tree URL than the one
 			// the user originally pasted (e.g. when we narrowed a
 			// multi-skill repo down to a specific subdirectory). That's
-			// the right thing to clone — we only want the picked skill.
+			// the right thing to clone - we only want the picked skill.
 			const dest = await cloneFromGithub(resolved.cloneUrl, name);
 			const skill: SkillInfo = {
 				name,
@@ -172,10 +172,10 @@ export async function runAddSkillWizard(): Promise<void> {
 /**
  * Resolve a user-pasted URL into a single skill we can clone. Handles
  * three shapes:
- *  1. URL points DIRECTLY at a SKILL.md location — return as-is.
+ *  1. URL points DIRECTLY at a SKILL.md location - return as-is.
  *  2. URL points at a multi-skill repo (no SKILL.md at path, but other
- *     SKILL.md files exist elsewhere in the tree) — fan out a quick pick.
- *  3. URL is genuinely a non-skill location — surface a clear error.
+ *     SKILL.md files exist elsewhere in the tree) - fan out a quick pick.
+ *  3. URL is genuinely a non-skill location - surface a clear error.
  */
 interface ResolvedSkillSource {
 	/** SKILL.md body text, fetched via raw content. */
@@ -189,7 +189,7 @@ interface ResolvedSkillSource {
 }
 
 async function resolveSkillSource(url: string): Promise<ResolvedSkillSource | undefined> {
-	// Try the user's exact URL first — happy path for "this URL is the
+	// Try the user's exact URL first - happy path for "this URL is the
 	// single skill" case.
 	try {
 		const direct = await fetchSkillMd(url);
@@ -200,7 +200,7 @@ async function resolveSkillSource(url: string): Promise<ResolvedSkillSource | un
 			suggestedName: deriveSkillName(url),
 		};
 	} catch {
-		// Fall through to discovery — this URL didn't expose a SKILL.md
+		// Fall through to discovery - this URL didn't expose a SKILL.md
 		// at the obvious path, but it might be a multi-skill repo root.
 	}
 
@@ -259,7 +259,7 @@ async function pickSkillFromList(owner: string, repo: string, skillSubPaths: str
 		description: p ? `https://github.com/${owner}/${repo}/tree/-/${p}` : undefined,
 	}));
 	const pick = await vscode.window.showQuickPick(items, {
-		title: `${owner}/${repo} — pick a skill (${skillSubPaths.length} found)`,
+		title: `${owner}/${repo} - pick a skill (${skillSubPaths.length} found)`,
 		placeHolder: 'Which SKILL.md do you want to install?',
 		ignoreFocusOut: true,
 		matchOnDescription: true,
@@ -273,7 +273,7 @@ async function pickSkillFromList(owner: string, repo: string, skillSubPaths: str
 async function askForUrl(): Promise<string | undefined> {
 	const placeholder = 'https://github.com/owner/repo or .../tree/branch/path/to/skill';
 	const value = await vscode.window.showInputBox({
-		title: 'Add Skill — Step 1 of 6',
+		title: 'Add Skill - Step 1 of 6',
 		prompt: 'Paste a GitHub URL pointing to the skill\'s repository or subdirectory.',
 		placeHolder: placeholder,
 		ignoreFocusOut: true,
@@ -292,7 +292,7 @@ async function askForUrl(): Promise<string | undefined> {
 
 async function confirmName(initial: string): Promise<string | undefined> {
 	const value = await vscode.window.showInputBox({
-		title: 'Add Skill — Step 2 of 6',
+		title: 'Add Skill - Step 2 of 6',
 		prompt: 'Confirm the skill name (used as the folder name in ~/.claude/skills/).',
 		value: initial,
 		ignoreFocusOut: true,
@@ -326,7 +326,7 @@ async function pickCategory(suggested: string | undefined): Promise<string | und
 	items.push({ label: '$(circle-slash) Skip', description: 'Leave the category blank' });
 
 	const pick = await vscode.window.showQuickPick(items, {
-		title: 'Add Skill — Step 3 of 6',
+		title: 'Add Skill - Step 3 of 6',
 		placeHolder: 'Select a category for this skill.',
 		ignoreFocusOut: true,
 		matchOnDescription: true,
@@ -336,7 +336,7 @@ async function pickCategory(suggested: string | undefined): Promise<string | und
 	}
 	if (pick.label.startsWith('$(add)')) {
 		const custom = await vscode.window.showInputBox({
-			title: 'Add Skill — Step 3 of 6 (custom category)',
+			title: 'Add Skill - Step 3 of 6 (custom category)',
 			prompt: 'Name your new category.',
 			ignoreFocusOut: true,
 			validateInput: (input) => {
@@ -357,7 +357,7 @@ async function pickCategory(suggested: string | undefined): Promise<string | und
 
 async function editDescription(initial: string): Promise<string | undefined> {
 	return vscode.window.showInputBox({
-		title: 'Add Skill — Step 4 of 6',
+		title: 'Add Skill - Step 4 of 6',
 		prompt: 'Edit the short description shown on the skill card. Leave empty to skip.',
 		value: initial,
 		ignoreFocusOut: true,
@@ -365,9 +365,9 @@ async function editDescription(initial: string): Promise<string | undefined> {
 }
 
 async function confirmDependencies(deps: SkillDependency[]): Promise<boolean> {
-	const lines = deps.map(d => `• ${d.name}${d.required ? ' (required)' : ''}${d.reason ? ` — ${d.reason}` : ''}`).join('\n');
+	const lines = deps.map(d => `• ${d.name}${d.required ? ' (required)' : ''}${d.reason ? ` - ${d.reason}` : ''}`).join('\n');
 	const choice = await vscode.window.showWarningMessage(
-		`This skill expects the following dependencies. Aria currently records them in the manifest only — install them yourself if needed.\n\n${lines}`,
+		`This skill expects the following dependencies. Aria currently records them in the manifest only - install them yourself if needed.\n\n${lines}`,
 		{ modal: true },
 		'Continue',
 		'Cancel',
@@ -387,7 +387,7 @@ async function collectEnvVarValues(envVars: EnvVarRequirement[]): Promise<Record
 	const choice = await vscode.window.showQuickPick(
 		[
 			{
-				label: '$(arrow-right) Skip — configure keys later',
+				label: '$(arrow-right) Skip - configure keys later',
 				description: 'Install the skill now and add keys from the Skills tab when ready.',
 			},
 			{
@@ -396,7 +396,7 @@ async function collectEnvVarValues(envVars: EnvVarRequirement[]): Promise<Record
 			},
 		],
 		{
-			title: `Add Skill — Step 5 of 6 (${envVars.length} key(s) needed)`,
+			title: `Add Skill - Step 5 of 6 (${envVars.length} key(s) needed)`,
 			placeHolder: `This skill expects:\n${keysLine}`,
 			ignoreFocusOut: true,
 		},
@@ -412,7 +412,7 @@ async function collectEnvVarValues(envVars: EnvVarRequirement[]): Promise<Record
 	const updates: Record<string, string> = {};
 	for (let i = 0; i < envVars.length; i++) {
 		const v = envVars[i];
-		const stepNo = `Add Skill — Step 5 of 6 (env var ${i + 1}/${envVars.length})`;
+		const stepNo = `Add Skill - Step 5 of 6 (env var ${i + 1}/${envVars.length})`;
 		const existingValue = existing[v.name] ?? '';
 		const promptParts = [
 			v.description ? v.description : `Value for ${v.name}.`,

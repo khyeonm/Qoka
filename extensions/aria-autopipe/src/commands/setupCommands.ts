@@ -14,7 +14,7 @@ import { SshProfile } from '../common/types';
  * We use `vscode.window.showInputBox` / `showQuickPick` instead of a webview
  * form so the user gets the standard VS Code modal experience and we don't
  * have to ship form rendering / validation code in HTML. Each command is
- * idempotent — running it again edits the existing entity in place.
+ * idempotent - running it again edits the existing entity in place.
  */
 
 export function registerSetupCommands(context: vscode.ExtensionContext): void {
@@ -57,7 +57,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 			}
 			const authChoice = await vscode.window.showQuickPick(
 				[
-					{ label: 'SSH agent (recommended — ssh-add already loaded your key)', value: 'agent' as const },
+					{ label: 'SSH agent (recommended - ssh-add already loaded your key)', value: 'agent' as const },
 					{ label: 'SSH key file (point to ~/.ssh/id_ed25519 or similar)', value: 'key' as const },
 				],
 				{ placeHolder: 'How should Aria authenticate?' },
@@ -95,7 +95,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 				repo_path: repoPath,
 			};
 			await services().config.addOrUpdateProfile(profile);
-			// First profile auto-becomes the active one — saves the user a
+			// First profile auto-becomes the active one - saves the user a
 			// follow-up "set active" click in the common case.
 			const cfg = services().config.get();
 			if (!cfg.active_ssh_profile_id) {
@@ -197,7 +197,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 			// unconditionally so the file timestamp moves with every
 			// click, then re-register the MCP server with Claude Code so
 			// any change to SSH/GitHub/repo wiring propagates in one
-			// action — no separate Re-register button to remember.
+			// action - no separate Re-register button to remember.
 			await services().config.update({});
 			const diskPath = services().config.diskConfigPath();
 			// Wrap the re-registration in a progress toast so the user
@@ -205,7 +205,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 			await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: 'Autopipe — re-registering MCP…',
+					title: 'Autopipe - re-registering MCP…',
 					cancellable: false,
 				},
 				async () => {

@@ -12,14 +12,14 @@ import { ROADMAP_SCHEME } from './ariaRoadmapWizardCommon.js';
 /**
  * Editor input for a roadmap canvas.
  *
- * It carries no document of its own — the authoritative roadmap lives in
+ * It carries no document of its own - the authoritative roadmap lives in
  * the aria-roadmap extension and is streamed to the pane via the
  * `onDidChangeRoadmapState` signal. The input exists only so a roadmap
  * can occupy the editor area like any other built-in editor (Welcome,
  * Settings, …) rather than a hand-rolled overlay.
  *
  * A project holds MANY roadmaps (one per hypothesis), so the input is keyed
- * by `roadmapId` — one tab per roadmap, and re-opening the same roadmap
+ * by `roadmapId` - one tab per roadmap, and re-opening the same roadmap
  * focuses its existing tab. We deliberately register NO serializer, so tabs
  * are not restored across window reloads; the sidebar re-opens them on demand.
  */

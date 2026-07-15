@@ -4,13 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Shared helper for running an AI provider CLI in HEADLESS mode — i.e. piping a
+ * Shared helper for running an AI provider CLI in HEADLESS mode - i.e. piping a
  * prompt to the CLI's stdin and collecting stdout, WITHOUT going through the
  * visible chat window. This is the "background CLI" path (as opposed to the
  * chat-reveal path in the workbench's aiProviderChat.ts).
  *
  * Extracted so multiple features can share one implementation:
- *   - aria-skills' SKILL.md analyzer (claudeAnalyzer.ts) — Claude or Codex.
+ *   - aria-skills' SKILL.md analyzer (claudeAnalyzer.ts) - Claude or Codex.
  *   - aria-vcs' snapshot summariser keeps its own copy (separate bundle).
  *
  * Provider selection follows the app-wide `aria.aiProvider` setting via
@@ -42,11 +42,11 @@ export const ARIA_NODE_DIR = path.join(ARIA_HOME, 'node');
 export const ARIA_NPM_PREFIX = path.join(ARIA_HOME, 'npm');
 
 /** Put Aria's provisioned bins on THIS process's PATH so every extension in the
- *  shared extension host — not just aria-skills — can spawn the provider CLIs and
+ *  shared extension host - not just aria-skills - can spawn the provider CLIs and
  *  the Node they need. Codex is an npm script whose `#!/usr/bin/env node` shebang
  *  needs `node`; a non-developer machine often has none, so we prepend Aria's
  *  portable Node (~/.aria/node/bin) plus ~/.local/bin (where claude/codex land).
- *  Idempotent — safe to call from multiple extensions' activate(). */
+ *  Idempotent - safe to call from multiple extensions' activate(). */
 export function ensureAriaBinsOnPath(): void {
 	const wanted: string[] = [];
 	const nodeBin = ariaNodeBinDir();
@@ -83,7 +83,7 @@ export function ariaNodeBinDir(): string | undefined {
 
 /** Directories where a provider CLI may live, most-specific first. Covers the
  *  npm global prefixes (default + Aria's) and, on Unix, the usual bin dirs and
- *  nvm — a GUI-launched Electron process often can't see these via PATH. */
+ *  nvm - a GUI-launched Electron process often can't see these via PATH. */
 function providerDirs(): string[] {
 	if (isWin) {
 		const appdata = process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming');
@@ -163,7 +163,7 @@ export function resolveProviderBin(provider: HeadlessProvider): string | undefin
 }
 
 /** True when the provider's CLI is present on this machine. Note: "installed"
- *  is NOT "logged in" — a headless call can still fail with an auth error, which
+ *  is NOT "logged in" - a headless call can still fail with an auth error, which
  *  the caller must handle (fall back to another provider or a template). */
 export function isProviderInstalled(provider: HeadlessProvider): boolean {
 	return resolveProviderBin(provider) !== undefined;
@@ -203,7 +203,7 @@ export function headlessArgs(provider: HeadlessProvider): string[] {
 
 /**
  * Drive a child process by writing `input` to its stdin and collecting stdout.
- * We can't use child_process.exec's `input` option — it silently drops the
+ * We can't use child_process.exec's `input` option - it silently drops the
  * prompt (the bug that used to make Claude exit with an empty buffer).
  *
  * Rejects on non-zero exit, spawn error, or timeout (the child is SIGTERM'd).
@@ -251,7 +251,7 @@ export function runWithStdin(bin: string, args: string[], input: string, timeout
 /**
  * Run a single headless prompt against the given provider and return stdout.
  * Throws when the provider isn't installed, or on any run failure (auth error,
- * timeout, non-zero exit) — callers decide how to fall back.
+ * timeout, non-zero exit) - callers decide how to fall back.
  */
 export async function runHeadless(provider: HeadlessProvider, prompt: string, timeoutMs = 30000): Promise<string> {
 	const bin = resolveProviderBin(provider);

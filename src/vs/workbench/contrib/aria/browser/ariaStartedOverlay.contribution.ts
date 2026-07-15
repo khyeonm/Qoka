@@ -26,7 +26,7 @@ import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
 import { ConcreteProvider, PROVIDER_EXTENSION_ID, PROVIDER_LABEL, hasPickedAiProvider, markPickedAiProvider, clearPickedAiProvider, providerSettingFor, setPendingInstall } from './ariaAiProviderChoice.js';
 
 // Pre-paint workbench hide. Installing the stylesheet at module-load
-// — before any contribution constructor runs — guarantees the bare
+// - before any contribution constructor runs - guarantees the bare
 // workbench can't flash even momentarily between the workbench's own
 // paint and our overlay's appendChild. The contribution constructor
 // removes this style if it ever decides NOT to show the overlay
@@ -63,7 +63,7 @@ import { ConcreteProvider, PROVIDER_EXTENSION_ID, PROVIDER_LABEL, hasPickedAiPro
 const AUTH_ID = 'aria';
 
 /** Friendly, generic lines cycled under the spinner while a sign-in step runs,
- *  so the wait doesn't feel dead. Not real status — just reassurance. */
+ *  so the wait doesn't feel dead. Not real status - just reassurance. */
 const LOADING_MESSAGES: readonly string[] = [
 	'Getting Aria ready…',
 	'One moment…',
@@ -82,7 +82,7 @@ const SIGNIN_MESSAGES: readonly string[] = [
 /** One-shot sessionStorage flag set right before vscode.openFolder
  *  reloads the workbench, and consumed on the next constructor run
  *  (cleared on first read). Because it self-clears, it can never go
- *  stale and silently skip Started on a future launch — even if the
+ *  stale and silently skip Started on a future launch - even if the
  *  storage backend persists across the electron app close, the first
  *  load consumes the flag and every subsequent load sees nothing. */
 const JUST_PICKED_FLAG = 'aria.started.justPicked';
@@ -92,7 +92,7 @@ const JUST_PICKED_FLAG = 'aria.started.justPicked';
 const RECENT_PICK_KEY = 'aria.started.recentPickAt';
 
 /**
- * Aria's "Started" overlay — a full-viewport surface that locks the
+ * Aria's "Started" overlay - a full-viewport surface that locks the
  * workbench until the user picks a project. Replaces the previous
  * editor-pane approach so the sidebar, menu bar, terminal, and editor
  * tabs underneath are all blocked from interaction.
@@ -103,7 +103,7 @@ const RECENT_PICK_KEY = 'aria.started.recentPickAt';
  *    session or launched from a CLI), the workbench is shown directly.
  *  - Setup (MCP registration, skill install, etc.) runs in the
  *    background while the overlay is up. The "Setting up Aria" loading
- *    overlay (firstRunOverlay) is intentionally skipped here — the
+ *    overlay (firstRunOverlay) is intentionally skipped here - the
  *    Started overlay is the user-facing surface during setup.
  *  - When the user picks Open Project / a recent project, VS Code
  *    reloads the window with the new folder. In the new window:
@@ -124,7 +124,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 *  is open. We only auto-return the picker when WE hid it for that reason. */
 	private suppressedForRoadmap = false;
 
-	// Auth state — the overlay is also the sign-in gate. Until the first check
+	// Auth state - the overlay is also the sign-in gate. Until the first check
 	// resolves we show the loading spinner; then login (no session) or the
 	// signed-in banner + picker (session present).
 	private ariaSession: AuthenticationSession | undefined;
@@ -182,7 +182,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		try { localStorage.removeItem(RECENT_PICK_KEY); } catch { /* ignore */ }
 
 		// This overlay (sign-in + picker) is only for an EMPTY workbench. A folder
-		// window — a just-picked reload or a restored project — shows the workbench
+		// window - a just-picked reload or a restored project - shows the workbench
 		// directly; the login guard (ariaLoginGate) handles sign-in there.
 		if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY) {
 			try { sessionStorage.removeItem(JUST_PICKED_FLAG); } catch { /* ignore */ }
@@ -193,7 +193,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// During the openFolder reload, the very next workbench load
 		// must NOT re-show Started. We hand that off to a sessionStorage
 		// flag that's set just before reload and cleared on first read
-		// — so it's a one-shot, can't go stale, doesn't leak across
+		// - so it's a one-shot, can't go stale, doesn't leak across
 		// genuine app restarts (sessionStorage is per-window-session).
 		try {
 			if (sessionStorage.getItem(JUST_PICKED_FLAG) === '1') {
@@ -343,8 +343,8 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		// Never show the sign-in / mode-and-project picker once a project folder
 		// is open. The picker is for the empty-workbench start only; a folder
-		// window must stay on the project — even if a provider extension failed
-		// to load or wasn't detected — instead of bouncing back to the picker.
+		// window must stay on the project - even if a provider extension failed
+		// to load or wasn't detected - instead of bouncing back to the picker.
 		if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY) {
 			return;
 		}
@@ -389,14 +389,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	private syncRoadmapEditor(): void {
 		const wizardOpen = this.editorService.editors.some(e => e.resource?.scheme === ROADMAP_SCHEME);
 		if (wizardOpen) {
-			// Editor is up — stand the picker down (only if we currently show it).
+			// Editor is up - stand the picker down (only if we currently show it).
 			if (this.overlay) {
 				this.hide();
 				this.suppressedForRoadmap = true;
 			}
 			return;
 		}
-		// Editor gone — bring the picker back, but only if we were the ones who
+		// Editor gone - bring the picker back, but only if we were the ones who
 		// hid it and no project pick is mid-flight (Save triggers a reload).
 		if (this.suppressedForRoadmap) {
 			this.suppressedForRoadmap = false;
@@ -468,7 +468,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		parent.appendChild(title);
 
 		const subtitle = document.createElement('p');
-		subtitle.textContent = 'Aria works with Claude Code or Codex. Pick the one(s) you\'ll use — you can select both. You can change this later in Settings.';
+		subtitle.textContent = 'Aria works with Claude Code or Codex. Pick the one(s) you\'ll use - you can select both. You can change this later in Settings.';
 		subtitle.style.fontSize = '14px';
 		subtitle.style.opacity = '0.7';
 		subtitle.style.margin = '0 0 28px 0';
@@ -522,7 +522,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		row.style.border = '1px solid rgba(127,127,127,0.35)';
 		row.style.borderRadius = '8px';
 
-		// Checkbox is ALWAYS selectable — the user may want an assistant that
+		// Checkbox is ALWAYS selectable - the user may want an assistant that
 		// isn't installed yet; Continue routes such choices to the Marketplace.
 		const cb = document.createElement('input');
 		cb.type = 'checkbox';
@@ -585,8 +585,8 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			return;
 		}
 		// Any checked provider that isn't installed yet is DEFERRED: record it and
-		// advance to the project picker. Its Marketplace page opens later — after
-		// the user picks a project — in that project window (see ariaStartupChat),
+		// advance to the project picker. Its Marketplace page opens later - after
+		// the user picks a project - in that project window (see ariaStartupChat),
 		// not here in the empty picker.
 		const missing = checked.filter(p => !this.aiInstalled?.[p]);
 		setPendingInstall(missing);
@@ -671,9 +671,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		const title = document.createElement('h1');
 		title.textContent = mode === 'easy'
-			? 'Aria — Easy Mode'
+			? 'Aria - Easy Mode'
 			: mode === 'advanced'
-				? 'Aria — Advanced Mode'
+				? 'Aria - Advanced Mode'
 				: 'Welcome to Aria';
 		title.style.fontSize = '32px';
 		title.style.fontWeight = '300';
@@ -796,7 +796,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	}
 
 	private makeLoginButton(text: string, onClick: () => void): HTMLButtonElement {
-		// Neutral, matching the Mode / Start cards — no brand accent colors.
+		// Neutral, matching the Mode / Start cards - no brand accent colors.
 		const btn = document.createElement('button');
 		btn.textContent = text;
 		btn.style.width = '100%';
@@ -820,7 +820,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		if (!s) {
 			return;
 		}
-		// Show the provider (google / orcid) after the name — the session itself has
+		// Show the provider (google / orcid) after the name - the session itself has
 		// no provider (scopes are []), so it comes from the extension via command.
 		const name = (s.account?.label || 'Aria user') + (this.ariaProvider ? ` (${this.ariaProvider})` : '');
 
@@ -1044,7 +1044,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			openLabel: 'Open',
 		});
 		if (!result || result.length === 0) {
-			// User cancelled — keep the overlay up.
+			// User cancelled - keep the overlay up.
 			return;
 		}
 		const folderUri = result[0];
@@ -1061,16 +1061,16 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 */
 	private async createNewProject(): Promise<void> {
 		const target = await this.fileDialogService.showSaveDialog({
-			title: 'New project — choose a location and folder name',
+			title: 'New project - choose a location and folder name',
 			saveLabel: 'Create project',
 		});
 		if (!target) {
-			// User cancelled — keep the overlay up.
+			// User cancelled - keep the overlay up.
 			return;
 		}
 		// Create the folder + a fresh EMPTY roadmap file. We use createEmptyAt
 		// (not saveTo) so the new project never inherits a roadmap that might be
-		// in memory — each project's roadmap is independent.
+		// in memory - each project's roadmap is independent.
 		try {
 			await this.commandService.executeCommand('aria.roadmap.createEmptyAt', target.fsPath);
 		} catch (e) {
@@ -1086,7 +1086,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			// Project reload only), never on a normal restore of an existing project.
 			sessionStorage.setItem('aria.roadmap.pulseOnLoad', '1');
 		} catch {
-			// Storage unavailable — the user can still open the canvas from the
+			// Storage unavailable - the user can still open the canvas from the
 			// Roadmap sidebar once the window loads.
 		}
 		this.pickAndDismiss(() => {
@@ -1224,13 +1224,13 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	}
 }
 
-// Register at `Restored` — the same phase firstRunOverlay uses and
+// Register at `Restored` - the same phase firstRunOverlay uses and
 // is known to fully resolve every service we inject. Earlier phases
 // (`Starting`, `Ready`) silently dropped the contribution because
 // IWorkspacesService / IFileDialogService were not yet instantiated.
 // The flash that previously made Restored unusable is now prevented
 // by the early hide-workbench stylesheet installed at module-load
-// time above — so we get late-but-reliable construction without the
+// time above - so we get late-but-reliable construction without the
 // bare-workbench flicker.
 Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
 	.registerWorkbenchContribution(AriaStartedOverlayContribution, LifecyclePhase.Restored);

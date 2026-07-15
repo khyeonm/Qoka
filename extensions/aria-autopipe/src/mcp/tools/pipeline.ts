@@ -12,7 +12,7 @@ import { windowsToWsl } from '../../common/dockerEnv';
 
 // Pipeline registry / publishing tools. Hub-side operations
 // (search/list/download/upload/publish/unpublish) stay as informational
-// placeholders for now — those land when the Hub UI ships. Local-side
+// placeholders for now - those land when the Hub UI ships. Local-side
 // operations (validate, delete) are wired through SSH.
 
 function requireProfile() {
@@ -74,7 +74,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 					return errorResult('search_pipelines: `query` is required');
 				}
 				const results = await services().hub.searchPipelines(query);
-				return textResult(formatPipelineList(results, `Search "${query}" — ${results.length} result(s):`));
+				return textResult(formatPipelineList(results, `Search "${query}" - ${results.length} result(s):`));
 			} catch (err) {
 				return errorResult(`search_pipelines failed: ${(err as Error).message}`);
 			}
@@ -96,11 +96,11 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 	{
 		name: 'download_pipeline',
 		description: "Download a pipeline by ID from the registry to the remote SSH server. Fetches pipeline files from its GitHub repository. If output_dir is omitted, saves to the configured pipelines directory.\n\n"
-			+ "MANDATORY — SECURITY REVIEW BEFORE DOWNLOAD (two-call protocol):\n"
-			+ "First call (without user_reviewed_warnings=true): this tool fetches every code/config file from the pipeline's GitHub repository (Snakefile, Dockerfile, *.py, *.R, *.sh, *.yaml, *.json, *.md, scripts/*, etc.) and returns them inline as a code dump. It does NOT save anything to the remote server. You MUST silently review every file in the dump for suspicious patterns — overly permissive permissions (chmod 777, SUID/SGID), credentials or tokens hard-coded in source, unexpected outbound network calls, obfuscated or base64-decoded execution, mounting host paths beyond the workspace, --network host or --privileged docker flags, executing remotely fetched scripts without verification, deleting files outside the pipeline workspace, etc. Use your judgement — the goal is to find anything that could harm the user if they run this pipeline.\n"
+			+ "MANDATORY - SECURITY REVIEW BEFORE DOWNLOAD (two-call protocol):\n"
+			+ "First call (without user_reviewed_warnings=true): this tool fetches every code/config file from the pipeline's GitHub repository (Snakefile, Dockerfile, *.py, *.R, *.sh, *.yaml, *.json, *.md, scripts/*, etc.) and returns them inline as a code dump. It does NOT save anything to the remote server. You MUST silently review every file in the dump for suspicious patterns - overly permissive permissions (chmod 777, SUID/SGID), credentials or tokens hard-coded in source, unexpected outbound network calls, obfuscated or base64-decoded execution, mounting host paths beyond the workspace, --network host or --privileged docker flags, executing remotely fetched scripts without verification, deleting files outside the pipeline workspace, etc. Use your judgement - the goal is to find anything that could harm the user if they run this pipeline.\n"
 			+ "Second call (with user_reviewed_warnings=true): performs the actual download to the SSH server. Only call with this flag set when EITHER (a) you found no concerns in the review, OR (b) the user has explicitly confirmed they want to download despite the findings you presented. NEVER skip the review by calling with user_reviewed_warnings=true straight away.\n"
 			+ "If you find concerns, present them to the user IN THEIR LANGUAGE: for each finding show (1) the file path and line number, (2) the offending code snippet, (3) a plain-English explanation of the risk (translated to the user's chat language). Then ask: 'Mark all of this code as safe and download anyway?' (or the equivalent in the user's language). Wait for an explicit yes/no per pipeline.\n"
-			+ "This review is REQUIRED EVERY TIME, even for the same pipeline downloaded again later — never skip it just because you remember a previous approval.\n\n"
+			+ "This review is REQUIRED EVERY TIME, even for the same pipeline downloaded again later - never skip it just because you remember a previous approval.\n\n"
 			+ "FALLBACK ON CLONE FAILURE:\n"
 			+ "If the second call returns a clone-failure error while the SSH connection is still healthy, you may recover by writing each file individually with write_file, using the code dump returned by the first call. This avoids requiring the user to install or authenticate any additional tooling on the server. Use this fallback before asking the user to log in to GitHub, unless the error message explicitly indicates a private repository.",
 		inputSchema: {
@@ -262,7 +262,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 					const updated = JSON.stringify(data, null, 2);
 					await ssh.writeFile(profile, metaPath, updated);
 				} catch {
-					// best-effort — review/move already succeeded
+					// best-effort - review/move already succeeded
 				}
 
 				const fileCount = fileList.split('\n').filter(l => l.length > 0).length;
@@ -278,7 +278,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'upload_pipeline',
-		description: "Upload a pipeline to GitHub. This only pushes code — versioning and tagging happen during publish_pipeline. After this tool succeeds, you MUST call publish_pipeline with the returned github_url to publish to the registry — unless the user explicitly said 'upload to GitHub only'. IMPORTANT: You MUST provide a complete list of ALL files needed to run the pipeline in the 'files' parameter. Include every file you created: Snakefile, Dockerfile, config.yaml, ro-crate-metadata.json, README.md, and any additional files such as scripts/*.py, requirements.txt, .dockerignore, etc. Do NOT omit any file — if the pipeline needs it to run, it must be in the list. REQUIRES GITHUB: If this tool returns a GitHub-login error, tell the user to open the AutoPipe app, connect GitHub from the GitHub panel, and try again. No restart is needed. REPO MODE: Call get_workspace_info first to see the upload mode. If 'single repo' mode, do NOT ask for a repo name — files go to the configured repository under pipelines/ subdirectory. If 'per-pipeline repo' mode, ask the user for a repository name and pass it as repo_name. CRITICAL — PIPELINE NAME RULE: The pipeline name is read from `ro-crate-metadata.json` -> `@graph[@id=='./']` -> `name` field. The GitHub directory path is `pipelines/<that name>/`, and the registry will register under that exact name. If the user asks to publish under a DIFFERENT name from the existing pipeline (e.g., 'publish this as test instead of aptaselect'), you MUST: (1) edit `ro-crate-metadata.json` in pipeline_dir to set `name` to the new value BEFORE calling this tool, (2) verify by reading the file back, (3) only then call upload_pipeline. Failing to update ro-crate FIRST will cause the registry to register under the old name, creating a duplicate version of the wrong pipeline. NEVER trust the in-memory pipeline name from a previous load_pipeline / download_pipeline call — always read the ro-crate file fresh from pipeline_dir. DIRECTORY CONFLICT: If the upload target already contains pipeline files, this tool returns (as a normal success result) guidance describing a conflict — this is NOT a completed upload; treat it as a HARD STOP and do not act automatically. You MUST tell the user (in their language) that a repository/location with this name already contains pipeline files and that uploading on top of them can mix the two and produce an INCOMPLETE or BROKEN pipeline, then ask them to choose: change the repository name (per-pipeline mode) or the pipeline name (single-repo mode), OR upload as-is. You MUST NOT set confirm_overwrite=true on your own or in the same turn — only after the user explicitly chooses 'upload as-is' may you re-call with confirm_overwrite=true. Do NOT mention the Hub or its registry status to the user; it is not relevant to them.",
+		description: "Upload a pipeline to GitHub. This only pushes code - versioning and tagging happen during publish_pipeline. After this tool succeeds, you MUST call publish_pipeline with the returned github_url to publish to the registry - unless the user explicitly said 'upload to GitHub only'. IMPORTANT: You MUST provide a complete list of ALL files needed to run the pipeline in the 'files' parameter. Include every file you created: Snakefile, Dockerfile, config.yaml, ro-crate-metadata.json, README.md, and any additional files such as scripts/*.py, requirements.txt, .dockerignore, etc. Do NOT omit any file - if the pipeline needs it to run, it must be in the list. REQUIRES GITHUB: If this tool returns a GitHub-login error, tell the user to open the AutoPipe app, connect GitHub from the GitHub panel, and try again. No restart is needed. REPO MODE: Call get_workspace_info first to see the upload mode. If 'single repo' mode, do NOT ask for a repo name - files go to the configured repository under pipelines/ subdirectory. If 'per-pipeline repo' mode, ask the user for a repository name and pass it as repo_name. CRITICAL - PIPELINE NAME RULE: The pipeline name is read from `ro-crate-metadata.json` -> `@graph[@id=='./']` -> `name` field. The GitHub directory path is `pipelines/<that name>/`, and the registry will register under that exact name. If the user asks to publish under a DIFFERENT name from the existing pipeline (e.g., 'publish this as test instead of aptaselect'), you MUST: (1) edit `ro-crate-metadata.json` in pipeline_dir to set `name` to the new value BEFORE calling this tool, (2) verify by reading the file back, (3) only then call upload_pipeline. Failing to update ro-crate FIRST will cause the registry to register under the old name, creating a duplicate version of the wrong pipeline. NEVER trust the in-memory pipeline name from a previous load_pipeline / download_pipeline call - always read the ro-crate file fresh from pipeline_dir. DIRECTORY CONFLICT: If the upload target already contains pipeline files, this tool returns (as a normal success result) guidance describing a conflict - this is NOT a completed upload; treat it as a HARD STOP and do not act automatically. You MUST tell the user (in their language) that a repository/location with this name already contains pipeline files and that uploading on top of them can mix the two and produce an INCOMPLETE or BROKEN pipeline, then ask them to choose: change the repository name (per-pipeline mode) or the pipeline name (single-repo mode), OR upload as-is. You MUST NOT set confirm_overwrite=true on your own or in the same turn - only after the user explicitly chooses 'upload as-is' may you re-call with confirm_overwrite=true. Do NOT mention the Hub or its registry status to the user; it is not relevant to them.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -419,11 +419,11 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 										? 'change the `name` field in ro-crate-metadata.json (the dataset node with @id "./") to a unique name and retry'
 										: 'ask the user for a new repository name and call upload_pipeline again with that repo_name';
 									return textResult(
-										`ACTION REQUIRED — NOT UPLOADED YET. This is a HARD STOP: do NOT call upload_pipeline with confirm_overwrite=true on your own or in the same turn. You MUST ask the user first and act on their explicit choice.\n\n`
-										+ `${thing} already contains pipeline files. Tell the user, in their language, and ask them to choose — for example: "A ${choice} with this name already contains pipeline files. If you upload your pipeline on top of them, it can get mixed with the existing files and end up incomplete or broken. We recommend using a different ${choice}. Would you like to change the ${choice}, or upload here as-is?"\n\n`
+										`ACTION REQUIRED - NOT UPLOADED YET. This is a HARD STOP: do NOT call upload_pipeline with confirm_overwrite=true on your own or in the same turn. You MUST ask the user first and act on their explicit choice.\n\n`
+										+ `${thing} already contains pipeline files. Tell the user, in their language, and ask them to choose - for example: "A ${choice} with this name already contains pipeline files. If you upload your pipeline on top of them, it can get mixed with the existing files and end up incomplete or broken. We recommend using a different ${choice}. Would you like to change the ${choice}, or upload here as-is?"\n\n`
 										+ `- If the user wants to change it: ${changeHow} (do NOT set confirm_overwrite).\n`
 										+ '- If the user wants to upload as-is: call upload_pipeline again with confirm_overwrite=true.\n\n'
-										+ 'Do NOT mention the Hub or its registry status to the user — it is not relevant to them.',
+										+ 'Do NOT mention the Hub or its registry status to the user - it is not relevant to them.',
 									);
 								}
 							}
@@ -546,7 +546,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'publish_pipeline',
-		description: "Publish a pipeline from GitHub to the AutoPipe registry. PREREQUISITE: Call upload_pipeline FIRST. The registry reads the pipeline name from ro-crate-metadata.json on GitHub — NOT from any parameter. So the name in ro-crate-metadata.json (in the directory referenced by github_url) is what gets registered. Duplicate detection is handled automatically by this tool. Same name + same author: returns existing pipeline info — you MUST ask the user 'Would you like to register this as a new version of the existing pipeline?' before proceeding. If user agrees, call this tool again with forked_from set to the existing pipeline_id. Same name + different author: returns info for user to choose — either change the pipeline name or mark as 'Based on' by setting forked_from to the existing pipeline_id. CRITICAL — RENAME GUARD: If the user wanted a NEW name (e.g., 'publish as test' for a pipeline originally named aptaselect), the rename must already be reflected in BOTH (a) the GitHub directory path inside the github_url AND (b) the `name` field of ro-crate-metadata.json at that path. Before calling this tool, fetch the ro-crate at github_url and verify the name field matches what the user asked for. If the name does not match, STOP and re-run upload_pipeline with the corrected ro-crate first. Calling publish_pipeline with a stale ro-crate will register under the WRONG name and create a duplicate version of the original pipeline. MANDATORY — LINEAGE CONFIRMATION: BEFORE calling this tool, you MUST fetch ro-crate-metadata.json at the github_url and check whether the dataset node (@id == './') contains an `isBasedOn` field. If it does AND the URL points to this AutoPipe Hub (matches the configured registry_url + '/pipelines/<id>' pattern), you MUST first ask the user a confirmation question in their language. Example (in English; translate to the user's language at runtime): 'It looks like this pipeline was downloaded from <original name>(#<original id>) and modified. Is that correct? If yes, the source (forked_from) will be recorded automatically. If not, the lineage will be cleared and this will be registered as an independent pipeline.' Look up the original pipeline's name and id from the isBasedOn URL (the trailing /pipelines/<id> part) and the registry's get_pipeline endpoint. If the user confirms it IS a fork: call this tool normally without forked_from — auto-detection will populate it. If the user says it is NOT based on the original (independent pipeline): call this tool with forked_from=null AND instruct the user to remove the isBasedOn field from ro-crate-metadata.json so future publishes are clean. Skip this confirmation only when isBasedOn is absent or points to an external (non-Hub) URL.",
+		description: "Publish a pipeline from GitHub to the AutoPipe registry. PREREQUISITE: Call upload_pipeline FIRST. The registry reads the pipeline name from ro-crate-metadata.json on GitHub - NOT from any parameter. So the name in ro-crate-metadata.json (in the directory referenced by github_url) is what gets registered. Duplicate detection is handled automatically by this tool. Same name + same author: returns existing pipeline info - you MUST ask the user 'Would you like to register this as a new version of the existing pipeline?' before proceeding. If user agrees, call this tool again with forked_from set to the existing pipeline_id. Same name + different author: returns info for user to choose - either change the pipeline name or mark as 'Based on' by setting forked_from to the existing pipeline_id. CRITICAL - RENAME GUARD: If the user wanted a NEW name (e.g., 'publish as test' for a pipeline originally named aptaselect), the rename must already be reflected in BOTH (a) the GitHub directory path inside the github_url AND (b) the `name` field of ro-crate-metadata.json at that path. Before calling this tool, fetch the ro-crate at github_url and verify the name field matches what the user asked for. If the name does not match, STOP and re-run upload_pipeline with the corrected ro-crate first. Calling publish_pipeline with a stale ro-crate will register under the WRONG name and create a duplicate version of the original pipeline. MANDATORY - LINEAGE CONFIRMATION: BEFORE calling this tool, you MUST fetch ro-crate-metadata.json at the github_url and check whether the dataset node (@id == './') contains an `isBasedOn` field. If it does AND the URL points to this AutoPipe Hub (matches the configured registry_url + '/pipelines/<id>' pattern), you MUST first ask the user a confirmation question in their language. Example (in English; translate to the user's language at runtime): 'It looks like this pipeline was downloaded from <original name>(#<original id>) and modified. Is that correct? If yes, the source (forked_from) will be recorded automatically. If not, the lineage will be cleared and this will be registered as an independent pipeline.' Look up the original pipeline's name and id from the isBasedOn URL (the trailing /pipelines/<id> part) and the registry's get_pipeline endpoint. If the user confirms it IS a fork: call this tool normally without forked_from - auto-detection will populate it. If the user says it is NOT based on the original (independent pipeline): call this tool with forked_from=null AND instruct the user to remove the isBasedOn field from ro-crate-metadata.json so future publishes are clean. Skip this confirmation only when isBasedOn is absent or points to an external (non-Hub) URL.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -578,7 +578,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				}
 				const { owner: ghOwner, repo: ghRepo, path: subpath } = parsed;
 
-				// 1) Pipeline name discovery — single-repo: parse URL, per-pipeline: read root metadata.
+				// 1) Pipeline name discovery - single-repo: parse URL, per-pipeline: read root metadata.
 				let pipelineName = '';
 				if (isSingleRepo) {
 					const parts = githubUrl.replace(/\/+$/, '').split('/');
@@ -627,7 +627,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 					}
 				}
 
-				// 2) Duplicate detection — search registry for same name.
+				// 2) Duplicate detection - search registry for same name.
 				let resolvedForkedFrom = args.forked_from === undefined ? null : Number(args.forked_from);
 				if ((resolvedForkedFrom === null || !Number.isFinite(resolvedForkedFrom)) && pipelineName) {
 					try {
@@ -839,10 +839,10 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 		name: 'unpublish_pipeline',
 		description: "Remove a pipeline that you previously published to Autopipe Hub. "
 			+ "This deletes (1) the Hub registry record(s), and (2) the corresponding GitHub git tag(s) of the form `refs/tags/<pipeline-name>/v<version>` so the same version can be cleanly republished later. "
-			+ "GITHUB SOURCE FILES ARE NOT DELETED BY THIS TOOL. The `pipelines/<name>/` directory and its files remain in your GitHub repository. If the user asks you to also delete the pipeline source code or files from GitHub, you MUST refuse and tell the user: this tool can only remove the pipeline from the Autopipe Hub and clean up the version tag. To delete the actual source files, the user must do it themselves on GitHub — by deleting the `pipelines/<name>/` directory via the GitHub website, or by deleting the entire repository. "
+			+ "GITHUB SOURCE FILES ARE NOT DELETED BY THIS TOOL. The `pipelines/<name>/` directory and its files remain in your GitHub repository. If the user asks you to also delete the pipeline source code or files from GitHub, you MUST refuse and tell the user: this tool can only remove the pipeline from the Autopipe Hub and clean up the version tag. To delete the actual source files, the user must do it themselves on GitHub - by deleting the `pipelines/<name>/` directory via the GitHub website, or by deleting the entire repository. "
 			+ "Only the pipeline's author can unpublish (the Hub verifies this against your GitHub token). GitHub login is required; if no token is configured the tool will tell you to connect GitHub via the AutoPipe app's GitHub panel. "
 			+ "TWO-CALL PROTOCOL: "
-			+ "First call (without `scope`): the tool fetches the pipeline's version chain — that is, all rows on the Hub with the same name and same author — and returns the list. You MUST present this list to the user IN THEIR LANGUAGE and ask whether to delete only the latest version or every version (example wording in English; translate to the user's language at runtime: 'This pipeline has N version(s) registered. Delete only the latest version, or all versions?'). Wait for an explicit answer. "
+			+ "First call (without `scope`): the tool fetches the pipeline's version chain - that is, all rows on the Hub with the same name and same author - and returns the list. You MUST present this list to the user IN THEIR LANGUAGE and ask whether to delete only the latest version or every version (example wording in English; translate to the user's language at runtime: 'This pipeline has N version(s) registered. Delete only the latest version, or all versions?'). Wait for an explicit answer. "
 			+ "Second call (with `scope='latest'` or `scope='all'`): performs the deletion. Confirm with the user once more in their language before this second call. "
 			+ "If other users have forked this pipeline, their forks remain on the Hub but their 'based on' reference becomes a dangling pointer that the Hub UI shows as 'original pipeline has been deleted'.",
 		inputSchema: {
@@ -948,7 +948,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 					+ results.join('\n')
 					+ '\n\n'
 					+ `Note: GitHub source files in \`pipelines/${pname0}/\` remain in your repository. `
-					+ 'This tool does not delete those files — if the user wants to remove them, they must do so directly from GitHub '
+					+ 'This tool does not delete those files - if the user wants to remove them, they must do so directly from GitHub '
 					+ `(delete the \`pipelines/${pname0}/\` directory via the GitHub website, or delete the entire repository). `
 					+ 'Future uploads of the same pipeline name will overwrite these files; if the user plans to publish a different pipeline under the same name, '
 					+ 'advise them to change the pipeline name in `ro-crate-metadata.json` to avoid mixing files from this version with the new one.',
@@ -962,14 +962,14 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 		name: 'delete_pipeline',
 		description: "Delete a pipeline's source code directory and its Docker image/containers from the remote server. "
 			+ "ONLY call this when the user has explicitly said they want to delete the local pipeline code (e.g. 'delete the pipeline', 'remove the pipeline'). "
-			+ "Do NOT call this during build errors, execution failures, code generation, or any troubleshooting — use cleanup_failed for those cases. "
+			+ "Do NOT call this during build errors, execution failures, code generation, or any troubleshooting - use cleanup_failed for those cases. "
 			+ "Before calling this tool, ask the user once to confirm (e.g. 'Are you sure you want to delete the pipeline source code?'), then call this tool immediately after confirmation. Do NOT ask the user to run commands manually. "
 			+ "Uses Docker to handle root-owned files so permissions are never an issue.",
 		inputSchema: {
 			type: 'object',
 			properties: {
 				pipeline_dir: { type: 'string', description: 'Full path to the pipeline source directory on the remote server' },
-				image_name: { type: 'string', description: 'Docker image name to remove along with the pipeline. Optional — omit if no image was built.' },
+				image_name: { type: 'string', description: 'Docker image name to remove along with the pipeline. Optional - omit if no image was built.' },
 			},
 			required: ['pipeline_dir'],
 		},

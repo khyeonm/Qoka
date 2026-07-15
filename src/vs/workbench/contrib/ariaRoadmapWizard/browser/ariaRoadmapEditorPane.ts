@@ -27,7 +27,7 @@ const ZOOM_MAX = 2.5;
 // Starter prompt shown on the empty canvas. The user pastes it into the
 // Claude Code chat (Claude Code's sidebar chat can't be seeded programmatically),
 // which kicks the model into the facilitator role. Because it arrives as a real
-// user message — not passive MCP `instructions` — the model reliably adopts it.
+// user message - not passive MCP `instructions` - the model reliably adopts it.
 const STARTER_PROMPT = [
 	'I want to build ___. Help me complete this roadmap through brainstorming.',
 	'Don\'t write any code yet. First read get_roadmap_guide, then ask me one question at a time',
@@ -60,7 +60,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	private sequentialBar: HTMLElement | undefined;
 	private saveStatus: HTMLElement | undefined;
 	private starterCard: HTMLElement | undefined;
-	/** Which roadmap this pane currently shows — set on setInput. Used to filter
+	/** Which roadmap this pane currently shows - set on setInput. Used to filter
 	 *  the shared state-change channel and to re-assert the active roadmap. */
 	private currentRoadmapId: string | undefined;
 	private canvasWrap: HTMLElement | undefined;
@@ -77,7 +77,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	// proposal exists, the review bar focuses the FIRST one (proposals come
 	// sorted by creation time) and the user decides Accept / Edit / Delete on
 	// it. Accepting/rejecting shrinks the list, so the next proposal becomes
-	// the focus automatically — no frozen queue/index to drift out of sync as
+	// the focus automatically - no frozen queue/index to drift out of sync as
 	// the AI streams proposals in one at a time.
 
 	constructor(
@@ -91,7 +91,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	) {
 		super(AriaRoadmapEditorPane.ID, group, telemetryService, themeService, storageService);
 
-		// Subscribe once for the pane's lifetime — the handler just re-renders
+		// Subscribe once for the pane's lifetime - the handler just re-renders
 		// against the latest snapshot, so it is safe across input changes.
 		this._register(onDidChangeRoadmapState(snapshot => this.onStateChange(snapshot)));
 	}
@@ -108,7 +108,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		container.style.fontFamily = 'var(--vscode-font-family, system-ui, sans-serif)';
 		container.style.overflow = 'hidden';
 
-		// Header — title hint + Cancel / Save & Accept. No window-control
+		// Header - title hint + Cancel / Save & Accept. No window-control
 		// padding hack here: the editor area never underlaps the OS title bar.
 		const header = document.createElement('header');
 		header.style.display = 'flex';
@@ -128,7 +128,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		headerActions.style.display = 'flex';
 		headerActions.style.alignItems = 'center';
 		headerActions.style.gap = '12px';
-		// The roadmap auto-persists on every change — there is no explicit Save
+		// The roadmap auto-persists on every change - there is no explicit Save
 		// action, just a passive indicator so the user knows their work is kept.
 		const saveStatus = document.createElement('span');
 		saveStatus.style.fontSize = '12px';
@@ -140,7 +140,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		header.appendChild(headerActions);
 		container.appendChild(header);
 
-		// Canvas — an SVG that fills the viewport; pan/zoom are done by moving the
+		// Canvas - an SVG that fills the viewport; pan/zoom are done by moving the
 		// viewBox (the "camera"), not by scrolling, so it behaves like an
 		// infinite canvas.
 		const canvasWrap = document.createElement('section');
@@ -158,7 +158,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		canvasWrap.appendChild(svg);
 		this.canvasSvg = svg;
 
-		// Starter card — floats over the empty canvas with a copyable prompt the
+		// Starter card - floats over the empty canvas with a copyable prompt the
 		// user pastes into the Claude Code chat to begin the brainstorming.
 		// Hidden as soon as the roadmap has any node.
 		const starter = this.buildStarterCard();
@@ -167,7 +167,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 
 		// Background drag = pan. Ctrl+drag (drag up = in, down = out) or Ctrl+wheel
 		// = zoom; plain wheel pans vertically. Drags that start on a node/button
-		// pan too — the camera ignores their position — but their click still
+		// pan too - the camera ignores their position - but their click still
 		// fires if the pointer doesn't move, so node clicks keep working.
 		canvasWrap.style.cursor = 'grab';
 		let panning = false;
@@ -284,7 +284,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		await super.setInput(input, options, context, token);
 		this.currentRoadmapId = input instanceof AriaRoadmapEditorInput ? input.roadmapId : undefined;
 		// Make this tab's roadmap the ACTIVE one and use the returned snapshot as
-		// the initial render — so canvas edits and chat tools target it.
+		// the initial render - so canvas edits and chat tools target it.
 		// onDidChangeRoadmapState handles updates after. Guarded: if the
 		// aria-roadmap extension hasn't activated yet (e.g. the editor auto-opens
 		// on a fresh project window) the command may be missing; we then render
@@ -300,7 +300,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 				this.snapshot = initial;
 			}
 		} catch {
-			// extension not ready — render empty for now
+			// extension not ready - render empty for now
 		}
 		this.renderAll();
 	}
@@ -328,7 +328,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		super.focus();
 		this.container?.focus();
 		// Re-assert this roadmap as the active one so canvas edits and chat tools
-		// target it — another tab or the chat may have switched active meanwhile.
+		// target it - another tab or the chat may have switched active meanwhile.
 		// The command no-ops (no re-render) when this roadmap is already active.
 		if (this.currentRoadmapId) {
 			void this.commandService.executeCommand('aria.roadmap.switchActive', this.currentRoadmapId);
@@ -350,7 +350,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		this.renderAll();
 	}
 
-	/** The proposal currently under review — the first pending one (proposals
+	/** The proposal currently under review - the first pending one (proposals
 	 *  arrive sorted by creation time). Undefined when there is nothing to review. */
 	private currentProposalId(): string | undefined {
 		return this.snapshot.proposed[0]?.id;
@@ -378,7 +378,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		const svgNS = 'http://www.w3.org/2000/svg';
 		const laid = this.computeLayout();
 
-		// Column headers — only the four named stages get a label; deeper
+		// Column headers - only the four named stages get a label; deeper
 		// columns (sub-details) are intentionally unnamed. Centered over the card.
 		// The Goal header also carries the "+" to add a new goal.
 		this.snapshot.columnLabels.forEach((label, idx) => {
@@ -426,7 +426,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 			this.drawNode(svg, node);
 		}
 
-		// "+ add child" buttons on every committed node — the tree can extend
+		// "+ add child" buttons on every committed node - the tree can extend
 		// arbitrarily deep, so even Detail (and beyond) nodes can sprout children.
 		for (const node of laid) {
 			if (node.proposed) { continue; }
@@ -469,7 +469,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		g.appendChild(rect);
 
 		// Full title, wrapped over as many lines as it needs, vertically centered
-		// in the card. Description is not shown here — it opens in the edit panel.
+		// in the card. Description is not shown here - it opens in the edit panel.
 		const label = document.createElementNS(svgNS, 'text');
 		label.setAttribute('fill', 'var(--vscode-foreground, #cccccc)');
 		label.setAttribute('font-size', '13');
@@ -485,7 +485,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		});
 		g.appendChild(label);
 
-		// kebab (⋮) — top-right corner. Opens a small action menu.
+		// kebab (⋮) - top-right corner. Opens a small action menu.
 		const kebab = document.createElementNS(svgNS, 'text');
 		kebab.textContent = '⋮';
 		kebab.setAttribute('x', String(COLUMN_WIDTH - 16));
@@ -538,7 +538,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		svg.appendChild(g);
 	}
 
-	/** The "+" next to the Goal column header — the single, uncluttered way to
+	/** The "+" next to the Goal column header - the single, uncluttered way to
 	 *  add a top-level goal (replaces the old below-node button / placeholder). */
 	private drawHeaderAddButton(svg: SVGSVGElement, cx: number, cy: number): void {
 		const svgNS = 'http://www.w3.org/2000/svg';
@@ -575,7 +575,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 
 		const remaining = this.snapshot.proposed.length;
 		if (remaining === 0) {
-			// No proposals left to review — the bar disappears on its own.
+			// No proposals left to review - the bar disappears on its own.
 			bar.style.display = 'none';
 			return;
 		}
@@ -603,7 +603,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 
 	private renderSaveButton(): void {
 		if (!this.saveStatus) { return; }
-		// Passive indicator only — the roadmap auto-saves. Show the "saved" note
+		// Passive indicator only - the roadmap auto-saves. Show the "saved" note
 		// once there is at least one node worth saving.
 		const hasContent = this.snapshot.committed.length > 0 || this.snapshot.proposed.length > 0;
 		this.saveStatus.textContent = hasContent ? '✓ Saved automatically' : '';
@@ -652,7 +652,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 			menu.appendChild(row);
 		}
 
-		// Mount inside the pane container — `position: fixed` keeps it anchored
+		// Mount inside the pane container - `position: fixed` keeps it anchored
 		// to the cursor and it is cleaned up with the pane.
 		(this.container ?? document.body).appendChild(menu);
 
@@ -861,7 +861,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	// Lifecycle ----------------------------------------------------------
 
 	private async deleteRoadmap(): Promise<void> {
-		// Destructive — confirm before wiping every node. The project folder
+		// Destructive - confirm before wiping every node. The project folder
 		// itself stays; only the roadmap content is cleared (and the now-empty
 		// state auto-persists, so the saved file is emptied too).
 		const { confirmed } = await this.dialogService.confirm({

@@ -1,2 +1,2 @@
-# Real secrets / local config — never commit. Use .env.example as the template.
+# Real secrets / local config - never commit. Use .env.example as the template.
 .env

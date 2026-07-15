@@ -34,7 +34,7 @@
 	margin: 0 0 24px 0;
 }
 
-/* Mode section — side-by-side cards */
+/* Mode section - side-by-side cards */
 .aria-mode-grid {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
@@ -100,7 +100,7 @@
 	opacity: 0.7;
 }
 
-/* Start section — action row with two big cards */
+/* Start section - action row with two big cards */
 .aria-start-action-row {
 	display: grid;
 	grid-template-columns: 1fr 1fr;

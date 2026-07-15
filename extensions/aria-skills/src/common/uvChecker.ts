@@ -12,14 +12,14 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 /**
- * Detect and (if needed) install `uv` — the Python package manager every
+ * Detect and (if needed) install `uv` - the Python package manager every
  * science skill we ship depends on. uv handles per-script virtualenvs and
  * dependency resolution transparently, so without it `uv run script.py`
  * would fail with ImportError and the user would have no recourse.
  *
  * Detection is conservative: PATH first, then a handful of well-known
  * install locations the Aria launcher's sparse PATH may miss. Install is
- * the official `astral.sh` shell installer — same script the upstream uv
+ * the official `astral.sh` shell installer - same script the upstream uv
  * docs point at.
  */
 

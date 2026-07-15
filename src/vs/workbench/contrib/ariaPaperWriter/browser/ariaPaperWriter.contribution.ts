@@ -100,7 +100,7 @@ CommandsRegistry.registerCommand('aria.paperWriter.open', async (accessor, resou
 CommandsRegistry.registerCommand('aria.paperWriter.delete', async (accessor, resource?: unknown) => {
 	const uri = reviveUri(resource);
 	if (!uri) { return; }
-	// Capture services BEFORE the await — the accessor is only valid synchronously.
+	// Capture services BEFORE the await - the accessor is only valid synchronously.
 	const dialogService = accessor.get(IDialogService);
 	const fileService = accessor.get(IFileService);
 	const { confirmed } = await dialogService.confirm({

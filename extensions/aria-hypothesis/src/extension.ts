@@ -10,7 +10,7 @@ import { registerWithCodex } from './registration/codexMcp';
 
 /**
  * Hypothesis Search extension entry. Boots the hypothesis MCP server and
- * registers it with Claude Code + Codex. Pure MCP — no sidebar/commands.
+ * registers it with Claude Code + Codex. Pure MCP - no sidebar/commands.
  *
  * The MCP exposes search_hypothesis (grep the corpus) and
  * get_hypothesis_fulltext (wider read). The actual corpus lives on the
@@ -71,7 +71,7 @@ async function bootMcp(): Promise<void> {
 	// Join the workbench startup overlay's tracking so the user can't poke
 	// Claude Code mid-registration.
 	await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-hypothesis-mcp');
-	let summary = 'Hypothesis Search MCP — already configured';
+	let summary = 'Hypothesis Search MCP - already configured';
 	let changed = false;
 	try {
 		const port = await mcpServer.start();
@@ -83,7 +83,7 @@ async function bootMcp(): Promise<void> {
 		changed = await registerProviders(port);
 		summary = changed
 			? 'Hypothesis Search MCP registered'
-			: 'Hypothesis Search MCP — already configured';
+			: 'Hypothesis Search MCP - already configured';
 	} catch (err) {
 		console.error('[aria-hypothesis] MCP boot failed:', (err as Error).message);
 		summary = `Hypothesis Search MCP failed: ${(err as Error).message}`;
@@ -100,7 +100,7 @@ async function bootMcp(): Promise<void> {
 
 export async function deactivate(): Promise<void> {
 	console.log('[aria-hypothesis] deactivate()');
-	// Deliberately DO NOT unregister from Claude / Codex on shutdown — the
+	// Deliberately DO NOT unregister from Claude / Codex on shutdown - the
 	// registration persists across runs (same pattern as the other Aria MCPs).
 	if (mcpServer) {
 		await mcpServer.stop();

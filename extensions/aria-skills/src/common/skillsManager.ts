@@ -24,13 +24,13 @@ import { writeEnv } from './envManager';
 
 // Prefer execFile (argv array, no shell) for anything with file PATHS: it needs
 // no quoting, so paths with spaces (e.g. `C:\Users\kyung min\...`) work on
-// Windows cmd.exe too — plain `exec` with our Unix-style single quotes broke
+// Windows cmd.exe too - plain `exec` with our Unix-style single quotes broke
 // there ("Too many arguments" / "Failed to open ''...''").
 const execFileAsync = promisify(execFile);
 
 /**
  * Manages the on-disk skill directories under ~/.claude/skills/. Aria's
- * manifest stays in sync via skillManifest.ts — the two together are the
+ * manifest stays in sync via skillManifest.ts - the two together are the
  * single source of truth for "which skills does Aria know about".
  *
  * Skill install is currently git-clone-only. Future sources (local path,
@@ -39,7 +39,7 @@ const execFileAsync = promisify(execFile);
 
 const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills');
 
-/** Parsed pieces of a GitHub URL — what we need to drive git operations. */
+/** Parsed pieces of a GitHub URL - what we need to drive git operations. */
 interface GithubLocation {
 	owner: string;
 	repo: string;
@@ -80,7 +80,7 @@ export function parseGithubUrl(url: string): GithubLocation | null {
 }
 
 /**
- * Derive the skill directory name from a GitHub URL — the last path
+ * Derive the skill directory name from a GitHub URL - the last path
  * component, with no leading punctuation. Used as the on-disk folder name
  * under ~/.claude/skills/.
  */
@@ -121,7 +121,7 @@ export function ensureSkillsDir(): void {
  * has no sub-path we clone the whole repo; when it has one we do a sparse
  * checkout so we don't pull megabytes of unrelated content.
  *
- * Throws on any failure — the caller is expected to surface a readable
+ * Throws on any failure - the caller is expected to surface a readable
  * error message to the user.
  */
 export async function cloneFromGithub(
@@ -149,19 +149,19 @@ export async function cloneFromGithub(
 	const branch = parsed.branch;
 	const subPath = parsed.subPath;
 
-	// Prefer git (fast, sparse), but a non-developer machine — especially on
-	// Windows — often has NO git on PATH, which is why default skills like
+	// Prefer git (fast, sparse), but a non-developer machine - especially on
+	// Windows - often has NO git on PATH, which is why default skills like
 	// paper-lookup silently failed to install there. Fall back to a plain HTTPS
 	// tarball download (needs no git, just the `tar` that ships with Windows 10+,
 	// macOS and Linux) so skill install works everywhere.
 	try {
 		if (!subPath) {
-			// Full clone — simplest path. depth=1 so the .git dir stays small.
+			// Full clone - simplest path. depth=1 so the .git dir stays small.
 			const branchArgs = branch ? ['--branch', branch] : [];
 			await execFileAsync('git', ['clone', '--depth', '1', ...branchArgs, repoUrl, dest], { timeout: 60000 });
 			return dest;
 		}
-		// Sparse checkout — clone with --no-checkout, set sparse cone to the
+		// Sparse checkout - clone with --no-checkout, set sparse cone to the
 		// sub-path, then checkout. Saves bandwidth on large repos.
 		const branchArgs = branch ? ['-b', branch] : [];
 		try {
@@ -198,7 +198,7 @@ async function fetchGithubTarball(parsed: { owner: string; repo: string; branch?
 		await httpsDownload(url, tgz);
 		await execFileAsync('tar', ['-xzf', tgz, '-C', tmpRoot], { timeout: 60000 });
 		// The archive's single top-level dir is `${repo}-<resolved-ref>`, whose
-		// exact name we can't predict for HEAD — so pick the one extracted dir.
+		// exact name we can't predict for HEAD - so pick the one extracted dir.
 		const dirs = fs.readdirSync(tmpRoot, { withFileTypes: true }).filter(e => e.isDirectory());
 		if (!dirs.length) {
 			throw new Error('Downloaded tarball contained no directory.');
@@ -241,7 +241,7 @@ function httpsDownload(url: string, dest: string, redirects = 0): Promise<void> 
 
 /**
  * Force-remove a directory tree. Tries Node's recursive rmSync first,
- * then falls back to `rm -rf` via the shell when that fails — git's
+ * then falls back to `rm -rf` via the shell when that fails - git's
  * pack objects are sometimes written read-only and rmSync chokes on
  * them with ENOTEMPTY (the recursive walker can't unlink the
  * read-only blob, so the parent directory stays non-empty).
@@ -284,11 +284,11 @@ function hardRemove(target: string): void {
 /**
  * Install a skill by copying an app-bundled directory into
  * ~/.claude/skills/<name>/. Used for default skills that ship WITH Aria (e.g.
- * iterative-paper-defense) instead of being cloned from GitHub — no network.
+ * iterative-paper-defense) instead of being cloned from GitHub - no network.
  */
 /**
  * Resolve an app-bundled skill path (relative to the aria-skills extension root,
- * e.g. 'skills/iterative-paper-defense') to an absolute path — robust to how the
+ * e.g. 'skills/iterative-paper-defense') to an absolute path - robust to how the
  * extension was compiled (tsc keeps out/<subdir>/, so __dirname isn't the root).
  */
 export function resolveBundledPath(rel: string): string {
@@ -376,7 +376,7 @@ export function resyncBundledSkills(): void {
 				mirrorSkillToProviders(spec.name);
 			}
 		} catch {
-			// best-effort — a stale copy is harmless; the skill still works.
+			// best-effort - a stale copy is harmless; the skill still works.
 		}
 	}
 }
@@ -418,7 +418,7 @@ export async function uninstall(name: string): Promise<void> {
 
 	try {
 		// writeEnv's removeKeys param already handles the "drop the
-		// line entirely, preserve the rest" case — see envManager.ts.
+		// line entirely, preserve the rest" case - see envManager.ts.
 		writeEnv({}, orphaned);
 	} catch (err) {
 		// Best-effort: if we can't write the env file, the manifest is
@@ -436,7 +436,7 @@ export async function reinstall(
 	await uninstall(name);
 	const existing = findSkill(name);
 	// App-bundled skills (source "bundled:<relPath>") re-copy from the bundle,
-	// never GitHub — they update with the app, not over the network.
+	// never GitHub - they update with the app, not over the network.
 	if (source.startsWith('bundled:')) {
 		const rel = source.slice('bundled:'.length);
 		return installFromLocal(resolveBundledPath(rel), existing?.name ?? name);
@@ -447,7 +447,7 @@ export async function reinstall(
 
 /**
  * List the skills currently recorded in the manifest. Note this does NOT
- * scan the disk — the manifest is the source of truth. Use
+ * scan the disk - the manifest is the source of truth. Use
  * `reconcileWithDisk()` to repair drift if a user deletes a skill
  * directory by hand.
  */
@@ -461,7 +461,7 @@ export function listManaged(): SkillInfo[] {
  * / `---|---` fragments as the "description" (the regex fallback ran before a CLI
  * could produce a clean summary, and the result was cached in the manifest).
  * Re-parse with the current, table-aware parser and replace ONLY the garbage
- * descriptions — genuine prose / LLM-generated ones are left untouched. Fast,
+ * descriptions - genuine prose / LLM-generated ones are left untouched. Fast,
  * offline, best-effort. Runs on startup.
  */
 export function cleanupEnvDescriptions(): void {
@@ -480,7 +480,7 @@ export function cleanupEnvDescriptions(): void {
 				isGarbage(v.description) ? { ...v, description: fresh.get(v.name) } : v);
 			updateSkill(skill.name, { envVars });
 		} catch {
-			// best-effort per skill — a stale description is harmless.
+			// best-effort per skill - a stale description is harmless.
 		}
 	}
 }
@@ -488,7 +488,7 @@ export function cleanupEnvDescriptions(): void {
 /**
  * Drop manifest entries whose on-disk directory disappeared (e.g. the
  * user `rm -rf`'d ~/.claude/skills/foo). Doesn't add entries for skills
- * that exist on disk but aren't in the manifest — those were likely
+ * that exist on disk but aren't in the manifest - those were likely
  * installed by another tool and Aria shouldn't claim them.
  */
 export function reconcileWithDisk(): SkillInfo[] {
@@ -516,7 +516,7 @@ export function recordSkill(skill: SkillInfo): SkillInfo {
 
 /**
  * Read a skill's SKILL.md content from disk. Returns null when the file
- * is missing — happens when the skill was cloned successfully but the
+ * is missing - happens when the skill was cloned successfully but the
  * upstream repo doesn't follow the SKILL.md convention.
  */
 export function readSkillMd(name: string): string | null {

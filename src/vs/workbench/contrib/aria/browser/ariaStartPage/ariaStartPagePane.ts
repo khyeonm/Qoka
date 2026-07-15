@@ -72,10 +72,10 @@ export class AriaStartPagePane extends EditorPane {
 		append(this.container, $('h1', undefined, title));
 		append(this.container, $('p.subtitle', undefined, tagline));
 
-		// Mode section — two large cards with descriptions.
+		// Mode section - two large cards with descriptions.
 		this.renderModeSection(this.container, mode);
 
-		// Start section — New Project / Open Project / Recent.
+		// Start section - New Project / Open Project / Recent.
 		await this.renderStartSection(this.container);
 	}
 
@@ -83,12 +83,12 @@ export class AriaStartPagePane extends EditorPane {
 		switch (mode) {
 			case 'easy':
 				return {
-					title: localize('aria.startPage.headline.easy', "Aria — Easy Mode"),
+					title: localize('aria.startPage.headline.easy', "Aria - Easy Mode"),
 					tagline: localize('aria.startPage.tagline.easy', "Simplified interface focused on research workflows."),
 				};
 			case 'advanced':
 				return {
-					title: localize('aria.startPage.headline.advanced', "Aria — Advanced Mode"),
+					title: localize('aria.startPage.headline.advanced', "Aria - Advanced Mode"),
 					tagline: localize('aria.startPage.tagline.advanced', "Full IDE experience with every VS Code feature."),
 				};
 			default:
@@ -152,7 +152,7 @@ export class AriaStartPagePane extends EditorPane {
 					undefined,
 					localize(
 						'aria.startPage.mode.status.unset',
-						"No mode chosen yet — pick Easy or Advanced above.",
+						"No mode chosen yet - pick Easy or Advanced above.",
 					),
 				),
 			);
@@ -162,7 +162,7 @@ export class AriaStartPagePane extends EditorPane {
 	private async renderStartSection(parent: HTMLElement): Promise<void> {
 		append(parent, $('h2', undefined, localize('aria.startPage.start', "Start")));
 
-		// Top row — New Project + Open Project... side by side.
+		// Top row - New Project + Open Project... side by side.
 		const actionRow = append(parent, $('.aria-start-action-row'));
 
 		const newCard = append(actionRow, $('button.aria-start-card')) as HTMLButtonElement;
@@ -173,7 +173,7 @@ export class AriaStartPagePane extends EditorPane {
 			"Start a fresh research project with AI guidance.",
 		)));
 		newCard.onclick = () => {
-			// Chat-driven new-project flow is not implemented yet — surface
+			// Chat-driven new-project flow is not implemented yet - surface
 			// a brief notice instead of silently doing nothing.
 			this.notificationService.notify({
 				severity: Severity.Info,
@@ -210,7 +210,7 @@ export class AriaStartPagePane extends EditorPane {
 			return;
 		}
 
-		// Cap the visible list at 5 — the rest are reachable through the
+		// Cap the visible list at 5 - the rest are reachable through the
 		// standard "Open Recent" picker that VS Code already ships.
 		const VISIBLE_LIMIT = 5;
 		const all = recents.workspaces;

@@ -16,7 +16,7 @@ import { PluginService } from '../plugins/pluginService';
  * `services()`.
  *
  * Keeping the lookup synchronous (no async lazy init) means the lifecycle
- * is fully in extension.ts's hands — handlers either get the live services
+ * is fully in extension.ts's hands - handlers either get the live services
  * or fail fast.
  */
 export interface AriaServices {
@@ -35,7 +35,7 @@ export function setServices(s: AriaServices): void {
 
 export function services(): AriaServices {
 	if (!_services) {
-		throw new Error('AriaServices not initialised — extension.activate() did not run');
+		throw new Error('AriaServices not initialised - extension.activate() did not run');
 	}
 	return _services;
 }

@@ -15,32 +15,32 @@
  *
  * To retune the accent, change the single `--aria-accent` value below.
  */
-/* Hide the Accounts (user) icon from the activity bar in easy mode — the account
+/* Hide the Accounts (user) icon from the activity bar in easy mode - the account
    lives in the bottom-right status bar instead. The gear (Settings) stays. */
 .monaco-workbench.aria-mode-easy .activitybar .monaco-action-bar .action-item:has(.codicon-accounts-view-bar-icon) {
 	display: none;
 }
 
 /* Hide the bottom panel (Terminal / Problems / Output / Ports / Debug Console) in
-   easy mode — developer tooling. The panel is closed by default, so this only
+   easy mode - developer tooling. The panel is closed by default, so this only
    matters if it were opened. Advanced mode is unaffected. */
 .monaco-workbench.aria-mode-easy .part.panel {
 	display: none;
 }
 
-/* Title bar: the left "Aria" brand is the title in easy mode — hide the long
+/* Title bar: the left "Aria" brand is the title in easy mode - hide the long
    center window title ("… - aria - Aria") so only "Aria" shows up top. */
 .monaco-workbench.aria-mode-easy .titlebar-center .window-title {
 	display: none;
 }
 
-/* Chat is always available in easy mode — hide the Secondary Side Bar close (x)
+/* Chat is always available in easy mode - hide the Secondary Side Bar close (x)
    so the Claude / Codex chat panel can't be dismissed. */
 .monaco-workbench.aria-mode-easy .part.auxiliarybar .action-item:has(.codicon-auxiliarybar-close) {
 	display: none;
 }
 
-/* Hide the "Maximize Secondary Side Bar" (⤢) button in easy mode — window-layout
+/* Hide the "Maximize Secondary Side Bar" (⤢) button in easy mode - window-layout
    chrome the researcher doesn't need. Removing the maximize entry point also keeps
    the panel out of the maximized state (so its restore counterpart never shows). */
 .monaco-workbench.aria-mode-easy .part.auxiliarybar .action-item:has(.codicon-auxiliarybar-maximize) {
@@ -54,7 +54,7 @@
 
 /* Surfaces rendered as direct <body> children (the launch/Started overlay,
    dialogs) live OUTSIDE `.monaco-workbench`, so they don't inherit the theme's
-   `--vscode-*` base tokens — their `var(--vscode-foreground, #cccccc)` fallbacks
+   `--vscode-*` base tokens - their `var(--vscode-foreground, #cccccc)` fallbacks
    render nearly invisible on the white easy background. Give <body> light base
    tokens in easy mode so that text/icons are legible. Scoped to <body> only, so
    the workbench (which gets its tokens from the theme) is untouched. */
