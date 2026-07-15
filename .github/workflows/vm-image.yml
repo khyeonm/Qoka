@@ -53,33 +53,41 @@ jobs:
         run: |
           set -euxo pipefail
           sudo chmod 0644 /boot/vmlinuz-* || true
-          # libguestfs >= 1.54 defaults to passt for the appliance's user-mode
-          # network, which fails on GitHub runners ("passt exited with status 1")
-          # and breaks the --run-command docker install (needs internet). Hide
-          # passt so libguestfs falls back to qemu's built-in SLIRP user net.
-          sudo mv /usr/bin/passt /usr/bin/passt.disabled 2>/dev/null || true
           # Give docker room at runtime; cloud-init growpart expands the root
           # partition to fill this on first boot.
           qemu-img resize base.qcow2 20G
-          # Install docker + enable it so the daemon is up right after boot.
-          # groupadd here so the seed's `usermod -aG docker aria` succeeds.
-          # Route the kernel console to hvc0 too (vfkit's virtio console) while
-          # keeping ttyS0 (qemu's serial) - so boot logs are visible on BOTH
-          # backends. Without hvc0 a vfkit boot is a black box.
-          # The guest's /etc/resolv.conf points at the systemd-resolved stub
-          # (127.0.0.53), which isn't running inside the appliance, so DNS fails
-          # ("Could not resolve host"). Point it at public DNS reachable through
-          # SLIRP's NAT before anything that needs the network. Download the
-          # docker script to a file first so a fetch failure errors loudly
-          # instead of being swallowed by the `| sh` pipe.
-          sudo -E virt-customize -a base.qcow2 \
-            --run-command 'rm -f /etc/resolv.conf; printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf' \
-            --run-command 'curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh' \
+          # Fetch docker's STATIC binaries on the HOST (which has internet) and
+          # bake them in with --copy-in. This avoids needing network INSIDE the
+          # libguestfs appliance, whose user-mode net (passt/SLIRP) is unreliable
+          # on GitHub runners ("passt exited with status 1" / DNS failures).
+          # --no-network means the appliance never sets up (or fails on) passt.
+          case "${{ matrix.arch }}" in
+            arm64) DARCH=aarch64 ;;
+            x64)   DARCH=x86_64 ;;
+          esac
+          DOCKER_VER=27.5.1
+          curl -fsSL "https://download.docker.com/linux/static/stable/${DARCH}/docker-${DOCKER_VER}.tgz" -o docker.tgz
+          tar -xzf docker.tgz   # -> ./docker/{dockerd,docker,containerd,runc,...}
+          # Minimal unit: dockerd supervises its own containerd when it finds the
+          # binary on PATH, so a single service is enough (no docker.socket or a
+          # separate containerd unit). console=hvc0 is baked via GRUB so vfkit
+          # boots are visible; ttyS0 is kept for the qemu path.
+          printf '[Unit]\nDescription=Docker Application Container Engine\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/dockerd\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n' > docker.service
+          sudo -E virt-customize -a base.qcow2 --no-network \
+            --copy-in docker/dockerd:/usr/local/bin/ \
+            --copy-in docker/docker:/usr/local/bin/ \
+            --copy-in docker/containerd:/usr/local/bin/ \
+            --copy-in docker/containerd-shim-runc-v2:/usr/local/bin/ \
+            --copy-in docker/ctr:/usr/local/bin/ \
+            --copy-in docker/runc:/usr/local/bin/ \
+            --copy-in docker/docker-init:/usr/local/bin/ \
+            --copy-in docker/docker-proxy:/usr/local/bin/ \
+            --copy-in docker.service:/etc/systemd/system/ \
             --run-command 'groupadd -f docker' \
-            --run-command 'systemctl enable docker.service containerd.service' \
+            --run-command 'systemctl enable docker.service' \
             --run-command 'echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg' \
             --run-command 'update-grub' \
-            --run-command 'docker --version'
+            --run-command '/usr/local/bin/docker --version'
           mv base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
 
       - name: Publish to vm-assets release
