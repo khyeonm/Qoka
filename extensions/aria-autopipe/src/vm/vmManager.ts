@@ -11,7 +11,7 @@ import * as net from 'net';
 import * as http from 'http';
 import * as path from 'path';
 import { ConfigService } from '../config/configService';
-import { LOCAL_VM_ID, SshProfile } from '../common/types';
+import { LOCAL_VM_ID, SshProfile, hostVmLimits } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
@@ -80,6 +80,27 @@ export class VMManager {
 	private set(status: VmStatus, error?: string): void {
 		this._status = status; this._error = error;
 		this._onDidChange.fire(status);
+	}
+
+	/** Physical ceiling of THIS machine, for sizing and validating the local VM.
+	 *  The VM runs on the user's own computer, so these are the real limits the
+	 *  settings UI should show and enforce. Memory is capped below physical RAM:
+	 *  the host OS needs headroom, and vfkit/VZ rejects any memorySize above its
+	 *  own maximumAllowedMemorySize (which sits a little under physical). */
+	hostLimits(): { maxCpus: number; maxMemoryMB: number } {
+		return hostVmLimits();
+	}
+
+	/** The configured VM size clamped to what this host can actually provide, so
+	 *  a config carried over from a bigger remote box (e.g. 32 CPU / 100 GB) can
+	 *  never exceed the local machine and crash the VM at launch. */
+	private hostSafeSpec(): { cpus: number; memoryMB: number } {
+		const vm = this.config.get().local_vm;
+		const lim = this.hostLimits();
+		return {
+			cpus: Math.max(1, Math.min(vm.cpus, lim.maxCpus)),
+			memoryMB: Math.max(1024, Math.min(vm.memoryMB, lim.maxMemoryMB)),
+		};
 	}
 
 	/** The dev stand-in spec, if configured (ARIA_AUTOPIPE_VM_STANDIN as JSON). */
@@ -170,7 +191,7 @@ export class VMManager {
 			await execFileAsync(qimg, createArgs, { windowsHide: true });
 		}
 
-		const vm = this.config.get().local_vm;
+		const vm = this.hostSafeSpec();
 		// Boot with hardware acceleration first, but fall back to (slow) TCG
 		// software emulation if qemu exits before SSH comes up. That covers a
 		// broken host accelerator such as the QEMU HVF/SME assertion crash seen on
@@ -246,7 +267,7 @@ export class VMManager {
 		// Fresh EFI variable store + sockets each boot (deterministic auto-boot).
 		for (const f of [efi, netSock, vfkitSock]) { try { fs.rmSync(f, { force: true }); } catch { /* ignore */ } }
 
-		const vm = this.config.get().local_vm;
+		const vm = this.hostSafeSpec();
 		const sshProfile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
 
 		// 1) gvproxy: creates the vfkit datagram socket + an API socket. Guest gets

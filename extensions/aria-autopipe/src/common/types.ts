@@ -10,6 +10,8 @@
  * we adopt the same JSON shape.
  */
 
+import * as os from 'os';
+
 export type SshAuthType = 'password' | 'key' | 'agent';
 
 export interface SshAuth {
@@ -57,6 +59,17 @@ export interface LocalVmConfig {
 
 export function defaultLocalVmConfig(): LocalVmConfig {
 	return { memoryMB: 4096, cpus: 2, diskGB: 60 };
+}
+
+/** Physical ceiling of the machine the built-in VM runs on. The VM is local, so
+ *  a size above this crashes it (vfkit/VZ rejects memory over its maximum, and
+ *  qemu over-allocation thrashes the host). Memory is capped below physical RAM
+ *  to leave the host OS headroom. Shared by the VM launcher and the MCP tool. */
+export function hostVmLimits(): { maxCpus: number; maxMemoryMB: number } {
+	return {
+		maxCpus: Math.max(1, os.cpus().length),
+		maxMemoryMB: Math.max(1024, Math.floor((os.totalmem() / (1024 * 1024)) * 0.75)),
+	};
 }
 
 export interface AriaConfig {

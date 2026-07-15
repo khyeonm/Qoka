@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { ToolDefinition, textResult } from './types';
 import { services } from '../../common/services';
+import { hostVmLimits } from '../../common/types';
 
 // Built-in server (local QEMU VM) resource tools. These ONLY apply when the
 // active run environment is the built-in VM - an SSH server's resources are the
@@ -37,18 +38,19 @@ export const VM_TOOLS: ToolDefinition[] = [
 			const { config } = services();
 			const vm = config.get().local_vm;
 			const active = config.isLocalVmActive();
+			const lim = hostVmLimits();
 			return textResult([
 				`Built-in server (VM) resources - memory: ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores: ${vm.cpus}, disk: ${vm.diskGB} GB.`,
 				active
 					? 'The built-in server IS the active run environment.'
 					: 'NOTE: an SSH server is currently active, not the built-in server - these settings only affect the built-in server.',
-				"These are bounded by the host machine's physical RAM/CPU.",
+				`This computer's physical ceiling for the built-in server is ${Math.floor(lim.maxMemoryMB / 1024)} GB RAM / ${lim.maxCpus} CPU cores - it CANNOT go higher here. If a pipeline needs more than that, guide the user to connect their own machine or a lab/cloud server over SSH in the Setup tab.`,
 			].join('\n'));
 		},
 	},
 	{
 		name: 'set_vm_resources',
-		description: "Change the built-in server (Aria built-in VM) memory (memoryMB) and/or CPU cores (cpus). ONLY for the built-in server, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the built-in server restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the built-in server.",
+		description: "Change the built-in server (Aria built-in VM) memory (memoryMB) and/or CPU cores (cpus). ONLY for the built-in server, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the built-in server restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the built-in server. IMPORTANT: the built-in server runs on the user's OWN computer and is HARD-CAPPED by its physical RAM/CPU. If the pipeline needs MORE than that maximum (this tool reports the cap when you hit it), do NOT keep bumping memoryMB - instead guide the user to connect their own machine or a lab/cloud server over SSH in the Setup tab, which can have far more RAM than a laptop.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -61,17 +63,30 @@ export const VM_TOOLS: ToolDefinition[] = [
 			if (!config.isLocalVmActive()) {
 				return textResult('The built-in server is not the active run environment (an SSH server is active). Resource changes only apply to the built-in server - ask the user to switch to it first.');
 			}
+			const lim = hostVmLimits();
 			const patch: { memoryMB?: number; cpus?: number } = {};
 			const mem = args?.memoryMB;
 			const cpus = args?.cpus;
-			if (typeof mem === 'number' && mem > 0) { patch.memoryMB = Math.round(mem); }
-			if (typeof cpus === 'number' && cpus > 0) { patch.cpus = Math.round(cpus); }
+			let capped = false;
+			if (typeof mem === 'number' && mem > 0) {
+				patch.memoryMB = Math.min(Math.round(mem), lim.maxMemoryMB);
+				if (Math.round(mem) > lim.maxMemoryMB) { capped = true; }
+			}
+			if (typeof cpus === 'number' && cpus > 0) {
+				patch.cpus = Math.min(Math.round(cpus), lim.maxCpus);
+				if (Math.round(cpus) > lim.maxCpus) { capped = true; }
+			}
 			if (patch.memoryMB === undefined && patch.cpus === undefined) {
 				return textResult('Provide memoryMB and/or cpus (both must be > 0). Nothing changed.');
 			}
 			await config.setLocalVmResources(patch);
 			const vm = config.get().local_vm;
-			return textResult(`Built-in server resources updated - memory: ${vm.memoryMB} MB, CPU cores: ${vm.cpus}. Restart the built-in server to apply (Autopipe tab → built-in server gear, or it applies on next launch).`);
+			const base = `Built-in server resources updated - memory: ${vm.memoryMB} MB, CPU cores: ${vm.cpus}. Restart the built-in server to apply (Autopipe tab, built-in server gear, or it applies on next launch).`;
+			if (capped) {
+				const maxGB = Math.floor(lim.maxMemoryMB / 1024);
+				return textResult(`${base}\n\nNOTE: the requested size exceeded THIS computer's physical limit, so it was capped at the maximum the built-in server can use here (${maxGB} GB / ${lim.maxCpus} cores). It cannot go higher on this machine. If the pipeline needs more memory than that, tell the user to connect their own computer or a lab/cloud server over SSH in the Setup tab - an SSH server can have far more RAM than a laptop, and Aria runs the same pipelines on it.`);
+			}
+			return textResult(base);
 		},
 	},
 ];

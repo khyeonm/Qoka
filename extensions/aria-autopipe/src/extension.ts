@@ -97,16 +97,23 @@ export function activate(context: vscode.ExtensionContext): void {
 		// inputs, then offer to restart the VM so the change takes effect.
 		vscode.commands.registerCommand('aria.autopipe.vm.editResources', async () => {
 			const cur = config.get().local_vm;
+			// Bound the inputs by THIS computer's real limits (the VM runs locally,
+			// so a value above the host crashes it - e.g. vfkit rejects a memory
+			// size over VZ's maximum). Show the ceiling so the user knows it, and
+			// pre-fill with the current value already clamped to that ceiling.
+			const lim = vm.hostLimits();
+			const maxGB = Math.max(1, Math.floor(lim.maxMemoryMB / 1024));
+			const maxCpus = lim.maxCpus;
 			const memGB = await vscode.window.showInputBox({
-				title: 'Built-in server - Memory (GB)',
-				value: String(Math.max(1, Math.round(cur.memoryMB / 1024))),
-				validateInput: v => /^\d+$/.test(v) && +v >= 1 && +v <= 128 ? undefined : 'Whole number of GB (1–128)',
+				title: `Built-in server - Memory in GB (max ${maxGB} on this computer)`,
+				value: String(Math.min(maxGB, Math.max(1, Math.round(cur.memoryMB / 1024)))),
+				validateInput: v => /^\d+$/.test(v) && +v >= 1 && +v <= maxGB ? undefined : `Whole number of GB (1-${maxGB})`,
 			});
 			if (memGB === undefined) { return; }
 			const cpus = await vscode.window.showInputBox({
-				title: 'Built-in server - CPU cores',
-				value: String(cur.cpus),
-				validateInput: v => /^\d+$/.test(v) && +v >= 1 && +v <= 32 ? undefined : 'Whole number of cores (1–32)',
+				title: `Built-in server - CPU cores (max ${maxCpus} on this computer)`,
+				value: String(Math.min(maxCpus, Math.max(1, cur.cpus))),
+				validateInput: v => /^\d+$/.test(v) && +v >= 1 && +v <= maxCpus ? undefined : `Whole number of cores (1-${maxCpus})`,
 			});
 			if (cpus === undefined) { return; }
 			await config.setLocalVmResources({ memoryMB: Number(memGB) * 1024, cpus: Number(cpus) });
