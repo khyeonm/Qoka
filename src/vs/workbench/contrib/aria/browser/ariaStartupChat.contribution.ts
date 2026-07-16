@@ -134,9 +134,18 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  to false. Registration is done via each provider's CLI, so the config
 	 *  schema is always correct - we never hand-write ~/.claude.json / config.toml. */
 	private async _reconcileMcp(): Promise<void> {
-		const results = await Promise.all(this._mcpReregisterCommands.map(cmd =>
-			Promise.resolve(this.commandService.executeCommand<boolean>(cmd)).then(r => r === true, () => false)));
-		if (results.some(Boolean)) {
+		// SEQUENTIAL, not Promise.all: each reregister shells out to `claude mcp
+		// add`/`codex mcp add`, which read-modify-write the SAME ~/.claude.json /
+		// config.toml. Running them concurrently caused lost updates - two adds read
+		// the same file and the later write clobbered the earlier one, so a random
+		// one of the eight servers (autopipe, paper, …) would silently go missing
+		// (7 of 8 connected). Awaiting each in turn serialises the file writes.
+		let anyChanged = false;
+		for (const cmd of this._mcpReregisterCommands) {
+			const changed = await Promise.resolve(this.commandService.executeCommand<boolean>(cmd)).then(r => r === true, () => false);
+			anyChanged = anyChanged || changed;
+		}
+		if (anyChanged) {
 			this.notificationService.info('Aria tools connected. Open a NEW Claude or Codex chat to use them.');
 		}
 	}

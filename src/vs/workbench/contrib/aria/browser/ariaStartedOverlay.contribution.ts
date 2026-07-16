@@ -100,6 +100,12 @@ const WANT_PICKER_FLAG = 'aria.started.wantPicker';
  *  try again. */
 const AUTO_REOPEN_TRIED_FLAG = 'aria.started.autoReopenTried';
 
+/** One-shot localStorage flag telling the folder-window login gate to skip its
+ *  session poll. Set by pickAndDismiss (the overlay just validated a session
+ *  before opening the folder); consumed by ariaLoginGate. Mirrors the literal in
+ *  ariaLoginGate.contribution.ts. */
+const LOGIN_GATE_SKIP_FLAG = 'aria.loginGate.skipOnce';
+
 /** Legacy key from a previous attempt; cleared on startup so old
  *  installations don't keep a stale timestamp around. */
 const RECENT_PICK_KEY = 'aria.started.recentPickAt';
@@ -494,11 +500,21 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	private pickAndDismiss(action: () => void): void {
 		try {
 			sessionStorage.setItem(JUST_PICKED_FLAG, '1');
-			pushTrail('pickAndDismiss: set justPicked flag (sessionStorage), hiding overlay, running action');
+			// The overlay only reaches a folder-opening action when the user is
+			// signed in (the picker sits behind the auth gate). Tell the folder
+			// window's login gate to TRUST that and skip its own session poll -
+			// otherwise, while a fresh window is busy (e.g. installing the CLI), the
+			// gate's getSessions can race the auth restore, wrongly conclude "signed
+			// out", and closeFolder - the New Project bounce. We store a TIMESTAMP
+			// (not just '1'): the gate honours it only if fresh (seconds old), so a
+			// flag that somehow lingers can never suppress the gate on a later,
+			// genuinely-signed-out folder window. localStorage survives the reload.
+			localStorage.setItem(LOGIN_GATE_SKIP_FLAG, String(Date.now()));
+			pushTrail('pickAndDismiss: set justPicked + loginGateSkip flags, hiding overlay, running action');
 		} catch {
 			// Storage can throw in restricted contexts; the overlay
 			// still hides and the action still runs.
-			pushTrail('pickAndDismiss: sessionStorage.setItem THREW - flag NOT set');
+			pushTrail('pickAndDismiss: storage.setItem THREW - flags NOT set');
 		}
 		this.hide();
 		action();
@@ -937,9 +953,17 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			back.style.cursor = 'pointer';
 			back.onclick = () => {
 				console.log('[aria] sign-in cancelled by user (Back to sign-in), returning to sign-in screen');
+				// Render the sign-in screen SYNCHRONOUSLY. We must NOT call refreshAuth
+				// here: its getSessions() call queues behind the still-pending
+				// createSession (the ORCID/Google browser was closed, so it never
+				// resolves), so awaiting it would hang and the view would never update.
+				// The user was mid sign-in, so there is no session - go straight to the
+				// login buttons.
 				this.authLoading = false;
+				this.authChecked = true;
+				this.ariaSession = undefined;
 				this.stopMessageCycle();
-				void this.refreshAuth();
+				this.rerender();
 			};
 			box.appendChild(back);
 		}

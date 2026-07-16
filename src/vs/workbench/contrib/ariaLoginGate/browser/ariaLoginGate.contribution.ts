@@ -35,6 +35,15 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 
 const AUTH_ID = 'aria';
 
+/** One-shot flag the Started overlay sets (localStorage, value = Date.now())
+ *  right before it opens a folder, since it only does so after validating a
+ *  session. Mirrors LOGIN_GATE_SKIP_FLAG in ariaStartedOverlay.contribution.ts. */
+const LOGIN_GATE_SKIP_FLAG = 'aria.loginGate.skipOnce';
+/** Only honour the skip flag if it was set this recently (a fresh open-folder
+ *  hand-off), never a stale leftover. The reload + extension-host start is a few
+ *  seconds; 30s is comfortably above that and well below any real re-launch gap. */
+const LOGIN_GATE_SKIP_MAX_AGE_MS = 30_000;
+
 class AriaLoginGateContribution extends Disposable implements IWorkbenchContribution {
 
 	constructor(
@@ -53,6 +62,26 @@ class AriaLoginGateContribution extends Disposable implements IWorkbenchContribu
 	}
 
 	private async _guardFolderWindow(): Promise<void> {
+		// The overlay just opened this folder from behind its own auth gate, so a
+		// session is known-good - skip the poll entirely. Without this, a fresh New
+		// Project window busy installing the CLI can starve the auth restore, the
+		// poll below times out, and we closeFolder - the "New Project bounce". The
+		// flag is consumed here (one-shot) AND is only honoured while FRESH: a value
+		// older than the window is a leftover we ignore, so it can never suppress the
+		// gate on a later, genuinely-signed-out folder window.
+		try {
+			const raw = localStorage.getItem(LOGIN_GATE_SKIP_FLAG);
+			if (raw !== null) {
+				localStorage.removeItem(LOGIN_GATE_SKIP_FLAG);
+				const ts = parseInt(raw, 10);
+				if (!isNaN(ts) && Date.now() - ts < LOGIN_GATE_SKIP_MAX_AGE_MS) {
+					return;
+				}
+			}
+		} catch {
+			/* storage unavailable - fall through to the poll */
+		}
+
 		// The aria-authentication extension restores its session from SecretStorage
 		// asynchronously on activation. A short fixed poll can race that restore and
 		// wrongly report "no session", bouncing a just-signed-in user back to the
