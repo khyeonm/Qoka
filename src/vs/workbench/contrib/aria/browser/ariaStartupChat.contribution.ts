@@ -103,16 +103,21 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				return;
 			}
 
-			// Hold the loading screen until Aria is actually usable: its MCP servers
-			// are up (whenAriaSetupReady) AND each installed provider's CLI is
-			// installed and its MCPs registered. Otherwise the loading ends and
-			// "Aria tools connected" pops up a few seconds later. Failsafe timeout
-			// so a slow/failed CLI install can't trap the user on the loading screen.
+			// Hold the loading screen until Aria is actually usable: every MCP server
+			// is up (whenAriaSetupReady), the installed provider's CLI is present, and
+			// ALL eight MCPs are registered (reconcile UNTIL SETTLED, so a server that
+			// starts a beat late still lands before the loading clears - no more
+			// "autopipe connects after a reload"). One silent pass-set, then done - no
+			// scattered delayed passes spamming the console after the picker opens.
+			// Failsafe timeout so a stuck install can't trap the user on the loader.
 			await Promise.race([
-				Promise.all([whenAriaSetupReady(), this._ensureClisForInstalledProviders()]),
+				(async () => {
+					await this._ensureClisForInstalledProviders();
+					await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+					await this._reconcileUntilSettled();
+				})(),
 				timeout(60000),
 			]);
-			this._scheduleMcpReconcile(); // delayed catch-up passes for a lagging CLI
 			hideLoading();
 			if (!hasPickedAiProvider()) {
 				return;
@@ -137,13 +142,12 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		'aria.methodsSearch.reregisterMcp',
 		'aria.hypothesis.reregisterMcp',
 	];
-	private _mcpKickScheduled = false;
 
 	/** Ask every Aria MCP to (re)register; show ONE toast if any newly did. A
 	 *  command that isn't registered yet (its extension not active) just resolves
 	 *  to false. Registration is done via each provider's CLI, so the config
 	 *  schema is always correct - we never hand-write ~/.claude.json / config.toml. */
-	private async _reconcileMcp(silent = false): Promise<void> {
+	private async _reconcileMcp(silent = false): Promise<boolean> {
 		// SEQUENTIAL, not Promise.all: each reregister shells out to `claude mcp
 		// add`/`codex mcp add`, which read-modify-write the SAME ~/.claude.json /
 		// config.toml. Running them concurrently caused lost updates - two adds read
@@ -155,17 +159,37 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			const changed = await Promise.resolve(this.commandService.executeCommand<boolean>(cmd)).then(r => r === true, () => false);
 			anyChanged = anyChanged || changed;
 		}
-		// `silent` suppresses the toast during onboarding (the user hasn't opened a
-		// chat yet, so "open a NEW chat" would be premature/confusing).
+		// `silent` suppresses the toast during onboarding / first-run setup (the user
+		// hasn't opened a chat yet, so "open a NEW chat" would be premature).
 		if (anyChanged && !silent) {
 			this.notificationService.info('Aria tools connected. Open a NEW Claude or Codex chat to use them.');
 		}
+		return anyChanged;
+	}
+
+	/** Reconcile repeatedly until a pass registers nothing new (every server has
+	 *  settled) or the pass cap is hit. Covers a server that starts a beat after the
+	 *  others, so a single caller (the loading page) can hold until ALL eight MCPs
+	 *  are actually registered instead of relying on scattered delayed passes.
+	 *  Always silent - the loading page is the user-facing signal. Returns whether
+	 *  anything registered across all passes. */
+	private async _reconcileUntilSettled(maxPasses = 5): Promise<boolean> {
+		let everChanged = false;
+		for (let i = 0; i < maxPasses; i++) {
+			const changed = await this._reconcileMcp(true);
+			everChanged = everChanged || changed;
+			if (!changed) {
+				break;   // a pass that registered nothing new → settled
+			}
+			await timeout(1000);
+		}
+		return everChanged;
 	}
 
 	/** Install the CLI for the given chosen providers, wait for the Aria MCP
-	 *  servers to be up, then register them - all idempotent. Called by the
-	 *  overlay's AI picker (via the aria.setup.prepareProviders command) so the
-	 *  loading page can hold until the tools are actually ready. */
+	 *  servers to be up, then register them until settled - all idempotent. Called
+	 *  by the overlay's AI picker (via aria.setup.prepareProviders) so the loading
+	 *  page can hold until every tool is actually registered. */
 	private async _prepareProviders(providers: unknown[]): Promise<void> {
 		const chosen = providers.filter((p): p is ConcreteProvider => p === 'claude' || p === 'codex');
 		// aria-skills owns installProviderCli; make sure it's active first (a
@@ -177,19 +201,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// Hold until the MCP servers have started (so registration has something to
 		// register), with a failsafe so a stuck server can't trap onboarding.
 		await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-		await this._reconcileMcp(true);
-	}
-
-	/** A few DELAYED reconcile passes, because a provider's CLI can land a couple
-	 *  of seconds after we ask - a bounded catch-up, not a perpetual poll. */
-	private _scheduleMcpReconcile(): void {
-		if (this._mcpKickScheduled) {
-			return;
-		}
-		this._mcpKickScheduled = true;
-		void this._reconcileMcp();
-		setTimeout(() => void this._reconcileMcp(), 6000);
-		setTimeout(() => { void this._reconcileMcp(); this._mcpKickScheduled = false; }, 15000);
+		await this._reconcileUntilSettled();
 	}
 
 	/** Install the CLI for every provider whose EXTENSION is installed, then
@@ -209,24 +221,23 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				try { await this.commandService.executeCommand('aria.provider.installCli', p); } catch { /* ignore */ }
 			}
 		}
-		// AWAIT the first registration pass now that the CLI is present, so a
-		// caller (the startup loading screen) can hold until MCPs are actually
-		// registered instead of finishing and letting "Aria tools connected"
-		// appear afterwards. Callers add the delayed catch-up passes separately.
-		await this._reconcileMcp();
+		// NOTE: install only. Registration is driven by the caller so each context
+		// picks the right pass: the loading gate reconciles UNTIL SETTLED (silently),
+		// while a provider added LATER reconciles once and shows the "open a new
+		// chat" toast.
 	}
 
-	/** On startup AND whenever the installed extension set changes, make sure the
-	 *  CLI for every installed provider EXTENSION is present, then reconcile. This
-	 *  is keyed off the installed extension, NOT the "picked provider" flag, which
-	 *  can be missing (its localStorage entry didn't persist / onboarding was
-	 *  interrupted) and would otherwise leave the CLI - and every MCP - uninstalled. */
+	/** When the installed extension set changes (a provider added later from the
+	 *  Marketplace / Settings), install its CLI if needed and register once - this
+	 *  is where the "Aria tools connected. Open a NEW chat" toast belongs, since a
+	 *  chat may already be open. First-run setup goes through the loading gate,
+	 *  which is silent. */
 	private _wireMcpReconcile(): void {
-		// Startup install+register is awaited by the loading screen (see the
-		// constructor). Here we only handle a provider added LATER: install its
-		// CLI, register, then a couple of delayed catch-up passes for a lagging CLI.
 		this._register(this.extensionService.onDidChangeExtensions(() => {
-			void (async () => { await this._ensureClisForInstalledProviders(); this._scheduleMcpReconcile(); })();
+			void (async () => {
+				await this._ensureClisForInstalledProviders();
+				await this._reconcileMcp(false);
+			})();
 		}));
 	}
 
@@ -256,11 +267,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				console.log(`[aria] ensureProviderClis: install command failed for ${p}:`, e);
 			}
 		}
-		// The CLI(s) are now installed (installCli awaits + verifies). MCP
-		// registration that ran at extension-activation time happened BEFORE the
-		// CLI existed and silently failed ("Claude CLI not found"); re-run it now
-		// that the CLI is present so every Aria MCP actually registers.
-		void this._reconcileMcp();
+		// Install only - registration is the loading gate's single reconcile pass
+		// (below), so the project window doesn't reconcile twice. Onboarding already
+		// registered everything via aria.setup.prepareProviders, so at project open
+		// the gate's pass is a quick "already registered" verify.
 	}
 
 	/** The provider EXTENSIONS the user opted into (via aria.aiProvider: an

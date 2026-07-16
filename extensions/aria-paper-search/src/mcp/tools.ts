@@ -57,10 +57,10 @@ function errorResult(text: string): CallToolResult {
 export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'save_paper',
-		description: 'Save a paper to the user\'s Aria paper library. Pass whatever metadata you have - title and authors are required, the rest are optional but enrich the library entry. Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags.',
+		description: 'Save a paper to the user\'s Aria paper library. Only the title is required. Pass whatever other metadata you have - the rest are optional but enrich the library entry. If a field such as authors is missing, first try to find it (from the search result or a quick lookup); if it still cannot be determined, save the paper anyway with what you have (leave authors empty rather than refusing). Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags.',
 		inputSchema: {
 			type: 'object',
-			required: ['title', 'authors'],
+			required: ['title'],
 			properties: {
 				title: { type: 'string', description: 'Paper title.' },
 				authors: { type: 'array', items: { type: 'string' }, description: 'Author names in publication order.' },
@@ -79,12 +79,15 @@ export const ALL_TOOLS: ToolDefinition[] = [
 			if (!title) {
 				return errorResult('save_paper requires a non-empty `title`.');
 			}
-			if (!Array.isArray(authorsRaw) || authorsRaw.length === 0) {
-				return errorResult('save_paper requires a non-empty `authors` array.');
-			}
+			// Authors are best-effort: if the model could not determine them,
+			// save the paper anyway with an empty author list rather than
+			// blocking the save.
+			const authors = Array.isArray(authorsRaw)
+				? authorsRaw.map(a => String(a)).filter(Boolean)
+				: [];
 			const entry = savePaper({
 				title,
-				authors: authorsRaw.map(a => String(a)).filter(Boolean),
+				authors,
 				doi: typeof args.doi === 'string' ? args.doi : undefined,
 				url: typeof args.url === 'string' ? args.url : undefined,
 				pdfUrl: typeof args.pdfUrl === 'string' ? args.pdfUrl : undefined,

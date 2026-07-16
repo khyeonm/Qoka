@@ -184,6 +184,14 @@ export class Menubar extends Disposable {
 		// Rebuild menu when update state changes so update menu items reflect
 		// the current state (e.g. "Restart to Update" instead of "Check for Updates...").
 		this._register(this.updateService.onStateChange(() => this.scheduleUpdateMenu()));
+
+		// Rebuild when the Aria mode toggles so the macOS Terminal menu appears
+		// or disappears without needing a restart.
+		this._register(this.configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('aria.mode')) {
+				this.scheduleUpdateMenu();
+			}
+		}));
 	}
 
 	private get currentEnableMenuBarMnemonics(): boolean {
@@ -483,9 +491,22 @@ export class Menubar extends Disposable {
 		return true;
 	}
 
+	private isAriaEasyMode(): boolean {
+		return this.configurationService.getValue('aria.mode') === 'easy';
+	}
+
 	private shouldDrawMenu(menuId: string): boolean {
 		if (!isMacintosh && !this.showNativeMenu) {
 			return false; // We need to draw an empty menu to override the electron default
+		}
+
+		// Aria easy mode on macOS: the in-window menu bar is hidden via
+		// window.menuBarVisibility, but the native macOS app menu ignores that
+		// setting. Drop the Terminal menu specifically so easy-mode users don't
+		// reach a terminal from the OS menu. (Windows/Linux already hide the
+		// whole menu bar in easy mode.)
+		if (isMacintosh && menuId === 'Terminal' && this.isAriaEasyMode()) {
+			return false;
 		}
 
 		switch (menuId) {

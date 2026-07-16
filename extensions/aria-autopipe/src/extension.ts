@@ -6,8 +6,8 @@
 import * as vscode from 'vscode';
 import { detectAiProviders } from './detection/claudeCodeDetector';
 import { AriaAutopipeMcpServer } from './mcp/server';
-import { registerWithClaudeCode, unregisterFromClaudeCode } from './registration/claudeCodeMcp';
-import { registerWithCodex, unregisterFromCodex } from './registration/codexMcp';
+import { registerWithClaudeCode } from './registration/claudeCodeMcp';
+import { registerWithCodex } from './registration/codexMcp';
 import { ConfigService } from './config/configService';
 import { SshService } from './ssh/sshService';
 import { VMManager } from './vm/vmManager';
@@ -185,36 +185,28 @@ export function activate(context: vscode.ExtensionContext): void {
 			console.log(`[aria-autopipe] MCP up on ${port}; detecting AI clients…`);
 
 			const detection = await detectAiProviders();
-			const wantClaude = detection.providers.some(p => p.kind === 'claude-code' && p.installed);
-			const wantCodex = detection.providers.some(p => p.kind === 'codex' && p.installed);
 
-			if (!wantClaude && !wantCodex) {
-				summary = 'Autopipe MCP - no Claude Code or Codex extension installed';
-				return;
-			}
+			// Register on CLI presence, NOT on the provider EXTENSION. Each helper
+			// resolves its own CLI and no-ops (ok=false) when absent - like every
+			// other Aria MCP. Gating on the extension used to make autopipe register a
+			// pass late at onboarding (the CLI is installed at AI-pick time; the
+			// extension only later), so it was the one server missing until a reload.
+			const rc = await registerWithClaudeCode(port);
+			lastRegistration.claude = { ...rc, port };
+			const claudeChanged = rc.changed;
+			console.log(`[aria-autopipe] Claude Code: ${rc.message}`);
 
-			let claudeChanged = false;
-			let codexChanged = false;
-			if (wantClaude) {
-				const r = await registerWithClaudeCode(port);
-				lastRegistration.claude = { ...r, port };
-				claudeChanged = r.changed;
-				console.log(`[aria-autopipe] Claude Code: ${r.message}`);
-			}
-			if (wantCodex) {
-				const r = await registerWithCodex(port);
-				lastRegistration.codex = { ...r, port };
-				codexChanged = r.changed;
-				console.log(`[aria-autopipe] Codex: ${r.message}`);
-			}
+			const rx = await registerWithCodex(port);
+			lastRegistration.codex = { ...rx, port };
+			const codexChanged = rx.changed;
+			console.log(`[aria-autopipe] Codex: ${rx.message}`);
 
+			// A failure only because the CLI isn't installed is not an error (that
+			// provider simply isn't set up); surface only real failures.
+			const isRealFailure = (r: { ok: boolean; message: string }) => !r.ok && !/not found/i.test(r.message);
 			const failedClients: string[] = [];
-			if (wantClaude && !lastRegistration.claude.ok) {
-				failedClients.push(`Claude Code (${lastRegistration.claude.message})`);
-			}
-			if (wantCodex && !lastRegistration.codex.ok) {
-				failedClients.push(`Codex (${lastRegistration.codex.message})`);
-			}
+			if (isRealFailure(rc)) { failedClients.push(`Claude Code (${rc.message})`); }
+			if (isRealFailure(rx)) { failedClients.push(`Codex (${rx.message})`); }
 
 			// Codex caches MCP servers at extension-activation time (not
 			// per-chat), so if the Codex extension activated before our
@@ -225,8 +217,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			if (justReloadedForCodex) {
 				await context.globalState.update(PENDING_RELOAD_KEY, false);
 			}
-			const codexAlreadyActive = wantCodex
-				&& detection.providers.some(p => p.kind === 'codex' && p.installed && p.active);
+			const codexAlreadyActive = detection.providers.some(p => p.kind === 'codex' && p.installed && p.active);
 			shouldOfferReload = codexAlreadyActive && !justReloadedForCodex && codexChanged;
 
 			changed = claudeChanged || codexChanged;
@@ -459,34 +450,29 @@ async function refreshAiRegistrations(): Promise<boolean> {
 				return false;
 			}
 			const port = mcpServer.currentPort;
-			const detection = await detectAiProviders();
-			const wantClaude = detection.providers.some(p => p.kind === 'claude-code' && p.installed);
-			const wantCodex = detection.providers.some(p => p.kind === 'codex' && p.installed);
 
 			const newlyConnected: string[] = [];
 
-			// Claude transition: extension newly available → register.
-			if (wantClaude && !lastRegistration.claude.ok) {
+			// Register on CLI presence, NOT on the provider EXTENSION being installed.
+			// The registration helpers resolve the CLI themselves and no-op (ok=false)
+			// when it's absent - exactly like every other Aria MCP. Gating on the
+			// extension used to make autopipe the one server that stayed unregistered
+			// through onboarding (the CLI is installed at AI-pick time; the extension
+			// only later), so it registered a pass behind the other seven.
+			if (!lastRegistration.claude.ok) {
 				const r = await registerWithClaudeCode(port);
 				lastRegistration.claude = { ...r, port };
 				if (r.ok) {
 					newlyConnected.push('Claude Code');
 				}
-			} else if (!wantClaude && lastRegistration.claude.ok) {
-				// Extension uninstalled - remove the stale entry.
-				await unregisterFromClaudeCode();
-				lastRegistration.claude = { ok: false, message: 'extension uninstalled', port: null };
 			}
 
-			if (wantCodex && !lastRegistration.codex.ok) {
+			if (!lastRegistration.codex.ok) {
 				const r = await registerWithCodex(port);
 				lastRegistration.codex = { ...r, port };
 				if (r.ok) {
 					newlyConnected.push('Codex');
 				}
-			} else if (!wantCodex && lastRegistration.codex.ok) {
-				await unregisterFromCodex();
-				lastRegistration.codex = { ok: false, message: 'extension uninstalled', port: null };
 			}
 
 			return newlyConnected.length > 0;

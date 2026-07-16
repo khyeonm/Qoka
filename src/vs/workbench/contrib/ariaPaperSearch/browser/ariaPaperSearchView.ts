@@ -18,6 +18,9 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IPathService } from '../../../services/path/common/pathService.js';
+import { URI } from '../../../../base/common/uri.js';
 import { ensureAriaPaneScrollbarStyle } from '../../ariaSkills/browser/ariaSkillsView.js';
 import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 
@@ -62,6 +65,9 @@ export class AriaPaperSearchView extends ViewPane {
 	private searchQuery = '';
 	private tagFilter = '';
 	private expanded = new Set<string>();
+	/** True once the extension command has returned a real state at least
+	 *  once. Used to stop the cold-start activation-race retry loop. */
+	private loadedOnce = false;
 
 	constructor(
 		options: IViewPaneOptions,
@@ -75,8 +81,39 @@ export class AriaPaperSearchView extends ViewPane {
 		@IThemeService themeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IFileService private readonly fileService: IFileService,
+		@IPathService private readonly pathService: IPathService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
+
+		// Re-fetch whenever the view becomes visible again (covers reopen and
+		// the case where the extension activated after the first empty paint).
+		this._register(this.onDidChangeBodyVisibility(visible => {
+			if (visible) {
+				void this.refresh();
+			}
+		}));
+
+		// Auto-refresh when the on-disk library changes (a paper saved via the
+		// MCP save_paper tool), so new entries appear without a manual refresh.
+		void this.setupLibraryWatcher();
+	}
+
+	/** Watch ~/.config/aria/paper-library.json for external writes (MCP saves).
+	 *  writeLibrary() does a tmp-file + rename, so we watch the containing
+	 *  directory to catch the rename rather than the file inode. */
+	private async setupLibraryWatcher(): Promise<void> {
+		try {
+			const home = await this.pathService.userHome();
+			const dirUri = URI.joinPath(home, '.config', 'aria');
+			const libUri = URI.joinPath(dirUri, 'paper-library.json');
+			this._register(this.fileService.watch(dirUri));
+			this._register(this.fileService.onDidFilesChange(e => {
+				if (e.contains(libUri)) {
+					void this.refresh();
+				}
+			}));
+		} catch { /* watching is best-effort */ }
 	}
 
 	override createActionViewItem(action: IAction, options?: IDropdownMenuActionViewItemOptions): IActionViewItem | undefined {
@@ -170,13 +207,21 @@ export class AriaPaperSearchView extends ViewPane {
 		}
 	}
 
-	private async refresh(): Promise<void> {
+	private async refresh(attempt = 0): Promise<void> {
+		let state: PaperLibraryState | undefined;
 		try {
-			const state = await this.commandService.executeCommand<PaperLibraryState>('aria.paperSearch.list');
-			if (state) {
-				this.latestState = state;
-			}
+			state = await this.commandService.executeCommand<PaperLibraryState>('aria.paperSearch.list');
 		} catch { /* extension still booting */ }
+		if (state) {
+			this.latestState = state;
+			this.loadedOnce = true;
+		} else if (!this.loadedOnce && attempt < 20 && !this._store.isDisposed) {
+			// Cold start: the aria-paper-search extension has not activated yet,
+			// so its `aria.paperSearch.list` command is not registered. Retry
+			// briefly (up to ~10s) until it comes up, instead of leaving the
+			// view showing "No papers saved yet." for the whole session.
+			setTimeout(() => { void this.refresh(attempt + 1); }, 500);
+		}
 		this.syncTagOptions();
 		this.renderList();
 	}

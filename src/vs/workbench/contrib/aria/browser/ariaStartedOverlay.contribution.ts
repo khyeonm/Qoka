@@ -22,6 +22,7 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IAuthenticationService, AuthenticationSession } from '../../../services/authentication/common/authentication.js';
 import { ROADMAP_SCHEME } from '../../ariaRoadmapWizard/browser/ariaRoadmapWizardCommon.js';
 import { URI } from '../../../../base/common/uri.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { basename } from '../../../../base/common/resources.js';
 import { ARIA_MODE_SETTING, ARIA_AI_PROVIDER_SETTING, AriaMode } from '../common/ariaConfiguration.js';
 import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
@@ -110,6 +111,23 @@ const LOGIN_GATE_SKIP_FLAG = 'aria.loginGate.skipOnce';
 /** Legacy key from a previous attempt; cleared on startup so old
  *  installations don't keep a stale timestamp around. */
 const RECENT_PICK_KEY = 'aria.started.recentPickAt';
+
+/** README dropped into a new project folder to explain the default layout.
+ *  Plain, non-developer-friendly wording; no emojis. */
+const PROJECT_TEMPLATE_README = `# Aria project
+
+This folder was created by Aria. Here is what each folder is for:
+
+- notes/       Your research notes.
+- references/  Papers you save or download to read (PDFs).
+- data/        Datasets and analysis inputs.
+- downloads/   Other downloaded files.
+- paper/       Manuscripts you write in the Paper Writer tab.
+- reviews/     Results from the AI Peer Review tab.
+- .aria/       Aria's internal files (roadmap, project settings).
+
+You can rename or delete any folder you do not need.
+`;
 
 /** Persistent (localStorage) breadcrumb trail for the New Project / picker
  *  flow. openWindow reloads (or recreates) the window, wiping the DevTools
@@ -1381,6 +1399,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			});
 			return;
 		}
+		// Scaffold a friendly default folder layout so non-developer users have
+		// an obvious place for each kind of file from the start. Best-effort:
+		// never let this block the project from opening.
+		await this.scaffoldProjectTemplate(folderUri);
 		// Best-effort: seed a fresh empty roadmap so the new project starts blank.
 		// Don't block the reload on it - the folder is all openWindow needs, and
 		// aria-roadmap writes this when it activates in the new project window.
@@ -1400,6 +1422,41 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		});
 	}
 
+	/**
+	 * Create the default project folder layout inside a freshly created New
+	 * Project folder. Folders that Aria features also create lazily (notes/,
+	 * paper/, reviews/) are pre-created so the structure is visible from the
+	 * start; references/, data/, and downloads/ are new user-facing
+	 * conventions. All writes are best-effort and idempotent - a failure here
+	 * must never prevent the project from opening.
+	 *
+	 * Note on `paper/` vs `references/`: `paper/` is app-managed and holds the
+	 * manuscripts you write (Paper Writer), one subfolder per manuscript.
+	 * `references/` is for papers you save/download to read - kept separate so
+	 * the two never collide.
+	 */
+	private async scaffoldProjectTemplate(folderUri: URI): Promise<void> {
+		const dirs = ['notes', 'references', 'data', 'downloads', 'paper', 'reviews', '.aria'];
+		for (const dir of dirs) {
+			try {
+				await this.fileService.createFolder(URI.joinPath(folderUri, dir));
+			} catch { /* best-effort */ }
+		}
+		try {
+			const readme = URI.joinPath(folderUri, 'README.md');
+			if (!(await this.fileService.exists(readme))) {
+				await this.fileService.writeFile(readme, VSBuffer.fromString(PROJECT_TEMPLATE_README));
+			}
+		} catch { /* best-effort */ }
+		try {
+			const marker = URI.joinPath(folderUri, '.aria', 'project.json');
+			if (!(await this.fileService.exists(marker))) {
+				const body = JSON.stringify({ createdBy: 'aria', template: 'default', version: 1 }, null, 2) + '\n';
+				await this.fileService.writeFile(marker, VSBuffer.fromString(body));
+			}
+		} catch { /* best-effort */ }
+	}
+
 	private async renderRecentProjects(parent: HTMLElement): Promise<void> {
 		const heading = document.createElement('h3');
 		heading.textContent = 'Recent projects';
@@ -1416,7 +1473,40 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			return;
 		}
 
-		const all = recents.workspaces;
+		// Drop recents whose folder/workspace no longer exists on disk (deleted
+		// locally). VS Code keeps these around on purpose, but here we prune
+		// them so the picker never offers a project that can't open. Runs on
+		// every render, so it stays current as the overlay is reopened. Only
+		// `file` paths are checked - remote/unmounted schemes are left as-is to
+		// avoid false positives when a drive is temporarily unavailable.
+		const withUris = recents.workspaces
+			.map(item => ({
+				item,
+				uri: isRecentFolder(item)
+					? item.folderUri
+					: isRecentWorkspace(item)
+						? item.workspace.configPath
+						: undefined,
+			}))
+			.filter((x): x is { item: typeof x.item; uri: URI } => !!x.uri);
+
+		const exists = await Promise.all(withUris.map(async x => {
+			if (x.uri.scheme !== 'file') {
+				return true;
+			}
+			try {
+				return await this.fileService.exists(x.uri);
+			} catch {
+				return true; // on a check error, keep the entry rather than lose it
+			}
+		}));
+
+		const missing = withUris.filter((_, i) => !exists[i]).map(x => x.uri);
+		if (missing.length) {
+			void this.workspacesService.removeRecentlyOpened(missing);
+		}
+
+		const all = withUris.filter((_, i) => exists[i]).map(x => x.item);
 		if (all.length === 0) {
 			const empty = document.createElement('p');
 			empty.textContent = 'No recent projects yet.';
@@ -1490,28 +1580,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			};
 
 			list.appendChild(btn);
-		}
-
-		if (all.length > VISIBLE_LIMIT) {
-			const more = document.createElement('button');
-			more.textContent = 'Show more...';
-			more.style.background = 'transparent';
-			more.style.border = 'none';
-			more.style.color = 'var(--vscode-textLink-foreground, #3794ff)';
-			more.style.cursor = 'pointer';
-			more.style.fontFamily = 'inherit';
-			more.style.fontSize = '12.5px';
-			more.style.textAlign = 'left';
-			more.style.padding = '8px 12px';
-			more.style.marginTop = '4px';
-			more.style.borderRadius = '4px';
-			more.onclick = (e) => {
-				e.stopPropagation();
-				this.pickAndDismiss(() => {
-					void this.commandService.executeCommand('workbench.action.openRecent');
-				});
-			};
-			list.appendChild(more);
 		}
 	}
 
