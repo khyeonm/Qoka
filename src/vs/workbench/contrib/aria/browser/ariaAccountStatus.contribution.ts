@@ -181,6 +181,12 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		// workbench where the Started overlay - since a session and an AI-provider
 		// choice already exist - skips login and the AI picker and shows the
 		// project picker directly, so the user can open/create another project.
+		//
+		// Mark this as an EXPLICIT picker request (localStorage key mirrors
+		// WANT_PICKER_FLAG in ariaStartedOverlay). Without it the overlay would
+		// auto-reopen the project we're leaving instead of showing the picker.
+		// localStorage survives the closeFolder reload; the overlay consumes it once.
+		try { localStorage.setItem('aria.started.wantPicker', '1'); } catch { /* ignore */ }
 		try {
 			await this.commandService.executeCommand('workbench.action.closeFolder');
 		} catch {
@@ -211,7 +217,17 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		if (!this.session) {
 			// Painted from the cached label but the live session object isn't set
 			// (auth ext still restoring). The button then appears to do nothing.
-			console.log('[aria] sign out: no live session object - closing folder to return to sign-in anyway');
+			// Actively remove ANY lingering Aria session so the reloaded empty
+			// workbench sees no session and lands on sign-in - otherwise the
+			// overlay's auto-reopen would treat this as a normal launch and reopen
+			// the project we're trying to sign out of.
+			console.log('[aria] sign out: no live session object - removing all Aria sessions, then closing folder');
+			try {
+				const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
+				for (const s of sessions) {
+					try { await this.authService.removeSession(AUTH_ID, s.id); } catch { /* ignore */ }
+				}
+			} catch { /* ignore - best-effort */ }
 			this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION);
 			try { await this.commandService.executeCommand('workbench.action.closeFolder'); } catch { /* ignore */ }
 			return;

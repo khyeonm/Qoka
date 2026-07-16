@@ -120,6 +120,11 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		parent.appendChild(root);
 		this.root = root;
 		void this.refreshCliAvailability();
+		// A provider extension (Claude / Codex) can be installed while this pane is
+		// already open - e.g. the user picks a new AI from the account menu. Re-probe
+		// on any extension change so the reviewer checkbox flips from "CLI not
+		// installed" to enabled immediately, without needing a window reload.
+		this._register(this.extensionService.onDidChangeExtensions(() => void this.refreshCliAvailability()));
 	}
 
 	/** Ask the extension whether each reviewer CLI is installed, then re-render so
@@ -131,11 +136,17 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		// installed" is the accurate, reliably-detectable "can I review with this
 		// AI" signal - unlike login (Claude stores it in the macOS keychain) or a
 		// bare CLI probe. Aria installs each provider's CLI alongside its extension.
-		this.claudeAvailable = !!(await this.extensionService.getExtension('anthropic.claude-code'));
-		this.codexAvailable = !!(await this.extensionService.getExtension('openai.chatgpt'));
+		const claude = !!(await this.extensionService.getExtension('anthropic.claude-code'));
+		const codex = !!(await this.extensionService.getExtension('openai.chatgpt'));
+		const changed = claude !== this.claudeAvailable || codex !== this.codexAvailable;
+		this.claudeAvailable = claude;
+		this.codexAvailable = codex;
 		if (!this.codexAvailable) { this.reviewers.codex = false; }
 		if (!this.claudeAvailable) { this.reviewers.claude = false; }
-		if (this.root) {
+		// Only repaint when availability actually flipped - onDidChangeExtensions
+		// fires often during startup and a blind render() would drop focus from the
+		// form the user may be filling in.
+		if (this.root && changed) {
 			this.render();
 		}
 	}

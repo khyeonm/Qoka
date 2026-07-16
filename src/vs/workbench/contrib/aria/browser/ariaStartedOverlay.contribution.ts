@@ -88,9 +88,52 @@ const SIGNIN_MESSAGES: readonly string[] = [
  *  load consumes the flag and every subsequent load sees nothing. */
 const JUST_PICKED_FLAG = 'aria.started.justPicked';
 
+/** One-shot localStorage flag set by "Change project" (see ariaAccountStatus).
+ *  When the user explicitly asks to change projects we must land on the PICKER,
+ *  not silently auto-reopen the project they just left. localStorage (not
+ *  sessionStorage) so it survives the closeFolder reload; consumed on first read. */
+const WANT_PICKER_FLAG = 'aria.started.wantPicker';
+
+/** Per-window-session guard so an auto-reopen that somehow lands back on an EMPTY
+ *  workbench (e.g. the recent folder was deleted) can't spin in a reopen loop.
+ *  sessionStorage resets on a genuine relaunch, which is exactly when we want to
+ *  try again. */
+const AUTO_REOPEN_TRIED_FLAG = 'aria.started.autoReopenTried';
+
 /** Legacy key from a previous attempt; cleared on startup so old
  *  installations don't keep a stale timestamp around. */
 const RECENT_PICK_KEY = 'aria.started.recentPickAt';
+
+/** Persistent (localStorage) breadcrumb trail for the New Project / picker
+ *  flow. openWindow reloads (or recreates) the window, wiping the DevTools
+ *  console, so the moment a bounce happens is unobservable in the live console.
+ *  We append milestones here - localStorage survives a reload AND a full window
+ *  recreation (unlike sessionStorage) - and dump+clear them on the next overlay
+ *  construction, so the post-bounce console prints exactly what happened before
+ *  the reload. Capped so it can never grow without bound. */
+const TRAIL_KEY = 'aria.started.trail';
+function pushTrail(msg: string): void {
+	try {
+		const raw = localStorage.getItem(TRAIL_KEY);
+		const arr: string[] = raw ? JSON.parse(raw) : [];
+		arr.push(`${new Date().toISOString()} ${msg}`);
+		// Keep the last 40 entries only.
+		localStorage.setItem(TRAIL_KEY, JSON.stringify(arr.slice(-40)));
+	} catch { /* storage unavailable - diagnostics are best-effort */ }
+}
+function dumpTrail(): void {
+	try {
+		const raw = localStorage.getItem(TRAIL_KEY);
+		if (!raw) { return; }
+		const arr: string[] = JSON.parse(raw);
+		if (arr.length) {
+			console.log(`[aria][trail] --- New Project / picker breadcrumb from before this load (${arr.length} entries) ---`);
+			for (const line of arr) { console.log(`[aria][trail] ${line}`); }
+			console.log('[aria][trail] --- end ---');
+		}
+		localStorage.removeItem(TRAIL_KEY);
+	} catch { /* ignore */ }
+}
 
 /**
  * Aria's "Started" overlay - a full-viewport surface that locks the
@@ -157,6 +200,18 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	) {
 		super();
 
+		// Print (and clear) any breadcrumb the pre-reload window left behind, then
+		// record where THIS load landed - so a New Project bounce shows up as
+		// "createNewProject ... openWindow" followed by "constructor: state=EMPTY".
+		dumpTrail();
+		try {
+			const state = this.contextService.getWorkbenchState();
+			const stateName = state === WorkbenchState.EMPTY ? 'EMPTY' : state === WorkbenchState.FOLDER ? 'FOLDER' : 'WORKSPACE';
+			const justPicked = (() => { try { return sessionStorage.getItem(JUST_PICKED_FLAG); } catch { return '?'; } })();
+			pushTrail(`constructor: workbenchState=${stateName}, justPickedFlag=${justPicked}`);
+			console.log(`[aria][trail] constructor: workbenchState=${stateName}, justPickedFlag=${justPicked}`);
+		} catch { /* ignore */ }
+
 		// Re-check which provider extensions are installed when the set changes
 		// (e.g. the user installs one from the picker), so the step updates.
 		this._register(this.extensionService.onDidChangeExtensions(() => {
@@ -187,6 +242,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// window - a just-picked reload or a restored project - shows the workbench
 		// directly; the login guard (ariaLoginGate) handles sign-in there.
 		if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY) {
+			pushTrail('startup: workbenchState != EMPTY (folder attached) -> showing workbench, overlay suppressed (GOOD - no bounce)');
 			try { sessionStorage.removeItem(JUST_PICKED_FLAG); } catch { /* ignore */ }
 			this.removeEarlyHideStyleByID();
 			return;
@@ -199,6 +255,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// genuine app restarts (sessionStorage is per-window-session).
 		try {
 			if (sessionStorage.getItem(JUST_PICKED_FLAG) === '1') {
+				pushTrail('startup: workbenchState EMPTY but justPicked flag SET -> suppressing overlay for the reload (folder did not attach yet)');
 				sessionStorage.removeItem(JUST_PICKED_FLAG);
 				// Module-load installed an early hide stylesheet to
 				// prevent the workbench flash; on the skip path we
@@ -209,13 +266,115 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			}
 		} catch { /* ignore */ }
 
-		// Hide the workbench shell behind a stylesheet rule the moment
-		// we know the overlay is coming up. Without this, the editor /
-		// sidebar / status bar briefly flash between the workbench's
-		// own paint and our overlay's appendChild. The rule covers
-		// every body child except our overlay (and inert nodes like
-		// <style>/<script>/<link>).
+		// EMPTY workbench, not a just-picked reload. Hide the workbench shell right
+		// away (avoids a flash) while we decide asynchronously whether to auto-reopen
+		// the last project or bring up the sign-in / picker overlay.
 		this.installHideWorkbenchStyle();
+		void this.decideEmptyWorkbench();
+	}
+
+	/**
+	 * Reached on an EMPTY workbench that isn't a just-picked reload - i.e. a plain
+	 * app launch (Cmd+Q relaunch) or a Dock reactivation into a fresh empty window.
+	 * Intent-based routing:
+	 *   - "Change project" was clicked  → show the PICKER (WANT_PICKER_FLAG).
+	 *   - Signed out (no session)        → show SIGN-IN.
+	 *   - Otherwise (signed in, past onboarding, a recent project exists)
+	 *                                    → AUTO-REOPEN the most recent project.
+	 * Only an explicit action lands on the picker/sign-in; everything else returns
+	 * the user straight to where they were working.
+	 */
+	private async decideEmptyWorkbench(): Promise<void> {
+		// Explicit "Change project" always wins - consume the one-shot flag and show
+		// the picker.
+		let wantPicker = false;
+		try { wantPicker = localStorage.getItem(WANT_PICKER_FLAG) === '1'; } catch { /* ignore */ }
+		if (wantPicker) {
+			try { localStorage.removeItem(WANT_PICKER_FLAG); } catch { /* ignore */ }
+			pushTrail('decideEmptyWorkbench: WANT_PICKER flag set -> showing picker');
+			this.showOverlayAndWireAuth();
+			return;
+		}
+
+		// Loop guard: if we already tried to auto-reopen in THIS window session and
+		// still landed empty, the target was unopenable - fall back to the picker.
+		let alreadyTried = false;
+		try { alreadyTried = sessionStorage.getItem(AUTO_REOPEN_TRIED_FLAG) === '1'; } catch { /* ignore */ }
+		if (alreadyTried) {
+			pushTrail('decideEmptyWorkbench: auto-reopen already tried this session -> showing picker');
+			this.showOverlayAndWireAuth();
+			return;
+		}
+
+		// Need a signed-in session AND a completed onboarding (AI provider chosen) to
+		// auto-reopen; otherwise the first-run sign-in / AI-picker flow must run.
+		let hasSession = false;
+		try {
+			const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
+			hasSession = sessions.length > 0;
+		} catch { /* treat as no session */ }
+		// "Onboarding done" = the localStorage picked flag OR an explicit
+		// aria.aiProvider setting (claude/codex). The setting persists reliably even
+		// if the localStorage flag was lost, so a returning user isn't wrongly sent
+		// back through the AI picker.
+		const providerSetting = this.configurationService.getValue<string>('aria.aiProvider');
+		const pickedAi = hasPickedAiProvider() || providerSetting === 'claude' || providerSetting === 'codex';
+		if (!hasSession || !pickedAi) {
+			pushTrail(`decideEmptyWorkbench: hasSession=${hasSession}, pickedAi=${pickedAi} -> showing sign-in/picker`);
+			this.showOverlayAndWireAuth();
+			return;
+		}
+
+		// Find the most recent project folder that still exists on disk.
+		const recentUri = await this.mostRecentExistingProject();
+		if (!recentUri) {
+			pushTrail('decideEmptyWorkbench: no reopenable recent project -> showing picker');
+			this.showOverlayAndWireAuth();
+			return;
+		}
+
+		try { sessionStorage.setItem(AUTO_REOPEN_TRIED_FLAG, '1'); } catch { /* ignore */ }
+		pushTrail(`decideEmptyWorkbench: auto-reopening most recent project ${recentUri.fsPath}`);
+		// Reuse the just-picked machinery so the reloaded window suppresses the
+		// overlay and lands directly on the project.
+		this.pickAndDismiss(() => {
+			void this.hostService.openWindow([{ folderUri: recentUri }], { forceReuseWindow: true });
+		});
+	}
+
+	/** The most recent recently-opened folder whose directory still exists, or
+	 *  undefined when there is none to reopen. */
+	private async mostRecentExistingProject(): Promise<URI | undefined> {
+		let recents: IRecentlyOpened;
+		try {
+			recents = await this.workspacesService.getRecentlyOpened();
+		} catch {
+			return undefined;
+		}
+		for (const item of recents.workspaces) {
+			const uri: URI | undefined = isRecentFolder(item)
+				? item.folderUri
+				: isRecentWorkspace(item)
+					? item.workspace.configPath
+					: undefined;
+			if (!uri) {
+				continue;
+			}
+			try {
+				if (await this.fileService.exists(uri)) {
+					return uri;
+				}
+			} catch {
+				// Unreadable - skip and try the next most recent.
+			}
+		}
+		return undefined;
+	}
+
+	/** Bring up the sign-in / picker overlay and keep it in sync with the session.
+	 *  Split out of the constructor so decideEmptyWorkbench can defer to it on every
+	 *  non-auto-reopen path. */
+	private showOverlayAndWireAuth(): void {
 		this.show();
 
 		// The overlay doubles as the sign-in gate: re-check and re-render on every
@@ -335,9 +494,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	private pickAndDismiss(action: () => void): void {
 		try {
 			sessionStorage.setItem(JUST_PICKED_FLAG, '1');
+			pushTrail('pickAndDismiss: set justPicked flag (sessionStorage), hiding overlay, running action');
 		} catch {
 			// Storage can throw in restricted contexts; the overlay
 			// still hides and the action still runs.
+			pushTrail('pickAndDismiss: sessionStorage.setItem THREW - flag NOT set');
 		}
 		this.hide();
 		action();
@@ -658,7 +819,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// Sign-in gate: until authenticated, this overlay shows login (or the
 		// loading spinner mid sign-in), NOT the project picker.
 		if (!this.authChecked || this.authLoading) {
-			this.renderLoadingSection(content);
+			// During an ACTIVE sign-in offer a way back: closing the external
+			// browser fires no event, so createSession never rejects and the
+			// spinner would otherwise hang on "Preparing sign-in…" forever.
+			this.renderLoadingSection(content, this.authLoading);
 			return;
 		}
 		if (!this.ariaSession) {
@@ -728,7 +892,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		}
 	}
 
-	private renderLoadingSection(parent: HTMLElement): void {
+	private renderLoadingSection(parent: HTMLElement, cancellable = false): void {
 		const box = document.createElement('div');
 		box.style.display = 'flex';
 		box.style.flexDirection = 'column';
@@ -755,6 +919,30 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		msg.style.transition = 'opacity 0.3s ease';
 		box.appendChild(msg);
 		this.startMessageCycle(msg);
+
+		if (cancellable) {
+			// The underlying createSession stays pending (the loopback server times
+			// out on its own); this just drops the overlay's waiting state and
+			// returns the user to the sign-in buttons so they aren't stuck.
+			const back = document.createElement('button');
+			back.textContent = 'Back to sign-in';
+			back.style.marginTop = '4px';
+			back.style.padding = '6px 16px';
+			back.style.fontSize = '12.5px';
+			back.style.fontFamily = 'inherit';
+			back.style.color = 'var(--vscode-foreground, #cccccc)';
+			back.style.background = 'transparent';
+			back.style.border = '1px solid rgba(127, 127, 127, 0.4)';
+			back.style.borderRadius = '5px';
+			back.style.cursor = 'pointer';
+			back.onclick = () => {
+				console.log('[aria] sign-in cancelled by user (Back to sign-in), returning to sign-in screen');
+				this.authLoading = false;
+				this.stopMessageCycle();
+				void this.refreshAuth();
+			};
+			box.appendChild(back);
+		}
 	}
 
 	private ensureSpinnerKeyframes(): void {
@@ -1081,6 +1269,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// showSaveDialog URI can differ enough on Windows that the reload lands in
 		// an empty window and bounces back to the picker.
 		const folderUri = URI.file(target.fsPath);
+		pushTrail(`createNewProject: target=${folderUri.fsPath}`);
 		// Create the project FOLDER via the file service (main process): immediate
 		// and reliable. Routing this through the aria-roadmap command instead meant
 		// that on a FIRST launch the folder was created only AFTER that extension
@@ -1089,7 +1278,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// (After a sign-out the extension is already active, so it worked then.)
 		try {
 			await this.fileService.createFolder(folderUri);
+			pushTrail('createNewProject: folder created OK');
 		} catch (e) {
+			pushTrail(`createNewProject: createFolder FAILED - ${(e as Error).message}`);
 			this.notificationService.notify({
 				severity: Severity.Error,
 				message: `Could not create the project: ${(e as Error).message}`,
@@ -1109,6 +1300,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			// Storage unavailable - the user can still open the canvas from the
 			// Roadmap sidebar once the window loads.
 		}
+		pushTrail(`createNewProject: calling openWindow(forceReuseWindow) for ${folderUri.fsPath}`);
 		this.pickAndDismiss(() => {
 			void this.hostService.openWindow([{ folderUri }], { forceReuseWindow: true });
 		});

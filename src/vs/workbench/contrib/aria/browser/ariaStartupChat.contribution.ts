@@ -93,10 +93,16 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				return;
 			}
 
-			// All wanted providers present → wait until Aria is actually usable (its
-			// MCP servers are up), in ALL modes, with a failsafe so a broken boot
-			// can't trap the user on the loading screen.
-			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+			// Hold the loading screen until Aria is actually usable: its MCP servers
+			// are up (whenAriaSetupReady) AND each installed provider's CLI is
+			// installed and its MCPs registered. Otherwise the loading ends and
+			// "Aria tools connected" pops up a few seconds later. Failsafe timeout
+			// so a slow/failed CLI install can't trap the user on the loading screen.
+			await Promise.race([
+				Promise.all([whenAriaSetupReady(), this._ensureClisForInstalledProviders()]),
+				timeout(60000),
+			]);
+			this._scheduleMcpReconcile(); // delayed catch-up passes for a lagging CLI
 			hideLoading();
 			if (!hasPickedAiProvider()) {
 				return;
@@ -164,7 +170,11 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				try { await this.commandService.executeCommand('aria.provider.installCli', p); } catch { /* ignore */ }
 			}
 		}
-		this._scheduleMcpReconcile();
+		// AWAIT the first registration pass now that the CLI is present, so a
+		// caller (the startup loading screen) can hold until MCPs are actually
+		// registered instead of finishing and letting "Aria tools connected"
+		// appear afterwards. Callers add the delayed catch-up passes separately.
+		await this._reconcileMcp();
 	}
 
 	/** On startup AND whenever the installed extension set changes, make sure the
@@ -173,8 +183,12 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  can be missing (its localStorage entry didn't persist / onboarding was
 	 *  interrupted) and would otherwise leave the CLI - and every MCP - uninstalled. */
 	private _wireMcpReconcile(): void {
-		void Promise.race([whenAriaSetupReady(), timeout(30000)]).then(() => this._ensureClisForInstalledProviders(), () => this._ensureClisForInstalledProviders());
-		this._register(this.extensionService.onDidChangeExtensions(() => { void this._ensureClisForInstalledProviders(); }));
+		// Startup install+register is awaited by the loading screen (see the
+		// constructor). Here we only handle a provider added LATER: install its
+		// CLI, register, then a couple of delayed catch-up passes for a lagging CLI.
+		this._register(this.extensionService.onDidChangeExtensions(() => {
+			void (async () => { await this._ensureClisForInstalledProviders(); this._scheduleMcpReconcile(); })();
+		}));
 	}
 
 	/** Auto-install the CLI for each provider the user chose (from the

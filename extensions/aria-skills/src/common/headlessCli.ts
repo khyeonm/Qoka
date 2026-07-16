@@ -20,7 +20,7 @@
  */
 
 import * as vscode from 'vscode';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -29,6 +29,39 @@ export type HeadlessProvider = 'claude' | 'codex';
 
 const isWin = process.platform === 'win32';
 const HOME = os.homedir();
+
+/** PATH entries from the user's LOGIN SHELL. A GUI-launched Electron app (Dock /
+ *  Finder) inherits a minimal PATH that omits ~/.local/bin, Homebrew, nvm, and
+ *  wherever the user actually installed `claude`/`codex` - so `claude --version`
+ *  fails and MCP registration silently no-ops, even though the same CLI works in
+ *  the user's terminal. We ask their login shell for its PATH once (cached) and
+ *  fold it into the process, matching what the terminal sees. Non-interactive
+ *  login shell (`-lc`) sources profile files without the hang risk of `-i`. */
+let cachedLoginPathDirs: string[] | undefined;
+function loginShellPathDirs(): string[] {
+	if (isWin) {
+		return [];
+	}
+	if (cachedLoginPathDirs !== undefined) {
+		return cachedLoginPathDirs;
+	}
+	try {
+		const shell = process.env.SHELL && fs.existsSync(process.env.SHELL) ? process.env.SHELL : '/bin/zsh';
+		// A sentinel isolates PATH from any banner a profile might print.
+		const out = execSync(`${shell} -lc 'printf "__ARIA_PATH__%s__ARIA_END__" "$PATH"'`, {
+			timeout: 4000,
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'ignore'],
+		});
+		const m = out.match(/__ARIA_PATH__([\s\S]*)__ARIA_END__/);
+		const value = m ? m[1] : '';
+		cachedLoginPathDirs = value ? value.split(path.delimiter).filter(Boolean) : [];
+	} catch {
+		// No login shell / timeout / restricted env - fall back to the fixed dirs.
+		cachedLoginPathDirs = [];
+	}
+	return cachedLoginPathDirs;
+}
 
 /** Aria's private home for tools it provisions itself when the machine lacks
  *  them (portable Node, npm-installed CLIs). Both the installer and this
@@ -62,6 +95,9 @@ export function ensureAriaBinsOnPath(): void {
 		wanted.push(path.join(process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming'), 'npm'));
 	}
 	wanted.push(path.join(HOME, '.local', 'bin'));
+	// The user's real login-shell PATH (Homebrew, nvm, custom claude/codex dirs).
+	// Without this a Dock/Finder launch can't see a CLI that works in the terminal.
+	wanted.push(...loginShellPathDirs());
 	const current = (process.env.PATH ?? '').split(path.delimiter);
 	const missing = wanted.filter(dir => dir && !current.includes(dir));
 	if (missing.length) {
@@ -104,6 +140,8 @@ function providerDirs(): string[] {
 		path.join(ARIA_NPM_PREFIX, 'bin'),
 		path.join(ARIA_NODE_DIR, 'bin'),
 		...nvmBinDirs(),
+		// Real login-shell dirs so a Dock-launched app finds a terminal-installed CLI.
+		...loginShellPathDirs(),
 	];
 }
 
