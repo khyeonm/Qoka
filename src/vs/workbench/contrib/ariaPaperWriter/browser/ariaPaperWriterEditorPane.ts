@@ -63,7 +63,7 @@ const STEPS = ['Format', 'Sources', 'Focus', 'Outline', 'Write'];
 
 /**
  * Editor pane for a paper project - a 5-step wizard mirroring SPWA:
- * Format → Sources → Focus → Outline → Write. Each "✨ with AI" button
+ * Format → Sources → Focus → Outline → Write. Each "with AI" button
  * auto-sends a prompt to your AI chat; Claude writes back via the aria-paper
  * MCP (set_focus / set_outline / set_manuscript) and the form refreshes.
  */
@@ -417,7 +417,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			'ghost', () => void this.addAssets(kind)));
 		const pending = items.filter(i => !i.summary).length;
 		if (pending > 0) {
-			tools.appendChild(this.button(localize('aria.paperWriter.summarize', "✨ Summarize {0} new with AI", pending), 'ghost', () => void this.sendToChat(this.summarizePrompt())));
+			tools.appendChild(this.button(localize('aria.paperWriter.summarize', "Summarize {0} new with AI", pending), 'ghost', () => void this.sendToChat(this.summarizePrompt())));
 		}
 	}
 
@@ -547,7 +547,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const hint = append(root, $('div'));
 		hint.textContent = localize('aria.paperWriter.focusHint', "Develop the focus with AI (it asks one question at a time), or write/paste it directly. Problem, objectives, gap, and contribution.");
 		Object.assign(hint.style, { fontSize: '13px', opacity: '0.7', lineHeight: '1.55', marginBottom: '8px' });
-		append(root, this.button(localize('aria.paperWriter.developFocus', "✨ Develop focus with AI"), 'primary', () => void this.sendToChat(this.focusPrompt())));
+		append(root, this.button(localize('aria.paperWriter.developFocus', "Develop focus with AI"), 'primary', () => void this.sendToChat(this.focusPrompt())));
 		const ta = append(root, $('textarea')) as HTMLTextAreaElement;
 		ta.value = this.meta!.focus ?? '';
 		ta.placeholder = localize('aria.paperWriter.focusPlaceholder', "- Problem: …\n- Objective: …\n- Gap / contribution: …");
@@ -566,7 +566,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		Object.assign(hint.style, { fontSize: '13px', opacity: '0.7', lineHeight: '1.55', marginBottom: '8px' });
 		const btnRow = append(root, $('div'));
 		Object.assign(btnRow.style, { display: 'flex', gap: '8px', flexWrap: 'wrap' });
-		btnRow.appendChild(this.button(localize('aria.paperWriter.generateOutline', "✨ Generate outline with AI"), 'primary', () => void this.sendToChat(this.outlinePrompt())));
+		btnRow.appendChild(this.button(localize('aria.paperWriter.generateOutline', "Generate outline with AI"), 'primary', () => void this.sendToChat(this.outlinePrompt())));
 		btnRow.appendChild(this.button(localize('aria.paperWriter.resetOutline', "Reset to default sections"), 'ghost', () => {
 			this.meta!.outline = this.defaultOutline();
 			void this.saveMeta().then(() => this.render());
@@ -663,7 +663,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			const banner = append(root, $('div'));
 			Object.assign(banner.style, { display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'space-between', border: '1px solid rgba(240,200,0,0.5)', background: 'rgba(240,200,0,0.12)', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px' });
 			const t = append(banner, $('span'));
-			t.textContent = localize('aria.paperWriter.proposalPending', "✦ The AI proposed edits to the manuscript - review and accept them.");
+			t.textContent = localize('aria.paperWriter.proposalPending', "The AI proposed edits to the manuscript - review and accept them.");
 			t.style.fontSize = '13px';
 			banner.appendChild(this.button(localize('aria.paperWriter.openReview', "Review edits"), 'primary', () => {
 				if (this.folder) { void this.editorService.openEditor(new AriaManuscriptReviewInput(this.folder), { pinned: true }); }
@@ -684,11 +684,11 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const bar = append(root, $('div'));
 		Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' });
 		bar.appendChild(this.button(
-			written ? localize('aria.paperWriter.rewrite', "✨ Re-write with AI") : localize('aria.paperWriter.write', "✨ Write the paper with AI"),
+			written ? localize('aria.paperWriter.rewrite', "Re-write with AI") : localize('aria.paperWriter.write', "Write the paper with AI"),
 			'primary', () => void this.onWrite()));
 
 		if (written) {
-			bar.appendChild(this.button(localize('aria.paperWriter.revise', "✦ Revise a part with AI"), 'ghost', () => void this.sendToChat(this.revisePrompt())));
+			bar.appendChild(this.button(localize('aria.paperWriter.revise', "Revise a part with AI"), 'ghost', () => void this.sendToChat(this.revisePrompt())));
 			const divider = append(bar, $('div'));
 			Object.assign(divider.style, { width: '1px', alignSelf: 'stretch', minHeight: '26px', background: 'rgba(127,127,127,0.4)', margin: '0 4px' });
 			bar.appendChild(this.button('Export MD', 'ghost', () => void this.export('markdown')));

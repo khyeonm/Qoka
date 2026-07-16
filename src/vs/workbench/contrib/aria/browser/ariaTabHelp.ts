@@ -62,7 +62,7 @@ The assistant searches the paper databases and adds what you ask for to the list
 - **Tags dropdown** - show only papers that have a chosen tag.
 - **Details** - click a paper's title, or the **Details** button, to expand it and see the DOI, its tags, and your note.
 - **Delete** - remove a paper from the library (it asks you to confirm first).
-- **↻ refresh** (top right, next to *How to use?*) - reload the list.
+- **↻ Refresh** - at the right of the one-line description (just below *How to use?*) - reloads the list.
 
 ## Organise a paper (expand it with Details)
 - **Tags** - click **+ Add tag** to label a paper; click a tag pill to remove it. Tags feed the dropdown filter above.
@@ -81,10 +81,9 @@ The assistant searches the paper databases and adds what you ask for to the list
 A notebook for ideas, experiment logs, and reading notes. Notes are saved as files inside your project's \`notes\` folder, so they travel with the project.
 
 ## Steps
-1. **Open a project first** - notes live in the open project folder. Without one, the tab just asks you to open a project.
-2. **New note** - click **+ New note**. It opens in the editor on the right.
-3. **Write** - type directly in the editor. It **saves automatically** as you go - there's no save button.
-4. **Rename / delete** - use the pencil to rename a note and the trash icon to delete it (it goes to the trash). Click any note in the list to reopen it.
+1. **New note** - click **+ New note**. It opens in the editor on the right.
+2. **Write** - type directly in the editor. It **saves automatically** as you go - there's no save button.
+3. **Rename / delete** - use the pencil to rename a note and the trash icon to delete it (it goes to the trash). Click any note in the list to reopen it.
 
 ## Working with the AI assistant
 - Ask the AI assistant in the chat to **draft or revise** a note.
@@ -95,20 +94,20 @@ A notebook for ideas, experiment logs, and reading notes. Notes are saved as fil
 		summary: 'Draft a paper step by step with the AI assistant.',
 		howTo: `# Paper Writer - How to use
 
-Write a scientific paper with the AI assistant through a guided 5-step wizard: **Format → Sources → Focus → Outline → Write**. Each paper is saved in your project's \`paper\` folder.
+Write a scientific paper with the AI assistant, step by step: **Format → Sources → Focus → Outline → Write → Revise**. Each paper is saved in your project's \`paper\` folder. The AI buttons below don't act on their own - they **copy a prompt** that you paste to the AI assistant in the chat.
 
 ## Steps
 1. **Open a project, then create a paper** - click **+ New paper**. It opens the wizard in the editor; click a paper in the list to reopen it.
 2. **Format** - set the language, paper type, target length, and citation style (with a live citation preview).
 3. **Sources** - import references from a **BibTeX (.bib)** file or pull them from your **Paper Library**. Add **figures** and **supplementary files**; the assistant summarises each one.
-4. **Focus** - type what the paper is about, or use **Develop focus** to have the AI assistant ask you questions.
-5. **Outline** - use **Generate outline** to have the assistant draft it, or edit the sections and their word budgets yourself.
-6. **Write** - click **Write the paper** to have the assistant draft it section by section. Use **Revise a part** for targeted edits - proposed changes open in a review tab where you **Accept** or **Reject** them.
-7. **Export** - export to **Word (.docx)**, **Markdown**, or **LaTeX**, or send the paper to the **AI Peer Review** tab.
+4. **Focus** - describe what the paper is about. Click **Develop focus** to **copy a prompt**; paste it to the AI assistant in the chat and it drafts the focus. You can then edit the result freely.
+5. **Outline** - click **Generate outline** to **copy a prompt** for the AI assistant, or write the sections and their word budgets yourself. The result is fully editable.
+6. **Write** - click **Write the paper** to **copy a prompt**; paste it to the AI assistant and it drafts the manuscript section by section. You can edit any text directly.
+7. **Revise** - click **Revise a part** to **copy a prompt**; paste it, then tell the AI assistant what to change. It edits only that part (leaving the rest untouched) and opens the changes in a review tab where you **Accept** or **Reject** each one.
+8. **Export** - export to **Word (.docx)**, **Markdown**, or **LaTeX**. The files land in your project's **paper** folder, where you can open and edit them freely.
 
 ## Tips
-- Every "✨/✦" button hands the work to the AI assistant in the chat; you steer, it drafts.
-- Your original draft is kept, so re-writing a section never loses your earlier version.`,
+- Your original first draft is kept as \`paper/<id>/manuscript.original.md\` and stays there **unchanged even while you revise with the AI**, so you never lose your earlier version.`,
 	},
 	'peer-review': {
 		title: 'AI Peer Review',
@@ -120,14 +119,14 @@ Have independent AI reviewers read your paper and point out concerns - the way a
 ## Steps
 1. **Start a review** - click **+ New review**. Past runs appear in the list; click one to reopen it.
 2. **Pick one source** - either **upload a file** (a required draft, plus optional figures and supplementary files) **or** choose a manuscript you exported from **Paper Writer**.
-3. **Choose reviewers** - pick which AI reviewer runs (one is on by default; another is coming soon).
-4. **Run it** - click the **Review** button; it copies a prompt to the chat, so **paste it (Ctrl/Cmd+V) and press Enter**. The reviewers surface **Major** and **Minor** concerns without making anything up. The results open automatically.
+3. **Choose reviewers** - pick which AI reviewer(s) run. You can only use an AI you've **signed in to in its chat app**.
+4. **Run it** - click the **Review** button; it **copies a prompt**. Paste it (**Ctrl/Cmd+V**) into your AI assistant. The reviewer's **Major** and **Minor** concerns then appear in the editor.
 5. **Work through concerns** - your paper is on the left, the comments on the right. For a concern, click **Suggest Revision**; the AI assistant proposes up to three edits that appear **inline in the paper** as a before → after diff. Browse the options and click **Accept** to apply, and tick **Resolved** when done.
 6. **Save & re-run** - use **Save paper** to export the revised version, and **Re-run on revised** to review the improved paper.
 
 ## Tips
-- The reviewers never invent data, figures, or citations - they only work from what's in your paper.
-- Each "Suggest Revision" goes through the AI assistant in the chat, so paste the prompt when asked.`,
+- You don't paste the prompt into every AI - paste it into **one** of the AI apps you picked in step 3.
+- If a reviewer shows **"CLI not installed"**, click the **account info at the bottom** and choose an **AI provider** - Aria then downloads its CLI. You also need to install that AI's **extension** and **sign in** to it before you can use it.`,
 	},
 	'autopipe': {
 		title: 'Autopipe',
@@ -138,17 +137,18 @@ This is where the AI assistant **builds and runs** your data-analysis pipelines 
 
 ## Where it runs
 - **Built-in server (Windows / Mac)** - a small analysis machine that runs on your own computer. No setup and no server of your own needed; it's the default.
-- **Your own lab server** - if you have one (and on Linux, where the built-in server isn't offered), click **+** on **Run environment** and add it (name, host, port, username, password, remote workspace), then **Save profile** and **Test connection**. Click a row to make it the active one.
+- **Your own lab server** - if you have one, click **+** on **Run environment** and add it (name, host, port, username, password, remote workspace), then **Save profile**. Click a row to make it the active one.
 
 ## Steps
 1. **Pick where it runs** - the built-in server (default on Windows/Mac) or your lab server (see above).
 2. **(Optional) Connect GitHub** - click **Connect to GitHub** to upload or share pipelines, and choose whether each pipeline gets its **own repo** or they **share one repo**.
-3. **Save settings** - click **Save settings** to apply your choices.
-4. **Find pipelines** - open **Pipeline Hub** to browse ready-made pipelines, or **Plugins** for add-ons.
-5. **Build & run** - ask the AI assistant in the chat to build or run a pipeline; it uses your run environment, reports progress, and shows the results.
+3. **Find pipelines** - open **Pipeline Hub** to browse ready-made pipelines, or **Plugins** for add-ons.
+4. **Build & run** - ask the AI assistant in the chat to build or run a pipeline; it uses your run environment, reports progress, and shows the results.
+
+Your **Run environment** and **GitHub** choices are **saved automatically** the moment you change them - there's no Save button.
 
 ## Tips
-- Adjust the built-in server's memory / CPU with the **⚙** on its row.
+- Adjust the built-in server's memory / CPU with the **⚙** on its row - it shows the **maximum available on your computer**, so you can't set more than your machine has.
 - You don't need to know Linux or Git - the AI assistant handles the commands.`,
 	},
 	'roadmap': {
@@ -159,11 +159,12 @@ This is where the AI assistant **builds and runs** your data-analysis pipelines 
 Turn a research idea into a clear, visual plan. Each project has one roadmap; the sidebar shows a small preview of it.
 
 ## Steps
-1. **Open the canvas** - click the preview (or **Open full roadmap**) to open the roadmap canvas in the center.
+1. **Open a roadmap** - in the **Roadmap** tab, pick a roadmap from the list to open it in the center.
 2. **Start brainstorming** - copy the starter prompt on the canvas, paste it into the AI chat, and fill in what you want to build.
 3. **Review the suggestions** - the AI assistant asks one question at a time and proposes steps that appear as **dashed blue cards**. For each, click **✓ Accept**, **✏ Edit**, or **✗ Delete** (or **Accept All Remaining**).
 4. **Edit by hand** - use **+** on the *Goal* column to add a goal, **+** on any card to add a sub-step, click a card to edit its label and description, and the **⋮** menu to mark a step *in progress* / *complete* or delete it.
-5. **Save** - click **Save** to keep the roadmap in the project.
+
+The roadmap **saves automatically** on every change (the header shows *✓ Saved automatically*) - there's no Save button.
 
 ## Ask about prior research & methods
 While you brainstorm, the AI assistant can also help you ground each idea in real research:
@@ -184,31 +185,31 @@ The assistant offers these right after you add a hypothesis or goal - just say y
 Skills are extra tools you can give the AI assistant - for example, searching a specific database. This tab installs them and manages the access keys they need.
 
 ## Steps
-1. **Add a skill** - click **+ Add Skill**, paste the GitHub link of the skill, pick which one (if the repo has several), and confirm its name. It installs into your skills.
+1. **Add a skill** - click **+ Add Skill** and paste the GitHub link of a repo that contains a \`SKILL.md\`. The AI reads it and automatically **names the skill, suggests a category, and tells you which environment variables it needs**, then installs it. You don't have to enter any keys to add it - set them afterward (below) when needed.
 2. **Browse** - use the search box and category filter. **Default Skills** come pre-installed; **My Skills** are the ones you added.
 3. **See details** - click **Details** on a skill to expand it. The pills show whether its access keys are set, and you can see its source or **Uninstall** a skill you added.
-4. **Enter access keys** - in a skill's **Details**, click **Enter keys / Edit keys** and fill in each key it asks for. The **Environment Variables** section lists every key (Required / Optional) with an **Edit** button per key, or **Open ~/.env** to edit them all at once.
+4. **Environment variables** - the **Environment Variables** section lists every key a skill uses (marked **Required** / **Optional**). Edit any key with its **Edit** button; changes are **saved automatically to your \`~/.env\` file**. Click **Open ~/.env** to view the file's contents.
 
 ## Tips
 - The key-status pills tell you at a glance whether a skill has everything it needs.
-- Keys are stored in your \`~/.env\` file and used only by the skill that needs them.`,
+- Fill in the **Required** keys for a skill to work; Optional ones can be left blank.
+- Keys live in your \`~/.env\` file and are used only by the skill that needs them.`,
 	},
 	'versions': {
 		title: 'Versions',
 		summary: 'Save snapshots of your project and go back anytime.',
 		howTo: `# Versions - How to use
 
-Save snapshots of your project so you can always return to an earlier state - no Git knowledge needed. This tab has two sections: **Changes** (top) and **Snapshots** (bottom).
+Save snapshots of your project so you can always return to an earlier state. This tab has two sections: **Changes** (top) and **Snapshots** (bottom).
 
 ## Steps
-1. **Open a folder** - snapshots are saved per project folder.
-2. **See what changed** - **Changes** lists the files you've edited since your last snapshot. Click a filename to see exactly what changed.
-3. **Save a snapshot** - tick the files you want (or leave all selected) and click **Save Snapshot**. This records the current state as a version.
-4. **Browse history** - **Snapshots** lists your saved versions, newest first. Click one to expand it and see which files it changed.
-5. **Go back** - in an expanded snapshot, click **Go back to this version** to restore it.
+1. **See what changed** - **Changes** lists the files you've edited since your last snapshot. Click a filename to see exactly what changed.
+2. **Save a snapshot** - tick the files you want (or leave all selected) and click **Save Snapshot**. The AI **suggests a name** and asks whether to **group it with your previous snapshot**. Adjust either as you like, then save - it records the current state as a version.
+3. **Browse history** - **Snapshots** lists your saved versions, newest first. Click one to expand it and see which files it changed.
+4. **Go back** - in an expanded snapshot, click **Go back to this version** to restore it.
 
 ## Tips
 - Save often - each snapshot is a safe point you can return to.
-- Everything here is button-driven; the chat isn't involved.`,
+- The AI only **suggests** a name - you can always type your own before saving.`,
 	},
 };

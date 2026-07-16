@@ -98,10 +98,17 @@ export class AriaPaperSearchView extends ViewPane {
 		root.style.overflowX = 'hidden';
 		this.viewBody = root;
 
-		// Full-width one-line summary under the title bar. The "How to use?" link
-		// and the refresh icon live elsewhere (title bar / stats row), so the title
-		// and its description are not repeated here.
-		renderAriaTabSummary(root, 'paper-library');
+		// Full-width one-line summary under the title bar (below the "How to use?"
+		// link). The refresh icon sits at the right end of this summary row.
+		const summaryActions = renderAriaTabSummary(root, 'paper-library');
+		if (summaryActions) {
+			const refreshBtn = append(summaryActions, $('span.codicon.codicon-refresh')) as HTMLElement;
+			refreshBtn.title = 'Refresh';
+			refreshBtn.style.cursor = 'pointer';
+			refreshBtn.style.opacity = '0.75';
+			refreshBtn.style.padding = '2px 4px';
+			refreshBtn.onclick = () => { void this.refresh(); };
+		}
 
 		// Filter toolbar.
 		const toolbar = append(root, $('div'));
@@ -130,7 +137,8 @@ export class AriaPaperSearchView extends ViewPane {
 		};
 		this.tagSelect = tagSelect;
 
-		// Stats row - "N papers" / "N of M filtered" on the left, refresh on the right.
+		// Stats row - "N papers" / "N of M filtered". (Refresh moved up to the
+		// summary row, at the right of the one-line description.)
 		const statsRow = append(root, $('div'));
 		statsRow.style.display = 'flex';
 		statsRow.style.alignItems = 'center';
@@ -143,14 +151,6 @@ export class AriaPaperSearchView extends ViewPane {
 		stats.style.flex = '1';
 		stats.style.minWidth = '0';
 		this.statsEl = stats;
-
-		const refreshBtn = append(statsRow, $('span.codicon.codicon-refresh')) as HTMLElement;
-		refreshBtn.title = 'Refresh';
-		refreshBtn.style.cursor = 'pointer';
-		refreshBtn.style.opacity = '0.75';
-		refreshBtn.style.padding = '2px 4px';
-		refreshBtn.style.flexShrink = '0';
-		refreshBtn.onclick = () => { void this.refresh(); };
 
 		// Papers list container (clearNode-able - two levels deep).
 		const list = append(root, $('div'));
