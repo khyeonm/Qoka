@@ -19,15 +19,16 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureAriaPaneScrollbarStyle } from '../../ariaSkills/browser/ariaSkillsView.js';
 import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 
 /**
- * Paper Library sidebar view. Renders the user's saved papers from
- * ~/.config/aria/paper-library.json. New entries land via Claude Code
- * calling the `save_paper` MCP tool; this view handles browsing,
+ * Paper Library sidebar view. Renders the project's saved papers from
+ * <workspace>/references/paper-library.json (per-project). New entries land via
+ * Claude Code calling the `save_paper` MCP tool; this view handles browsing,
  * filtering, note editing, tag editing, and delete.
  */
 
@@ -83,6 +84,7 @@ export class AriaPaperSearchView extends ViewPane {
 		@ICommandService private readonly commandService: ICommandService,
 		@IFileService private readonly fileService: IFileService,
 		@IPathService private readonly pathService: IPathService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 
@@ -99,13 +101,18 @@ export class AriaPaperSearchView extends ViewPane {
 		void this.setupLibraryWatcher();
 	}
 
-	/** Watch ~/.config/aria/paper-library.json for external writes (MCP saves).
+	/** Watch the project's library file for external writes (MCP saves) so new
+	 *  papers appear without a manual refresh. The library is PER-PROJECT at
+	 *  <workspace>/references/paper-library.json (matches library.ts in the
+	 *  extension); with no folder open it falls back to ~/.config/aria.
 	 *  writeLibrary() does a tmp-file + rename, so we watch the containing
 	 *  directory to catch the rename rather than the file inode. */
 	private async setupLibraryWatcher(): Promise<void> {
 		try {
-			const home = await this.pathService.userHome();
-			const dirUri = URI.joinPath(home, '.config', 'aria');
+			const folder = this.workspaceContextService.getWorkspace().folders[0];
+			const dirUri = folder && folder.uri.scheme === 'file'
+				? URI.joinPath(folder.uri, 'references')
+				: URI.joinPath(await this.pathService.userHome(), '.config', 'aria');
 			const libUri = URI.joinPath(dirUri, 'paper-library.json');
 			this._register(this.fileService.watch(dirUri));
 			this._register(this.fileService.onDidFilesChange(e => {

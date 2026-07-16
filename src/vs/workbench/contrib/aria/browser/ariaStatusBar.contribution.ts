@@ -79,19 +79,17 @@ export class AriaModeStatusBarContribution extends Disposable implements IWorkbe
 			color: advancedActive ? { id: 'statusBarItem.prominentForeground' } : undefined,
 		};
 
-		// RIGHT-aligned so every Aria bottom-bar control lives on the right together
-		// with the account / Change project / Sign out cluster - the left side stays
-		// clean (no stray Aria buttons there). Priority > the account entry's 100 so
-		// the toggle sits just left of the account within the right group
-		// (higher priority = further left). Easy just left of Advanced.
+		// LEFT-aligned: the Easy/Advanced mode toggle lives on the far left in BOTH
+		// modes. (The account / Change project / Sign out cluster is on the RIGHT via
+		// AriaAccountStatusContribution.)
 		if (this.easyEntry) {
 			this.easyEntry.update(easyData);
 		} else {
 			this.easyEntry = this.statusbarService.addEntry(
 				easyData,
 				AriaModeStatusBarContribution.EASY_ENTRY_ID,
-				StatusbarAlignment.RIGHT,
-				200
+				StatusbarAlignment.LEFT,
+				1000  // very high priority - leftmost
 			);
 		}
 
@@ -101,8 +99,8 @@ export class AriaModeStatusBarContribution extends Disposable implements IWorkbe
 			this.advancedEntry = this.statusbarService.addEntry(
 				advancedData,
 				AriaModeStatusBarContribution.ADVANCED_ENTRY_ID,
-				StatusbarAlignment.RIGHT,
-				199
+				StatusbarAlignment.LEFT,
+				999  // immediately to the right of the Easy entry
 			);
 		}
 	}

@@ -98,7 +98,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				try { await this.commandService.executeCommand('workbench.extensions.action.showExtensionsWithIds', ids); } catch { /* ignore */ }
 				await timeout(2500); // let the Marketplace list populate behind the overlay
 				hideLoading();
-				this.notificationService.info(`Install ${labels}, then reload Aria to finish setup.`);
+				this.notificationService.info(`Install ${labels} to finish setting up your AI assistant.`);
 				this._revealWhenInstalled(missing);
 				return;
 			}

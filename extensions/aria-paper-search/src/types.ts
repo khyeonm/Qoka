@@ -25,7 +25,7 @@ export interface PaperLibraryEntry {
 	tags: string[];
 }
 
-/** The on-disk schema for ~/.config/aria/paper-library.json. */
+/** The on-disk schema for the per-project <workspace>/references/paper-library.json. */
 export interface PaperLibrary {
 	version: number;
 	papers: PaperLibraryEntry[];

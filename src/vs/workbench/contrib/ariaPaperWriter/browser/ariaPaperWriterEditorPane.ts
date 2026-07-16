@@ -167,8 +167,13 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 
 	private async loadLibrary(): Promise<LibraryEntry[]> {
 		try {
-			const home = await this.pathService.userHome();
-			const lib = await this.readJson<{ papers?: LibraryEntry[] }>(joinPath(home, '.config/aria/paper-library.json'));
+			// The Paper Library is PER-PROJECT at <workspace>/references/paper-library.json
+			// (matches aria-paper-search's library.ts). Fall back to ~/.config/aria when
+			// no project folder is known.
+			const libUri = this.folder
+				? joinPath(this.folder, 'references', 'paper-library.json')
+				: joinPath(await this.pathService.userHome(), '.config', 'aria', 'paper-library.json');
+			const lib = await this.readJson<{ papers?: LibraryEntry[] }>(libUri);
 			return Array.isArray(lib?.papers) ? lib!.papers! : [];
 		} catch {
 			return [];

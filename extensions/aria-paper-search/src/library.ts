@@ -7,22 +7,37 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import { PaperLibrary, PaperLibraryEntry } from './types';
 
 /**
- * Storage layer for ~/.config/aria/paper-library.json.
+ * Storage layer for the paper library.
+ *
+ * PER-PROJECT: each open project keeps its own library at
+ * <workspace>/references/paper-library.json (the project's references folder), so
+ * papers you save in one project don't leak into another. When no folder is open
+ * (e.g. the empty picker window) we fall back to ~/.config/aria so calls never crash.
  *
  * Tiny synchronous reads/writes - the file rarely exceeds a few KB and
  * the in-memory copy stays simple. Atomic writes (tmpfile + rename,
  * mode 0600) keep the file from being corrupted by a crash mid-save.
  */
 
-const LIBRARY_PATH = path.join(os.homedir(), '.config/aria/paper-library.json');
-const LIBRARY_TMP_PATH = `${LIBRARY_PATH}.tmp`;
 const SCHEMA_VERSION = 1;
 
+/** Directory holding this project's library: <workspace>/references, or
+ *  ~/.config/aria when no folder is open. Computed per call so it always tracks
+ *  the current window's workspace. */
+function libraryDir(): string {
+	const folder = vscode.workspace.workspaceFolders?.[0];
+	if (folder && folder.uri.scheme === 'file') {
+		return path.join(folder.uri.fsPath, 'references');
+	}
+	return path.join(os.homedir(), '.config', 'aria');
+}
+
 export function libraryPath(): string {
-	return LIBRARY_PATH;
+	return path.join(libraryDir(), 'paper-library.json');
 }
 
 /**
@@ -31,18 +46,19 @@ export function libraryPath(): string {
  * leave a valid file on disk so the sidebar can read it.
  */
 export function ensureLibraryFile(): void {
-	if (fs.existsSync(LIBRARY_PATH)) {
+	const libPath = libraryPath();
+	if (fs.existsSync(libPath)) {
 		return;
 	}
-	fs.mkdirSync(path.dirname(LIBRARY_PATH), { recursive: true });
+	fs.mkdirSync(path.dirname(libPath), { recursive: true });
 	const empty: PaperLibrary = { version: SCHEMA_VERSION, papers: [] };
-	fs.writeFileSync(LIBRARY_PATH, JSON.stringify(empty, null, 2) + '\n', { mode: 0o600 });
+	fs.writeFileSync(libPath, JSON.stringify(empty, null, 2) + '\n', { mode: 0o600 });
 }
 
 export function readLibrary(): PaperLibrary {
 	ensureLibraryFile();
 	try {
-		const raw = fs.readFileSync(LIBRARY_PATH, 'utf8');
+		const raw = fs.readFileSync(libraryPath(), 'utf8');
 		const parsed = JSON.parse(raw);
 		if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.papers)) {
 			return { version: SCHEMA_VERSION, papers: [] };
@@ -54,9 +70,11 @@ export function readLibrary(): PaperLibrary {
 }
 
 function writeLibrary(lib: PaperLibrary): void {
-	fs.mkdirSync(path.dirname(LIBRARY_PATH), { recursive: true });
-	fs.writeFileSync(LIBRARY_TMP_PATH, JSON.stringify(lib, null, 2) + '\n', { mode: 0o600 });
-	fs.renameSync(LIBRARY_TMP_PATH, LIBRARY_PATH);
+	const libPath = libraryPath();
+	const tmpPath = `${libPath}.tmp`;
+	fs.mkdirSync(path.dirname(libPath), { recursive: true });
+	fs.writeFileSync(tmpPath, JSON.stringify(lib, null, 2) + '\n', { mode: 0o600 });
+	fs.renameSync(tmpPath, libPath);
 }
 
 /**
