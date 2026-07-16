@@ -260,11 +260,16 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		this.authLoading = true;
 		this.rerender();
 		try {
+			console.log(`[aria] sign-in started via ${provider}`);
 			// The provider hint is passed as the scope; the aria-authentication
 			// extension reads it to skip its own provider QuickPick.
 			await this.authService.createSession(AUTH_ID, [provider]);
 			// Success fires onDidChangeSessions → refreshAuth → banner + picker.
-		} catch {
+			console.log(`[aria] sign-in via ${provider} succeeded`);
+		} catch (e) {
+			// Cancelled (user closed the browser / clicked Cancel) or failed:
+			// drop the loading state and re-render the sign-in screen.
+			console.log(`[aria] sign-in via ${provider} cancelled/failed, returning to sign-in screen:`, (e as Error)?.message);
 			this.authLoading = false;
 			void this.refreshAuth();
 		}
@@ -763,6 +768,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	}
 
 	private renderLoginSection(parent: HTMLElement): void {
+		console.log('[aria] showing sign-in screen (no active session)');
 		// The picker content is left-aligned and wide; the sign-in column is short,
 		// so center it (vertically too) for a balanced, intentional login screen.
 		parent.style.display = 'flex';

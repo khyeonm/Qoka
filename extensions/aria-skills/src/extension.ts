@@ -24,6 +24,53 @@ import { ensureAriaBinsOnPath } from './common/headlessCli';
  * here so the workbench-side code stays free of any extension imports.
  */
 
+const PROVIDER_EXT_ID: Record<'claude' | 'codex', string> = {
+	claude: 'anthropic.claude-code',
+	codex: 'openai.chatgpt',
+};
+
+/** Let the user change which AI(s) Aria uses at any time. Sets the `aria.aiProvider`
+ *  setting, installs each chosen provider's CLI (which registers its MCP), then
+ *  opens the Marketplace for any provider whose extension is still missing - CLI
+ *  and MCP first so the extension sees the MCP the moment it activates. */
+async function chooseAiProviders(): Promise<void> {
+	const cfg = vscode.workspace.getConfiguration('aria');
+	const current = cfg.get<string>('aiProvider', 'auto');
+	const items = [
+		{ label: 'Claude', id: 'claude' as const, picked: current === 'claude' || current === 'auto' },
+		{ label: 'Codex', id: 'codex' as const, picked: current === 'codex' || current === 'auto' },
+	];
+	const picked = await vscode.window.showQuickPick(items, {
+		canPickMany: true,
+		title: 'Choose the AI(s) Aria should use',
+		placeHolder: 'Select one or both, then install/sign in to each',
+	});
+	if (!picked || picked.length === 0) {
+		return;
+	}
+	const claude = picked.some(p => p.id === 'claude');
+	const codex = picked.some(p => p.id === 'codex');
+	const setting = claude && codex ? 'auto' : claude ? 'claude' : 'codex';
+	await cfg.update('aiProvider', setting, vscode.ConfigurationTarget.Global);
+
+	const missing: string[] = [];
+	for (const p of ['claude', 'codex'] as const) {
+		if (!picked.some(x => x.id === p)) {
+			continue;
+		}
+		try { await vscode.commands.executeCommand('aria.provider.installCli', p); } catch { /* best-effort */ }
+		if (!vscode.extensions.getExtension(PROVIDER_EXT_ID[p])) {
+			missing.push(PROVIDER_EXT_ID[p]);
+		}
+	}
+	if (missing.length > 0) {
+		try { await vscode.commands.executeCommand('workbench.extensions.action.showExtensionsWithIds', missing); } catch { /* ignore */ }
+		void vscode.window.showInformationMessage('Install the selected AI extension(s) and sign in to start using them.');
+	} else {
+		void vscode.window.showInformationMessage('AI providers updated. Open a new chat to use them.');
+	}
+}
+
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-skills] activate()');
 
@@ -81,6 +128,12 @@ export function activate(context: vscode.ExtensionContext): void {
 		// Install a provider's CLI when onboarding picks that AI (the chat panel
 		// and background features are CLI-backed). No-ops if already installed.
 		vscode.commands.registerCommand('aria.provider.installCli', (provider: unknown) => installProviderCli(provider)),
+
+		// Change which AI(s) Aria uses, at any time (not just onboarding). Order:
+		// set the setting, install each chosen provider's CLI + register its MCP,
+		// THEN open the Marketplace for any missing extension - so the CLI/MCP are
+		// ready before the extension activates (no empty /mcp on first open).
+		vscode.commands.registerCommand('aria.aiProvider.choose', () => chooseAiProviders()),
 
 		// Opens the env file in an editor tab when the sidebar wants to
 		// surface it. Falls back to a notification when no env file exists

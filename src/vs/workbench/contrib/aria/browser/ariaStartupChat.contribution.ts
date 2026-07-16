@@ -147,10 +147,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		setTimeout(() => { void this._reconcileMcp(); this._mcpKickScheduled = false; }, 15000);
 	}
 
-	/** When a provider EXTENSION is present, make sure its CLI is installed too,
-	 *  then reconcile. Covers a provider installed AFTER onboarding (the user
-	 *  picked Claude, then adds Codex): installing the extension now also gets its
-	 *  CLI, and only then can its MCPs register. installCli is idempotent. */
+	/** Install the CLI for every provider whose EXTENSION is installed, then
+	 *  reconcile. Keyed off the installed extension (reliably detectable), NOT the
+	 *  "picked" localStorage flag (which can be missing). Covers onboarding (the
+	 *  user installs the chosen provider's extension, which we then back with its
+	 *  CLI) AND a provider added later from Settings or the Marketplace. installCli
+	 *  is idempotent. We do NOT install a CLI for a provider the user never added,
+	 *  so a Claude-only user never downloads Codex + a portable Node. */
 	private async _ensureClisForInstalledProviders(): Promise<void> {
 		// aria-skills owns the install command; make sure it's active or the
 		// executeCommand below is a no-op (dynamically-registered commands don't

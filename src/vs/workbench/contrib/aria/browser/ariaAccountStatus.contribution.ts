@@ -4,9 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { toAction } from '../../../../base/common/actions.js';
 import { localize } from '../../../../nls.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { AuthenticationSession, IAuthenticationService } from '../../../services/authentication/common/authentication.js';
 import { IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
@@ -16,6 +19,7 @@ import { ARIA_MODE_SETTING } from '../common/ariaConfiguration.js';
 const AUTH_ID = 'aria';
 const SIGN_OUT_COMMAND = 'aria.account.signOut';
 const CHANGE_PROJECT_COMMAND = 'aria.account.changeProject';
+const ACCOUNT_MENU_COMMAND = 'aria.account.menu';
 // Cached display label of the last signed-in account, so easy mode can paint the
 // account/Sign out entries instantly on startup instead of waiting for the auth
 // extension to activate and restore the session (which is visibly slow on cold start).
@@ -43,10 +47,12 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IStorageService private readonly storageService: IStorageService,
+		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 	) {
 		super();
 
 		this._register(CommandsRegistry.registerCommand(SIGN_OUT_COMMAND, () => this.signOut()));
+		this._register(CommandsRegistry.registerCommand(ACCOUNT_MENU_COMMAND, () => this.showAccountMenu()));
 		this._register(CommandsRegistry.registerCommand(CHANGE_PROJECT_COMMAND, () => this.changeProject()));
 
 		// Paint the last-known account immediately (from cache) so easy mode's
@@ -143,7 +149,8 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 			name: localize('aria.account.name', "Aria account"),
 			text: `$(account) ${label}`,
 			ariaLabel: localize('aria.account.ariaLabel', "Signed in as {0}", label),
-			tooltip: localize('aria.account.tooltip', "Signed in to Aria"),
+			tooltip: localize('aria.account.tooltip', "Aria account - click for AI providers"),
+			command: ACCOUNT_MENU_COMMAND,
 		}, 'aria.account', StatusbarAlignment.RIGHT, 100);
 
 		// Between the account and Sign out: switch to a different project without
@@ -181,8 +188,32 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		}
 	}
 
+	/** Clicking the account item opens a small menu ABOVE it. Currently: choose
+	 *  which AI(s) Aria uses (Claude / Codex). */
+	private showAccountMenu(): void {
+		const anchor = mainWindow.document.getElementById('status.aria.account')
+			?? (mainWindow.document.querySelector('.part.statusbar .right-items') as HTMLElement | null)
+			?? undefined;
+		this.contextMenuService.showContextMenu({
+			getAnchor: () => anchor ?? { x: 0, y: 0 },
+			getActions: () => [
+				toAction({
+					id: 'aria.aiProvider.choose',
+					label: localize('aria.aiProviders.menu', "AI providers"),
+					run: () => { void this.commandService.executeCommand('aria.aiProvider.choose'); },
+				}),
+			],
+		});
+	}
+
 	private async signOut(): Promise<void> {
+		console.log('[aria] sign out triggered');
 		if (!this.session) {
+			// Painted from the cached label but the live session object isn't set
+			// (auth ext still restoring). The button then appears to do nothing.
+			console.log('[aria] sign out: no live session object - closing folder to return to sign-in anyway');
+			this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION);
+			try { await this.commandService.executeCommand('workbench.action.closeFolder'); } catch { /* ignore */ }
 			return;
 		}
 		try {
@@ -195,6 +226,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		this.session = undefined;
 		this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION);
 		this.reconcile();
+		console.log('[aria] sign out: session removed, closing folder to return to the sign-in screen');
 
 		// The login gate only checks at startup, so signing out inside a project
 		// window won't return us to the login screen on its own. Close the folder

@@ -15,6 +15,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { revealAiProviderChat } from '../../aria/browser/aiProviderChat.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -108,6 +109,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IExtensionService private readonly extensionService: IExtensionService,
 	) {
 		super(AriaPeerReviewEditorPane.ID, group, telemetryService, themeService, storageService);
 	}
@@ -124,19 +126,13 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	 *  the reviewer checkboxes reflect it. Best-effort - assumes available on
 	 *  failure so we never wrongly block a working setup. */
 	private async refreshCliAvailability(): Promise<void> {
-		const probe = async (command: string): Promise<boolean> => {
-			try {
-				const avail = await this.commandService.executeCommand<boolean>(command);
-				return avail !== false;
-			} catch {
-				return true;
-			}
-		};
-		[this.codexAvailable, this.claudeAvailable] = await Promise.all([
-			probe('aria.peerReview.codexAvailable'),
-			probe('aria.peerReview.claudeAvailable'),
-		]);
-		// Don't send a reviewer whose CLI can't run.
+		// Gate each reviewer on whether its PROVIDER EXTENSION is installed. The
+		// review runs through that extension's chat (sendToChat), so "extension
+		// installed" is the accurate, reliably-detectable "can I review with this
+		// AI" signal - unlike login (Claude stores it in the macOS keychain) or a
+		// bare CLI probe. Aria installs each provider's CLI alongside its extension.
+		this.claudeAvailable = !!(await this.extensionService.getExtension('anthropic.claude-code'));
+		this.codexAvailable = !!(await this.extensionService.getExtension('openai.chatgpt'));
 		if (!this.codexAvailable) { this.reviewers.codex = false; }
 		if (!this.claudeAvailable) { this.reviewers.claude = false; }
 		if (this.root) {
@@ -351,6 +347,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 			border: '1px solid rgba(127,127,127,0.28)', borderRadius: '10px',
 			padding: '14px 16px 16px', marginTop: '16px',
 			background: 'rgba(127,127,127,0.03)',
+			boxSizing: 'border-box', maxWidth: '100%', overflow: 'hidden',
 		});
 		return box;
 	}
@@ -442,7 +439,10 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	private sourceCard(mode: 'file' | 'manuscript', title: string, hint: string, enabled: boolean): HTMLElement {
 		const active = this.sourceMode === mode;
 		const card = document.createElement('div');
-		Object.assign(card.style, { flex: '1', minWidth: '200px', padding: '14px 16px', borderRadius: '8px', cursor: enabled ? 'pointer' : 'default', opacity: enabled ? '1' : '0.5', border: active ? '2px solid var(--vscode-focusBorder, #4c8bf5)' : '1px solid rgba(127,127,127,0.3)', background: active ? 'rgba(76,139,245,0.08)' : 'rgba(127,127,127,0.04)' });
+		// flex-basis 160px with minWidth:0 lets the cards SHRINK (and wrap) instead
+		// of overflowing the section box on a narrow panel; box-sizing + maxWidth
+		// keep each card's padding/border inside its column.
+		Object.assign(card.style, { flex: '1 1 160px', minWidth: '0', maxWidth: '100%', boxSizing: 'border-box', padding: '14px 16px', borderRadius: '8px', cursor: enabled ? 'pointer' : 'default', opacity: enabled ? '1' : '0.5', border: active ? '2px solid var(--vscode-focusBorder, #4c8bf5)' : '1px solid rgba(127,127,127,0.3)', background: active ? 'rgba(76,139,245,0.08)' : 'rgba(127,127,127,0.04)' });
 		const t = append(card, $('div')); t.textContent = title;
 		Object.assign(t.style, { fontWeight: '600', fontSize: '14px', marginBottom: '4px' });
 		const h = append(card, $('div')); h.textContent = hint;
