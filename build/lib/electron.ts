@@ -106,7 +106,11 @@ const electronVersion = '42.2.0';
 export const config = {
 	version: electronVersion,
 	tag: product.electronRepository ? `v${electronVersion}-${msBuildId}` : undefined,
-	productAppName: product.nameLong,
+	// Use nameShort ("Aria") for the macOS .app bundle + app-menu name so the app
+	// file is "Aria.app" (no spaces/parens that break `xattr -cr Aria.app`). The
+	// in-app title bar still shows nameLong ("Aria (beta)") - it reads
+	// product.nameLong directly (windowTitle.ts), independent of the bundle name.
+	productAppName: product.nameShort,
 	companyName: 'Microsoft Corporation',
 	copyright: 'Copyright (C) 2026 Microsoft. All rights reserved',
 	darwinExecutable: product.nameShort,
