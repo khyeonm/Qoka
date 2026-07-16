@@ -106,11 +106,14 @@ const electronVersion = '42.2.0';
 export const config = {
 	version: electronVersion,
 	tag: product.electronRepository ? `v${electronVersion}-${msBuildId}` : undefined,
-	// Use nameShort ("Aria") for the macOS .app bundle + app-menu name so the app
-	// file is "Aria.app" (no spaces/parens that break `xattr -cr Aria.app`). The
-	// in-app title bar still shows nameLong ("Aria (beta)") - it reads
-	// product.nameLong directly (windowTitle.ts), independent of the bundle name.
+	// Use nameShort ("Aria") for the macOS .app bundle FILE so it is "Aria.app"
+	// (no spaces/parens that break `xattr -cr Aria.app`). The app-menu / top-bar
+	// display name is decoupled: productDisplayName sets CFBundleDisplayName, which
+	// macOS shows in the menu bar - so the file is "Aria" but the menu reads
+	// "Aria (beta)". (gulp-electron overrides productName from package.json but
+	// leaves productDisplayName untouched, so this survives.)
 	productAppName: product.nameShort,
+	productDisplayName: product.nameLong,
 	companyName: 'Microsoft Corporation',
 	copyright: 'Copyright (C) 2026 Microsoft. All rights reserved',
 	darwinExecutable: product.nameShort,

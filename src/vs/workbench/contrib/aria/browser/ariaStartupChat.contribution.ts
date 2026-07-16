@@ -141,6 +141,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		'aria.roadmap.reregisterMcp',
 		'aria.methodsSearch.reregisterMcp',
 		'aria.hypothesis.reregisterMcp',
+		'aria.overview.reregisterMcp',
 	];
 
 	/** Ask every Aria MCP to (re)register; show ONE toast if any newly did. A

@@ -1408,13 +1408,13 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// aria-roadmap writes this when it activates in the new project window.
 		void this.commandService.executeCommand('aria.roadmap.createEmptyAt', folderUri.fsPath);
 		try {
-			sessionStorage.setItem('aria.roadmap.autoOpenWizard', '1');
-			// One-shot: tell the roadmap pulse to fire on the next load (this New
-			// Project reload only), never on a normal restore of an existing project.
-			sessionStorage.setItem('aria.roadmap.pulseOnLoad', '1');
+			// Onboarding starts on the PROJECT OVERVIEW tab (name + description), which
+			// then hands off to the Roadmap. So pulse the Overview icon on this New
+			// Project reload - NOT the roadmap (the AI opens the roadmap later, via the
+			// aria-overview `open_roadmap` tool). One-shot; a normal restore won't pulse.
+			sessionStorage.setItem('aria.overview.pulseOnLoad', '1');
 		} catch {
-			// Storage unavailable - the user can still open the canvas from the
-			// Roadmap sidebar once the window loads.
+			// Storage unavailable - the user can still open the tabs from the sidebar.
 		}
 		pushTrail(`createNewProject: calling openWindow(forceReuseWindow) for ${folderUri.fsPath}`);
 		this.pickAndDismiss(() => {
