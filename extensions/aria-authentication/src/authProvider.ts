@@ -234,6 +234,16 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 	 * browser at the backend's app-login URL (carrying that port), and resolve
 	 * with the `/callback?…tokens…` URI the backend redirects the browser to.
 	 */
+	/** Set while a loopback login is waiting for the browser callback; calling it
+	 *  aborts that login (closes the server, rejects createSession). Consumed by
+	 *  the `aria.auth.cancelSignIn` command. */
+	private _activeLoginCancel: (() => void) | undefined;
+
+	/** Abort an in-flight sign-in (if any). Safe to call when none is running. */
+	cancelActiveLogin(): void {
+		this._activeLoginCancel?.();
+	}
+
 	private _loopbackLogin(providerId: string, token?: vscode.CancellationToken): Promise<vscode.Uri> {
 		return new Promise<vscode.Uri>((resolve, reject) => {
 			const server = http.createServer((req, res) => {
@@ -266,7 +276,17 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 
 			const cleanup = () => {
 				clearTimeout(timer);
+				this._activeLoginCancel = undefined;
 				try { server.close(); } catch { /* ignore */ }
+			};
+
+			// Expose a cancel hook so the workbench (the Started overlay's "Back to
+			// sign-in" button) can abort THIS login even though the browser fired no
+			// event - otherwise the loopback server and its withProgress notification
+			// linger, and a following sign-in with a different provider can't proceed.
+			this._activeLoginCancel = () => {
+				cleanup();
+				reject(new Error('Aria sign-in cancelled.'));
 			};
 
 			// Let the user bail out (changed their mind, closed the browser tab)

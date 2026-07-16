@@ -26,10 +26,11 @@ const ACCOUNT_MENU_COMMAND = 'aria.account.menu';
 const ACCOUNT_CACHE_KEY = 'aria.account.displayCache';
 
 /**
- * In easy mode the developer status bar is stripped down; the signed-in account
- * and a Sign out button (previously only in the launch overlay) move to the
- * bottom-right of the (thicker) status bar. Only shown in easy mode - advanced
- * mode keeps the stock status bar.
+ * The signed-in Aria account, a Change project button, and a Sign out button
+ * (previously only in the launch overlay) live at the bottom-right of the status
+ * bar. Shown in BOTH modes: the account item's menu is where AI providers is
+ * chosen and Sign out belongs with the account, so they stay on the right in
+ * advanced mode too (not just easy).
  */
 export class AriaAccountStatusContribution extends Disposable implements IWorkbenchContribution {
 
@@ -121,29 +122,28 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	 * clears it (see signOut).
 	 */
 	private reconcile(): void {
-		// The account entry (whose menu is where AI providers is chosen) shows in
-		// BOTH modes so an advanced-mode user can still switch AI providers. The
-		// easy-mode-only Change project / Sign out items stay easy-only - advanced
-		// keeps the otherwise-stock status bar.
-		const easy = this.configurationService.getValue(ARIA_MODE_SETTING) === 'easy';
+		// The Aria account / Change project / Sign out items live at the bottom-right
+		// (status bar) in BOTH modes now - advanced mode used to keep the stock bar,
+		// but the account menu (where AI providers is chosen) and Sign out belong
+		// with the account in every mode, so they sit on the right consistently.
 		if (this.session) {
 			const name = this.session.account.label || localize('aria.account.fallback', "Aria user");
 			// The provider (google / orcid) comes from the extension (scopes are []).
 			const label = this.provider ? `${name} (${this.provider})` : name;
 			this.storageService.store(ACCOUNT_CACHE_KEY, JSON.stringify({ label }), StorageScope.APPLICATION, StorageTarget.MACHINE);
-			this.paint(label, easy);
+			this.paint(label);
 			return;
 		}
 		// Session not known yet: keep the last-known account rather than blank.
 		const cached = this.cachedLabel();
 		if (cached) {
-			this.paint(cached, easy);
+			this.paint(cached);
 		} else {
 			this.disposeEntries();
 		}
 	}
 
-	private paint(label: string, easy: boolean): void {
+	private paint(label: string): void {
 		this.disposeEntries();
 
 		this.accountEntry = this.statusbarService.addEntry({
@@ -153,13 +153,6 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 			tooltip: localize('aria.account.tooltip', "Aria account - click for AI providers"),
 			command: ACCOUNT_MENU_COMMAND,
 		}, 'aria.account', StatusbarAlignment.RIGHT, 100);
-
-		// Advanced mode: account entry only (AI providers via its menu). The
-		// project-switching + sign-out items below are part of the easy-mode
-		// bottom-right and would clutter the stock advanced status bar.
-		if (!easy) {
-			return;
-		}
 
 		// Between the account and Sign out: switch to a different project without
 		// signing out. Integer priority between account (100) and Sign out (98) so it

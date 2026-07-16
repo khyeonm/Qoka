@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { timeout } from '../../../../base/common/async.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -190,6 +191,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	private aiChecked: Record<ConcreteProvider, boolean> = { claude: false, codex: false };
 	private aiCheckedInit = false;
 	private aiFetching = false;
+	// True while, right after the user clicks Continue on the AI picker, we install
+	// the chosen provider's CLI and register the MCP servers. The overlay shows a
+	// loading page during this so the user can't proceed until the tools are ready.
+	private setupInProgress = false;
 
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
@@ -782,6 +787,20 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			// pops the settings.json editor / a save dialog over the overlay.
 			await this.configurationService.updateValue(ARIA_AI_PROVIDER_SETTING, setting, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
 		} catch { /* proceed even if persisting fails; 'auto' resolution covers it */ }
+
+		// Install the chosen provider(s)' CLI and register the MCP servers NOW,
+		// behind a loading page, so the tools are ready before the user reaches the
+		// chat. Idempotent, so a later relaunch (already installed) is fast and never
+		// shows this. Failsafe timeout so a stuck install can't trap the user here.
+		this.setupInProgress = true;
+		this.rerender();
+		try {
+			await Promise.race([
+				this.commandService.executeCommand('aria.setup.prepareProviders', checked),
+				timeout(90000),
+			]);
+		} catch { /* proceed regardless - the project window's setup gate retries */ }
+		this.setupInProgress = false;
 		this.rerender(); // → mode + project picker
 	}
 
@@ -843,6 +862,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		}
 		if (!this.ariaSession) {
 			this.renderLoginSection(content);
+			return;
+		}
+
+		// Right after Continue on the AI picker: installing the CLI + registering
+		// MCP. Blocks the picker until the tools are ready. (hasPickedAiProvider is
+		// already true here, so this must be checked before that branch.)
+		if (this.setupInProgress) {
+			this.renderSetupLoading(content);
 			return;
 		}
 
@@ -953,12 +980,16 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			back.style.cursor = 'pointer';
 			back.onclick = () => {
 				console.log('[aria] sign-in cancelled by user (Back to sign-in), returning to sign-in screen');
+				// Actually ABORT the in-flight browser login: closing the browser fires
+				// no event, so the loopback server + its withProgress linger and would
+				// block a following sign-in with a different provider (the new login's
+				// browser never opens). This command closes that server and rejects the
+				// pending createSession.
+				void this.commandService.executeCommand('aria.auth.cancelSignIn');
 				// Render the sign-in screen SYNCHRONOUSLY. We must NOT call refreshAuth
-				// here: its getSessions() call queues behind the still-pending
-				// createSession (the ORCID/Google browser was closed, so it never
-				// resolves), so awaiting it would hang and the view would never update.
-				// The user was mid sign-in, so there is no session - go straight to the
-				// login buttons.
+				// here: its getSessions() call can queue behind the pending createSession,
+				// so awaiting it would hang and the view would never update. The user was
+				// mid sign-in, so there is no session - go straight to the login buttons.
 				this.authLoading = false;
 				this.authChecked = true;
 				this.ariaSession = undefined;
@@ -977,6 +1008,45 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		style.id = 'aria-started-spin-kf';
 		style.textContent = '@keyframes aria-started-spin { to { transform: rotate(360deg); } }';
 		document.head.appendChild(style);
+	}
+
+	/** Loading page shown right after the AI picker's Continue, while the chosen
+	 *  provider's CLI installs and the MCP servers register. A fixed message (not
+	 *  the cycling sign-in copy) since this is a one-time first-run download. */
+	private renderSetupLoading(parent: HTMLElement): void {
+		const box = document.createElement('div');
+		box.style.display = 'flex';
+		box.style.flexDirection = 'column';
+		box.style.alignItems = 'center';
+		box.style.justifyContent = 'center';
+		box.style.gap = '20px';
+		box.style.minHeight = '240px';
+		box.style.textAlign = 'center';
+		parent.appendChild(box);
+
+		const spinner = document.createElement('div');
+		spinner.style.width = '42px';
+		spinner.style.height = '42px';
+		spinner.style.borderRadius = '50%';
+		spinner.style.border = '3px solid rgba(127, 127, 127, 0.25)';
+		spinner.style.borderTopColor = 'var(--vscode-foreground, #fff)';
+		spinner.style.animation = 'aria-started-spin 1.05s linear infinite';
+		this.ensureSpinnerKeyframes();
+		box.appendChild(spinner);
+
+		const title = document.createElement('div');
+		title.textContent = 'Setting up your AI assistant';
+		title.style.fontSize = '16px';
+		title.style.fontWeight = '600';
+		box.appendChild(title);
+
+		const sub = document.createElement('div');
+		sub.textContent = 'Downloading the tools it needs. This can take a minute the first time - you can install the assistant extension right after.';
+		sub.style.fontSize = '13px';
+		sub.style.opacity = '0.7';
+		sub.style.maxWidth = '420px';
+		sub.style.lineHeight = '1.5';
+		box.appendChild(sub);
 	}
 
 	private renderLoginSection(parent: HTMLElement): void {

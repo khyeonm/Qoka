@@ -798,7 +798,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration)
 		properties: {
 			[WORKSPACE_TRUST_ENABLED]: {
 				type: 'boolean',
-				default: true,
+				// Aria default: OFF. Every project folder is the researcher's own, so
+				// the trust prompt is pure friction - and worse, an untrusted new
+				// folder opens in RESTRICTED MODE where Aria's own extensions don't
+				// activate, so MCP servers never start and first-run setup hangs
+				// ("Setting up Aria" never finishes). Disabling trust makes every
+				// folder trusted, so extensions activate immediately on open.
+				default: false,
 				description: localize('workspace.trust.description', "Controls whether or not Workspace Trust is enabled within Aria."),
 				tags: [WORKSPACE_TRUST_SETTING_TAG],
 				scope: ConfigurationScope.APPLICATION,

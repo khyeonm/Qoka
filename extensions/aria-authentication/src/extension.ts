@@ -106,6 +106,12 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.auth.signIn', async () => {
 			await vscode.authentication.getSession('aria', [], { createIfNone: true });
 		}),
+		// Abort an in-flight browser sign-in (the Started overlay's "Back to
+		// sign-in" calls this). Without it a closed browser leaves the loopback
+		// login pending, blocking a subsequent sign-in with another provider.
+		vscode.commands.registerCommand('aria.auth.cancelSignIn', () => {
+			provider.cancelActiveLogin();
+		}),
 		// Exposes the signed-in {name, email, provider} to the workbench UI (the
 		// Started overlay + the easy-mode account status item), since the standard
 		// AuthenticationSession carries no provider (scopes are []).

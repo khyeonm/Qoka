@@ -7,7 +7,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
@@ -47,6 +47,16 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 	) {
 		super();
+
+		// Registered in EVERY window (including the empty picker where the overlay's
+		// AI picker lives), so it must come BEFORE the empty-workbench early return.
+		// The overlay calls this the moment the user clicks Continue on the AI
+		// picker: install the chosen provider's CLI and register the MCP servers
+		// while a loading page is shown, so by the time the loading clears the tools
+		// are ready. Idempotent - a relaunch (CLI already installed, MCPs already
+		// registered) returns almost immediately.
+		this._register(CommandsRegistry.registerCommand('aria.setup.prepareProviders', (_acc, providers) =>
+			this._prepareProviders(Array.isArray(providers) ? providers : [])));
 
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
 			return;
@@ -133,7 +143,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  command that isn't registered yet (its extension not active) just resolves
 	 *  to false. Registration is done via each provider's CLI, so the config
 	 *  schema is always correct - we never hand-write ~/.claude.json / config.toml. */
-	private async _reconcileMcp(): Promise<void> {
+	private async _reconcileMcp(silent = false): Promise<void> {
 		// SEQUENTIAL, not Promise.all: each reregister shells out to `claude mcp
 		// add`/`codex mcp add`, which read-modify-write the SAME ~/.claude.json /
 		// config.toml. Running them concurrently caused lost updates - two adds read
@@ -145,9 +155,29 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			const changed = await Promise.resolve(this.commandService.executeCommand<boolean>(cmd)).then(r => r === true, () => false);
 			anyChanged = anyChanged || changed;
 		}
-		if (anyChanged) {
+		// `silent` suppresses the toast during onboarding (the user hasn't opened a
+		// chat yet, so "open a NEW chat" would be premature/confusing).
+		if (anyChanged && !silent) {
 			this.notificationService.info('Aria tools connected. Open a NEW Claude or Codex chat to use them.');
 		}
+	}
+
+	/** Install the CLI for the given chosen providers, wait for the Aria MCP
+	 *  servers to be up, then register them - all idempotent. Called by the
+	 *  overlay's AI picker (via the aria.setup.prepareProviders command) so the
+	 *  loading page can hold until the tools are actually ready. */
+	private async _prepareProviders(providers: unknown[]): Promise<void> {
+		const chosen = providers.filter((p): p is ConcreteProvider => p === 'claude' || p === 'codex');
+		// aria-skills owns installProviderCli; make sure it's active first (a
+		// dynamically-registered command won't auto-activate its extension).
+		try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
+		for (const p of chosen) {
+			try { await this.commandService.executeCommand('aria.provider.installCli', p); } catch { /* ignore */ }
+		}
+		// Hold until the MCP servers have started (so registration has something to
+		// register), with a failsafe so a stuck server can't trap onboarding.
+		await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+		await this._reconcileMcp(true);
 	}
 
 	/** A few DELAYED reconcile passes, because a provider's CLI can land a couple
