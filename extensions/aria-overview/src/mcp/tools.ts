@@ -122,14 +122,25 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'open_roadmap',
-			description: 'Switch the UI to the Roadmap tab and open a NEW roadmap canvas in the editor. Call this after the project title/summary are confirmed, to start planning the process.',
-			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-			handler: async () => {
+			description: 'Switch the UI to the Roadmap tab and open THIS project\'s roadmap canvas in the editor. A new project already has exactly one empty roadmap, so this opens that one - it does NOT create a duplicate. Pass a short `title` so the roadmap is named (instead of "Untitled roadmap") and is opened from the list. Call this after the project title/summary are confirmed, to start planning the process.',
+			inputSchema: {
+				type: 'object',
+				properties: { title: { type: 'string', description: 'Short descriptive roadmap title (e.g. the research theme).' } },
+				additionalProperties: false,
+			},
+			handler: async (args) => {
 				try {
 					await vscode.commands.executeCommand('workbench.view.ariaRoadmap.focus');
-					const id = await vscode.commands.executeCommand<string | undefined>('aria.roadmap.createRoadmap');
+					// A fresh project already holds one empty roadmap. ensureActive
+					// returns that existing (newest) roadmap's id, only creating one
+					// when the project genuinely has none - so we never make a duplicate.
+					const id = await vscode.commands.executeCommand<string | undefined>('aria.roadmap.ensureActive');
+					const title = asString(args.title);
+					if (id && title) {
+						await vscode.commands.executeCommand('aria.roadmap.rename', id, title);
+					}
 					await vscode.commands.executeCommand('aria.roadmap.openWizard', id ? { id } : undefined);
-					return ok('Opened the Roadmap tab with a new roadmap canvas.');
+					return ok('Opened the roadmap canvas on the Roadmap tab.');
 				} catch (e) {
 					return err(`Could not open the roadmap: ${(e as Error).message}`);
 				}
@@ -137,11 +148,11 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'open_overview',
-			description: 'Switch the UI back to the Project Overview tab (e.g. after building the roadmap and updating the To-do, so the user can review).',
+			description: 'Switch the UI back to the Project Overview tab (e.g. after building the roadmap and updating the To-do, so the user can review). This opens the full-width Project Overview editor.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				try {
-					await vscode.commands.executeCommand('workbench.view.ariaProjectOverview.focus');
+					await vscode.commands.executeCommand('aria.overview.open');
 					return ok('Opened the Project Overview tab.');
 				} catch (e) {
 					return err(`Could not open the overview: ${(e as Error).message}`);

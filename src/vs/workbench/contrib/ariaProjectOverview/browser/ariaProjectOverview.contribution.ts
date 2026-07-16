@@ -11,20 +11,30 @@ import { localize, localize2 } from '../../../../nls.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { createStyleSheet } from '../../../../base/browser/domStylesheets.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
-import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
+import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
+import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
+import { EditorExtensions } from '../../../common/editor.js';
+import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import { AriaProjectOverviewView } from './ariaProjectOverviewView.js';
+import { AriaProjectOverviewEditorPane } from './ariaProjectOverviewEditorPane.js';
+import { AriaProjectOverviewEditorInput } from './ariaProjectOverviewEditorInput.js';
 
 /**
- * Project Overview - the top-most left-sidebar tab (above Explorer). One place to
- * run the whole project: an editable Title + Summary, a static picture of the
- * Roadmap (overall flow), and a To-do checklist the AI assistant helps keep up to
- * date (it proposes completions in the chat AND surfaces them here for Accept /
- * Reject). Data lives per-project at <workspace>/.aria/overview.json.
+ * Project Overview - the top-most left-sidebar tab (above the Roadmap and
+ * Explorer). Unlike the other tabs (a narrow list + an editor), opening it shows
+ * the overview FULL-WIDTH across the editor area: an editable Title + Content, a
+ * static picture of the Roadmap, and a To-do checklist the AI assistant helps
+ * keep up to date. The activity-bar icon opens the editor and collapses the
+ * sidebar; opening any other tab restores the sidebar. Data lives per-project at
+ * <workspace>/.aria/overview.json.
  */
 
 const OVERVIEW_CONTAINER_ID = 'workbench.view.ariaProjectOverview';
@@ -40,7 +50,8 @@ const overviewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(Vi
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [OVERVIEW_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: overviewIcon,
-		// Negative order so the activity-bar icon sorts ABOVE Explorer (order 0).
+		// Negative order so the activity-bar icon sorts ABOVE the Roadmap (-5) and
+		// Explorer (0).
 		order: -10,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
@@ -57,6 +68,65 @@ const overviewView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([overviewView], overviewContainer);
+
+// --- Full-width editor -----------------------------------------------------
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(
+		AriaProjectOverviewEditorPane,
+		AriaProjectOverviewEditorPane.ID,
+		localize('aria.overview.editorPaneName', "Project Overview")
+	),
+	[
+		new SyncDescriptor(AriaProjectOverviewEditorInput)
+	]
+);
+
+/** Open the full-width Project Overview editor for the current project folder and
+ *  collapse the sidebar so it spans the whole width (whether opened from the tab
+ *  icon or the open_overview MCP tool). */
+CommandsRegistry.registerCommand('aria.overview.open', async (accessor) => {
+	const workspaceContextService = accessor.get(IWorkspaceContextService);
+	const editorService = accessor.get(IEditorService);
+	const layoutService = accessor.get(IWorkbenchLayoutService);
+	const folder = workspaceContextService.getWorkspace().folders[0];
+	if (!folder) { return; }
+	await editorService.openEditor(new AriaProjectOverviewEditorInput(folder.uri), { pinned: true });
+	try { layoutService.setPartHidden(true, Parts.SIDEBAR_PART); } catch { /* layout not ready */ }
+});
+
+// --- Full-width layout orchestration ---------------------------------------
+
+/**
+ * The Project Overview is a full-width editor, not a sidebar list. When the user
+ * opens its activity-bar tab, open the overview editor and collapse the sidebar
+ * so it spans the whole width; opening any OTHER sidebar tab restores the sidebar
+ * (a narrow list + editor, like every other tab).
+ */
+class AriaProjectOverviewLayoutContribution extends Disposable implements IWorkbenchContribution {
+
+	static readonly ID = 'workbench.contrib.aria.projectOverviewLayout';
+
+	constructor(
+		@IPaneCompositePartService paneCompositeService: IPaneCompositePartService,
+		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+		@ICommandService private readonly commandService: ICommandService,
+	) {
+		super();
+		this._register(paneCompositeService.onDidPaneCompositeOpen(e => {
+			if (e.viewContainerLocation !== ViewContainerLocation.Sidebar) { return; }
+			if (e.composite.getId() === OVERVIEW_CONTAINER_ID) {
+				void this.commandService.executeCommand('aria.overview.open');
+				try { this.layoutService.setPartHidden(true, Parts.SIDEBAR_PART); } catch { /* layout not ready */ }
+			} else {
+				try { this.layoutService.setPartHidden(false, Parts.SIDEBAR_PART); } catch { /* layout not ready */ }
+			}
+		}));
+	}
+}
+
+Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
+	.registerWorkbenchContribution(AriaProjectOverviewLayoutContribution, LifecyclePhase.Restored);
 
 // --- Project Overview activity-bar icon pulse ------------------------------
 

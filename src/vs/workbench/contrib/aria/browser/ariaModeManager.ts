@@ -8,7 +8,7 @@ import { disposableTimeout } from '../../../../base/common/async.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { IConfigurationService, ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
+import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
@@ -144,6 +144,15 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		// New windows (auxiliary editor windows) get the class too, so their
 		// dialogs / popups follow the mode.
 		this._register(this.layoutService.onDidAddContainer(() => this.applyEasyClass()));
+
+		// Belt-and-suspenders: if anything makes the bottom panel visible while in
+		// easy mode (a stray command, a background terminal), re-hide it at once.
+		this._register(this.layoutService.onDidChangePartVisibility(() => {
+			const easy = (this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '') === 'easy';
+			if (easy && this.layoutService.isVisible(Parts.PANEL_PART, mainWindow)) {
+				try { this.layoutService.setPartHidden(true, Parts.PANEL_PART); } catch { /* ignore */ }
+			}
+		}));
 	}
 
 	/**
@@ -192,6 +201,13 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		for (const container of this.layoutService.containers) {
 			container.classList.toggle('aria-mode-easy', easy);
 			applyToDoc(container.ownerDocument);
+		}
+		// Easy mode has no bottom panel (Terminal / Problems / …). Hide it in the
+		// LAYOUT, not just via CSS: a CSS-only `display:none` leaves the panel's
+		// resize sash live, so hovering the top of the status bar can slide the empty
+		// panel back up. setPartHidden removes it (and its sash) entirely.
+		if (easy) {
+			try { this.layoutService.setPartHidden(true, Parts.PANEL_PART); } catch { /* layout not ready */ }
 		}
 	}
 

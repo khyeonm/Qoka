@@ -162,7 +162,9 @@ const roadmapContainer: ViewContainer = Registry.as<IViewContainersRegistry>(Vie
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ROADMAP_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: true,
 		icon: roadmapIcon,
-		order: 11,
+		// Sort just below Project Overview (-10) and above Explorer (0), so the
+		// activity-bar order is: Project Overview, Roadmap, Explorer.
+		order: -5,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
 const roadmapView: IViewDescriptor = {
