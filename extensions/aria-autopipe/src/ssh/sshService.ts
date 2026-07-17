@@ -172,6 +172,57 @@ export class SshService {
 		});
 	}
 
+	/**
+	 * Stream a single LOCAL file up to `remotePath` over SFTP - the upload mirror
+	 * of `downloadFileSftp`. Pipes `fs.createReadStream(localPath)` into
+	 * `sftp.createWriteStream(remotePath)` so large local inputs (BAM/CRAM/FASTQ)
+	 * upload with a constant, small memory footprint. The remote PARENT directory
+	 * must already exist (create it with `mkdir -p` as the SSH user first, so it is
+	 * NOT root-owned). Resolves with the byte count. Works for the built-in VM and
+	 * remote hosts alike.
+	 */
+	uploadFileSftp(profile: SshProfile, localPath: string, remotePath: string): Promise<number> {
+		return new Promise((resolve, reject) => {
+			let cfg: ConnectConfig;
+			try {
+				cfg = connectConfig(profile);
+			} catch (e) {
+				reject(e);
+				return;
+			}
+
+			const conn = new Client();
+			let settled = false;
+			const finish = (err?: Error, val?: number): void => {
+				if (settled) { return; }
+				settled = true;
+				try { conn.end(); } catch { /* ignore */ }
+				if (err) { reject(err); } else { resolve(val ?? 0); }
+			};
+
+			conn.on('ready', () => {
+				conn.sftp((err, sftp) => {
+					if (err) { finish(err); return; }
+					let bytes = 0;
+					const readStream = fs.createReadStream(localPath);
+					const writeStream = sftp.createWriteStream(remotePath);
+					readStream.on('data', (d: Buffer) => { bytes += d.length; });
+					readStream.on('error', (e: Error) => finish(e));
+					writeStream.on('error', (e: Error) => finish(e));
+					writeStream.on('close', () => finish(undefined, bytes));
+					readStream.pipe(writeStream);
+				});
+			});
+			conn.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
+
+			try {
+				conn.connect(cfg);
+			} catch (e) {
+				finish(e instanceof Error ? e : new Error(String(e)));
+			}
+		});
+	}
+
 	async listFiles(profile: SshProfile, remotePath: string): Promise<string[]> {
 		// `ls -1A` lists one entry per line, including dotfiles but excluding
 		// `.` / `..`. The empty-output case is a valid empty directory.

@@ -3,11 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
 import { workspacePathsFor } from '../../common/types';
 import { shellEscape } from '../../common/roCrate';
 import { windowsToWsl } from '../../common/dockerEnv';
+import { workspaceFolderPath, mirrorPipelineFileLocally, writeInputManifest } from '../../common/workspaceSync';
 
 /**
  * File tools - faithful ports of create_symlink, remove_symlink, list_files,
@@ -32,6 +35,20 @@ function parentOf(p: string): string {
 function basenameOf(p: string): string {
 	const idx = p.lastIndexOf('/');
 	return idx >= 0 ? p.slice(idx + 1) : p;
+}
+
+/** Recursively collect files under a local directory, with POSIX-relative paths
+ *  (for building remote destinations). Directories become nested prefixes. */
+function gatherLocalFiles(baseDir: string, relPrefix: string, out: { local: string; rel: string }[]): void {
+	for (const entry of fs.readdirSync(baseDir, { withFileTypes: true })) {
+		const localChild = path.join(baseDir, entry.name);
+		const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+		if (entry.isDirectory()) {
+			gatherLocalFiles(localChild, rel, out);
+		} else if (entry.isFile()) {
+			out.push({ local: localChild, rel });
+		}
+	}
 }
 
 export const FILE_TOOLS: ToolDefinition[] = [
@@ -189,7 +206,7 @@ export const FILE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'write_file',
-		description: 'Write content to a file on the remote SSH server. Creates parent directories if needed.',
+		description: 'Write content to a file on the remote SSH server. Creates parent directories if needed. Files written under the pipelines directory are also mirrored into the open project folder automatically (autopipe/pipelines/), on every create and edit - you do not need to copy pipeline code yourself.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -213,6 +230,9 @@ export const FILE_TOOLS: ToolDefinition[] = [
 				}
 				try {
 					await ssh.writeFile(profile, path, content);
+					// Mirror pipeline code into the open project folder on every write
+					// (create/edit), so it stays synced without the user asking.
+					mirrorPipelineFileLocally(profile, path, content);
 					return textResult(`File written: ${path}`);
 				} catch (err) {
 					return errorResult(`Cannot write '${path}': ${(err as Error).message}`);
@@ -314,6 +334,9 @@ export const FILE_TOOLS: ToolDefinition[] = [
 					{ timeoutMs: 60000 },
 				);
 				if (ln.exitCode === 0) {
+					// Input data just staged - record a manifest (list + sizes, no bytes)
+					// in the project folder. Best-effort.
+					try { await writeInputManifest(profile, 'inputs'); } catch { /* best-effort */ }
 					return textResult(`Linked: ${linkPath} -> ${sourceTranslated}\nUse as input_dir: ${destDir}`);
 				}
 				return errorResult(
@@ -409,6 +432,102 @@ export const FILE_TOOLS: ToolDefinition[] = [
 					return textResult(`Removed via Docker (root-owned): ${fullPath}`);
 				}
 				return errorResult(`Failed to remove '${fullPath}': ${dockerRm.stdout.trim() || dockerRm.stderr.trim()}`);
+			} catch (err) {
+				return errorResult((err as Error).message);
+			}
+		},
+	},
+	{
+		name: 'upload_local_input',
+		description: "Upload input data from the USER'S LOCAL machine (the computer running Aria) into the run target's pipelines_input directory, so a pipeline can use it. Use this when the user's data is on their own computer - NOT a URL (use prepare_input for URLs) and NOT already on the server (use create_symlink for that). `local_path` is a file OR a directory on the user's machine: absolute, or relative to the open project folder. Files stream over SFTP, so large genomic files (BAM/CRAM/FASTQ) are fine - but WARN the user first that a large upload may take a while. Optional `subdir` groups the upload under pipelines_input/<subdir>. Returns the remote directory to pass as `input_dir` to dry_run / execute_pipeline.",
+		inputSchema: {
+			type: 'object',
+			properties: {
+				local_path: { type: 'string', description: "Absolute path to a file or directory on the user's local machine, or a path relative to the open project folder." },
+				subdir: { type: 'string', description: 'Optional subdirectory under pipelines_input to place the upload in (e.g. a run name).' },
+			},
+			required: ['local_path'],
+		},
+		handler: async (args) => {
+			try {
+				const profile = requireProfile();
+				const { ssh } = services();
+
+				const rawLocal = String(args.local_path ?? '');
+				if (!rawLocal) {
+					return errorResult('upload_local_input: `local_path` is required');
+				}
+				// Resolve local path: absolute as-is, else relative to the open project folder.
+				let localPath = rawLocal;
+				if (!path.isAbsolute(localPath)) {
+					const folder = workspaceFolderPath();
+					if (!folder) {
+						return errorResult('`local_path` is relative but no project folder is open. Give an absolute path or open a folder.');
+					}
+					localPath = path.join(folder, localPath);
+				}
+				let stat: fs.Stats;
+				try {
+					stat = fs.statSync(localPath);
+				} catch {
+					return errorResult(`Local path not found: ${localPath}`);
+				}
+
+				const paths = workspacePathsFor(profile);
+				const subdir = args.subdir && String(args.subdir).length > 0
+					? String(args.subdir).replace(/^\/+|\/+$/g, '')
+					: '';
+				const destDir = subdir ? `${paths.input_dir.replace(/\/+$/, '')}/${subdir}` : paths.input_dir;
+
+				// Create the remote input dir as the SSH user FIRST so it is user-owned
+				// (never let a later docker mount create it as root - see execute_pipeline).
+				const mk = await ssh.run(profile, `mkdir -p '${shellEscape(destDir)}'`, { timeoutMs: 60000 });
+				if (mk.exitCode !== 0) {
+					return errorResult(`Failed to create remote input dir '${destDir}': ${mk.stdout.trim() || mk.stderr.trim()}`);
+				}
+
+				// Gather local files (single file, or a whole directory tree).
+				const files: { local: string; rel: string }[] = [];
+				if (stat.isDirectory()) {
+					gatherLocalFiles(localPath, '', files);
+				} else {
+					files.push({ local: localPath, rel: basenameOf(localPath.replace(/\\/g, '/')) });
+				}
+				if (files.length === 0) {
+					return textResult(`Nothing to upload: '${localPath}' contains no files.`);
+				}
+
+				let uploaded = 0;
+				const errors: string[] = [];
+				const madeDirs = new Set<string>();
+				for (const f of files) {
+					const remoteFile = `${destDir.replace(/\/+$/, '')}/${f.rel}`;
+					const remoteParent = parentOf(remoteFile);
+					if (remoteParent && !madeDirs.has(remoteParent)) {
+						await ssh.run(profile, `mkdir -p '${shellEscape(remoteParent)}'`);
+						madeDirs.add(remoteParent);
+					}
+					try {
+						await ssh.uploadFileSftp(profile, f.local, remoteFile);
+						uploaded++;
+					} catch (e) {
+						errors.push(`${f.rel}: ${(e as Error).message}`);
+					}
+				}
+
+				// User just provided input data - record a manifest (file list + sizes,
+				// no bytes) in the project folder. Best-effort.
+				try { await writeInputManifest(profile, 'inputs'); } catch { /* best-effort */ }
+
+				const lines = [
+					`Uploaded ${uploaded}/${files.length} file(s) into ${destDir}.`,
+					`Use as input_dir: ${destDir}`,
+				];
+				if (errors.length > 0) {
+					lines.push('', 'Failed:');
+					for (const e of errors) { lines.push(`  ${e}`); }
+				}
+				return uploaded > 0 ? textResult(lines.join('\n')) : errorResult(lines.join('\n'));
 			} catch (err) {
 				return errorResult((err as Error).message);
 			}

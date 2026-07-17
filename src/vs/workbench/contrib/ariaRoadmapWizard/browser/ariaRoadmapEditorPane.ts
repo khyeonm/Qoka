@@ -6,7 +6,6 @@
 import { Dimension, addDisposableListener } from '../../../../base/browser/dom.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
-import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
@@ -23,16 +22,6 @@ import { COLUMN_WIDTH, NODE_LINE_HEIGHT, NODE_LABEL_PAD_X, LaidOut, columnX, com
 // Ctrl+drag zoom bounds.
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 2.5;
-
-// Starter prompt shown on the empty canvas. The user pastes it into the
-// Claude Code chat (Claude Code's sidebar chat can't be seeded programmatically),
-// which kicks the model into the facilitator role. Because it arrives as a real
-// user message - not passive MCP `instructions` - the model reliably adopts it.
-const STARTER_PROMPT = [
-	'I want to build ___. Help me complete this roadmap through brainstorming.',
-	'Don\'t write any code yet. First read get_roadmap_guide, then ask me one question at a time',
-	'and use propose_node to add Goal → Milestone → Task → Detail nodes to the canvas. Keep all node text in English.',
-].join('\n');
 
 /**
  * The New Project Roadmap Wizard, rendered as a workbench editor.
@@ -59,7 +48,6 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	private editPanel: HTMLElement | undefined;
 	private sequentialBar: HTMLElement | undefined;
 	private saveStatus: HTMLElement | undefined;
-	private starterCard: HTMLElement | undefined;
 	/** Which roadmap this pane currently shows - set on setInput. Used to filter
 	 *  the shared state-change channel and to re-assert the active roadmap. */
 	private currentRoadmapId: string | undefined;
@@ -86,7 +74,6 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		@IThemeService themeService: IThemeService,
 		@IStorageService storageService: IStorageService,
 		@ICommandService private readonly commandService: ICommandService,
-		@IClipboardService private readonly clipboardService: IClipboardService,
 		@IDialogService private readonly dialogService: IDialogService,
 	) {
 		super(AriaRoadmapEditorPane.ID, group, telemetryService, themeService, storageService);
@@ -157,13 +144,6 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		svg.style.height = '100%';
 		canvasWrap.appendChild(svg);
 		this.canvasSvg = svg;
-
-		// Starter card - floats over the empty canvas with a copyable prompt the
-		// user pastes into the Claude Code chat to begin the brainstorming.
-		// Hidden as soon as the roadmap has any node.
-		const starter = this.buildStarterCard();
-		canvasWrap.appendChild(starter);
-		this.starterCard = starter;
 
 		// Background drag = pan. Ctrl+drag (drag up = in, down = out) or Ctrl+wheel
 		// = zoom; plain wheel pans vertically. Drags that start on a node/button
@@ -360,14 +340,6 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		this.renderCanvas();
 		this.renderSequentialBar();
 		this.renderSaveButton();
-		this.renderStarterCard();
-	}
-
-	/** Show the starter card only while the roadmap is completely empty. */
-	private renderStarterCard(): void {
-		if (!this.starterCard) { return; }
-		const empty = this.snapshot.committed.length === 0 && this.snapshot.proposed.length === 0;
-		this.starterCard.style.display = empty ? 'flex' : 'none';
 	}
 
 	private renderCanvas(): void {
@@ -756,10 +728,13 @@ export class AriaRoadmapEditorPane extends EditorPane {
 		el.style.boxSizing = 'border-box';
 	}
 
+	// User-initiated adds go through aria.roadmap.addNode, which commits the node
+	// immediately (no separate accept). Only the AI's proposals (via the MCP
+	// propose_node tool) stay proposed until the user accepts them.
 	private async proposeRoot(): Promise<void> {
 		const label = await this.promptForLabel('Project goal');
 		if (!label) { return; }
-		void this.commandService.executeCommand('aria.roadmap.propose', {
+		void this.commandService.executeCommand('aria.roadmap.addNode', {
 			parent: null,
 			column: 0,
 			label,
@@ -769,7 +744,7 @@ export class AriaRoadmapEditorPane extends EditorPane {
 	private async proposeChild(parent: LaidOut): Promise<void> {
 		const label = await this.promptForLabel(this.snapshot.columnLabels[parent.column + 1] ?? 'Child');
 		if (!label) { return; }
-		void this.commandService.executeCommand('aria.roadmap.propose', {
+		void this.commandService.executeCommand('aria.roadmap.addNode', {
 			parent: parent.id,
 			column: parent.column + 1,
 			label,
@@ -874,71 +849,6 @@ export class AriaRoadmapEditorPane extends EditorPane {
 			return;
 		}
 		await this.commandService.executeCommand('aria.roadmap.reset');
-	}
-
-	private buildStarterCard(): HTMLElement {
-		const card = document.createElement('div');
-		card.className = 'roadmap-interactive'; // don't pan when interacting with the card
-		// Centered on the canvas (both axes) so the empty-state prompt sits in
-		// the middle of the viewport rather than the top-left.
-		card.style.position = 'absolute';
-		card.style.top = '50%';
-		card.style.left = '50%';
-		card.style.transform = 'translate(-50%, -50%)';
-		card.style.width = 'calc(100% - 48px)';
-		card.style.maxWidth = '560px';
-		card.style.boxSizing = 'border-box';
-		card.style.display = 'flex';
-		card.style.flexDirection = 'column';
-		card.style.gap = '10px';
-		card.style.padding = '18px 20px';
-		card.style.background = 'var(--vscode-editorWidget-background, #252526)';
-		card.style.border = '1px solid var(--vscode-focusBorder, #007acc)';
-		card.style.borderRadius = '10px';
-		card.style.boxShadow = '0 6px 24px rgba(0,0,0,0.35)';
-		card.style.zIndex = '15';
-
-		const title = document.createElement('div');
-		title.textContent = 'Start here';
-		title.style.fontSize = '14px';
-		title.style.fontWeight = '600';
-		card.appendChild(title);
-
-		const hint = document.createElement('div');
-		hint.textContent = 'Paste the prompt below into the AI chat on the right, fill in the “___”, and send. The AI will brainstorm with you and draw the roadmap here as you go.';
-		hint.style.fontSize = '12.5px';
-		hint.style.lineHeight = '1.5';
-		hint.style.opacity = '0.8';
-		card.appendChild(hint);
-
-		const promptBox = document.createElement('pre');
-		promptBox.textContent = STARTER_PROMPT;
-		promptBox.style.margin = '0';
-		promptBox.style.padding = '12px';
-		promptBox.style.background = 'var(--vscode-textCodeBlock-background, rgba(127,127,127,0.12))';
-		promptBox.style.border = '1px solid rgba(127,127,127,0.25)';
-		promptBox.style.borderRadius = '6px';
-		promptBox.style.fontSize = '12.5px';
-		promptBox.style.lineHeight = '1.5';
-		promptBox.style.whiteSpace = 'pre-wrap';
-		promptBox.style.fontFamily = 'var(--vscode-editor-font-family, monospace)';
-		promptBox.style.userSelect = 'text';
-		card.appendChild(promptBox);
-
-		const actions = document.createElement('div');
-		actions.style.display = 'flex';
-		actions.style.alignItems = 'center';
-		actions.style.gap = '10px';
-		const copyButton = this.makeButton('Copy prompt', 'primary', () => {
-			void this.clipboardService.writeText(STARTER_PROMPT);
-			copyButton.textContent = 'Copied!';
-			setTimeout(() => { copyButton.textContent = 'Copy prompt'; }, 1500);
-		});
-		actions.appendChild(copyButton);
-		card.appendChild(actions);
-
-		card.style.display = 'none'; // shown by renderStarterCard when empty
-		return card;
 	}
 
 	private makeButton(label: string, variant: 'primary' | 'ghost', onclick: () => void): HTMLButtonElement {

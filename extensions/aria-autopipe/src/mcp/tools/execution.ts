@@ -169,7 +169,9 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 					return errorResult('dry_run: `image_name` and `input_dir` are required');
 				}
 
-				await ssh.run(profile, `mkdir -p '${shellEscape(outputDir)}'`);
+				// Create both mount dirs as the SSH user before docker touches them, so
+				// docker never auto-creates the input dir as root (see execute_pipeline).
+				await ssh.run(profile, `mkdir -p '${shellEscape(inputDir)}' '${shellEscape(outputDir)}'`);
 
 				const pipelineDir = await findPipelineDir(profile, imageName);
 				const pipelineMount = pipelineDir ? `-v '${shellEscape(pipelineDir)}:/pipeline'` : '';
@@ -271,7 +273,11 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 				}
 
 				await ssh.run(profile, `docker rm -f '${shellEscape(containerName)}' 2>/dev/null`);
-				await ssh.run(profile, `mkdir -p '${shellEscape(outputDir)}'`);
+				// Create BOTH mount dirs as the (aria) SSH user BEFORE docker runs.
+				// Docker auto-creates a missing bind-mount source dir as ROOT, which then
+				// blocks prepare_input / symlinks / uploads with "Permission denied". So
+				// ensure the input dir exists user-owned here too, not just the output dir.
+				await ssh.run(profile, `mkdir -p '${shellEscape(inputDir)}' '${shellEscape(outputDir)}'`);
 
 				const runMeta = JSON.stringify({
 					run_name: runName,

@@ -272,6 +272,29 @@ export async function autoSavePipelineCodeOnCompletion(profile: SshProfile, imag
 	}
 }
 
+/**
+ * Mirror a single just-written pipeline file to the project folder. When
+ * `remotePath` is inside the target's pipelines dir, write the same `content` to
+ * <workspaceFolder>/autopipe/pipelines/<relative>. Called on every write_file so
+ * pipeline CODE stays synced in the project as it is CREATED and EDITED - not
+ * only at run completion - without the user asking. Best-effort: no workspace
+ * folder, a path outside the pipelines dir, or a write error all no-op. The
+ * content is already in hand, so there is no SFTP round-trip.
+ */
+export function mirrorPipelineFileLocally(profile: SshProfile, remotePath: string, content: string): void {
+	try {
+		const local = localAutopipePaths();
+		if (!local) { return; }
+		const pipelinesDir = workspacePathsFor(profile).pipelines_dir.replace(/\/+$/, '');
+		if (remotePath !== pipelinesDir && !remotePath.startsWith(pipelinesDir + '/')) { return; }
+		const rel = remoteRelative(pipelinesDir, remotePath);
+		if (!rel || rel === '.') { return; }
+		const localFile = localJoin(local.pipelines, rel);
+		ensureLocalDir(path.dirname(localFile));
+		fs.writeFileSync(localFile, content, 'utf8');
+	} catch { /* best-effort mirror */ }
+}
+
 export interface InputManifestFile {
 	path: string;
 	sizeBytes: number;

@@ -5,7 +5,7 @@
 
 import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
-import { SshProfile } from '../../common/types';
+import { SshProfile, LOCAL_VM_ID } from '../../common/types';
 import { resolveOutputDir } from '../../common/dockerEnv';
 import { shellEscape } from '../../common/roCrate';
 import {
@@ -37,6 +37,19 @@ function requireProfile() {
 		throw new Error('No active SSH profile. Configure one via Aria > Autopipe > SSH.');
 	}
 	return profile;
+}
+
+// "This copy will take a while" thresholds - profile-aware, because transfer
+// speed differs by an order of magnitude. The built-in VM is a 127.0.0.1 loopback
+// (hundreds of MB/s), so even several GB copy in seconds - only warn when it's
+// genuinely huge. A remote SSH host is a real network where ~1 GB already takes
+// minutes on a typical connection. The gate only WARNS (needs confirm_large); it
+// never skips.
+function largeCopyThresholds(profile: SshProfile): { total: number; single: number } {
+	const GB = 1024 * 1024 * 1024;
+	return profile.id === LOCAL_VM_ID
+		? { total: 5 * GB, single: 5 * GB }   // built-in VM (loopback): only very large
+		: { total: 1 * GB, single: 1 * GB };  // remote SSH: ~1 GB starts to drag
 }
 
 export const PROJECT_TOOLS: ToolDefinition[] = [
@@ -93,7 +106,8 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 			"Durably SAVE a completed run into the user's open project folder (<workspaceFolder>/autopipe/). Use this after a run finishes and the user has chosen what to keep - the built-in VM's disk is scratch and can be wiped, so this is how results survive. "
 			+ 'ALWAYS: (1) copies the pipeline CODE, and (2) writes an input MANIFEST (file list + sizes, NOT the input bytes). '
 			+ 'OUTPUT files are copied only when you pass `files` (relative paths from list_run_outputs); omit `files` to save just code + manifest. '
-			+ 'Recommended flow: call list_run_outputs first, ASK the user which files to save, WARN about large files and confirm, then call this. Do NOT ask about pipeline code - it is always saved. '
+			+ 'Recommended flow: call list_run_outputs first, ASK the user which files to save, then call this. Do NOT ask about pipeline code - it is always saved. '
+				+ 'SIZE GATE: if the selection is big enough to take a while to transfer (~1 GB+ on a remote host; only much larger on the fast built-in VM), this tool does NOT copy - it returns a warning with the total size. When that happens, tell the user it may take a while, get their OK, then call again with the SAME files and confirm_large: true. '
 			+ 'Copies stream over SFTP (memory-safe for multi-GB files). Returns a per-file success/failure summary; if a file fails, tell the user it can still be opened in-app with show_results. '
 			+ 'No-ops with a clear message if no project folder is open.',
 		inputSchema: {
@@ -107,6 +121,7 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 				},
 				image_name: { type: 'string', description: 'Optional Docker image name for the run; used to locate the pipeline code. If omitted, derived from the run metadata.' },
 				include_input_manifest: { type: 'boolean', description: 'Write the input-file manifest (default true). The input bytes are never copied.' },
+					confirm_large: { type: 'boolean', description: 'Set true ONLY after the user has confirmed a large copy (the tool asked). Skips the size warning and copies. Do not set it on the first call.' },
 			},
 			required: ['run_name'],
 		},
@@ -125,6 +140,36 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 					? args.files.map(f => String(f)).filter(Boolean)
 					: undefined;
 				const includeManifest = args.include_input_manifest === undefined ? true : args.include_input_manifest === true;
+
+				// Size gate: if the selection is large, WARN and stop (don't copy) unless
+				// the user already confirmed via confirm_large. This forces a "may take a
+				// while - proceed?" step before a big download instead of silently pulling.
+				const confirmLarge = args.confirm_large === true;
+				if (files && files.length > 0 && !confirmLarge) {
+					const { total: largeTotal, single: largeSingle } = largeCopyThresholds(profile);
+					const listing = await listRunOutputs(profile, runName);
+					if (listing.ok && listing.files.length > 0) {
+						const sizeOf = new Map(listing.files.map(f => [f.path, f.sizeBytes] as [string, number]));
+						let total = 0;
+						const big: string[] = [];
+						for (const rel of files) {
+							const clean = rel.replace(/^\/+/, '');
+							const sz = sizeOf.get(clean) ?? 0;
+							total += sz;
+							if (sz >= largeSingle) { big.push(`  ${clean} (${humanSize(sz)})`); }
+						}
+						if (total >= largeTotal || big.length > 0) {
+							const warn = [
+								`This copy is large: ${humanSize(total)} across ${files.length} file(s). Over a remote/network connection it may take a while.`,
+							];
+							if (big.length > 0) {
+								warn.push('Large file(s):', ...big);
+							}
+							warn.push('', 'Tell the user the size and that it may take a while, ask them to confirm, then call save_results_to_project again with the SAME files and confirm_large: true. (Pipeline code is auto-saved regardless.)');
+							return textResult(warn.join('\n'));
+						}
+					}
+				}
 
 				// Prefer an explicit image_name; otherwise recover it from the run
 				// metadata written at execute time (.autopipe-run.json).

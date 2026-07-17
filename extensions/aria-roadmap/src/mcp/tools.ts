@@ -61,7 +61,7 @@ export function buildTools(
 	return [
 		{
 			name: 'get_roadmap_guide',
-			description: 'Return the facilitation guide for this roadmap brainstorming session. Call this FIRST, before anything else, to learn how to run the session (it explains the one-question-per-message method, how to propose nodes, and the finalize handshake).',
+			description: 'Return the facilitation guide for this roadmap brainstorming session. Call this FIRST, before anything else, to learn how to run the session (it explains the one-question-per-message method and how to propose nodes; the roadmap saves automatically, so there is no save step to walk the user through).',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(ROADMAP_BRAINSTORM_GUIDE),
 		},
@@ -319,12 +319,12 @@ export function buildTools(
 		},
 		{
 			name: 'finalize_roadmap',
-			description: 'Signal that the roadmap is structurally complete enough to save. Call ONLY after the user has explicitly confirmed in chat. Sets a flag the canvas reads to enable the Save & Accept button.',
+			description: 'Signal that the roadmap is structurally complete. Optional, purely a marker - the roadmap already saves AUTOMATICALLY on every edit, so there is nothing to enable and no Save button. Call at most once, only after the user confirms the roadmap looks done. Do NOT tell the user to save.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				setFinalized(true);
 				notify();
-				return ok('roadmap marked as ready to save');
+				return ok('roadmap marked complete');
 			},
 		},
 	];

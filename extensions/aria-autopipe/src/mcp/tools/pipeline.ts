@@ -9,6 +9,7 @@ import { workspacePathsFor, Pipeline } from '../../common/types';
 import { parseGithubUrl, fetchGithubLogin, fetchGithubFile, fetchPipelineCodeDump, fillRoCrateAuthor } from '../../common/githubApi';
 import { parseRoCrateMetadata, cleanContent, normalizePaths, shellEscape } from '../../common/roCrate';
 import { windowsToWsl } from '../../common/dockerEnv';
+import { savePipelineCodeToProject } from '../../common/workspaceSync';
 
 // Pipeline registry / publishing tools. Hub-side operations
 // (search/list/download/upload/publish/unpublish) stay as informational
@@ -264,6 +265,11 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				} catch {
 					// best-effort - review/move already succeeded
 				}
+
+				// Mirror the freshly downloaded pipeline code into the open project
+				// folder (autopipe/pipelines/<name>/), like write_file does for edits.
+				// Best-effort - never fail the download over the mirror.
+				try { await savePipelineCodeToProject(profile, pipeline.name); } catch { /* best-effort */ }
 
 				const fileCount = fileList.split('\n').filter(l => l.length > 0).length;
 				return textResult([

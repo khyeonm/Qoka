@@ -96,6 +96,22 @@ export function registerWorkbenchCommands(
 			fireChange();
 			return proposal;
 		}),
+		// Atomic user-add: create a node and commit it immediately (propose +
+		// accept in one persist). The canvas "+" buttons use this so a node the
+		// USER draws is saved right away as committed - no separate accept step.
+		// The AI's propose_node path is unaffected: its nodes stay proposed until
+		// the user accepts them.
+		vscode.commands.registerCommand('aria.roadmap.addNode', (args: {
+			parent: string | null;
+			column: Column;
+			label: string;
+			description?: string;
+		}) => {
+			const proposal = state.propose(args);
+			const node = state.acceptProposal(proposal.id);
+			fireChange();
+			return node;
+		}),
 		vscode.commands.registerCommand('aria.roadmap.updateProposal', (id: string, patch: { label?: string; description?: string }) => {
 			const updated = state.updateProposal(id, patch);
 			fireChange();
