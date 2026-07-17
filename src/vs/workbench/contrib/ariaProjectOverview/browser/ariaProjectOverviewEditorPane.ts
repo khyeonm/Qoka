@@ -24,6 +24,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { asWebviewUri, webviewGenericCspSource } from '../../webview/common/webview.js';
 import { IWebviewElement, IWebviewService } from '../../webview/browser/webview.js';
 import { AriaProjectOverviewEditorInput } from './ariaProjectOverviewEditorInput.js';
+import { computeRoadmapLayout, layoutBounds, COLUMN_WIDTH, NODE_LINE_HEIGHT, NODE_LABEL_PAD_X } from '../../ariaRoadmapWizard/browser/roadmapCanvasLayout.js';
 
 interface OverviewTask {
 	id: string;
@@ -111,7 +112,9 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	protected createEditor(parent: HTMLElement): void {
 		const root = document.createElement('div');
 		Object.assign(root.style, {
-			width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
+			// `position: relative` so the divider-drag capture overlay (which sits over
+			// the content webview) can be absolutely positioned to fill the pane.
+			width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative',
 			color: 'var(--vscode-foreground)', fontSize: '13px', boxSizing: 'border-box', overflow: 'hidden',
 			background: 'var(--vscode-editor-background, #1e1e1e)',
 			fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)',
@@ -146,17 +149,69 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		Object.assign(host.style, { flex: '1 1 auto', minHeight: '160px', position: 'relative' });
 		this.webviewHost = host;
 
+		// Draggable divider between the Content webview (above) and the Roadmap+To-do
+		// sections (below). Dragging it up/down resizes the two areas.
+		const divider = append(root, $('div'));
+		Object.assign(divider.style, {
+			flex: '0 0 auto', height: '7px', cursor: 'row-resize', position: 'relative',
+			borderTop: '1px solid rgba(127,127,127,0.25)',
+		});
+		const grip = append(divider, $('div'));
+		Object.assign(grip.style, {
+			position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
+			width: '40px', height: '3px', borderRadius: '2px', background: 'rgba(127,127,127,0.4)',
+		});
+
 		// Fixed sections below: Roadmap + To-do (own scroll so the webview above
 		// keeps a stable position - webviews don't scroll inside a scrolling parent).
 		const sections = append(root, $('div'));
 		Object.assign(sections.style, {
 			flex: '0 0 auto', maxHeight: '45%', overflowY: 'auto', overflowX: 'hidden',
-			borderTop: '1px solid rgba(127,127,127,0.25)', padding: '4px 20px 16px 20px',
+			padding: '4px 20px 16px 20px',
 		});
 		this.sectionsEl = sections;
 
+		this.wireDividerDrag(root, divider, sections);
+
 		parent.appendChild(root);
 		this.container = root;
+	}
+
+	/**
+	 * Make the divider drag to resize the Content webview vs the sections below.
+	 * The Content region is a webview (iframe) that swallows mousemove events, so
+	 * during a drag we cover the whole pane with a transparent overlay to keep the
+	 * pointer stream flowing to us - otherwise the drag sticks the moment the
+	 * cursor passes over the webview.
+	 */
+	private wireDividerDrag(root: HTMLElement, divider: HTMLElement, sections: HTMLElement): void {
+		divider.addEventListener('mousedown', (e: MouseEvent) => {
+			e.preventDefault();
+			const doc = divider.ownerDocument;
+			const startY = e.clientY;
+			const startHeight = sections.getBoundingClientRect().height;
+			const rootHeight = root.getBoundingClientRect().height;
+
+			const overlay = doc.createElement('div');
+			Object.assign(overlay.style, { position: 'absolute', inset: '0', zIndex: '50', cursor: 'row-resize' });
+			root.appendChild(overlay);
+
+			const onMove = (ev: MouseEvent) => {
+				// Drag up => taller sections. Keep at least 200px for the content above.
+				const min = 60;
+				const max = Math.max(min, rootHeight - 200);
+				const h = Math.min(max, Math.max(min, startHeight + (startY - ev.clientY)));
+				sections.style.maxHeight = 'none';
+				sections.style.height = `${h}px`;
+			};
+			const onUp = () => {
+				doc.removeEventListener('mousemove', onMove, true);
+				doc.removeEventListener('mouseup', onUp, true);
+				overlay.remove();
+			};
+			doc.addEventListener('mousemove', onMove, true);
+			doc.addEventListener('mouseup', onUp, true);
+		});
 	}
 
 	override async setInput(input: EditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
@@ -344,7 +399,15 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		const box = append(parent, $('div'));
 		Object.assign(box.style, { border: '1px solid rgba(127,127,127,0.25)', borderRadius: '6px', padding: '8px', cursor: 'pointer', overflowX: 'auto' });
 		box.title = 'Open the full Roadmap';
-		box.onclick = () => { void this.commandService.executeCommand('workbench.view.ariaRoadmap.focus'); };
+		// Clicking opens the Roadmap tab + the active roadmap in the editor. NB: the
+		// registered command is the container id verbatim (`workbench.view.ariaRoadmap`)
+		// - the `.focus` suffix is never registered, so calling it throws.
+		box.onclick = () => {
+			void (async () => {
+				try { await this.commandService.executeCommand('workbench.view.ariaRoadmap'); } catch { /* sidebar optional */ }
+				try { await this.commandService.executeCommand('aria.roadmap.openWizard'); } catch { /* editor optional */ }
+			})();
+		};
 
 		if (this.roadmapNodes.length === 0) {
 			const empty = append(box, $('div'));
@@ -352,18 +415,79 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 			Object.assign(empty.style, { opacity: '0.6', padding: '6px' });
 			return;
 		}
-		const maxCol = this.roadmapNodes.reduce((m, n) => Math.max(m, n.column), 0);
-		const row = append(box, $('div'));
-		Object.assign(row.style, { display: 'flex', gap: '12px', alignItems: 'flex-start' });
-		for (let c = 0; c <= maxCol; c++) {
-			const col = append(row, $('div'));
-			Object.assign(col.style, { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '140px' });
-			for (const n of this.roadmapNodes.filter(nn => nn.column === c)) {
-				const card = append(col, $('div'));
-				card.textContent = n.label;
-				Object.assign(card.style, { border: '1px solid rgba(127,127,127,0.35)', borderRadius: '5px', padding: '6px 9px', fontSize: '12px', background: 'rgba(127,127,127,0.06)' });
-			}
+		this.drawRoadmapGraph(box, this.roadmapNodes);
+	}
+
+	/**
+	 * Draw the roadmap as the same line-connected node graph the Roadmap editor
+	 * shows - reusing the shared, pure tidy-tree layout (roadmapCanvasLayout) so the
+	 * shape matches exactly. This is a static, read-only render (no pan/zoom, kebab,
+	 * or add buttons); the whole tree is fit to the section width via the viewBox.
+	 */
+	private drawRoadmapGraph(box: HTMLElement, nodes: RoadmapNode[]): void {
+		const svgNS = 'http://www.w3.org/2000/svg';
+		// Only persisted (committed) nodes exist here; no in-flight AI proposals.
+		const laid = computeRoadmapLayout(nodes, []);
+		if (laid.length === 0) { return; }
+		const bounds = layoutBounds(laid);
+
+		const svg = document.createElementNS(svgNS, 'svg');
+		svg.setAttribute('viewBox', `0 0 ${bounds.width} ${bounds.height}`);
+		svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+		Object.assign(svg.style, { width: '100%', aspectRatio: `${bounds.width} / ${bounds.height}`, maxHeight: '360px', display: 'block' });
+
+		// Connections first (behind the cards), as cubic-bezier paths parent->child.
+		for (const node of laid) {
+			if (node.parent === null) { continue; }
+			const parent = laid.find(n => n.id === node.parent);
+			if (!parent) { continue; }
+			const path = document.createElementNS(svgNS, 'path');
+			const x1 = parent.x + COLUMN_WIDTH;
+			const y1 = parent.y + parent.height / 2;
+			const x2 = node.x;
+			const y2 = node.y + node.height / 2;
+			const mid = (x1 + x2) / 2;
+			path.setAttribute('d', `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);
+			path.setAttribute('stroke', 'rgba(127,127,127,0.6)');
+			path.setAttribute('stroke-width', '1.5');
+			path.setAttribute('fill', 'none');
+			svg.appendChild(path);
 		}
+
+		// Node cards: rounded rect + wrapped, vertically-centered label.
+		for (const node of laid) {
+			const g = document.createElementNS(svgNS, 'g');
+			g.setAttribute('transform', `translate(${node.x}, ${node.y})`);
+
+			const rect = document.createElementNS(svgNS, 'rect');
+			rect.setAttribute('width', String(COLUMN_WIDTH));
+			rect.setAttribute('height', String(node.height));
+			rect.setAttribute('rx', '8');
+			rect.setAttribute('ry', '8');
+			rect.setAttribute('fill', 'var(--vscode-editor-background, #1e1e1e)');
+			rect.setAttribute('stroke', 'rgba(127,127,127,0.5)');
+			rect.setAttribute('stroke-width', '1.2');
+			g.appendChild(rect);
+
+			const label = document.createElementNS(svgNS, 'text');
+			label.setAttribute('fill', 'var(--vscode-foreground, #cccccc)');
+			label.setAttribute('font-size', '13');
+			label.setAttribute('font-weight', '600');
+			const blockHeight = node.lines.length * NODE_LINE_HEIGHT;
+			const firstBaseline = (node.height - blockHeight) / 2 + NODE_LINE_HEIGHT - 4;
+			node.lines.forEach((line, i) => {
+				const tspan = document.createElementNS(svgNS, 'tspan');
+				tspan.textContent = line;
+				tspan.setAttribute('x', String(NODE_LABEL_PAD_X));
+				tspan.setAttribute('y', String(firstBaseline + i * NODE_LINE_HEIGHT));
+				label.appendChild(tspan);
+			});
+			g.appendChild(label);
+
+			svg.appendChild(g);
+		}
+
+		box.appendChild(svg);
 	}
 
 	private renderTasks(parent: HTMLElement): void {

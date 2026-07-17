@@ -1436,7 +1436,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 * the two never collide.
 	 */
 	private async scaffoldProjectTemplate(folderUri: URI): Promise<void> {
-		const dirs = ['notes', 'references', 'data', 'downloads', 'paper', 'reviews', '.aria'];
+		// `autopipe/` holds pipeline artifacts copied back from the run environment:
+		// the pipeline CODE, an input manifest, and run OUTPUTS (see aria-autopipe's
+		// project-sync). Scaffolded up front so the layout is there before the first run.
+		const dirs = ['notes', 'references', 'data', 'downloads', 'paper', 'reviews', '.aria',
+			'autopipe', 'autopipe/pipelines', 'autopipe/pipelines_input', 'autopipe/pipelines_output'];
 		for (const dir of dirs) {
 			try {
 				await this.fileService.createFolder(URI.joinPath(folderUri, dir));

@@ -9,6 +9,7 @@ import { PIPELINE_TOOLS } from './pipeline';
 import { EXECUTION_TOOLS } from './execution';
 import { FILE_TOOLS } from './files';
 import { RESULT_TOOLS } from './results';
+import { PROJECT_TOOLS } from './projectSync';
 import { PLUGIN_TOOLS } from './plugins';
 import { VM_TOOLS } from './vm';
 
@@ -30,6 +31,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	FILE_TOOLS[2], // write_file
 	FILE_TOOLS[5], FILE_TOOLS[6], FILE_TOOLS[7], // prepare_input, check_download_status, remove_input
 	RESULT_TOOLS[1], // show_results
+	...PROJECT_TOOLS, // list_run_outputs, save_results_to_project (durable save into the open project folder)
 	...WORKSPACE_TOOLS.slice(1), // get_templates, get_generation_guide
 	...PLUGIN_TOOLS,
 	...VM_TOOLS, // built-in server resources (get/set) - only for the local VM

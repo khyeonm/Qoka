@@ -130,7 +130,12 @@ export function buildTools(): ToolDefinition[] {
 			},
 			handler: async (args) => {
 				try {
-					await vscode.commands.executeCommand('workbench.view.ariaRoadmap.focus');
+					// Reveal the Roadmap sidebar (the list of roadmaps). The registered
+					// command is the view-CONTAINER id verbatim - `workbench.view.ariaRoadmap`
+					// with NO `.focus` suffix (that suffixed id is never registered, and
+					// calling it throws and aborts the whole tool). Best-effort so a
+					// missing sidebar can't stop the editor from opening.
+					try { await vscode.commands.executeCommand('workbench.view.ariaRoadmap'); } catch { /* sidebar optional */ }
 					// A fresh project already holds one empty roadmap. ensureActive
 					// returns that existing (newest) roadmap's id, only creating one
 					// when the project genuinely has none - so we never make a duplicate.
@@ -139,8 +144,10 @@ export function buildTools(): ToolDefinition[] {
 					if (id && title) {
 						await vscode.commands.executeCommand('aria.roadmap.rename', id, title);
 					}
-					await vscode.commands.executeCommand('aria.roadmap.openWizard', id ? { id } : undefined);
-					return ok('Opened the roadmap canvas on the Roadmap tab.');
+					// openWizard opens THIS roadmap in the editor (like the sidebar list's
+					// row click). Passing `name` seeds the editor tab title.
+					await vscode.commands.executeCommand('aria.roadmap.openWizard', id ? { id, name: title || undefined } : undefined);
+					return ok('Opened the roadmap on the Roadmap tab.');
 				} catch (e) {
 					return err(`Could not open the roadmap: ${(e as Error).message}`);
 				}

@@ -112,6 +112,66 @@ export class SshService {
 		return bytes.length;
 	}
 
+	/**
+	 * Stream a single remote file to `localPath` over SFTP. Unlike
+	 * `downloadBase64` (which slurps the whole file into memory, base64-encoded),
+	 * this pipes `sftp.createReadStream(remotePath)` straight into
+	 * `fs.createWriteStream(localPath)` so multi-GB genomic outputs (BAM/CRAM/
+	 * FASTQ) copy with a constant, small memory footprint. Creates the local
+	 * parent directory as needed and resolves with the byte count.
+	 *
+	 * Works identically for the built-in VM (127.0.0.1) and remote SSH hosts -
+	 * both are just SshProfiles, and ssh2's SFTP subsystem rides the same
+	 * connection.
+	 */
+	downloadFileSftp(profile: SshProfile, remotePath: string, localPath: string): Promise<number> {
+		return new Promise((resolve, reject) => {
+			let cfg: ConnectConfig;
+			try {
+				cfg = connectConfig(profile);
+			} catch (e) {
+				reject(e);
+				return;
+			}
+
+			const conn = new Client();
+			let settled = false;
+			const finish = (err?: Error, val?: number): void => {
+				if (settled) { return; }
+				settled = true;
+				try { conn.end(); } catch { /* ignore */ }
+				if (err) { reject(err); } else { resolve(val ?? 0); }
+			};
+
+			conn.on('ready', () => {
+				conn.sftp((err, sftp) => {
+					if (err) { finish(err); return; }
+					try {
+						fs.mkdirSync(path.dirname(localPath), { recursive: true });
+					} catch (e) {
+						finish(e instanceof Error ? e : new Error(String(e)));
+						return;
+					}
+					const readStream = sftp.createReadStream(remotePath);
+					const writeStream = fs.createWriteStream(localPath);
+					let bytes = 0;
+					readStream.on('data', (d: Buffer) => { bytes += d.length; });
+					readStream.on('error', (e: Error) => finish(e));
+					writeStream.on('error', (e: Error) => finish(e));
+					writeStream.on('close', () => finish(undefined, bytes));
+					readStream.pipe(writeStream);
+				});
+			});
+			conn.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
+
+			try {
+				conn.connect(cfg);
+			} catch (e) {
+				finish(e instanceof Error ? e : new Error(String(e)));
+			}
+		});
+	}
+
 	async listFiles(profile: SshProfile, remotePath: string): Promise<string[]> {
 		// `ls -1A` lists one entry per line, including dotfiles but excluding
 		// `.` / `..`. The empty-output case is a valid empty directory.

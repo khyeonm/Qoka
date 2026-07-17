@@ -14,6 +14,7 @@ import {
 	resolveSymlinkTargets,
 	findPipelineDir,
 } from '../../common/dockerEnv';
+import { autoSavePipelineCodeOnCompletion } from '../../common/workspaceSync';
 
 /**
  * Docker / Snakemake execution tools - faithful ports of build_image,
@@ -218,7 +219,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'execute_pipeline',
-		description: 'Execute a pipeline in the background on the remote server via SSH. Outputs are stored at {configured_output_dir}/{run_name}/. Logs are written to {output_dir}/{run_name}/pipeline.log. This tool monitors the first ~90 seconds for early failures before returning. Snakemake automatically skips completed steps, so if a pipeline fails you can fix the code and re-run with the SAME run_name - only the failed and downstream steps will re-execute. Do NOT call cleanup_failed after execution failures; instead fix the Snakefile and re-run. Tell the user they can check progress later with list_running_pipelines, even from a new conversation session. Multi-client note: this AutoPipe instance may be shared by multiple AI clients (Claude Desktop, Cursor, Codex, etc.); avoid running pipelines with the same run_name simultaneously from different clients - only one execution per run_name at a time.',
+		description: 'Execute a pipeline in the background on the remote server via SSH. Outputs are stored at {configured_output_dir}/{run_name}/. Logs are written to {output_dir}/{run_name}/pipeline.log. This tool monitors the first ~90 seconds for early failures before returning. Snakemake automatically skips completed steps, so if a pipeline fails you can fix the code and re-run with the SAME run_name - only the failed and downstream steps will re-execute. Do NOT call cleanup_failed after execution failures; instead fix the Snakefile and re-run. Tell the user they can check progress later with list_running_pipelines, even from a new conversation session. When a run COMPLETES, the pipeline code is auto-saved into the open project folder (autopipe/pipelines/); then OFFER to save results durably: call list_run_outputs to show output files with sizes, ASK the user which to save (warn before copying large files), and call save_results_to_project. The run target (built-in VM) is a scratch disk, so results only persist once saved to the project. Multi-client note: this AutoPipe instance may be shared by multiple AI clients (Claude Desktop, Cursor, Codex, etc.); avoid running pipelines with the same run_name simultaneously from different clients - only one execution per run_name at a time.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -315,10 +316,18 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 						const hasError = /Error|error|FAILED|failed|Exiting because a job execution failed/.test(logTail);
 						const completedOk = logTail.includes('steps (100%) done') || logTail.includes('Nothing to be done');
 						if (completedOk) {
+							// Best-effort: durably copy the (small) pipeline code into the
+							// open project folder. The built-in VM's disk is scratch, so
+							// this is the code's only durable home. Never fails the run.
+							try {
+								await autoSavePipelineCodeOnCompletion(profile, imageName);
+							} catch { /* never fail the run over a save */ }
 							return textResult(
 								`Pipeline completed successfully!\n`
 								+ `Output directory: ${outputDir}\n`
-								+ `Log: ${logPath}\n\n${logTail}`,
+								+ `Log: ${logPath}\n\n${logTail}\n\n`
+								+ `Pipeline code was auto-saved to the project folder (autopipe/pipelines/). `
+								+ `To keep results, call list_run_outputs for run '${runName}', ask the user which files to save (warn about large ones), then save_results_to_project.`,
 							);
 						}
 						if (hasError) {
@@ -492,10 +501,22 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 						meta.termination_reason = terminationReason;
 						try { await ssh.writeFile(profile, metaPath, JSON.stringify(meta)); } catch { /* best-effort */ }
 
+						// On a clean finish, best-effort durable-save the pipeline code
+						// into the open project folder (the VM disk is scratch). Uses the
+						// image name recorded in the run metadata. Never fails the check.
+						if (exitCode === '0' && typeof meta.image_name === 'string') {
+							try {
+								await autoSavePipelineCodeOnCompletion(profile, meta.image_name);
+							} catch { /* never fail check_status over a save */ }
+						}
+
 						await ssh.run(profile, `docker rm '${shellEscape(containerName)}' 2>/dev/null`);
 
+						const saveHint = exitCode === '0'
+							? `\n\nPipeline code was auto-saved to the project (autopipe/pipelines/). To keep results, call list_run_outputs for '${runName}', ask the user which files to save (warn about large ones), then save_results_to_project.`
+							: '';
 						return textResult(
-							`Status: ${terminationReason}\nContainer: ${containerName} (removed after inspection)\nOutput: ${outputDir}\nFinished at: ${finishedAt}\nLog (${logPath}):\n${logOutput}`,
+							`Status: ${terminationReason}\nContainer: ${containerName} (removed after inspection)\nOutput: ${outputDir}\nFinished at: ${finishedAt}\nLog (${logPath}):\n${logOutput}${saveHint}`,
 						);
 					}
 				}
