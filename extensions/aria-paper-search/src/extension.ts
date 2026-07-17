@@ -32,22 +32,24 @@ let startPromise: Promise<number> | undefined;
  * and /mcp (Codex) on the same port; missing CLIs are skipped.
  * Returns whether any registration actually changed.
  */
-async function registerProviders(port: number): Promise<boolean> {
+async function registerProviders(port: number): Promise<{ changed: boolean; registered: boolean }> {
 	const results = await Promise.allSettled([
 		registerWithClaudeCode(port),
 		registerWithCodex(port),
 	]);
 	const labels = ['Claude Code', 'Codex'];
 	let changed = false;
+	let registered = false;
 	results.forEach((r, i) => {
 		if (r.status === 'fulfilled') {
 			console.log(`[aria-paper-search] ${labels[i]} registration ok=${r.value.ok} changed=${r.value.changed}: ${r.value.message}`);
+			if (r.value.ok) { registered = true; }
 			if (r.value.changed) { changed = true; }
 		} else {
 			console.error(`[aria-paper-search] ${labels[i]} registration threw:`, r.reason);
 		}
 	});
-	return changed;
+	return { changed, registered };
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -186,7 +188,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// known - and whichever awaiter the runtime resumes first must still work.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paperSearch.reregisterMcp', async () => {
 		const port = await startPromise?.catch(() => undefined);
-		if (port === undefined) { return false; }
+		if (port === undefined) { return { changed: false, registered: false }; }
 		return registerProviders(port);
 	}));
 }

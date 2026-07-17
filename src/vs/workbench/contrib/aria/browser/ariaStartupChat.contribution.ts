@@ -103,22 +103,28 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				return;
 			}
 
-			// Hold the loading screen until Aria is actually usable: every MCP server
-			// is up (whenAriaSetupReady), the installed provider's CLI is present, and
-			// ALL eight MCPs are registered (reconcile UNTIL SETTLED, so a server that
-			// starts a beat late still lands before the loading clears - no more
-			// "autopipe connects after a reload"). One silent pass-set, then done - no
-			// scattered delayed passes spamming the console after the picker opens.
-			// Failsafe timeout so a stuck install can't trap the user on the loader.
-			await Promise.race([
-				(async () => {
-					await this._ensureClisForInstalledProviders();
-					await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-					await this._reconcileUntilSettled();
-				})(),
-				timeout(60000),
-			]);
+			// Hold the loading screen until Aria is ACTUALLY usable. MCP server ports
+			// are per-window, so THIS (project) window's registration is the one that
+			// counts - the empty window doesn't register at all (its ports go stale on
+			// the reload). We gate on a real COMPLETION SIGNAL, not a timer: keep
+			// reconciling until every Aria MCP server reports it is registered, then
+			// clear. This is why the old 60s cap was wrong - on slower machines
+			// (Windows: each `mcp add` spawns cmd.exe -> claude.cmd -> node, ~1s each)
+			// it cut off mid-registration, so the chat opened with only a subset of
+			// servers and the "tools connected" toast landed minutes late. Now the
+			// auto-opened chat below reliably sees EVERY server, because we waited for
+			// the count to complete.
+			await this._ensureClisForInstalledProviders();
+			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+			const expected = this._mcpReregisterCommands.length;
+			const allRegistered = await this._reconcileUntilRegistered(expected);
 			hideLoading();
+			if (!allRegistered) {
+				// The only way the count never completes is that registration can't
+				// succeed - almost always the provider CLI failed to install. Say so
+				// instead of opening a chat that silently has no Aria tools.
+				this.notificationService.warning('Some Aria tools could not connect. This usually means the AI command-line tool did not finish installing - check your internet connection and reload the window to retry.');
+			}
 			if (!hasPickedAiProvider()) {
 				return;
 			}
@@ -148,7 +154,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  command that isn't registered yet (its extension not active) just resolves
 	 *  to false. Registration is done via each provider's CLI, so the config
 	 *  schema is always correct - we never hand-write ~/.claude.json / config.toml. */
-	private async _reconcileMcp(silent = false): Promise<boolean> {
+	private async _reconcileMcp(silent = false): Promise<{ anyChanged: boolean; registeredCount: number }> {
 		// SEQUENTIAL, not Promise.all: each reregister shells out to `claude mcp
 		// add`/`codex mcp add`, which read-modify-write the SAME ~/.claude.json /
 		// config.toml. Running them concurrently caused lost updates - two adds read
@@ -156,41 +162,58 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// one of the eight servers (autopipe, paper, …) would silently go missing
 		// (7 of 8 connected). Awaiting each in turn serialises the file writes.
 		let anyChanged = false;
+		let registeredCount = 0;
 		for (const cmd of this._mcpReregisterCommands) {
-			const changed = await Promise.resolve(this.commandService.executeCommand<boolean>(cmd)).then(r => r === true, () => false);
-			anyChanged = anyChanged || changed;
+			// Each reregister returns { changed, registered } (registered = the server
+			// is present in >= 1 provider CLI's config after this call). Tolerate the
+			// legacy bare-boolean shape too, where `true` meant "newly registered".
+			const res = await Promise.resolve(this.commandService.executeCommand<unknown>(cmd)).then(r => r, () => undefined);
+			if (res && typeof res === 'object') {
+				const o = res as { changed?: boolean; registered?: boolean };
+				if (o.changed) { anyChanged = true; }
+				if (o.registered) { registeredCount++; }
+			} else if (res === true) {
+				anyChanged = true;
+				registeredCount++;
+			}
 		}
 		// `silent` suppresses the toast during onboarding / first-run setup (the user
 		// hasn't opened a chat yet, so "open a NEW chat" would be premature).
 		if (anyChanged && !silent) {
 			this.notificationService.info('Aria tools connected. Open a NEW Claude or Codex chat to use them.');
 		}
-		return anyChanged;
+		return { anyChanged, registeredCount };
 	}
 
-	/** Reconcile repeatedly until a pass registers nothing new (every server has
-	 *  settled) or the pass cap is hit. Covers a server that starts a beat after the
-	 *  others, so a single caller (the loading page) can hold until ALL eight MCPs
-	 *  are actually registered instead of relying on scattered delayed passes.
-	 *  Always silent - the loading page is the user-facing signal. Returns whether
-	 *  anything registered across all passes. */
-	private async _reconcileUntilSettled(maxPasses = 5): Promise<boolean> {
-		let everChanged = false;
+	/** Reconcile repeatedly until ALL `expected` Aria MCP servers report they are
+	 *  registered, or the pass cap is hit. This is a real COMPLETION check (count of
+	 *  registered servers), not a timer: the loading page holds until every tool is
+	 *  actually connected, then clears. Returns true only when the full count was
+	 *  reached. The pass cap is the sole backstop for the genuinely-unreachable case
+	 *  (e.g. the provider CLI failed to install, so servers can never register) -
+	 *  the caller surfaces that instead of silently opening a chat with no tools.
+	 *  Always silent - the loading page is the user-facing signal. */
+	private async _reconcileUntilRegistered(expected: number, maxPasses = 15): Promise<boolean> {
 		for (let i = 0; i < maxPasses; i++) {
-			const changed = await this._reconcileMcp(true);
-			everChanged = everChanged || changed;
-			if (!changed) {
-				break;   // a pass that registered nothing new → settled
+			const { registeredCount } = await this._reconcileMcp(true);
+			if (registeredCount >= expected) {
+				return true;   // every server confirmed registered → done
 			}
 			await timeout(1000);
 		}
-		return everChanged;
+		return false;
 	}
 
-	/** Install the CLI for the given chosen providers, wait for the Aria MCP
-	 *  servers to be up, then register them until settled - all idempotent. Called
-	 *  by the overlay's AI picker (via aria.setup.prepareProviders) so the loading
-	 *  page can hold until every tool is actually registered. */
+	/** Install the CLI for the given chosen providers. Called by the overlay's AI
+	 *  picker (via aria.setup.prepareProviders) so the loading page holds until the
+	 *  CLIs are installed.
+	 *
+	 *  Note: this runs in the EMPTY window. It deliberately does NOT register the
+	 *  MCP servers - picking a project reloads into a new window where every Aria
+	 *  MCP server gets a FRESH port, so any registration here is immediately stale.
+	 *  Only the CLI install (a persistent binary) is worth doing now; the project
+	 *  window is where registration happens, and its loader holds until all servers
+	 *  are actually registered. */
 	private async _prepareProviders(providers: unknown[]): Promise<void> {
 		const chosen = providers.filter((p): p is ConcreteProvider => p === 'claude' || p === 'codex');
 		// aria-skills owns installProviderCli; make sure it's active first (a
@@ -199,10 +222,6 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		for (const p of chosen) {
 			try { await this.commandService.executeCommand('aria.provider.installCli', p); } catch { /* ignore */ }
 		}
-		// Hold until the MCP servers have started (so registration has something to
-		// register), with a failsafe so a stuck server can't trap onboarding.
-		await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-		await this._reconcileUntilSettled();
 	}
 
 	/** Install the CLI for every provider whose EXTENSION is installed, then

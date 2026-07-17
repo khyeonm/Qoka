@@ -101,7 +101,7 @@ let mcpServer: AriaPaperMcpServer | undefined;
  * (Claude Code, Codex). The server serves /sse (Claude) and /mcp
  * (Codex) on the same port; missing CLIs are silently skipped.
  */
-async function registerAllProviders(port: number): Promise<{ changed: boolean; summary: string }> {
+async function registerAllProviders(port: number): Promise<{ changed: boolean; registered: boolean; summary: string }> {
 	const results = await Promise.allSettled([
 		registerWithClaudeCode(port),
 		registerWithCodex(port),
@@ -123,7 +123,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; s
 	const summary = registered.length
 		? `Paper MCP registered with ${registered.join(', ')}`
 		: 'Paper MCP - no AI provider CLI found yet';
-	return { changed, summary };
+	return { changed, registered: registered.length > 0, summary };
 }
 
 /**
@@ -237,8 +237,9 @@ export function activate(context: vscode.ExtensionContext): void {
 	// known - and whichever awaiter the runtime resumes first must still work.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.reregisterMcp', async () => {
 		const port = await startPromise.catch(() => undefined);
-		if (port === undefined) { return false; }
-		return (await registerAllProviders(port)).changed;
+		if (port === undefined) { return { changed: false, registered: false }; }
+		const { changed, registered } = await registerAllProviders(port);
+		return { changed, registered };
 	}));
 }
 

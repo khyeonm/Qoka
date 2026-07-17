@@ -204,7 +204,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.autopipe.reregisterMcp', async () => {
 			// refreshAiRegistrations reads mcpServer.currentPort, which the server
 			// itself sets once start() resolves - so awaiting start() here is enough.
-			try { await startPromise; } catch { return false; }
+			try { await startPromise; } catch { return { changed: false, registered: false }; }
 			return refreshAiRegistrations();
 		}),
 	);
@@ -413,8 +413,8 @@ async function maybeOfferCodexReload(): Promise<void> {
 	});
 }
 
-let refreshInFlight: Promise<boolean> | null = null;
-async function refreshAiRegistrations(): Promise<boolean> {
+let refreshInFlight: Promise<{ changed: boolean; registered: boolean }> | null = null;
+async function refreshAiRegistrations(): Promise<{ changed: boolean; registered: boolean }> {
 	// Coalesce rapid-fire onDidChange events (extension installs often
 	// fire several in quick succession) so we don't spam registration
 	// calls.
@@ -424,7 +424,7 @@ async function refreshAiRegistrations(): Promise<boolean> {
 	refreshInFlight = (async () => {
 		try {
 			if (!mcpServer || !mcpServer.currentPort) {
-				return false;
+				return { changed: false, registered: false };
 			}
 			const port = mcpServer.currentPort;
 
@@ -455,10 +455,13 @@ async function refreshAiRegistrations(): Promise<boolean> {
 				}
 			}
 
-			return newlyConnected.length > 0;
+			return {
+				changed: newlyConnected.length > 0,
+				registered: lastRegistration.claude.ok || lastRegistration.codex.ok,
+			};
 		} catch (err) {
 			console.error('[aria-autopipe] refreshAiRegistrations failed:', err);
-			return false;
+			return { changed: false, registered: false };
 		}
 	})();
 	try {

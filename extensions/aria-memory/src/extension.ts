@@ -18,7 +18,7 @@ let mcpServer: AriaMemoryMcpServer | undefined;
  * (Codex) on the same port; each provider is pointed at the endpoint
  * it understands. Missing CLIs are silently skipped.
  */
-async function registerAllProviders(port: number): Promise<{ changed: boolean; summary: string }> {
+async function registerAllProviders(port: number): Promise<{ changed: boolean; registered: boolean; summary: string }> {
 	const results = await Promise.allSettled([
 		registerWithClaudeCode(port),
 		registerWithCodex(port),
@@ -40,7 +40,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; s
 	const summary = registered.length
 		? `Memory MCP registered with ${registered.join(', ')}`
 		: 'Memory MCP - no AI provider CLI found yet';
-	return { changed, summary };
+	return { changed, registered: registered.length > 0, summary };
 }
 
 /**
@@ -100,8 +100,9 @@ export function activate(context: vscode.ExtensionContext): void {
 	// runtime resumes first must still work.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.memory.reregisterMcp', async () => {
 		const port = await startPromise.catch(() => undefined);
-		if (port === undefined) { return false; }
-		return (await registerAllProviders(port)).changed;
+		if (port === undefined) { return { changed: false, registered: false }; }
+		const { changed, registered } = await registerAllProviders(port);
+		return { changed, registered };
 	}));
 }
 

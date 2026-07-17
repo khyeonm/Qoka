@@ -182,6 +182,11 @@ jobs:
         shell: bash
         run: |
           set -e
+          # macOS runners default to a low open-files limit (ulimit -n 256); the
+          # esbuild bundle + npm install of the heavier extensions (BlockNote pulls
+          # a large dep tree) blows past it with EMFILE. Raise it for this shell and
+          # its children. No-op / harmless on Windows Git Bash and Linux.
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
           transpile_tasks=""
           for d in extensions/aria-*/; do
             name="$(basename "$d")"
@@ -200,7 +205,17 @@ jobs:
       # Full task (compile -> minify -> package). The `-min-ci` variant only
       # packages and assumes out-vscode-min already exists (VS Code's pipeline
       # builds it in a separate upstream job); we do everything in one job.
-      - name: Build app tree
+      # Split by OS so we can raise the open-files limit on macOS/Linux (the gulp
+      # build + vsce.listFiles walk many files at once → EMFILE on macOS) while
+      # leaving the Windows path on its default shell.
+      - name: Build app tree (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min
+      - name: Build app tree (Windows)
+        if: runner.os == 'Windows'
         run: npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min
 
       - name: Package macOS (.dmg)
