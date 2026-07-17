@@ -29,6 +29,34 @@ import type { AddressInfo } from 'net';
 
 const SECRET_KEY = 'aria.auth.session';
 const SERVER_URL = process.env.ARIA_SERVER_URL || 'https://aria.pnucolab.com';
+
+// --- Local testing bypass -------------------------------------------------
+// When the Aria backend is unreachable, set ARIA_FAKE_AUTH=1 to skip real
+// sign-in: getSessions()/currentSession() return a stub session so the login
+// gate, started overlay and status bar all treat the app as signed-in and the
+// rest of the app can be exercised. Server-backed features (cross-project
+// memory / methods / hypothesis) still hit the real backend and will fail
+// while it's down - only the local UI/gate is bypassed. Unset the var to
+// restore normal behaviour; delete this block to fully revert.
+const FAKE_AUTH = process.env.ARIA_FAKE_AUTH === '1' || process.env.ARIA_FAKE_AUTH === 'true';
+// A syntactically valid JWT whose only meaningful claim is a far-future `exp`,
+// so any exp-based refresh logic treats it as fresh. It is NOT signed by the
+// backend - real API calls with it will 401.
+function makeFakeToken(): string {
+	const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+	const payload = Buffer.from(JSON.stringify({ sub: 'local-test', exp: 4102444800 })).toString('base64url'); // 2100-01-01
+	return `${header}.${payload}.fake`;
+}
+const FAKE_SESSION: StoredSession = {
+	id: 'local-test-user',
+	access: makeFakeToken(),
+	refresh: makeFakeToken(),
+	userId: 'local-test-user',
+	email: 'local@test',
+	name: 'Local Test',
+	provider: 'orcid',
+};
+// --------------------------------------------------------------------------
 // The lab server may use a self-signed cert (Caddy `tls internal`); allow it by
 // default. Set ARIA_INSECURE_TLS=0 to enforce strict verification.
 const ALLOW_SELF_SIGNED = process.env.ARIA_INSECURE_TLS !== '0';
@@ -72,6 +100,9 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 	}
 
 	async getSessions(_scopes?: readonly string[]): Promise<vscode.AuthenticationSession[]> {
+		if (FAKE_AUTH) {
+			return [this._toSession(FAKE_SESSION)];
+		}
 		let stored = await this._read();
 		if (!stored) {
 			return [];
@@ -172,6 +203,9 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 
 	/** The raw stored session (incl. provider/name), for the status bar UI. */
 	async currentSession(): Promise<{ name: string; email: string; provider: string } | undefined> {
+		if (FAKE_AUTH) {
+			return { name: FAKE_SESSION.name, email: FAKE_SESSION.email, provider: FAKE_SESSION.provider };
+		}
 		const s = await this._read();
 		return s ? { name: s.name, email: s.email, provider: s.provider } : undefined;
 	}
