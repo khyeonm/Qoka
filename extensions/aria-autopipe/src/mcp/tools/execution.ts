@@ -333,7 +333,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 								+ `Output directory: ${outputDir}\n`
 								+ `Log: ${logPath}\n\n${logTail}\n\n`
 								+ `Pipeline code was auto-saved to the project folder (autopipe/pipelines/). `
-								+ `To keep results, call list_run_outputs for run '${runName}', ask the user which files to save (warn about large ones), then save_results_to_project.`,
+								+ `Now ASK the user whether to save the results into the project's output folder. If yes: call list_run_outputs for run '${runName}', then save_results_to_project (it warns before large copies). After the results are saved, OFFER to open them in the viewer (show_results).`,
 							);
 						}
 						if (hasError) {
@@ -519,7 +519,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 						await ssh.run(profile, `docker rm '${shellEscape(containerName)}' 2>/dev/null`);
 
 						const saveHint = exitCode === '0'
-							? `\n\nPipeline code was auto-saved to the project (autopipe/pipelines/). To keep results, call list_run_outputs for '${runName}', ask the user which files to save (warn about large ones), then save_results_to_project.`
+							? `\n\nPipeline code was auto-saved to the project (autopipe/pipelines/). Now ASK the user whether to save the results into the project's output folder. If yes: call list_run_outputs for '${runName}', then save_results_to_project (it warns before large copies). After saving, OFFER to open the results in the viewer (show_results).`
 							: '';
 						return textResult(
 							`Status: ${terminationReason}\nContainer: ${containerName} (removed after inspection)\nOutput: ${outputDir}\nFinished at: ${finishedAt}\nLog (${logPath}):\n${logOutput}${saveHint}`,

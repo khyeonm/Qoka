@@ -199,6 +199,10 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 					lines.push('');
 					lines.push('No output files requested - saved pipeline code' + (includeManifest ? ' and input manifest' : '') + ' only.');
 				}
+				// After a successful output save, prompt the assistant to offer the viewer.
+				if (result.outputsCopied > 0) {
+					lines.push('', 'Now OFFER to open the saved results in the viewer (show_results), e.g. ask the user "Shall I open the results in the viewer?".');
+				}
 				return textResult(lines.join('\n'));
 			} catch (err) {
 				return errorResult((err as Error).message);

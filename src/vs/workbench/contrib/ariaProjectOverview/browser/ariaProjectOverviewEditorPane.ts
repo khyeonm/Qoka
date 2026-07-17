@@ -89,6 +89,9 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	private readonly webviewStore = this._register(new DisposableStore());
 	private readonly watcherStore = this._register(new DisposableStore());
 	private webviewReady = false;
+	/** True right after a fresh mount so the first setEditorVisible(true) doesn't
+	 *  needlessly re-initialize a just-built webview. */
+	private webviewFreshMount = false;
 	/** JSON of the content we last pushed to / received from the webview, so an
 	 *  external reload doesn't clobber the user's live edit (echo suppression). */
 	private lastContentJson = '[]';
@@ -343,6 +346,8 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		webview.mountTo(this.webviewHost, this.window);
 		webview.setHtml(this.html());
 		this.webviewStore.add(webview.onMessage(e => this.onWebviewMessage(e.message)));
+		// The next setEditorVisible(true) is this fresh mount - don't re-init it.
+		this.webviewFreshMount = true;
 	}
 
 	private onWebviewMessage(message: unknown): void {
@@ -638,6 +643,21 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		this.webviewReady = false;
 		this.folderResource = undefined;
 		super.clearInput();
+	}
+
+	protected override setEditorVisible(visible: boolean): void {
+		super.setEditorVisible(visible);
+		// The Content editor is an IWebviewElement, whose iframe content is
+		// DESTROYED whenever the pane's DOM is reparented (editor group move /
+		// layout change) - and setInput (which builds the webview) does NOT re-run
+		// on a reparent, so the Content area would go blank until the tab is
+		// reopened. When we become visible again, re-initialize the (possibly
+		// dismounted) webview; the ready->load handshake then re-pushes the current
+		// content. Skip the fresh-mount case so opening the tab doesn't reload twice.
+		if (!visible || !this.webview) { return; }
+		if (this.webviewFreshMount) { this.webviewFreshMount = false; return; }
+		this.webviewReady = false;
+		try { this.webview.reinitializeAfterDismount(); } catch { /* host not attached */ }
 	}
 
 	override focus(): void {
