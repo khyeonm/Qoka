@@ -206,7 +206,13 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			// finish() persisted, so finish() here dispatches the toast
 			// with both the Started-window run and this window's run.
 			this.loadPendingSummaries();
-			this.show();
+			// NOTE: the visual overlay is intentionally NOT shown. It overlapped the
+			// longer-lived "Preparing Aria…" overlay (ariaStartupChat) which already
+			// covers the exact same setup window on every project open. We keep this
+			// contribution's TRACKER - it is the sole caller of markAriaSetupReady()
+			// (which "Preparing Aria…" awaits) and delivers the setup summary toast -
+			// and only drop the redundant second screen. finish()/hide() no-op safely
+			// with no overlay shown.
 		}
 		this.settleTimer = setTimeout(() => this.finish(), INITIAL_SETTLE_MS);
 	}

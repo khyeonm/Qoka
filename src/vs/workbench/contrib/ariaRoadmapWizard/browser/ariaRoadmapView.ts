@@ -193,11 +193,35 @@ export class AriaRoadmapView extends ViewPane {
 		return `${yy}/${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
 	}
 
+	private refreshSeq = 0;
+
+	/**
+	 * Re-render the roadmap list. Reads the roadmaps BEFORE touching the DOM, so
+	 * every mutation below is synchronous and atomic.
+	 *
+	 * This ordering matters: refresh() is re-entrant (renderBody fires one, and
+	 * every file change fires another - open_roadmap alone writes the active
+	 * roadmap several times in a row). With the await placed AFTER clearNode, two
+	 * in-flight refreshes would each clear, then each append their own list once
+	 * their read resolved - rendering the SAME roadmap twice until some later
+	 * single write re-rendered it. The generation counter drops superseded runs.
+	 */
 	private async refresh(): Promise<void> {
+		const seq = ++this.refreshSeq;
 		const root = this.viewBody;
 		if (!root) {
 			return;
 		}
+
+		const isEmptyWorkspace = this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY;
+		const roadmaps = isEmptyWorkspace ? [] : await this.listRoadmaps();
+
+		// A newer refresh started (or the body was swapped) while we were reading -
+		// let that one render instead of double-appending on top of it.
+		if (seq !== this.refreshSeq || root !== this.viewBody) {
+			return;
+		}
+
 		clearNode(root);
 
 		// Full-width one-line summary at the top of the sidebar.
@@ -206,12 +230,11 @@ export class AriaRoadmapView extends ViewPane {
 		// "+ New roadmap" is always available under the summary.
 		this.renderNewRoadmapButton(root);
 
-		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
+		if (isEmptyWorkspace) {
 			this.renderEmpty(root, localize('aria.roadmap.noFolder', "Open a project to see its roadmaps."));
 			return;
 		}
 
-		const roadmaps = await this.listRoadmaps();
 		if (roadmaps.length === 0) {
 			this.renderEmpty(root, localize('aria.roadmap.empty', "No roadmaps yet. Click “+ New roadmap” (or use New Project) to draft one with your AI assistant."));
 			return;

@@ -306,6 +306,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			opacity: '0', transition: 'opacity 160ms ease-in', cursor: 'wait',
 		});
 		(overlay.style as unknown as Record<string, string>).webkitBackdropFilter = 'blur(2px)';
+		// Keep the window draggable by the title-bar region while this full-screen
+		// overlay is up (the first-run overlay used to provide this; it no longer
+		// shows, so carry the behavior here).
+		(overlay.style as unknown as Record<string, string>).webkitAppRegion = 'drag';
 
 		if (!document.getElementById('aria-install-spin-kf')) {
 			const style = document.createElement('style');

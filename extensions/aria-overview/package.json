@@ -18,6 +18,10 @@
 		"watch": "node build.mjs --watch",
 		"typecheck": "tsc -p ./ --noEmit"
 	},
+	"dependencies": {
+		"@blocknote/core": "0.51.4",
+		"@blocknote/server-util": "0.51.4"
+	},
 	"devDependencies": {
 		"@types/node": "^20",
 		"esbuild": "^0.24.2",

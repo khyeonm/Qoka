@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { ServerBlockNoteEditor } from '@blocknote/server-util';
 
 /**
  * Storage layer for the Project Overview, PER-PROJECT at
@@ -57,10 +58,35 @@ export function blocksToText(blocks: unknown[]): string {
 }
 
 /** Turn plain text into simple paragraph blocks (BlockNote fills ids on load). */
+/** Split plain text into paragraph blocks. Used only for the LEGACY `summary`
+ *  string migration; new writes go through markdownToBlocks so Markdown the AI
+ *  sends (## headings, - lists, **bold**) becomes real BlockNote blocks instead
+ *  of literal text. */
 export function textToBlocks(text: string): unknown[] {
 	const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
 	if (paras.length === 0) { return []; }
 	return paras.map(p => ({ type: 'paragraph', content: [{ type: 'text', text: p, styles: {} }] }));
+}
+
+// The tools advertise `summary` as Markdown, so parse it into real blocks with
+// the SAME BlockNote version the editor webview runs (0.51.4) - otherwise the
+// raw "## Heading" / "- item" text shows up verbatim in the Content editor.
+let serverEditor: ServerBlockNoteEditor | undefined;
+function getServerEditor(): ServerBlockNoteEditor {
+	if (!serverEditor) {
+		serverEditor = ServerBlockNoteEditor.create();
+	}
+	return serverEditor;
+}
+
+/** Parse Markdown into BlockNote blocks (headings, lists, bold, ...). Falls back
+ *  to plain paragraphs if parsing ever fails, so a summary is never lost. */
+export async function markdownToBlocks(markdown: string): Promise<unknown[]> {
+	try {
+		return (await getServerEditor().tryParseMarkdownToBlocks(markdown)) as unknown[];
+	} catch {
+		return textToBlocks(markdown);
+	}
 }
 
 function overviewDir(): string {
@@ -125,9 +151,11 @@ export function getSummaryText(): string {
 	return blocksToText(readOverview().content);
 }
 
-export function updateSummary(text: string, mode: 'replace' | 'append'): void {
+export async function updateSummary(text: string, mode: 'replace' | 'append'): Promise<void> {
+	// Parse BEFORE mutating so the (async) Markdown parse can't interleave with
+	// the read-modify-write in mutate().
+	const blocks = await markdownToBlocks(text);
 	mutate(d => {
-		const blocks = textToBlocks(text);
 		d.content = mode === 'append' ? [...d.content, ...blocks] : blocks;
 	});
 }
