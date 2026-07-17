@@ -89,9 +89,6 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	private readonly webviewStore = this._register(new DisposableStore());
 	private readonly watcherStore = this._register(new DisposableStore());
 	private webviewReady = false;
-	/** True right after a fresh mount so the first setEditorVisible(true) doesn't
-	 *  needlessly re-initialize a just-built webview. */
-	private webviewFreshMount = false;
 	/** JSON of the content we last pushed to / received from the webview, so an
 	 *  external reload doesn't clobber the user's live edit (echo suppression). */
 	private lastContentJson = '[]';
@@ -346,8 +343,6 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		webview.mountTo(this.webviewHost, this.window);
 		webview.setHtml(this.html());
 		this.webviewStore.add(webview.onMessage(e => this.onWebviewMessage(e.message)));
-		// The next setEditorVisible(true) is this fresh mount - don't re-init it.
-		this.webviewFreshMount = true;
 	}
 
 	private onWebviewMessage(message: unknown): void {
@@ -647,17 +642,26 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 
 	protected override setEditorVisible(visible: boolean): void {
 		super.setEditorVisible(visible);
-		// The Content editor is an IWebviewElement, whose iframe content is
-		// DESTROYED whenever the pane's DOM is reparented (editor group move /
-		// layout change) - and setInput (which builds the webview) does NOT re-run
-		// on a reparent, so the Content area would go blank until the tab is
-		// reopened. When we become visible again, re-initialize the (possibly
-		// dismounted) webview; the ready->load handshake then re-pushes the current
-		// content. Skip the fresh-mount case so opening the tab doesn't reload twice.
+		// The Content editor is an IWebviewElement, whose iframe content is DESTROYED
+		// whenever the pane's DOM is reparented (editor group move / layout change).
+		// setInput (which mounts the webview) does NOT re-run on a reparent, so the
+		// Content area would stay blank until the tab was reopened - re-initialize it
+		// here instead; the ready->load handshake re-pushes the current content.
+		//
+		// No fresh-mount guard is needed - and adding one is actively WRONG: the
+		// workbench order is setVisible(true) -> layout() -> setInput(), so on a first
+		// open this runs BEFORE mountWebview() and `this.webview` is still undefined.
+		// Hiding runs clearInput() first (which disposes the webview and nulls it), so
+		// a plain hide/show also lands here with no webview. `this.webview` is only set
+		// on re-show of an already-mounted pane - exactly the reparent case we want.
 		if (!visible || !this.webview) { return; }
-		if (this.webviewFreshMount) { this.webviewFreshMount = false; return; }
+		// reinitializeAfterDismount() tears down the message port BEFORE re-mounting to
+		// element.parentElement, so on a detached host it throws and leaves the webview
+		// permanently wedged (dead port, every postMessage queued forever). Only call it
+		// while the host is actually in the DOM.
+		if (!this.webviewHost?.isConnected) { return; }
 		this.webviewReady = false;
-		try { this.webview.reinitializeAfterDismount(); } catch { /* host not attached */ }
+		try { this.webview.reinitializeAfterDismount(); } catch { /* host detached mid-call */ }
 	}
 
 	override focus(): void {

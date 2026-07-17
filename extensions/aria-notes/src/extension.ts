@@ -67,19 +67,21 @@ export function activate(context: vscode.ExtensionContext): void {
 	const tools = buildTools(propose);
 	mcpServer = new AriaNotesMcpServer(tools);
 
-	let currentPort: number | undefined;
+	// Kick the server off before the first await so reregisterMcp can await it
+	// even when the workbench calls while we're still in beginTracking. The
+	// no-op catch only keeps an early rejection from going unhandled in that
+	// window; the real error is reported where the IIFE awaits below.
+	const startPromise = mcpServer.start();
+	startPromise.catch(() => { /* handled below */ });
 
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-notes-mcp');
 		let summary = 'Notes MCP - already configured';
 		let changed = false;
 		try {
-			const port = await mcpServer!.start();
-			currentPort = port;
-			console.log(`[aria-notes] MCP up on ${port}; registering with AI providers…`);
-			const reg = await registerAllProviders(port);
-			changed = reg.changed;
-			summary = reg.summary;
+			const port = await startPromise;
+			console.log(`[aria-notes] MCP up on ${port}`);
+			summary = `Notes MCP up on ${port}`;
 		} catch (e) {
 			summary = `Notes MCP startup failed: ${(e as Error).message}`;
 			changed = false;
@@ -88,21 +90,17 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	})();
 
-	// Re-register when provider extensions are installed/removed later, so a
-	// provider added after startup (e.g. the user installs Codex) still
-	// gets the notes MCP wired up without a reload. Debounced because installs
-	// fire onDidChange rapidly.
-	let timer: NodeJS.Timeout | undefined;
-	context.subscriptions.push(vscode.extensions.onDidChange(() => {
-		if (currentPort === undefined) { return; }
-		if (timer) { clearTimeout(timer); }
-		timer = setTimeout(() => { void registerAllProviders(currentPort!); }, 800);
+	// Sole registration entry point: the workbench chat-open coordinator calls
+	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
+	// newly registered something. Awaits the server start (rather than reading a
+	// port set by the IIFE) because the coordinator may call before the port is
+	// known - and whichever awaiter the runtime resumes first must still work.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.notes.reregisterMcp', async () => {
+		const port = await startPromise.catch(() => undefined);
+		if (port === undefined) { return false; }
+		return (await registerAllProviders(port)).changed;
 	}));
-
-	// On-demand re-register for the workbench chat-open coordinator; true if it
-	// newly registered something.
-	context.subscriptions.push(vscode.commands.registerCommand('aria.notes.reregisterMcp', async () =>
-		currentPort === undefined ? false : (await registerAllProviders(currentPort)).changed));
 }
 
 export async function deactivate(): Promise<void> {

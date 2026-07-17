@@ -19,7 +19,9 @@ import { registerWithCodex } from './registration/codexMcp';
  */
 
 let mcpServer: AriaHypothesisMcpServer | undefined;
-let currentMcpPort: number | undefined;
+// The MCP server's start(). reregisterMcp awaits this for the port, so a
+// workbench call that lands before the server is listening still registers.
+let startPromise: Promise<number> | undefined;
 
 /**
  * Register the hypothesis MCP with every AI provider whose CLI is
@@ -50,45 +52,43 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	mcpServer = new AriaHypothesisMcpServer();
 
-	// Start MCP + register with AI clients in the background; don't block activate().
+	// Start the MCP in the background; don't block activate(). Registration is
+	// driven separately by the workbench (see the reregister command below).
 	void bootMcp();
 
-	// Re-register when provider extensions are installed/removed later, so a
-	// provider added after startup still gets the hypothesis MCP wired up
-	// without a reload. Debounced because installs fire onDidChange rapidly.
-	let timer: NodeJS.Timeout | undefined;
-	context.subscriptions.push(vscode.extensions.onDidChange(() => {
-		if (currentMcpPort === undefined) { return; }
-		if (timer) { clearTimeout(timer); }
-		timer = setTimeout(() => { void registerProviders(currentMcpPort!); }, 800);
+	// Sole registration entry point: the workbench chat-open coordinator calls
+	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
+	// newly registered something. Awaits the server start (rather than reading a
+	// port set by bootMcp) because the coordinator may call before the port is
+	// known - and whichever awaiter the runtime resumes first must still work.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.hypothesis.reregisterMcp', async () => {
+		const port = await startPromise?.catch(() => undefined);
+		if (port === undefined) { return false; }
+		return registerProviders(port);
 	}));
-
-	// On-demand re-register for the workbench chat-open coordinator; true if it
-	// newly registered something.
-	context.subscriptions.push(vscode.commands.registerCommand('aria.hypothesis.reregisterMcp', async () =>
-		currentMcpPort === undefined ? false : await registerProviders(currentMcpPort)));
 }
 
 async function bootMcp(): Promise<void> {
 	if (!mcpServer) {
 		return;
 	}
+	// Kick the server off before the first await so reregisterMcp can await it
+	// even when the workbench calls while we're still in beginTracking. The
+	// no-op catch only keeps an early rejection from going unhandled in that
+	// window; the real error is reported where we await below.
+	startPromise = mcpServer.start();
+	startPromise.catch(() => { /* handled below */ });
+
 	// Join the workbench startup overlay's tracking so the user can't poke
 	// Claude Code mid-registration.
 	await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-hypothesis-mcp');
 	let summary = 'Hypothesis Search MCP - already configured';
 	let changed = false;
 	try {
-		const port = await mcpServer.start();
-		// Give other extensions racing us to the claude CLI time to finish
-		// their own `claude mcp add`; the CLI doesn't lock its config file.
-		await new Promise(resolve => setTimeout(resolve, 1500));
-		console.log(`[aria-hypothesis] MCP on ${port}; registering with AI clients`);
-		currentMcpPort = port;
-		changed = await registerProviders(port);
-		summary = changed
-			? 'Hypothesis Search MCP registered'
-			: 'Hypothesis Search MCP - already configured';
+		const port = await startPromise;
+		console.log(`[aria-hypothesis] MCP on ${port}`);
+		summary = `Hypothesis Search MCP up on ${port}`;
 	} catch (err) {
 		console.error('[aria-hypothesis] MCP boot failed:', (err as Error).message);
 		summary = `Hypothesis Search MCP failed: ${(err as Error).message}`;

@@ -29,9 +29,13 @@ let lastRegistration: { claude: ClientRegistration; codex: ClientRegistration } 
 	claude: { ok: false, message: 'not attempted', port: null },
 	codex: { ok: false, message: 'not attempted', port: null },
 };
+// Set at activate(). refreshAiRegistrations needs globalState for the Codex
+// reload prompt, and it runs outside activate()'s scope.
+let extensionContext: vscode.ExtensionContext | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
+	extensionContext = context;
 
 	// Wire up the shared service container so MCP tool handlers can reach
 	// config / ssh / hub / github without each of them tracking the
@@ -150,99 +154,31 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	mcpServer = new AriaAutopipeMcpServer();
 
-	// Auto-detect newly-installed AI extensions so the user doesn't have to
-	// reload the window after installing Claude Code or Codex. Fires on any
-	// extension install/uninstall/enable/disable; we filter to the providers
-	// we care about and only re-register when something newly came online.
-	context.subscriptions.push(
-		vscode.extensions.onDidChange(() => {
-			void refreshAiRegistrations();
-		}),
-	);
-
-	// Wrap the MCP boot + register flow in a notification so the user sees
-	// a bottom-right toast while it's running. The toast also signals that
-	// the user should start a NEW chat - sessions open before Aria
-	// activated cache their MCP list at session-start and won't pick up
-	// our registration mid-session.
+	// Boot the MCP server only. Registration with the AI clients is NOT done
+	// here: `claude mcp add` is a read-modify-write of ~/.claude.json with no
+	// locking, so every Aria extension registering itself at activate() raced the
+	// others and a random subset of the servers survived. The workbench
+	// chat-open coordinator now drives registration for all of them, one at a
+	// time, through aria.autopipe.reregisterMcp below.
 	//
-	// We register with each detected provider independently. If only Claude
-	// Code is installed, we register only with it (and skip Codex without
-	// warning). If only Codex is installed, vice versa. If both, both. If
-	// neither, surface a clear message so the user knows nothing connected.
-	// Join the workbench startup overlay's tracking. The unified
-	// post-startup summary toast (in aria-skills) replaces the per-
-	// component "Autopipe MCP connected" notification this code used
-	// to fire. We still need to track so the overlay holds until
-	// registration is settled.
+	// We still join the workbench startup overlay's tracking so the overlay holds
+	// until the server is listening.
+	//
+	// Kick the server off before the first await so reregisterMcp can await it
+	// even when the workbench calls while we're still in beginTracking. The
+	// no-op catch only keeps an early rejection from going unhandled in that
+	// window; the real error is reported where the IIFE awaits below.
+	const startPromise = mcpServer.start();
+	startPromise.catch(() => { /* handled below */ });
+
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-autopipe-mcp');
 		let summary = 'Autopipe MCP - already configured';
 		let changed = false;
-		let shouldOfferReload = false;
 		try {
-			const port = await mcpServer!.start();
-			console.log(`[aria-autopipe] MCP up on ${port}; detecting AI clients…`);
-
-			const detection = await detectAiProviders();
-
-			// Register on CLI presence, NOT on the provider EXTENSION. Each helper
-			// resolves its own CLI and no-ops (ok=false) when absent - like every
-			// other Aria MCP. Gating on the extension used to make autopipe register a
-			// pass late at onboarding (the CLI is installed at AI-pick time; the
-			// extension only later), so it was the one server missing until a reload.
-			const rc = await registerWithClaudeCode(port);
-			lastRegistration.claude = { ...rc, port };
-			const claudeChanged = rc.changed;
-			console.log(`[aria-autopipe] Claude Code: ${rc.message}`);
-
-			const rx = await registerWithCodex(port);
-			lastRegistration.codex = { ...rx, port };
-			const codexChanged = rx.changed;
-			console.log(`[aria-autopipe] Codex: ${rx.message}`);
-
-			// A failure only because the CLI isn't installed is not an error (that
-			// provider simply isn't set up); surface only real failures.
-			const isRealFailure = (r: { ok: boolean; message: string }) => !r.ok && !/not found/i.test(r.message);
-			const failedClients: string[] = [];
-			if (isRealFailure(rc)) { failedClients.push(`Claude Code (${rc.message})`); }
-			if (isRealFailure(rx)) { failedClients.push(`Codex (${rx.message})`); }
-
-			// Codex caches MCP servers at extension-activation time (not
-			// per-chat), so if the Codex extension activated before our
-			// `codex mcp add` finished, the user has to reload the
-			// window for Codex to see autopipe.
-			const PENDING_RELOAD_KEY = 'aria.autopipe.pendingCodexReload';
-			const justReloadedForCodex = context.globalState.get<boolean>(PENDING_RELOAD_KEY, false);
-			if (justReloadedForCodex) {
-				await context.globalState.update(PENDING_RELOAD_KEY, false);
-			}
-			const codexAlreadyActive = detection.providers.some(p => p.kind === 'codex' && p.installed && p.active);
-			shouldOfferReload = codexAlreadyActive && !justReloadedForCodex && codexChanged;
-
-			changed = claudeChanged || codexChanged;
-			if (failedClients.length > 0) {
-				summary = `Autopipe MCP partial: ${failedClients.join('; ')}`;
-			} else if (changed) {
-				summary = 'Autopipe MCP registered';
-			} else {
-				summary = 'Autopipe MCP - already configured';
-			}
-
-			// Codex reload prompt is still its own concern (it asks the
-			// user to take an action). We deliberately keep this OUT of
-			// the unified summary since it needs a button to be useful.
-			if (shouldOfferReload) {
-				void vscode.window.showInformationMessage(
-					'Autopipe needs Codex to reload to pick up the new MCP. Reload now?',
-					'Reload Window',
-				).then(async (choice) => {
-					if (choice === 'Reload Window') {
-						await context.globalState.update(PENDING_RELOAD_KEY, true);
-						await vscode.commands.executeCommand('workbench.action.reloadWindow');
-					}
-				});
-			}
+			const port = await startPromise;
+			console.log(`[aria-autopipe] MCP up on ${port}`);
+			summary = `Autopipe MCP up on ${port}`;
 		} catch (err) {
 			console.error('[aria-autopipe] startup failed', err);
 			summary = `Autopipe MCP startup failed: ${(err as Error).message}`;
@@ -257,13 +193,20 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	})();
 
-	// Re-register on demand: the chat-open coordinator (workbench) calls this
-	// when an AI chat opens, so a provider whose CLI was installed after startup
-	// gets registered right when the user goes to use it. Returns true if it
-	// newly registered something, so the coordinator can show one "open a new
-	// chat" prompt across all Aria MCPs.
+	// Sole registration entry point: the chat-open coordinator (workbench) calls
+	// this when an AI chat opens, serialized across every Aria MCP, so a provider
+	// whose CLI was installed after startup gets registered right when the user
+	// goes to use it. Returns true if it newly registered something, so the
+	// coordinator can show one "open a new chat" prompt across all Aria MCPs.
+	// Awaits the server start because the coordinator may call before the port
+	// is known.
 	context.subscriptions.push(
-		vscode.commands.registerCommand('aria.autopipe.reregisterMcp', () => refreshAiRegistrations()),
+		vscode.commands.registerCommand('aria.autopipe.reregisterMcp', async () => {
+			// refreshAiRegistrations reads mcpServer.currentPort, which the server
+			// itself sets once start() resolves - so awaiting start() here is enough.
+			try { await startPromise; } catch { return false; }
+			return refreshAiRegistrations();
+		}),
 	);
 
 	context.subscriptions.push(
@@ -436,6 +379,40 @@ async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient
 // Returns true if a provider was NEWLY registered (so the caller can prompt the
 // user to open a fresh chat). The self-notification is gone: the chat-open
 // coordinator shows a single toast across all Aria MCPs instead.
+/**
+ * Codex caches its MCP servers at extension-activation time (not per-chat), so
+ * if the Codex extension activated before our `codex mcp add` landed, the user
+ * has to reload the window for Codex to see autopipe. Only ask when Codex is
+ * actually up and we didn't just reload for this very reason. Deliberately not
+ * folded into the unified startup summary: it needs a button to be useful.
+ */
+const PENDING_CODEX_RELOAD_KEY = 'aria.autopipe.pendingCodexReload';
+async function maybeOfferCodexReload(): Promise<void> {
+	const context = extensionContext;
+	if (!context) {
+		return;
+	}
+	const justReloaded = context.globalState.get<boolean>(PENDING_CODEX_RELOAD_KEY, false);
+	if (justReloaded) {
+		await context.globalState.update(PENDING_CODEX_RELOAD_KEY, false);
+		return;
+	}
+	const detection = await detectAiProviders();
+	const codexActive = detection.providers.some(p => p.kind === 'codex' && p.installed && p.active);
+	if (!codexActive) {
+		return;
+	}
+	void vscode.window.showInformationMessage(
+		'Autopipe needs Codex to reload to pick up the new MCP. Reload now?',
+		'Reload Window',
+	).then(async (choice) => {
+		if (choice === 'Reload Window') {
+			await context.globalState.update(PENDING_CODEX_RELOAD_KEY, true);
+			await vscode.commands.executeCommand('workbench.action.reloadWindow');
+		}
+	});
+}
+
 let refreshInFlight: Promise<boolean> | null = null;
 async function refreshAiRegistrations(): Promise<boolean> {
 	// Coalesce rapid-fire onDidChange events (extension installs often
@@ -472,6 +449,9 @@ async function refreshAiRegistrations(): Promise<boolean> {
 				lastRegistration.codex = { ...r, port };
 				if (r.ok) {
 					newlyConnected.push('Codex');
+					if (r.changed) {
+						await maybeOfferCodexReload();
+					}
 				}
 			}
 

@@ -22,7 +22,9 @@ import { PaperLibraryState } from './types';
  */
 
 let mcpServer: AriaPaperLibraryMcpServer | undefined;
-let currentMcpPort: number | undefined;
+// The MCP server's start(). reregisterMcp awaits this for the port, so a
+// workbench call that lands before the server is listening still registers.
+let startPromise: Promise<number> | undefined;
 
 /**
  * Register the paper-library MCP with every AI provider whose CLI is
@@ -171,31 +173,35 @@ export function activate(context: vscode.ExtensionContext): void {
 		}),
 	);
 
-	// Start MCP + register with AI clients in the background. We don't
-	// block activate(); the sidebar's library commands work whether or
-	// not Claude has discovered the MCP yet.
+	// Start the MCP in the background. We don't block activate(); the sidebar's
+	// library commands work whether or not Claude has discovered the MCP yet.
+	// Registration is driven separately by the workbench (see below).
 	void bootMcp();
 
-	// Re-register when provider extensions are installed/removed later, so a
-	// provider added after startup still gets the paper-library MCP wired up
-	// without a reload. Debounced because installs fire onDidChange rapidly.
-	let timer: NodeJS.Timeout | undefined;
-	context.subscriptions.push(vscode.extensions.onDidChange(() => {
-		if (currentMcpPort === undefined) { return; }
-		if (timer) { clearTimeout(timer); }
-		timer = setTimeout(() => { void registerProviders(currentMcpPort!); }, 800);
+	// Sole registration entry point: the workbench chat-open coordinator calls
+	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
+	// newly registered something. Awaits the server start (rather than reading a
+	// port set by bootMcp) because the coordinator may call before the port is
+	// known - and whichever awaiter the runtime resumes first must still work.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.paperSearch.reregisterMcp', async () => {
+		const port = await startPromise?.catch(() => undefined);
+		if (port === undefined) { return false; }
+		return registerProviders(port);
 	}));
-
-	// On-demand re-register for the workbench chat-open coordinator; true if it
-	// newly registered something.
-	context.subscriptions.push(vscode.commands.registerCommand('aria.paperSearch.reregisterMcp', async () =>
-		currentMcpPort === undefined ? false : await registerProviders(currentMcpPort)));
 }
 
 async function bootMcp(): Promise<void> {
 	if (!mcpServer) {
 		return;
 	}
+	// Kick the server off before the first await so reregisterMcp can await it
+	// even when the workbench calls while we're still in beginTracking. The
+	// no-op catch only keeps an early rejection from going unhandled in that
+	// window; the real error is reported where we await below.
+	startPromise = mcpServer.start();
+	startPromise.catch(() => { /* handled below */ });
+
 	// Join the workbench startup overlay's tracking. The overlay stays
 	// up until every tracked component reports complete, so the user
 	// can't poke Claude Code mid-registration.
@@ -203,19 +209,9 @@ async function bootMcp(): Promise<void> {
 	let summary = 'Paper Library MCP - already configured';
 	let changed = false;
 	try {
-		const port = await mcpServer.start();
-		// Give autopipe (and any other extension that races us to claude
-		// CLI) time to finish its own `claude mcp add` before we start
-		// ours. The CLI doesn't lock its config file, so concurrent
-		// writes can overwrite each other.
-		await new Promise(resolve => setTimeout(resolve, 1500));
-		console.log(`[aria-paper-search] MCP on ${port}; registering with AI clients`);
-		currentMcpPort = port;
-		changed = await registerProviders(port);
-		console.log(`[aria-paper-search] final changed flag = ${changed}`);
-		summary = changed
-			? 'Paper Library MCP registered'
-			: 'Paper Library MCP - already configured';
+		const port = await startPromise;
+		console.log(`[aria-paper-search] MCP on ${port}`);
+		summary = `Paper Library MCP up on ${port}`;
 	} catch (err) {
 		console.error('[aria-paper-search] MCP boot failed:', (err as Error).message);
 		summary = `Paper Library MCP failed: ${(err as Error).message}`;
