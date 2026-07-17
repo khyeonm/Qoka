@@ -168,7 +168,14 @@ jobs:
       # postinstall runs the same command in every workspace dir — `npm ci`
       # aborts there, `npm install` does not. Matches the local dev build.
       - name: Install dependencies
-        run: npm install
+        shell: bash
+        run: |
+          # The root postinstall runs `npm install` in every bundled extension;
+          # some pull large dep trees. Raise the macOS open-files limit (default
+          # 256) so those concurrent installs don't EMFILE. No-op on Windows Git
+          # Bash / Linux.
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npm install
 
       # Build every bundled Aria extension so its compiled output ships in the
       # app. The gulp packaging only COPIES existing output (fromLocalNormal via

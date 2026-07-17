@@ -8,7 +8,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ServerBlockNoteEditor } from '@blocknote/server-util';
 
 /**
  * Storage layer for the Project Overview, PER-PROJECT at
@@ -57,36 +56,82 @@ export function blocksToText(blocks: unknown[]): string {
 	return lines.join('\n').trim();
 }
 
-/** Turn plain text into simple paragraph blocks (BlockNote fills ids on load). */
-/** Split plain text into paragraph blocks. Used only for the LEGACY `summary`
- *  string migration; new writes go through markdownToBlocks so Markdown the AI
- *  sends (## headings, - lists, **bold**) becomes real BlockNote blocks instead
- *  of literal text. */
+/** Split plain text into paragraph blocks (BlockNote fills ids on load). Kept
+ *  for legacy string-summary migration; new writes go through markdownToBlocks. */
 export function textToBlocks(text: string): unknown[] {
 	const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
 	if (paras.length === 0) { return []; }
 	return paras.map(p => ({ type: 'paragraph', content: [{ type: 'text', text: p, styles: {} }] }));
 }
 
-// The tools advertise `summary` as Markdown, so parse it into real blocks with
-// the SAME BlockNote version the editor webview runs (0.51.4) - otherwise the
-// raw "## Heading" / "- item" text shows up verbatim in the Content editor.
-let serverEditor: ServerBlockNoteEditor | undefined;
-function getServerEditor(): ServerBlockNoteEditor {
-	if (!serverEditor) {
-		serverEditor = ServerBlockNoteEditor.create();
+// --- Markdown -> BlockNote blocks ------------------------------------------
+// A tiny, dependency-free Markdown converter. We deliberately do NOT use
+// @blocknote/server-util for this: it drags in a huge transitive tree (jsdom,
+// tldts, ...) that blew the CI file-descriptor limit (EMFILE) on macOS, for a
+// job this small. The tools only advertise a handful of Markdown features
+// (headings, bullet / numbered lists, bold / italic / inline code, paragraphs),
+// so a ~50-line parser covers what the AI actually sends and emits the SAME
+// block shapes the editor already renders (see textToBlocks). Anything fancier
+// (tables, nested lists) degrades to plain text rather than being lost.
+
+interface InlineStyles { bold?: true; italic?: true; code?: true; }
+
+/** Parse inline **bold**, *italic* / _italic_, `code` into styled text runs. */
+function parseInline(text: string): unknown[] {
+	const out: unknown[] = [];
+	const push = (t: string, styles: InlineStyles) => { if (t) { out.push({ type: 'text', text: t, styles }); } };
+	const re = /\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_|`([^`]+)`/g;
+	let last = 0;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(text)) !== null) {
+		if (m.index > last) { push(text.slice(last, m.index), {}); }
+		if (m[1] !== undefined) { push(m[1], { bold: true }); }
+		else if (m[2] !== undefined) { push(m[2], { italic: true }); }
+		else if (m[3] !== undefined) { push(m[3], { italic: true }); }
+		else if (m[4] !== undefined) { push(m[4], { code: true }); }
+		last = re.lastIndex;
 	}
-	return serverEditor;
+	if (last < text.length) { push(text.slice(last), {}); }
+	return out;
 }
 
-/** Parse Markdown into BlockNote blocks (headings, lists, bold, ...). Falls back
- *  to plain paragraphs if parsing ever fails, so a summary is never lost. */
-export async function markdownToBlocks(markdown: string): Promise<unknown[]> {
-	try {
-		return (await getServerEditor().tryParseMarkdownToBlocks(markdown)) as unknown[];
-	} catch {
-		return textToBlocks(markdown);
+/** Convert a Markdown string into BlockNote blocks. Never throws. */
+export function markdownToBlocks(markdown: string): unknown[] {
+	const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+	const blocks: unknown[] = [];
+	let para: string[] = [];
+	const flush = () => {
+		if (para.length) {
+			const text = para.join(' ').trim();
+			if (text) { blocks.push({ type: 'paragraph', content: parseInline(text) }); }
+			para = [];
+		}
+	};
+	for (const raw of lines) {
+		const line = raw.trim();
+		if (!line) { flush(); continue; }
+		const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+		if (heading) {
+			flush();
+			blocks.push({ type: 'heading', props: { level: Math.min(heading[1].length, 3) }, content: parseInline(heading[2].trim()) });
+			continue;
+		}
+		const bullet = /^[-*+]\s+(.*)$/.exec(line);
+		if (bullet) {
+			flush();
+			blocks.push({ type: 'bulletListItem', content: parseInline(bullet[1].trim()) });
+			continue;
+		}
+		const numbered = /^\d+\.\s+(.*)$/.exec(line);
+		if (numbered) {
+			flush();
+			blocks.push({ type: 'numberedListItem', content: parseInline(numbered[1].trim()) });
+			continue;
+		}
+		para.push(line);
 	}
+	flush();
+	return blocks;
 }
 
 function overviewDir(): string {
@@ -151,10 +196,8 @@ export function getSummaryText(): string {
 	return blocksToText(readOverview().content);
 }
 
-export async function updateSummary(text: string, mode: 'replace' | 'append'): Promise<void> {
-	// Parse BEFORE mutating so the (async) Markdown parse can't interleave with
-	// the read-modify-write in mutate().
-	const blocks = await markdownToBlocks(text);
+export function updateSummary(text: string, mode: 'replace' | 'append'): void {
+	const blocks = markdownToBlocks(text);
 	mutate(d => {
 		d.content = mode === 'append' ? [...d.content, ...blocks] : blocks;
 	});

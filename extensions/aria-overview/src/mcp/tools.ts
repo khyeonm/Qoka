@@ -100,7 +100,7 @@ export function buildTools(): ToolDefinition[] {
 				const summary = asString(args.summary);
 				if (summary === undefined) { return err('summary (string) is required.'); }
 				const mode = args.mode === 'append' ? 'append' : 'replace';
-				await updateSummary(summary, mode);
+				updateSummary(summary, mode);
 				return ok(`Summary ${mode === 'append' ? 'appended' : 'updated'}.`);
 			},
 		},
