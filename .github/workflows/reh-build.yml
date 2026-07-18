@@ -66,6 +66,18 @@ jobs:
       - name: Build REH + bundled Aria extensions
         run: |
           ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          # The self-hosted runner has no system -dev packages (no sudo). When the
+          # runner is launched from an activated conda env that has krb5 / libx11 /
+          # libxkbfile / libsecret, point node-gyp/gcc at those headers+libs so the
+          # native modules (kerberos, keytar, native-keymap) compile. Harmless if
+          # CONDA_PREFIX is unset (e.g. system -dev packages present instead).
+          if [ -n "$CONDA_PREFIX" ]; then
+            export CPATH="$CONDA_PREFIX/include:${CPATH:-}"
+            export LIBRARY_PATH="$CONDA_PREFIX/lib:${LIBRARY_PATH:-}"
+            export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+            export PKG_CONFIG_PATH="$CONDA_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+            echo "Using conda headers from $CONDA_PREFIX"
+          fi
           npm install
           # Compile Aria extensions so their output ships in the REH (gulp packaging
           # only COPIES existing output, never compiles).
