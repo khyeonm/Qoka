@@ -26,7 +26,7 @@
 	"serverGreeting": [],
 	"serverLicense": [],
 	"serverLicensePrompt": "",
-	"serverApplicationName": "aria-server",
+	"serverApplicationName": "aria-reh",
 	"serverDataFolderName": ".aria-server",
 	"tunnelApplicationName": "aria-tunnel",
 	"win32DirName": "Aria",

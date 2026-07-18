@@ -1,19 +1,35 @@
 # Publishes the base VM disk image the built-in Run environment downloads
-# (extensions/aria-autopipe/src/vm/provisioner.ts → aria-vm-<arch>.qcow2).
+# (extensions/aria-autopipe/src/vm/provisioner.ts -> aria-vm-<arch>.qcow2).
 #
-# v2 BAKES docker into the image with virt-customize so the guest has a working
-# docker daemon the moment sshd is up. v1 relied on the cloud-init seed running
-# `get.docker.com` on first boot, which raced the first pipeline (autopipe
-# connected and ran `docker build` before the install finished → "docker not
-# found"). The seed still installs docker as an idempotent fallback for any
-# image that lacks it, but the baked image is a no-op for that step.
+# v3 adds the REMOTE-EXTENSION-HOST stack so the image can host Aria itself,
+# not just autopipe pipelines:
+#   - docker            (v2: baked in for autopipe's `docker build`)
+#   - aria-reh          (VS Code REH server = product.serverApplicationName;
+#                        the "extension runner" the host renderer connects to.
+#                        NOT the pnucolab backend - that stays on the network.)
+#   - git, curl, sshfs, openssh-server, pandoc, poppler-utils (skill/paper deps
+#                        + the sshfs client that mounts the host project folder)
+#   - node/npm + @openai/codex + uv (the CLIs/toolchain that used to be installed
+#                        on the HOST at first launch - now pre-baked so a user
+#                        never waits for the ~72s `npm i -g @openai/codex`)
 #
-# Each arch is customized on a NATIVE-arch runner: virt-customize runs the
-# install commands INSIDE the guest via the libguestfs appliance, which is the
-# host arch - an x64 runner cannot execute the arm64 docker binaries. GitHub's
-# hosted arm64 Linux runner (ubuntu-24.04-arm) handles the arm64 image.
+# WHY bake the REH instead of shipping it in the app: the app connects to it
+# over 127.0.0.1:<forwarded-port> (aria-remote resolver forwards the guest port).
+# Baking it into the image is the same mechanism used for docker and means the
+# resolver only has to RUN it, never upload it.
 #
-# Run manually from the Actions tab (workflow_dispatch).
+# Each arch is customized on a NATIVE-arch runner: virt-customize runs commands
+# INSIDE the guest via the libguestfs appliance (host arch). GitHub's hosted
+# arm64 Linux runner (ubuntu-24.04-arm) handles the arm64 image.
+#
+# TUNING NOTE (like v2): the from-source REH build + libguestfs-on-Actions are
+# both finicky. First runs will need tuning of task names, output paths and the
+# appliance network (passt/SLIRP). The apt/npm/uv steps need network INSIDE the
+# appliance; if that is flaky on the runner, switch those to host-download +
+# --copy-in the way docker's static binaries are handled below.
+#
+# Run manually from the Actions tab (workflow_dispatch), from the branch whose
+# REH you want baked in.
 name: VM image (base)
 
 on:
@@ -35,32 +51,69 @@ jobs:
             os: ubuntu-24.04
             url: https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img
     runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Install libguestfs + qemu-utils
         run: |
           sudo apt-get update
           sudo apt-get install -y libguestfs-tools qemu-utils
 
+      # Clone the branch this workflow_dispatch runs on, so the REH we bake
+      # matches the app that will connect to it (same commit -> same remote
+      # protocol version). GITHUB_REF_NAME is the selected branch/tag.
+      - name: Clone Aria (to build the REH server)
+        run: |
+          git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" aria-src
+
+      - name: Install Node from .nvmrc
+        run: |
+          V="$(tr -d '[:space:]' < aria-src/.nvmrc)"
+          F="node-v$V-linux-${{ matrix.arch }}"
+          curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
+          echo "$PWD/$F/bin" >> "$GITHUB_PATH"
+          # Keep the tarball dir around: we also --copy-in this same Node into
+          # the guest below so codex (an npm package) has a node to run under.
+          echo "ARIA_NODE_DIR=$PWD/$F" >> "$GITHUB_ENV"
+
+      - name: Build the REH server (aria-reh)
+        working-directory: aria-src
+        run: |
+          # postinstall runs `npm install` in every bundled extension; some pull
+          # large trees. Raise open-files so concurrent installs don't EMFILE.
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npm install
+          # Build every bundled Aria extension so its compiled output ships in
+          # the REH (gulp packaging only COPIES existing output, never compiles).
+          for d in extensions/aria-*/; do
+            name="$(basename "$d")"
+            if [ -f "$d/build.mjs" ]; then
+              (cd "$d" && npm install && node build.mjs)
+            fi
+          done
+          transpile=""
+          for d in extensions/aria-*/; do
+            name="$(basename "$d")"
+            [ -f "$d/build.mjs" ] || { [ -f "$d/tsconfig.json" ] && transpile="$transpile transpile-extension:$name"; }
+          done
+          [ -n "$transpile" ] && npm run gulp -- $transpile || true
+          # The actual REH server bundle. Output lands at ../vscode-reh-linux-<arch>
+          # (BUILD_ROOT is the repo's parent; see gulpfile.reh.ts packageTask).
+          npm run gulp vscode-reh-linux-${{ matrix.arch }}-min
+          test -d "../vscode-reh-linux-${{ matrix.arch }}" \
+            || { echo "::error::REH output dir missing"; exit 1; }
+
       - name: Download Ubuntu cloud image
         run: curl -fSL "${{ matrix.url }}" -o base.qcow2
 
-      - name: Bake docker into the image
-        env:
-          # GitHub runners have no /dev/kvm; run the libguestfs appliance under
-          # TCG. Also make the host kernel readable so the appliance can boot
-          # (a well-known libguestfs-on-Actions requirement).
-          LIBGUESTFS_BACKEND: direct
+      # docker's STATIC binaries, fetched on the HOST (which has reliable net) and
+      # baked with --copy-in, exactly as v2 did - so this step needs no network
+      # inside the appliance.
+      - name: Prepare docker static binaries (host)
         run: |
-          set -euxo pipefail
-          sudo chmod 0644 /boot/vmlinuz-* || true
-          # Give docker room at runtime; cloud-init growpart expands the root
-          # partition to fill this on first boot.
-          qemu-img resize base.qcow2 20G
-          # Fetch docker's STATIC binaries on the HOST (which has internet) and
-          # bake them in with --copy-in. This avoids needing network INSIDE the
-          # libguestfs appliance, whose user-mode net (passt/SLIRP) is unreliable
-          # on GitHub runners ("passt exited with status 1" / DNS failures).
-          # --no-network means the appliance never sets up (or fails on) passt.
           case "${{ matrix.arch }}" in
             arm64) DARCH=aarch64 ;;
             x64)   DARCH=x86_64 ;;
@@ -68,12 +121,26 @@ jobs:
           DOCKER_VER=27.5.1
           curl -fsSL "https://download.docker.com/linux/static/stable/${DARCH}/docker-${DOCKER_VER}.tgz" -o docker.tgz
           tar -xzf docker.tgz   # -> ./docker/{dockerd,docker,containerd,runc,...}
-          # Minimal unit: dockerd supervises its own containerd when it finds the
-          # binary on PATH, so a single service is enough (no docker.socket or a
-          # separate containerd unit). console=hvc0 is baked via GRUB so vfkit
-          # boots are visible; ttyS0 is kept for the qemu path.
+
+      - name: Bake docker + aria-reh + runtimes into the image
+        env:
+          # GitHub runners have no /dev/kvm; run the appliance under TCG, and make
+          # the host kernel readable so it can boot (libguestfs-on-Actions rule).
+          LIBGUESTFS_BACKEND: direct
+        run: |
+          set -euxo pipefail
+          sudo chmod 0644 /boot/vmlinuz-* || true
+          # Room for docker layers + the REH + node/uv; cloud-init growpart
+          # expands the root partition to fill this on first boot.
+          qemu-img resize base.qcow2 30G
+
+          # dockerd unit (v2). dockerd supervises its own containerd from PATH.
           printf '[Unit]\nDescription=Docker Application Container Engine\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/dockerd\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n' > docker.service
-          sudo -E virt-customize -a base.qcow2 --no-network \
+
+          # NOTE: the apt/npm/uv --run-command steps below need the appliance's
+          # user-mode network. If it is flaky on the runner ("passt exited" / DNS),
+          # convert them to host-download + --copy-in like docker above.
+          sudo -E virt-customize -a base.qcow2 \
             --copy-in docker/dockerd:/usr/local/bin/ \
             --copy-in docker/docker:/usr/local/bin/ \
             --copy-in docker/containerd:/usr/local/bin/ \
@@ -83,18 +150,27 @@ jobs:
             --copy-in docker/docker-init:/usr/local/bin/ \
             --copy-in docker/docker-proxy:/usr/local/bin/ \
             --copy-in docker.service:/etc/systemd/system/ \
+            --copy-in "${ARIA_NODE_DIR}:/opt/" \
+            --copy-in "vscode-reh-linux-${{ matrix.arch }}:/opt/" \
+            --run-command 'set -e' \
+            --run-command 'mv /opt/vscode-reh-linux-'"${{ matrix.arch }}"' /opt/aria-reh' \
+            --run-command 'ln -sf /opt/aria-reh/bin/aria-reh /usr/local/bin/aria-reh' \
+            --run-command 'NODE_DIR=$(ls -d /opt/node-v* | head -1); ln -sf "$NODE_DIR/bin/node" /usr/local/bin/node; ln -sf "$NODE_DIR/bin/npm" /usr/local/bin/npm; ln -sf "$NODE_DIR/bin/npx" /usr/local/bin/npx' \
             --run-command 'groupadd -f docker' \
             --run-command 'systemctl enable docker.service' \
+            --run-command 'systemctl enable ssh || systemctl enable sshd || true' \
+            --run-command 'apt-get update' \
+            --run-command 'DEBIAN_FRONTEND=noninteractive apt-get install -y git curl ca-certificates sshfs fuse3 openssh-server pandoc poppler-utils' \
+            --run-command 'curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh || true' \
+            --run-command 'npm install -g @openai/codex || true' \
             --run-command 'echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg' \
             --run-command 'update-grub' \
-            --run-command '/usr/local/bin/docker --version'
+            --run-command '/usr/local/bin/docker --version' \
+            --run-command '/usr/local/bin/aria-reh --version || true'
           mv base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
 
       - name: Publish to vm-assets release
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
           gh release create vm-assets-v1 --title "VM assets" \
             --notes "Portable QEMU + base image for Aria's built-in run environment." 2>/dev/null || true
