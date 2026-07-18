@@ -107,7 +107,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			if (usable.length === 0) {
 				this._setupGateDone = true;
 				hideLoading();
-				this.notificationService.warning('Aria could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
+				this.notificationService.warn('Aria could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
 				return;
 			}
 
@@ -125,9 +125,9 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 
 			if (failed.length > 0) {
 				const labels = failed.map(p => PROVIDER_LABEL[p]).join(' and ');
-				this.notificationService.warning(`Couldn't set up ${labels}. The other AI tools are ready; reload the window later to retry ${labels}.`);
+				this.notificationService.warn(`Couldn't set up ${labels}. The other AI tools are ready; reload the window later to retry ${labels}.`);
 			} else if (!allRegistered) {
-				this.notificationService.warning('Some Aria tools could not connect. Reload the window to retry.');
+				this.notificationService.warn('Some Aria tools could not connect. Reload the window to retry.');
 			}
 
 			// If the chosen provider's chat EXTENSION isn't installed yet, open the
