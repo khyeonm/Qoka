@@ -9,6 +9,9 @@
 		"vscode": "^1.123.0"
 	},
 	"main": "./out/extension.js",
+	"extensionKind": [
+		"ui"
+	],
 	"activationEvents": [
 		"onStartupFinished"
 	],
