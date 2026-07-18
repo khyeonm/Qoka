@@ -34,11 +34,12 @@ const execFileAsync = promisify(execFile);
 const RELEASE_BASE = process.env.ARIA_VM_RELEASE_BASE
 	|| 'https://github.com/khyeonm/aria-vscode/releases/download/vm-assets-v1';
 
-// Must match aria-autopipe's provisioner IMAGE_TAG. v3-reh = REH server + runtimes
-// (git/node/uv/sshfs/pandoc/poppler/codex) baked in on top of v2's docker, so the
-// image can host Aria itself over remote. A cached image whose tag differs is
-// deleted and re-downloaded, and its overlay is discarded so it rebuilds.
-const IMAGE_TAG = 'v3-reh';
+// Must match aria-autopipe's provisioner IMAGE_TAG. v4-runtimes = REH server +
+// runtimes ACTUALLY baked at /usr/local (codex + claude CLIs, uv, git, sshfs,
+// fuse3) on top of v3's docker/reh/node — so the guest needs ZERO install at
+// launch and all 9 MCP servers register against the baked codex. A cached image
+// whose tag differs is deleted and re-downloaded, and its overlay discarded.
+const IMAGE_TAG = 'v4-runtimes';
 
 export type ProgressFn = (message: string, pct?: number) => void;
 

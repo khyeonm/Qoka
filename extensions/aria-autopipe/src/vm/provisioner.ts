@@ -30,11 +30,12 @@ const RELEASE_BASE = process.env.ARIA_VM_RELEASE_BASE
 
 // Bumped whenever the published aria-vm-<arch>.qcow2 changes in a way that a
 // cached copy must be replaced. v2 = docker baked in + disk resized to 20G.
-// v3 = REH server (aria-reh) + runtimes (git/node/uv/sshfs/pandoc/poppler/codex)
-// baked in so the image can host Aria itself over remote, not just run pipelines.
+// v3 = REH server (aria-reh) + node/docker baked in. v4-runtimes = codex + claude
+// CLIs, uv, git, sshfs, fuse3 ACTUALLY baked at /usr/local so the guest needs zero
+// install at launch and all 9 MCP servers register against the baked codex.
 // A cached image whose tag differs is deleted and re-downloaded (see
 // ensureImage), and its overlay is discarded so it rebuilds against the new base.
-const IMAGE_TAG = 'v3-reh';
+const IMAGE_TAG = 'v4-runtimes';
 
 export type ProgressFn = (message: string, pct?: number) => void;
 
