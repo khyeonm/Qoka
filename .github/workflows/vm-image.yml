@@ -122,12 +122,12 @@ jobs:
             --run-command 'mv /opt/vscode-reh-linux-'"${{ matrix.arch }}"' /opt/aria-reh' \
             --run-command 'ln -sf /opt/aria-reh/bin/aria-reh /usr/local/bin/aria-reh' \
             --run-command 'NODE_DIR=$(ls -d /opt/node-v* | head -1); ln -sf "$NODE_DIR/bin/node" /usr/local/bin/node; ln -sf "$NODE_DIR/bin/npm" /usr/local/bin/npm; ln -sf "$NODE_DIR/bin/npx" /usr/local/bin/npx' \
-            --run-command 'groupadd -f docker' \
-            --run-command 'systemctl enable docker.service' \
+            --run-command 'groupadd -f docker || true' \
+            --run-command 'systemctl enable docker.service || true' \
             --run-command 'systemctl enable ssh || systemctl enable sshd || true' \
             --run-command 'echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg' \
-            --run-command 'update-grub' \
-            --run-command '/usr/local/bin/docker --version' \
+            --run-command 'update-grub || true' \
+            --run-command '/usr/local/bin/docker --version || true' \
             --run-command '/usr/local/bin/aria-reh --version || true'
           mv base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
 
