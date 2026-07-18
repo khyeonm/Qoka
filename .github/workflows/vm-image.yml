@@ -105,7 +105,20 @@ jobs:
 
           mkdir -p cli-prefix
           npm install -g --prefix "$PWD/cli-prefix" @openai/codex @anthropic-ai/claude-code
+          echo '--- cli-prefix layout ---'
+          find cli-prefix -maxdepth 2 -mindepth 1 | sort
+          echo '--- cli-prefix/bin ---'
           ls -la cli-prefix/bin
+          # Make the global-bin symlinks RELATIVE so the whole tree relocates cleanly
+          # to /opt/cli-prefix in the guest (npm may emit host-absolute links, which
+          # would dangle after copy-in). `test -e` follows the link → asserts it still
+          # resolves on the host after the rewrite.
+          for b in cli-prefix/bin/*; do
+            [ -L "$b" ] || continue
+            ln -sfr "$(readlink -f "$b")" "$b"
+          done
+          test -e cli-prefix/bin/codex
+          test -e cli-prefix/bin/claude
 
           mkdir -p uvdir
           curl -fsSL https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz \
@@ -175,10 +188,12 @@ jobs:
             --run-command 'update-grub || true' \
             --run-command '/usr/local/bin/docker --version || true' \
             --run-command '/usr/local/bin/aria-reh --version || true' \
-            --run-command 'mkdir -p /usr/local/lib/node_modules && cp -a /opt/cli-prefix/lib/node_modules/. /usr/local/lib/node_modules/ && cp -a /opt/cli-prefix/bin/. /usr/local/bin/' \
-            --run-command 'cp /opt/uvdir/uv /opt/uvdir/uvx /usr/local/bin/ && chmod +x /usr/local/bin/uv /usr/local/bin/uvx' \
+            --run-command 'ls -la /opt/cli-prefix/bin /opt/cli-prefix/lib/node_modules 2>&1 | head -40 || true' \
+            --run-command 'for b in /opt/cli-prefix/bin/*; do ln -sf "$b" "/usr/local/bin/$(basename "$b")"; done' \
+            --run-command 'cp /opt/uvdir/uv /usr/local/bin/ && chmod +x /usr/local/bin/uv' \
+            --run-command '{ [ -f /opt/uvdir/uvx ] && cp /opt/uvdir/uvx /usr/local/bin/ && chmod +x /usr/local/bin/uvx; } || true' \
             --run-command 'dpkg -i /opt/debs/*.deb || true' \
-            --run-command 'rm -rf /opt/cli-prefix /opt/uvdir /opt/debs' \
+            --run-command 'rm -rf /opt/uvdir /opt/debs' \
             --run-command '/usr/local/bin/codex --version || true' \
             --run-command '/usr/local/bin/claude --version || true' \
             --run-command '/usr/local/bin/uv --version || true' \
