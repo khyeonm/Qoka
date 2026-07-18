@@ -56,10 +56,15 @@ jobs:
       GH_REPO: ${{ github.repository }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Install libguestfs + qemu-utils
+      - name: Install libguestfs + qemu-utils + REH build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libguestfs-tools qemu-utils
+          # libguestfs/qemu for image customization; the -dev libs + fakeroot are
+          # the SAME set release-app.yml installs to build VS Code from source -
+          # the REH build compiles native modules (kerberos needs libkrb5-dev's
+          # gssapi/gssapi.h; keytar/secret needs libsecret-1-dev; etc.).
+          sudo apt-get install -y libguestfs-tools qemu-utils \
+            libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
 
       # Clone the branch this workflow_dispatch runs on, so the REH we bake
       # matches the app that will connect to it (same commit -> same remote
