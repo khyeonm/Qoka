@@ -7,6 +7,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
+import { resolveGit, runIso } from './gitBackend';
 
 const execFileAsync = promisify(execFile);
 
@@ -14,9 +15,18 @@ const execFileAsync = promisify(execFile);
  * Run git with an argv array (NO shell). This avoids any shell interpretation of
  * commit messages / file paths, so titles like `add $5 tier`, names with
  * backticks, or a trailing `\` can never break the command or inject anything.
+ *
+ * Dispatches through {@link resolveGit}: when the machine has a real git binary
+ * we spawn it (found even when it isn't on a GUI app's PATH); when it has none
+ * we fulfill the exact same argv with the bundled pure-JS git (isomorphic-git),
+ * so the Versions view works with zero install on git-less Mac/Windows.
  */
 async function git(args: string[], cwd: string, opts: { maxBuffer?: number } = {}): Promise<string> {
-	const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: opts.maxBuffer });
+	const mode = await resolveGit();
+	if (mode.mode === 'iso') {
+		return runIso(args, cwd);
+	}
+	const { stdout } = await execFileAsync(mode.gitPath, args, { cwd, maxBuffer: opts.maxBuffer });
 	return stdout;
 }
 
