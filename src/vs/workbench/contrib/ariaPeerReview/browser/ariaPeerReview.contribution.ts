@@ -29,7 +29,7 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 	EditorPaneDescriptor.create(
 		AriaPeerReviewEditorPane,
 		AriaPeerReviewEditorPane.ID,
-		localize2('aria.peerReview.editorPaneName', "AI Peer Review").value
+		localize2('aria.peerReview.editorPaneName', "Peer Review").value
 	),
 	[
 		new SyncDescriptor(AriaPeerReviewInput)
@@ -74,7 +74,7 @@ const peerReviewIcon = registerIcon('aria-peer-review-view', Codicon.commentDisc
 const peerReviewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({
 		id: PEER_REVIEW_CONTAINER_ID,
-		title: localize2('aria.peerReview.containerTitle', "AI Peer Review"),
+		title: localize2('aria.peerReview.containerTitle', "Peer Review"),
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [PEER_REVIEW_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: peerReviewIcon,
@@ -83,7 +83,7 @@ const peerReviewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(
 
 const peerReviewView: IViewDescriptor = {
 	id: AriaPeerReviewView.ID,
-	name: localize2('aria.peerReview.viewName', "AI Peer Review"),
+	name: localize2('aria.peerReview.viewName', "Peer Review"),
 	containerIcon: peerReviewIcon,
 	ctorDescriptor: new SyncDescriptor(AriaPeerReviewView),
 	canToggleVisibility: false,

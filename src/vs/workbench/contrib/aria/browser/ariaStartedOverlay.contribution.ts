@@ -122,8 +122,8 @@ This folder was created by Aria. Here is what each folder is for:
 - references/  Papers you save or download to read (PDFs).
 - data/        Datasets and analysis inputs.
 - downloads/   Other downloaded files.
-- paper/       Manuscripts you write in the Paper Writer tab.
-- reviews/     Results from the AI Peer Review tab.
+- paper/       Manuscripts you write in the Paper Writing tab.
+- reviews/     Results from the Peer Review tab.
 - .aria/       Aria's internal files (roadmap, project settings).
 
 You can rename or delete any folder you do not need.

@@ -34,7 +34,7 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 	EditorPaneDescriptor.create(
 		AriaPaperWriterEditorPane,
 		AriaPaperWriterEditorPane.ID,
-		localize2('aria.paperWriter.editorPaneName', "Paper Writer").value
+		localize2('aria.paperWriter.editorPaneName', "Paper Writing").value
 	),
 	[
 		new SyncDescriptor(AriaPaperWriterInput)
@@ -126,7 +126,7 @@ const paperWriterIcon = registerIcon('aria-paper-writer-view', Codicon.edit, loc
 const paperWriterContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({
 		id: PAPER_WRITER_CONTAINER_ID,
-		title: localize2('aria.paperWriter.containerTitle', "Paper Writer"),
+		title: localize2('aria.paperWriter.containerTitle', "Paper Writing"),
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [PAPER_WRITER_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: paperWriterIcon,
@@ -135,7 +135,7 @@ const paperWriterContainer: ViewContainer = Registry.as<IViewContainersRegistry>
 
 const paperWriterView: IViewDescriptor = {
 	id: AriaPaperWriterView.ID,
-	name: localize2('aria.paperWriter.viewName', "Paper Writer"),
+	name: localize2('aria.paperWriter.viewName', "Paper Writing"),
 	containerIcon: paperWriterIcon,
 	ctorDescriptor: new SyncDescriptor(AriaPaperWriterView),
 	// Pinned like the other Aria views; a togglable single view with no `when`

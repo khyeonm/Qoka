@@ -4,7 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { $, append, clearNode } from '../../../../base/browser/dom.js';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
@@ -61,6 +64,10 @@ export class AriaVersionsView extends ViewPane {
 
 	/** Guards against concurrent refreshes appending duplicate content. */
 	private refreshToken = 0;
+	/** Debounces the file-watcher so a burst of edits triggers one refresh. */
+	private readonly refreshScheduler = this._register(new RunOnceScheduler(() => void this.refresh(), 400));
+	/** Holds the workspace file watcher (re-created when the folder changes). */
+	private readonly watcherStore = this._register(new DisposableStore());
 
 	constructor(
 		options: IViewPaneOptions,
@@ -76,12 +83,35 @@ export class AriaVersionsView extends ViewPane {
 		@ICommandService private readonly commandService: ICommandService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@INotificationService private readonly notificationService: INotificationService,
+		@IFileService private readonly fileService: IFileService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		injectAriaVcsStyles();
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.refresh()));
-		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.refresh()));
+		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => { this.setupFileWatcher(); this.refresh(); }));
 		this._register(onDidChangeSnapshots(() => this.refresh()));
+		// Re-query when the tab becomes visible again (fixes the change list showing
+		// up late, e.g. on macOS, and after switching away and back).
+		this._register(this.onDidChangeBodyVisibility(visible => { if (visible) { void this.refresh(); } }));
+		// Re-query (debounced) when files in the workspace change, so the unsaved
+		// change list stays current without a manual refresh.
+		this.setupFileWatcher();
+	}
+
+	/** Watch the workspace folder (minus noisy dirs) and refresh on file changes. */
+	private setupFileWatcher(): void {
+		this.watcherStore.clear();
+		const folder = this.workspaceContextService.getWorkspace().folders[0];
+		if (!folder) { return; }
+		try {
+			this.watcherStore.add(this.fileService.watch(folder.uri, {
+				recursive: true,
+				excludes: ['**/.git/**', '**/node_modules/**', '**/.aria/**'],
+			}));
+			this.watcherStore.add(this.fileService.onDidFilesChange(e => {
+				if (e.affects(folder.uri)) { this.refreshScheduler.schedule(); }
+			}));
+		} catch { /* best-effort - manual refresh still works */ }
 	}
 
 	protected override renderBody(container: HTMLElement): void {
@@ -222,9 +252,14 @@ export class AriaVersionsView extends ViewPane {
 			border: '1px solid var(--vscode-widget-border, transparent)',
 		});
 
-		const bannerText = append(banner, $('div'));
-		bannerText.style.marginBottom = '6px';
-		bannerText.style.fontSize = '12px';
+		// Status line + an always-visible Refresh button (right-aligned). Keeping
+		// Refresh here - not inside the conditional change list - means the user can
+		// re-query even when there are no changes to show.
+		const bannerTop = append(banner, $('div'));
+		Object.assign(bannerTop.style, { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' });
+
+		const bannerText = append(bannerTop, $('div'));
+		Object.assign(bannerText.style, { fontSize: '12px', flex: '1', minWidth: '0' });
 		if (!status || !status.isRepo) {
 			bannerText.textContent = localize('aria.vcs.notInitialized', "No snapshots yet - your first Save will set things up.");
 		} else if (status.unsavedChanges > 0) {
@@ -232,6 +267,13 @@ export class AriaVersionsView extends ViewPane {
 		} else {
 			bannerText.textContent = localize('aria.vcs.allSaved', "All changes saved.");
 		}
+
+		const refreshBtn = append(bannerTop, $('button')) as HTMLButtonElement;
+		refreshBtn.title = localize('aria.vcs.refreshTooltip', "Refresh");
+		Object.assign(refreshBtn.style, { padding: '2px 4px', background: 'transparent', color: 'var(--vscode-foreground)', border: 'none', borderRadius: '3px', cursor: 'pointer', flexShrink: '0', display: 'inline-flex', alignItems: 'center' });
+		const refreshIcon = append(refreshBtn, $('span.codicon.codicon-refresh'));
+		refreshIcon.style.fontSize = '14px';
+		refreshBtn.onclick = () => void this.refresh();
 
 		const saveBtn = append(banner, $('button')) as HTMLButtonElement;
 		Object.assign(saveBtn.style, {
@@ -318,14 +360,7 @@ export class AriaVersionsView extends ViewPane {
 		masterCheckbox.style.flexShrink = '0';
 		const masterLabel = append(masterRow, $('span')) as HTMLElement;
 		Object.assign(masterLabel.style, { fontSize: '12px', opacity: '0.75', cursor: 'pointer', userSelect: 'none' });
-		const spacer = append(masterRow, $('div'));
-		spacer.style.flex = '1';
-		const refreshBtn = append(masterRow, $('button')) as HTMLButtonElement;
-		refreshBtn.title = localize('aria.vcs.refreshTooltip', "Refresh");
-		Object.assign(refreshBtn.style, { padding: '2px 4px', background: 'transparent', color: 'var(--vscode-foreground)', border: 'none', borderRadius: '3px', cursor: 'pointer', flexShrink: '0', display: 'inline-flex', alignItems: 'center' });
-		const refreshIcon = append(refreshBtn, $('span.codicon.codicon-refresh'));
-		refreshIcon.style.fontSize = '14px';
-		refreshBtn.onclick = () => this.refresh();
+		// Refresh now lives in the always-visible banner header (see renderChangesArea).
 
 		const updateMasterState = () => {
 			const n = totalSelected();
