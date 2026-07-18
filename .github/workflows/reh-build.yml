@@ -83,6 +83,12 @@ jobs:
             export PKG_CONFIG_PATH="$CONDA_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
             echo "Using conda headers from $CONDA_PREFIX"
           fi
+          # The compile died at ~3.3GB with a NewSpace (young-gen) OOM even though
+          # the machine has plenty of RAM — node's default semi-space is too small
+          # for this build, and gulp only sets --max-old-space-size. Raise BOTH via
+          # NODE_OPTIONS so every node the build spawns (workers included) gets a
+          # big heap AND a big new space. This machine has ~750GB, so be generous.
+          export NODE_OPTIONS="--max-old-space-size=16384 --max-semi-space-size=1024"
           npm install
           # Compile Aria extensions so their output ships in the REH (gulp packaging
           # only COPIES existing output, never compiles).
