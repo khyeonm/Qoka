@@ -103,7 +103,11 @@ jobs:
 
           printf '[Unit]\nDescription=Docker Application Container Engine\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/dockerd\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n' > docker.service
 
-          sudo -E virt-customize -a base.qcow2 \
+          # --no-network: every install that needs the appliance network (apt/uv/
+          # codex) is moved to guest first-boot (cloud-init in vmLauncher's seed),
+          # because passt fails on GitHub runners. Here we only do network-free
+          # copy-in of docker/REH/node + service enablement.
+          sudo -E virt-customize -a base.qcow2 --no-network \
             --copy-in docker/dockerd:/usr/local/bin/ \
             --copy-in docker/docker:/usr/local/bin/ \
             --copy-in docker/containerd:/usr/local/bin/ \
@@ -121,10 +125,6 @@ jobs:
             --run-command 'groupadd -f docker' \
             --run-command 'systemctl enable docker.service' \
             --run-command 'systemctl enable ssh || systemctl enable sshd || true' \
-            --run-command 'apt-get update' \
-            --run-command 'DEBIAN_FRONTEND=noninteractive apt-get install -y git curl ca-certificates sshfs fuse3 openssh-server pandoc poppler-utils' \
-            --run-command 'curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh || true' \
-            --run-command 'npm install -g @openai/codex || true' \
             --run-command 'echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg' \
             --run-command 'update-grub' \
             --run-command '/usr/local/bin/docker --version' \
