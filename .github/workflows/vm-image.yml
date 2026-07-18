@@ -132,7 +132,7 @@ jobs:
             apt-get install -y --download-only -o Dir::Cache::archives=/debs git sshfs fuse3
             chmod -R a+rX /debs
           '
-          ls -la debs | head
+          ls -la debs
 
       - name: Download Ubuntu cloud image
         run: curl -fSL "${{ matrix.url }}" -o base.qcow2
