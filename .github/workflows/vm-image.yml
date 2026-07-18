@@ -125,7 +125,7 @@ jobs:
             --run-command 'groupadd -f docker || true' \
             --run-command 'systemctl enable docker.service || true' \
             --run-command 'systemctl enable ssh || systemctl enable sshd || true' \
-            --run-command 'echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg' \
+            --run-command 'mkdir -p /etc/default/grub.d && echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg || true' \
             --run-command 'update-grub || true' \
             --run-command '/usr/local/bin/docker --version || true' \
             --run-command '/usr/local/bin/aria-reh --version || true'
