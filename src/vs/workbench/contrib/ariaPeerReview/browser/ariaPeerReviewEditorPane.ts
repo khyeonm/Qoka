@@ -366,7 +366,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	// --- new-review form ----------------------------------------------------
 
 	private renderNew(root: HTMLElement): void {
-		const h = append(root, $('div')); h.textContent = localize('aria.peerReview.newTitle', "AI Peer Review");
+		const h = append(root, $('div')); h.textContent = localize('aria.peerReview.newTitle', "Peer Review");
 		Object.assign(h.style, { fontSize: '20px', fontWeight: '600', margin: '2px 0 4px' });
 		const sub = append(root, $('div')); sub.textContent = localize('aria.peerReview.newSub', "Pick ONE source to review, choose reviewers, then run independent AI reviewers to surface major concerns - without fabricating anything.");
 		Object.assign(sub.style, { fontSize: '13px', opacity: '0.7', marginBottom: '4px' });
@@ -377,7 +377,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		Object.assign(cards.style, { display: 'flex', gap: '12px', flexWrap: 'wrap' });
 		cards.appendChild(this.sourceCard('file', localize('aria.peerReview.optFile', "Upload a file"), localize('aria.peerReview.optFileHint', "A paper on your computer (.md, .txt, .docx, .pdf, .tex). Add supplementary files too."), true));
 		const hasPapers = this.papers.length > 0;
-		cards.appendChild(this.sourceCard('manuscript', localize('aria.peerReview.optManuscript', "A paper written in Paper Writer"), hasPapers ? localize('aria.peerReview.optManuscriptHint', "Review a manuscript you drafted in the Paper Writer tab.") : localize('aria.peerReview.optManuscriptNone', "No Paper Writer manuscripts yet - create one in the Paper Writer tab first."), hasPapers));
+		cards.appendChild(this.sourceCard('manuscript', localize('aria.peerReview.optManuscript', "A paper written in the Paper Writing tab"), hasPapers ? localize('aria.peerReview.optManuscriptHint', "Review a manuscript you drafted in the Paper Writing tab.") : localize('aria.peerReview.optManuscriptNone', "No manuscripts yet - create one in the Paper Writing tab first."), hasPapers));
 
 		// selected-source detail
 		const detail = append(s1, $('div')); detail.style.marginTop = '12px';
@@ -426,7 +426,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 			}
 
 			if (this.availableFormats.length === 1) {
-				const hint = append(detail, $('div')); hint.textContent = localize('aria.peerReview.onlyMd', "Only the Markdown source exists. Export the paper to .docx/.tex in Paper Writer if you want to review a specific format.");
+				const hint = append(detail, $('div')); hint.textContent = localize('aria.peerReview.onlyMd', "Only the Markdown source exists. Export the paper to .docx/.tex in the Paper Writing tab if you want to review a specific format.");
 				Object.assign(hint.style, { fontSize: '12px', opacity: '0.6', marginTop: '8px' });
 			}
 		}

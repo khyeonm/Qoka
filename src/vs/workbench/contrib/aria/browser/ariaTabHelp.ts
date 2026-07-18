@@ -90,9 +90,9 @@ A notebook for ideas, experiment logs, and reading notes. Notes are saved as fil
 - When it proposes changes, the note opens in review mode - **additions in yellow, removals struck through in red**. Click **Accept** to apply or **Reject** to discard.`,
 	},
 	'paper-writer': {
-		title: 'Paper Writer',
+		title: 'Paper Writing',
 		summary: 'Draft a paper step by step with the AI assistant.',
-		howTo: `# Paper Writer - How to use
+		howTo: `# Paper Writing - How to use
 
 Write a scientific paper with the AI assistant, step by step: **Format → Sources → Focus → Outline → Write → Revise**. Each paper is saved in your project's \`paper\` folder. The AI buttons below don't act on their own - they **copy a prompt** that you paste to the AI assistant in the chat.
 
@@ -110,15 +110,15 @@ Write a scientific paper with the AI assistant, step by step: **Format → Sourc
 - Your original first draft is kept as \`paper/<id>/manuscript.original.md\` and stays there **unchanged even while you revise with the AI**, so you never lose your earlier version.`,
 	},
 	'peer-review': {
-		title: 'AI Peer Review',
+		title: 'Peer Review',
 		summary: 'Get AI reviewers to critique your paper and suggest revisions.',
-		howTo: `# AI Peer Review - How to use
+		howTo: `# Peer Review - How to use
 
 Have independent AI reviewers read your paper and point out concerns - the way a journal reviewer would - then help you address them.
 
 ## Steps
 1. **Start a review** - click **+ New review**. Past runs appear in the list; click one to reopen it.
-2. **Pick one source** - either **upload a file** (a required draft, plus optional figures and supplementary files) **or** choose a manuscript you exported from **Paper Writer**.
+2. **Pick one source** - either **upload a file** (a required draft, plus optional figures and supplementary files) **or** choose a manuscript you exported from **Paper Writing**.
 3. **Choose reviewers** - pick which AI reviewer(s) run. You can only use an AI you've **signed in to in its chat app**.
 4. **Run it** - click the **Review** button; it **copies a prompt**. Paste it (**Ctrl/Cmd+V**) into your AI assistant. The reviewer's **Major** and **Minor** concerns then appear in the editor.
 5. **Work through concerns** - your paper is on the left, the comments on the right. For a concern, click **Suggest Revision**; the AI assistant proposes up to three edits that appear **inline in the paper** as a before → after diff. Browse the options and click **Accept** to apply, and tick **Resolved** when done.
