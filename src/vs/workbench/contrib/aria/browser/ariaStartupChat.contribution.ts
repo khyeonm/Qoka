@@ -68,16 +68,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// then appears in that same spot instead of the panel popping in later.
 		try { this.layoutService.setPartHidden(false, Parts.AUXILIARYBAR_PART); } catch { /* layout not ready */ }
 
-		// Make sure the CLI for each chosen provider is installed - the chat panel
-		// and background features are CLI-backed, so this is needed even when the
-		// provider's Marketplace extension is already present (no pending install).
-		// Independent of MCP setup: it only needs aria-skills active (it activates
-		// it directly), so a slow/failed MCP boot can't block the CLI install.
-		void this._ensureProviderClis();
-
-		// Ensure every Aria MCP is registered with the installed provider(s), and
-		// keep it correct when a provider is installed later. One coordinated
-		// "open a new chat" toast across all Aria MCPs (not one per server).
+		// CLI install + MCP registration happen INSIDE the first-run gate below (it
+		// awaits the CLI install, then holds the loader until every server reports it
+		// is registered). This listener only keeps registration correct when a
+		// provider is added LATER, after that gate has completed.
 		this._wireMcpReconcile();
 
 		// Cover the window IMMEDIATELY (synchronously, at window load) so the bare
@@ -86,53 +80,66 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// Drain the stale one-shot; the decision below is made from LIVE state.
 		takePendingInstall();
 		void (async () => {
-			// Surface any provider EXTENSION the user opted into (via aria.aiProvider)
-			// that isn't installed - checked LIVE every launch, not from the one-shot
-			// pending list. This re-appears on re-entry (e.g. a bounce back into the
-			// picker) and correctly covers "auto" (both providers). Open the
-			// Extensions view over the missing ids and reveal a chat once installed.
-			const missing = await this._missingProviderExtensions();
-			if (missing.length > 0) {
-				const labels = missing.map(p => PROVIDER_LABEL[p]).join(' and ');
-				const ids = missing.map(p => PROVIDER_EXTENSION_ID[p]);
-				try { await this.commandService.executeCommand('workbench.extensions.action.showExtensionsWithIds', ids); } catch { /* ignore */ }
-				await timeout(2500); // let the Marketplace list populate behind the overlay
+			// No provider chosen yet → nothing to set up (shouldn't happen in a
+			// project window, but guard so we never hold an empty loader).
+			if (!hasPickedAiProvider()) {
+				this._setupGateDone = true;
 				hideLoading();
-				this.notificationService.info(`Install ${labels} to finish setting up your AI assistant.`);
-				this._revealWhenInstalled(missing);
 				return;
 			}
 
-			// Hold the loading screen until Aria is ACTUALLY usable. MCP server ports
-			// are per-window, so THIS (project) window's registration is the one that
-			// counts - the empty window doesn't register at all (its ports go stale on
-			// the reload). We gate on a real COMPLETION SIGNAL, not a timer: keep
-			// reconciling until every Aria MCP server reports it is registered, then
-			// clear. This is why the old 60s cap was wrong - on slower machines
-			// (Windows: each `mcp add` spawns cmd.exe -> claude.cmd -> node, ~1s each)
-			// it cut off mid-registration, so the chat opened with only a subset of
-			// servers and the "tools connected" toast landed minutes late. Now the
-			// auto-opened chat below reliably sees EVERY server, because we waited for
-			// the count to complete.
-			await this._ensureClisForInstalledProviders();
-			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-			const expected = this._mcpReregisterCommands.length;
-			const allRegistered = await this._reconcileUntilRegistered(expected);
-			hideLoading();
-			if (!allRegistered) {
-				// The only way the count never completes is that registration can't
-				// succeed - almost always the provider CLI failed to install. Say so
-				// instead of opening a chat that silently has no Aria tools.
-				this.notificationService.warning('Some Aria tools could not connect. This usually means the AI command-line tool did not finish installing - check your internet connection and reload the window to retry.');
-			}
-			if (!hasPickedAiProvider()) {
+			const chosen = this._chosenProviders();
+
+			// 1+2) Install the CLI for each chosen provider (AWAIT real completion,
+			//    retry ONCE on failure), then verify it is actually present. MCP
+			//    registration needs only the CLI - NOT the provider's VS Code chat
+			//    extension. So we never auto-install or wait on that extension: the
+			//    user can install it whenever, and it will read the config we write
+			//    here and see every tool immediately (no "open a new chat" dance).
+			//    "install finished but the CLI is still absent (after one retry)" is a
+			//    real FAILURE signal - so a failed install (e.g. offline) ends the wait
+			//    instead of spinning forever, and is surfaced when the loader clears.
+			try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
+			const results = await Promise.all(chosen.map(p => this._installAndVerifyCli(p)));
+			const usable = chosen.filter((_, i) => results[i]);
+			const failed = chosen.filter((_, i) => !results[i]);
+
+			if (usable.length === 0) {
+				this._setupGateDone = true;
+				hideLoading();
+				this.notificationService.warning('Aria could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
 				return;
 			}
-			// Retry: a just-activated provider (e.g. after a post-install reload)
-			// may register its reveal command a moment after we ask.
+
+			// 3) Wait for the MCP servers to come up, then register every Aria MCP
+			//    with the usable provider CLI(s) and HOLD the loader until they ALL
+			//    report registered - a real completion signal (registeredCount), not a
+			//    timer. MCP ports are per-window, so THIS project window's registration
+			//    is the one that counts. Because both chosen CLIs are confirmed present
+			//    above, one reconcile registers every server with each - so "all 9
+			//    registered" also means "with every chosen provider".
+			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+			const allRegistered = await this._registerRemainingMcp();
+			this._setupGateDone = true;
+			hideLoading();
+
+			if (failed.length > 0) {
+				const labels = failed.map(p => PROVIDER_LABEL[p]).join(' and ');
+				this.notificationService.warning(`Couldn't set up ${labels}. The other AI tools are ready; reload the window later to retry ${labels}.`);
+			} else if (!allRegistered) {
+				this.notificationService.warning('Some Aria tools could not connect. Reload the window to retry.');
+			}
+
+			// The chat opens with every tool already registered. Its extension can be
+			// installed by the user whenever - retry the reveal in case it activated.
 			void revealAiProviderChat(this.commandService, this.configurationService, { retryMs: 6000 });
 		})();
 	}
+
+	/** Set once the first-run setup gate has finished (CLIs installed + every MCP
+	 *  registered). Until then, the onDidChangeExtensions listener stays quiet so it
+	 *  can't reconcile concurrently with the gate or fire a premature toast. */
+	private _setupGateDone = false;
 
 	/** Every Aria MCP extension exposes this command: re-run its registration
 	 *  with whatever provider CLIs are present, returning true if it NEWLY
@@ -185,23 +192,36 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		return { anyChanged, registeredCount };
 	}
 
-	/** Reconcile repeatedly until ALL `expected` Aria MCP servers report they are
-	 *  registered, or the pass cap is hit. This is a real COMPLETION check (count of
-	 *  registered servers), not a timer: the loading page holds until every tool is
-	 *  actually connected, then clears. Returns true only when the full count was
-	 *  reached. The pass cap is the sole backstop for the genuinely-unreachable case
-	 *  (e.g. the provider CLI failed to install, so servers can never register) -
-	 *  the caller surfaces that instead of silently opening a chat with no tools.
-	 *  Always silent - the loading page is the user-facing signal. */
-	private async _reconcileUntilRegistered(expected: number, maxPasses = 15): Promise<boolean> {
-		for (let i = 0; i < maxPasses; i++) {
-			const { registeredCount } = await this._reconcileMcp(true);
-			if (registeredCount >= expected) {
-				return true;   // every server confirmed registered → done
+	/**
+	 * Register every Aria MCP server, retrying ONLY the ones not yet registered.
+	 * The pending set draining to empty is the real COMPLETION signal - the loader
+	 * holds until then. Retrying just the stragglers avoids re-spawning a `mcp add`/
+	 * `mcp get` for the servers already done (each is a process on Windows).
+	 *
+	 * Bounded to `maxPasses` attempts (1 initial + retries): the CLIs are verified
+	 * present before this runs, so registration should succeed almost immediately;
+	 * a straggler is retried a few times to ride out a transient config-write race
+	 * or a server that started a beat late. If some still don't register after that,
+	 * we return false and the caller surfaces a warning (the app stays usable, and
+	 * onDidChangeExtensions / a reload will pick them up) rather than spinning
+	 * forever. Returns true iff every server registered.
+	 */
+	private async _registerRemainingMcp(maxPasses = 4): Promise<boolean> {
+		const pending = new Set(this._mcpReregisterCommands);
+		for (let pass = 0; pass < maxPasses; pass++) {
+			// SEQUENTIAL: each reregister is a read-modify-write of the shared
+			// ~/.claude.json, so awaiting one at a time serialises the file writes.
+			for (const cmd of [...pending]) {
+				const res = await Promise.resolve(this.commandService.executeCommand<unknown>(cmd)).then(r => r, () => undefined);
+				const registered = (res && typeof res === 'object' && (res as { registered?: boolean }).registered === true) || res === true;
+				if (registered) { pending.delete(cmd); }
 			}
-			await timeout(1000);
+			if (pending.size === 0) { return true; }
+			// Give a slow-to-start server a beat before the next retry (not after the
+			// final attempt).
+			if (pass < maxPasses - 1) { await timeout(1500); }
 		}
-		return false;
+		return pending.size === 0;
 	}
 
 	/** Install the CLI for the given chosen providers. Called by the overlay's AI
@@ -254,6 +274,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  which is silent. */
 	private _wireMcpReconcile(): void {
 		this._register(this.extensionService.onDidChangeExtensions(() => {
+			// The first-run gate owns registration during setup; only handle provider
+			// changes AFTER it completes, so the two don't reconcile concurrently
+			// (concurrent `mcp add` clobber each other) and so no toast fires mid-setup.
+			if (!this._setupGateDone) { return; }
 			void (async () => {
 				await this._ensureClisForInstalledProviders();
 				await this._reconcileMcp(false);
@@ -261,36 +285,33 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		}));
 	}
 
-	/** Auto-install the CLI for each provider the user chose (from the
-	 *  `aria.aiProvider` setting). `auto` means they picked both, so ensure both.
-	 *  The command no-ops when a CLI is already present and only installs after
-	 *  the user has been through the picker. */
-	private async _ensureProviderClis(): Promise<void> {
-		const picked = hasPickedAiProvider();
+	/** The providers the user chose, from the `aria.aiProvider` setting. An explicit
+	 *  choice = that one; `auto` = both. */
+	private _chosenProviders(): ConcreteProvider[] {
 		const pref = this.configurationService.getValue<string>(ARIA_AI_PROVIDER_SETTING) ?? 'auto';
-		console.log(`[aria] ensureProviderClis: picked=${picked}, aria.aiProvider=${pref}`);
-		if (!picked) {
-			return;
+		return pref === 'claude' || pref === 'codex' ? [pref] : [...ARIA_ALL_PROVIDERS];
+	}
+
+	/** True when the provider's command-line tool is present on PATH / known dirs.
+	 *  Uses the CLI-availability probe aria-paper exposes; false if it can't tell. */
+	private async _cliAvailable(provider: ConcreteProvider): Promise<boolean> {
+		const cmd = provider === 'claude' ? 'aria.peerReview.claudeAvailable' : 'aria.peerReview.codexAvailable';
+		try {
+			return (await this.commandService.executeCommand<boolean>(cmd)) === true;
+		} catch {
+			return false;
 		}
-		// "Opt-in" set (NOT preference order): an explicit choice installs only that
-		// one; `auto` means the user picked both, so ensure both.
-		const chosen: ConcreteProvider[] = pref === 'claude' || pref === 'codex' ? [pref] : [...ARIA_ALL_PROVIDERS];
-		// The install command lives in aria-skills; make sure it's active before we
-		// call it (executeCommand won't auto-activate a dynamically-registered
-		// command). activateByEvent is idempotent if it already fired.
-		try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
-		for (const p of chosen) {
-			try {
-				console.log(`[aria] ensureProviderClis: requesting CLI install for ${p}`);
-				await this.commandService.executeCommand('aria.provider.installCli', p);
-			} catch (e) {
-				console.log(`[aria] ensureProviderClis: install command failed for ${p}:`, e);
-			}
+	}
+
+	/** Install one provider's CLI and confirm it landed, retrying ONCE on failure.
+	 *  installProviderCli clears its per-session guard when an install fails, so the
+	 *  second call genuinely re-runs. Returns whether the CLI is present afterwards. */
+	private async _installAndVerifyCli(provider: ConcreteProvider): Promise<boolean> {
+		for (let attempt = 0; attempt < 2; attempt++) {
+			try { await this.commandService.executeCommand('aria.provider.installCli', provider); } catch { /* reported below via availability */ }
+			if (await this._cliAvailable(provider)) { return true; }
 		}
-		// Install only - registration is the loading gate's single reconcile pass
-		// (below), so the project window doesn't reconcile twice. Onboarding already
-		// registered everything via aria.setup.prepareProviders, so at project open
-		// the gate's pass is a quick "already registered" verify.
+		return false;
 	}
 
 	/** The provider EXTENSIONS the user opted into (via aria.aiProvider: an

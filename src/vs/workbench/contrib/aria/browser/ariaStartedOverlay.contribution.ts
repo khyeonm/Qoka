@@ -1059,7 +1059,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		box.appendChild(title);
 
 		const sub = document.createElement('div');
-		sub.textContent = 'Downloading the tools it needs. This can take a minute the first time - you can install the assistant extension right after.';
+		sub.textContent = 'Downloading the tools it needs. This can take a minute the first time.';
 		sub.style.fontSize = '13px';
 		sub.style.opacity = '0.7';
 		sub.style.maxWidth = '420px';
