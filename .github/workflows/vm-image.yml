@@ -161,7 +161,17 @@ jobs:
         run: |
           set -euxo pipefail
           sudo chmod 0644 /boot/vmlinuz-* || true
-          qemu-img resize base.qcow2 30G
+          # The cloud image's root fs is only ~3.5G. Baking the runtimes
+          # (codex/claude node_modules + uv + git/sshfs) fills it, leaving cloud-init
+          # NO room on first boot → "No space left on device" at /var/lib/cloud →
+          # cloud-init-local + networkd fail → sshd never comes up → the resolver
+          # times out "waiting for the VM to become reachable". `qemu-img resize`
+          # only grows the DISK, not the partition/fs, and cloud-init's growpart
+          # can't run once the fs is already full. So expand the root partition+fs
+          # to fill a 30G disk HERE, at bake time, before copying anything in.
+          qemu-img create -f qcow2 expanded.qcow2 30G
+          virt-resize --expand /dev/sda1 base.qcow2 expanded.qcow2
+          mv -f expanded.qcow2 base.qcow2
 
           printf '[Unit]\nDescription=Docker Application Container Engine\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/dockerd\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n' > docker.service
 

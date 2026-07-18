@@ -35,7 +35,10 @@ const RELEASE_BASE = process.env.ARIA_VM_RELEASE_BASE
 // install at launch and all 9 MCP servers register against the baked codex.
 // A cached image whose tag differs is deleted and re-downloaded (see
 // ensureImage), and its overlay is discarded so it rebuilds against the new base.
-const IMAGE_TAG = 'v4-runtimes';
+// v5-diskfix expands the root fs at bake time (virt-resize) so the baked runtimes
+// no longer fill the disk — v4 filled the ~3.5G cloud-image fs, so cloud-init hit
+// "No space left on device" and network/sshd never came up (resolver timed out).
+const IMAGE_TAG = 'v5-diskfix';
 
 export type ProgressFn = (message: string, pct?: number) => void;
 
