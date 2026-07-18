@@ -107,7 +107,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			if (usable.length === 0) {
 				this._setupGateDone = true;
 				hideLoading();
-				this.notificationService.warning('Aria could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
+				this.notificationService.warn('Aria could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
 				return;
 			}
 
@@ -125,9 +125,9 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 
 			if (failed.length > 0) {
 				const labels = failed.map(p => PROVIDER_LABEL[p]).join(' and ');
-				this.notificationService.warning(`Couldn't set up ${labels}. The other AI tools are ready; reload the window later to retry ${labels}.`);
+				this.notificationService.warn(`Couldn't set up ${labels}. The other AI tools are ready; reload the window later to retry ${labels}.`);
 			} else if (!allRegistered) {
-				this.notificationService.warning('Some Aria tools could not connect. Reload the window to retry.');
+				this.notificationService.warn('Some Aria tools could not connect. Reload the window to retry.');
 			}
 
 			// If the chosen provider's chat EXTENSION isn't installed yet, open the
@@ -381,6 +381,14 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		text.textContent = title;
 		Object.assign(text.style, { fontSize: '14px', opacity: '0.9' });
 		overlay.appendChild(text);
+
+		// The slow part is CONNECTING the tools to the AI assistant (registering each
+		// MCP server via the CLI), which only happens the first time - reassure the
+		// user this launch is a one-off, not every launch.
+		const sub = document.createElement('div');
+		sub.textContent = 'Connecting the AI tools takes a moment the first time.';
+		Object.assign(sub.style, { fontSize: '12.5px', opacity: '0.6', maxWidth: '440px', textAlign: 'center', lineHeight: '1.5' });
+		overlay.appendChild(sub);
 
 		document.body.appendChild(overlay);
 		requestAnimationFrame(() => { overlay.style.opacity = '1'; });
