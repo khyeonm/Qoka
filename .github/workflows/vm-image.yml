@@ -221,10 +221,13 @@ jobs:
             --run-command '/usr/local/bin/claude --version || true' \
             --run-command '/usr/local/bin/uv --version || true' \
             --run-command 'command -v sshfs && command -v git || true'
-          # Compact via convert: drops the (zeroed) ext4 inode-table clusters
-          # virt-resize allocated, re-sparsifying the qcow2 so the published asset
-          # stays well under GitHub's 2GB release-asset limit.
-          qemu-img convert -O qcow2 base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
+          # Compress via convert (-c). The cloud image ships as a COMPRESSED qcow2;
+          # an uncompressed convert (-O qcow2 without -c) decompressed the whole
+          # image and made it BIGGER, still blowing GitHub's 2GB release-asset limit
+          # even at 8G. -c compresses everything (runtime data + the zeroed 8G ext4
+          # metadata) so the published asset lands well under 2GB. qemu reads a
+          # compressed qcow2 backing file fine — the per-boot overlay stays writable.
+          qemu-img convert -O qcow2 -c base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
           ls -lh "aria-vm-${{ matrix.arch }}.qcow2"
 
       - name: Publish to vm-assets release
