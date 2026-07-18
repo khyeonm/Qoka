@@ -86,8 +86,15 @@ jobs:
             [ -f "$d/build.mjs" ] || { [ -f "$d/tsconfig.json" ] && transpile="$transpile transpile-extension:$name"; }
           done
           [ -n "$transpile" ] && npm run gulp -- $transpile || true
+          # NON-min build (no `-min`): the -min variant runs the mangler/minifier,
+          # which is memory-heavy (11k classes) and OOM-KILLED the runner even with
+          # an 8GB heap — failed with no error line because the kernel SIGKILL'd it
+          # before node could report "heap out of memory". The non-min server is
+          # larger but fully functional (fine for baking into the image), and the
+          # output folder is the SAME (vscode-reh-linux-<arch>), so vm-image.yml is
+          # unchanged. Bump back to -min only on a larger runner.
           # The REH server bundle → ../vscode-reh-linux-<arch> (repo parent).
-          npm run gulp vscode-reh-linux-${{ matrix.arch }}-min
+          npm run gulp vscode-reh-linux-${{ matrix.arch }}
           test -d "../vscode-reh-linux-${{ matrix.arch }}" \
             || { echo "::error::REH output dir missing"; exit 1; }
           "../vscode-reh-linux-${{ matrix.arch }}/bin/aria-reh" --version || true
