@@ -63,6 +63,10 @@ const compilations = [
 	'extensions/aria-vcs/tsconfig.json',
 	'extensions/aria-roadmap/tsconfig.json',
 	'extensions/aria-paper/tsconfig.json',
+	// aria-remote: the ui-side remote resolver (boots/attaches the VM, launches
+	// the aria-reh server over SSH, forwards its port). tsc like autopipe — it
+	// depends on ssh2 (native), so it is NOT an esbuild self-bundle.
+	'extensions/aria-remote/tsconfig.json',
 	// NOTE: aria-notes is intentionally NOT here. It depends on ESM-only packages
 	// (@blocknote/server-util) that break when require()d from a tsc-compiled
 	// CommonJS extension. It self-bundles via esbuild instead — see

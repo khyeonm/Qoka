@@ -56,20 +56,29 @@ export function activate(context: vscode.ExtensionContext): void {
 	const vm = new VMManager(context, config);
 	context.subscriptions.push({ dispose: () => vm.dispose() });
 
-	// First run: default the built-in VM as the active target so the user has a
-	// working environment without configuring a server. Only on Mac/Win, or on
-	// Linux when a dev stand-in is set (Linux users otherwise run locally). Never
-	// overrides an existing choice.
-	const boot = config.get();
-	const hasStandin = !!(process.env.ARIA_AUTOPIPE_VM_STANDIN
-		|| vscode.workspace.getConfiguration('aria.autopipe').get<string>('vmStandin'));
-	if (!boot.active_ssh_profile_id && boot.ssh_profiles.length === 0 && (process.platform !== 'linux' || hasStandin)) {
-		void config.activateLocalVm();
-	}
-	// Bring the VM up if it's the active target (dev: eager start; production
-	// lazy-start-on-first-pipeline lands in M4). Fire-and-forget.
-	if (config.isLocalVmActive()) {
-		void vm.start().catch(err => console.error('[aria-autopipe] built-in VM start failed:', err));
+	// When autopipe runs INSIDE the aria-vm (i.e. this is the remote extension
+	// host in the VM), the VM lifecycle is owned by the host-side aria-remote
+	// resolver — booting a nested VM here would be wrong (and can't work: qemu
+	// isn't in the guest). Pipelines target the VM's own local docker daemon
+	// instead (wired as a follow-up). In EVERY other case (non-remote Mac / Win /
+	// Linux) the built-in VM behaves exactly as before — no regression.
+	const isAriaVmRemote = vscode.env.remoteName === 'aria-vm';
+	if (!isAriaVmRemote) {
+		// First run: default the built-in VM as the active target so the user has a
+		// working environment without configuring a server. Only on Mac/Win, or on
+		// Linux when a dev stand-in is set (Linux users otherwise run locally).
+		// Never overrides an existing choice.
+		const boot = config.get();
+		const hasStandin = !!(process.env.ARIA_AUTOPIPE_VM_STANDIN
+			|| vscode.workspace.getConfiguration('aria.autopipe').get<string>('vmStandin'));
+		if (!boot.active_ssh_profile_id && boot.ssh_profiles.length === 0 && (process.platform !== 'linux' || hasStandin)) {
+			void config.activateLocalVm();
+		}
+		// Bring the VM up if it's the active target (dev: eager start; production
+		// lazy-start-on-first-pipeline lands in M4). Fire-and-forget.
+		if (config.isLocalVmActive()) {
+			void vm.start().catch(err => console.error('[aria-autopipe] built-in VM start failed:', err));
+		}
 	}
 	context.subscriptions.push(
 		vscode.commands.registerCommand('aria.autopipe.vm.setActive', () => config.activateLocalVm()),

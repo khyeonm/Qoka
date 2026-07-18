@@ -1,0 +1,91 @@
+{
+	"name": "aria-remote",
+	"displayName": "Aria Remote",
+	"description": "Resolves the aria-vm remote authority: boots Aria's built-in VM and connects the window to the aria-reh extension host running inside it, so extensions/CLIs/MCP run in the VM while the UI stays on the host.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"enabledApiProposals": [
+		"resolvers",
+		"tunnels"
+	],
+	"extensionKind": [
+		"ui"
+	],
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onResolveRemoteAuthority:aria-vm"
+	],
+	"contributes": {
+		"resourceLabelFormatters": [
+			{
+				"scheme": "vscode-remote",
+				"authority": "aria-vm+*",
+				"formatting": {
+					"label": "${path}",
+					"separator": "/",
+					"tildify": true,
+					"workspaceSuffix": "Aria VM",
+					"workspaceTooltip": "Running in Aria's built-in VM"
+				}
+			}
+		],
+		"commands": [
+			{
+				"command": "aria.remote.openWindow",
+				"title": "Aria: Open Current Project in the VM",
+				"category": "Aria Remote"
+			},
+			{
+				"command": "aria.remote.showLog",
+				"title": "Aria: Show Remote (VM) Log",
+				"category": "Aria Remote"
+			}
+		],
+		"configuration": {
+			"title": "Aria Remote",
+			"properties": {
+				"aria.remote.shareFolder": {
+					"type": "string",
+					"default": "",
+					"description": "Host folder shared into the VM at /home/aria/project via rclone sftp + sshfs. Set per project when opening it in the VM."
+				},
+				"aria.remote.rclonePath": {
+					"type": "string",
+					"default": "",
+					"description": "Path to the rclone binary used for the host→guest file share. Falls back to the ARIA_RCLONE_PATH env var."
+				},
+				"aria.remote.vm.cpus": {
+					"type": "number",
+					"default": 2,
+					"description": "vCPUs for the built-in VM (clamped to this machine's core count)."
+				},
+				"aria.remote.vm.memoryMB": {
+					"type": "number",
+					"default": 4096,
+					"description": "Guest RAM in MB for the built-in VM (clamped below physical RAM)."
+				},
+				"aria.remote.vm.diskGB": {
+					"type": "number",
+					"default": 60,
+					"description": "Max virtual disk in GB for the built-in VM (sparse)."
+				}
+			}
+		}
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -w -p ./"
+	},
+	"dependencies": {
+		"ssh2": "^1.15.0"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"@types/ssh2": "^1.15.0",
+		"typescript": "^5.6.2"
+	}
+}

@@ -26,6 +26,7 @@ export const dirs = [
 	'extensions/aria-authentication',
 	'extensions/aria-paper',
 	'extensions/aria-overview',
+	'extensions/aria-remote',
 	'extensions/configuration-editing',
 	'extensions/css-language-features',
 	'extensions/css-language-features/server',
