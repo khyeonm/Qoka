@@ -39,12 +39,12 @@ jobs:
           git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
 
-      # Same native-build deps release-app.yml uses (kerberos needs libkrb5-dev's
-      # gssapi/gssapi.h, keytar needs libsecret-1-dev, etc.).
-      - name: Install build deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
+      # NOTE: native-build deps must be PRE-INSTALLED on the self-hosted runner by
+      # an admin ONCE (the runner user has no sudo). Run this on the machine with
+      # a root/sudo account before the first build:
+      #   sudo apt-get install -y git curl tar build-essential \
+      #     libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
+      # (kerberos needs libkrb5-dev's gssapi/gssapi.h, keytar needs libsecret-1-dev.)
 
       # Self-hosted runner is YOUR machine — do NOT delete files or touch swap
       # (unlike the disposable GitHub-hosted runners). Just report resources so
