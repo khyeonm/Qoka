@@ -25,9 +25,9 @@ jobs:
       matrix:
         include:
           - arch: x64
-            os: ubuntu-24.04
-          - arch: arm64
-            os: ubuntu-24.04-arm
+            os: [self-hosted, Linux, X64]
+          # arm64 (the Mac-side REH) is added once an arm64 self-hosted runner
+          # exists. For now the x64 REH covers the Windows path.
     runs-on: ${{ matrix.os }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -46,21 +46,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
 
-      # Reclaim ~10GB and add swap as a safety net — the compile is memory-heavy.
-      # On a clean runner (no libguestfs/image) this should stay in RAM, but the
-      # swap keeps a spike from OOM-killing the job.
-      - name: Free disk space + add swap
+      # Self-hosted runner is YOUR machine — do NOT delete files or touch swap
+      # (unlike the disposable GitHub-hosted runners). Just report resources so
+      # RAM/arch are visible in the log; the compile relies on the machine having
+      # enough RAM (16GB+ recommended).
+      - name: Show runner resources
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/graalvm || true
-          sudo swapoff -a || true
-          sudo rm -f /swapfile || true
-          sudo fallocate -l 12G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          echo '--- disk ---'; df -h /
           echo '--- mem ---'; free -h
+          echo '--- disk ---'; df -h .
+          echo '--- arch ---'; uname -m
 
       - name: Install Node from .nvmrc
         run: |
