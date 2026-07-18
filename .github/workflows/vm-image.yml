@@ -84,6 +84,26 @@ jobs:
           # the guest below so codex (an npm package) has a node to run under.
           echo "ARIA_NODE_DIR=$PWD/$F" >> "$GITHUB_ENV"
 
+      # The REH from-source build (npm install + full VS Code compile/minify) is
+      # memory- and disk-heavy, and THIS runner also carries libguestfs + qemu +
+      # a downloaded cloud image. An x64 run was "canceled" ~8min into the REH
+      # build — the classic signature of the runner going unresponsive under OOM
+      # (a compile error would say "failed", not "canceled"). Reclaim ~10GB of
+      # disk and add a large swap file so the compile has headroom; the df/free
+      # output confirms disk-vs-memory as the cause on the next run.
+      - name: Free disk space + add swap (REH build headroom)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/graalvm || true
+          sudo swapoff -a || true
+          sudo rm -f /swapfile || true
+          sudo fallocate -l 12G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo '--- disk ---'; df -h /
+          echo '--- mem ---'; free -h
+
       - name: Build the REH server (aria-reh)
         working-directory: aria-src
         run: |
