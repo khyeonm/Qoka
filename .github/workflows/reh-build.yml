@@ -1,0 +1,100 @@
+# Builds the REH server (aria-reh = product.serverApplicationName) from source on
+# a CLEAN runner and uploads it to the vm-assets release, so vm-image.yml can just
+# download + --copy-in it instead of compiling VS Code inside the libguestfs job.
+#
+# WHY split: compiling VS Code AND running libguestfs in one job (vm-image.yml)
+# exhausted the runner — an x64 run was "canceled" mid-compile (OOM → swap
+# thrashing → unresponsive). Here the compile gets a runner to itself (no
+# libguestfs, no cloud image), the same footing release-app.yml builds the
+# desktop app on.
+#
+# Run this FIRST (workflow_dispatch on the branch), then run "VM image (base)".
+# Output: aria-reh-linux-<arch>.tar.gz on the vm-assets-v1 release.
+name: REH server (aria-reh)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            os: ubuntu-24.04
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Clone at this branch/tag
+        run: |
+          git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+
+      # Same native-build deps release-app.yml uses (kerberos needs libkrb5-dev's
+      # gssapi/gssapi.h, keytar needs libsecret-1-dev, etc.).
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
+
+      # Reclaim ~10GB and add swap as a safety net — the compile is memory-heavy.
+      # On a clean runner (no libguestfs/image) this should stay in RAM, but the
+      # swap keeps a spike from OOM-killing the job.
+      - name: Free disk space + add swap
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/graalvm || true
+          sudo swapoff -a || true
+          sudo rm -f /swapfile || true
+          sudo fallocate -l 12G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo '--- disk ---'; df -h /
+          echo '--- mem ---'; free -h
+
+      - name: Install Node from .nvmrc
+        run: |
+          V="$(tr -d '[:space:]' < .nvmrc)"
+          F="node-v$V-linux-${{ matrix.arch }}"
+          curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
+          echo "$PWD/$F/bin" >> "$GITHUB_PATH"
+
+      - name: Build REH + bundled Aria extensions
+        run: |
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npm install
+          # Compile Aria extensions so their output ships in the REH (gulp packaging
+          # only COPIES existing output, never compiles).
+          for d in extensions/aria-*/; do
+            if [ -f "$d/build.mjs" ]; then
+              (cd "$d" && npm install && node build.mjs)
+            fi
+          done
+          transpile=""
+          for d in extensions/aria-*/; do
+            name="$(basename "$d")"
+            [ -f "$d/build.mjs" ] || { [ -f "$d/tsconfig.json" ] && transpile="$transpile transpile-extension:$name"; }
+          done
+          [ -n "$transpile" ] && npm run gulp -- $transpile || true
+          # The REH server bundle → ../vscode-reh-linux-<arch> (repo parent).
+          npm run gulp vscode-reh-linux-${{ matrix.arch }}-min
+          test -d "../vscode-reh-linux-${{ matrix.arch }}" \
+            || { echo "::error::REH output dir missing"; exit 1; }
+          "../vscode-reh-linux-${{ matrix.arch }}/bin/aria-reh" --version || true
+
+      - name: Package + upload to vm-assets
+        run: |
+          tar -C .. -czf "aria-reh-linux-${{ matrix.arch }}.tar.gz" "vscode-reh-linux-${{ matrix.arch }}"
+          gh release create vm-assets-v1 --title "VM assets" \
+            --notes "Portable QEMU + base image + REH for Aria's built-in run environment." 2>/dev/null || true
+          gh release upload vm-assets-v1 "aria-reh-linux-${{ matrix.arch }}.tar.gz" --clobber
