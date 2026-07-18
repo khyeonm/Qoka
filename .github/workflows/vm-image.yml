@@ -168,8 +168,15 @@ jobs:
           # times out "waiting for the VM to become reachable". `qemu-img resize`
           # only grows the DISK, not the partition/fs, and cloud-init's growpart
           # can't run once the fs is already full. So expand the root partition+fs
-          # to fill a 30G disk HERE, at bake time, before copying anything in.
-          qemu-img create -f qcow2 expanded.qcow2 30G
+          # HERE, at bake time, before copying anything in.
+          #
+          # Expand to ONLY 8G (not 30G): just enough for the runtimes + cloud-init
+          # headroom. The user's overlay is created at ${diskGB}G (60G, see
+          # vmLauncher) backing this base, and cloud-init growpart expands the 8G
+          # partition to fill it on first boot — exactly like v3. A 30G expand grew
+          # the qcow2 past GitHub's 2GB release-asset limit (ext4 metadata); 8G +
+          # the qemu-img convert compaction below keeps the published file well under.
+          qemu-img create -f qcow2 expanded.qcow2 8G
           virt-resize --expand /dev/sda1 base.qcow2 expanded.qcow2
           mv -f expanded.qcow2 base.qcow2
 
@@ -214,7 +221,11 @@ jobs:
             --run-command '/usr/local/bin/claude --version || true' \
             --run-command '/usr/local/bin/uv --version || true' \
             --run-command 'command -v sshfs && command -v git || true'
-          mv base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
+          # Compact via convert: drops the (zeroed) ext4 inode-table clusters
+          # virt-resize allocated, re-sparsifying the qcow2 so the published asset
+          # stays well under GitHub's 2GB release-asset limit.
+          qemu-img convert -O qcow2 base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
+          ls -lh "aria-vm-${{ matrix.arch }}.qcow2"
 
       - name: Publish to vm-assets release
         run: |
