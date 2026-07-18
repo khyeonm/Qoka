@@ -120,10 +120,16 @@ jobs:
           test -e cli-prefix/bin/codex
           test -e cli-prefix/bin/claude
 
-          mkdir -p uvdir
+          mkdir -p uvdir uvtmp
           curl -fsSL https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz \
-            | tar -xz -C uvdir --strip-components=1
+            | tar -xz -C uvtmp
+          echo '--- uv archive tree ---'
+          find uvtmp -maxdepth 2 -mindepth 1 | sort
+          find uvtmp -type f \( -name uv -o -name uvx \) -exec cp {} uvdir/ \;
+          chmod +x uvdir/uv uvdir/uvx 2>/dev/null || true
+          echo '--- uvdir ---'
           ls -la uvdir
+          test -f uvdir/uv
 
           mkdir -p debs
           docker run --rm -v "$PWD/debs:/debs" ubuntu:24.04 bash -c '
@@ -190,7 +196,7 @@ jobs:
             --run-command '/usr/local/bin/aria-reh --version || true' \
             --run-command 'ls -la /opt/cli-prefix/bin /opt/cli-prefix/lib/node_modules 2>&1 | head -40 || true' \
             --run-command 'for b in /opt/cli-prefix/bin/*; do ln -sf "$b" "/usr/local/bin/$(basename "$b")"; done' \
-            --run-command 'cp /opt/uvdir/uv /usr/local/bin/ && chmod +x /usr/local/bin/uv' \
+            --run-command '{ cp /opt/uvdir/uv /usr/local/bin/ && chmod +x /usr/local/bin/uv; } || true' \
             --run-command '{ [ -f /opt/uvdir/uvx ] && cp /opt/uvdir/uvx /usr/local/bin/ && chmod +x /usr/local/bin/uvx; } || true' \
             --run-command 'dpkg -i /opt/debs/*.deb || true' \
             --run-command 'rm -rf /opt/uvdir /opt/debs' \
