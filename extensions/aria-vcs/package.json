@@ -55,5 +55,8 @@
 	"devDependencies": {
 		"@types/node": "20.x",
 		"@types/vscode": "^1.123.0"
+	},
+	"dependencies": {
+		"isomorphic-git": "^1.27.1"
 	}
 }
