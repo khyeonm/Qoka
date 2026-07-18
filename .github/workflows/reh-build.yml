@@ -36,6 +36,11 @@ jobs:
     steps:
       - name: Clone at this branch/tag
         run: |
+          # A self-hosted runner REUSES its work dir across runs, so a leftover
+          # checkout makes `git clone .` fail ("destination path '.' already exists
+          # and is not an empty directory"). Wipe the job work dir first. This runs
+          # inside _work/<repo>/<repo>, NOT your home dir, so it is safe.
+          rm -rf ./* ./.[!.]* 2>/dev/null || true
           git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
 
