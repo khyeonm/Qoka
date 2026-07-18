@@ -130,9 +130,20 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				this.notificationService.warning('Some Aria tools could not connect. Reload the window to retry.');
 			}
 
-			// The chat opens with every tool already registered. Its extension can be
-			// installed by the user whenever - retry the reveal in case it activated.
-			void revealAiProviderChat(this.commandService, this.configurationService, { retryMs: 6000 });
+			// If the chosen provider's chat EXTENSION isn't installed yet, open the
+			// Marketplace pre-filtered to it so the user can install it in one click -
+			// no nag, no blocking. Every MCP tool is already registered, so the chat
+			// lights up with all of them the moment the extension finishes installing
+			// (_revealWhenInstalled watches for that). If the extension is already
+			// present, just reveal the chat now.
+			const missingExtensions = await this._missingProviderExtensions();
+			if (missingExtensions.length > 0) {
+				const ids = missingExtensions.map(p => PROVIDER_EXTENSION_ID[p]);
+				try { await this.commandService.executeCommand('workbench.extensions.action.showExtensionsWithIds', ids); } catch { /* ignore */ }
+				this._revealWhenInstalled(missingExtensions);
+			} else {
+				void revealAiProviderChat(this.commandService, this.configurationService, { retryMs: 6000 });
+			}
 		})();
 	}
 
