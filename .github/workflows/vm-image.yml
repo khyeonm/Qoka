@@ -195,6 +195,8 @@ jobs:
             --run-command 'systemctl enable ssh || systemctl enable sshd || true' \
             --run-command 'mkdir -p /etc/default/grub.d && echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg || true' \
             --run-command 'update-grub || true' \
+            --edit '/etc/fstab:s{(/boot(?:/efi)?\s+\S+\s+)(\S+)}{$1$2,nofail,x-systemd.device-timeout=5s}' \
+            --run-command 'systemctl mask systemd-timesyncd.service snapd.service snapd.socket snapd.seeded.service multipathd.service || true' \
             --run-command '/usr/local/bin/docker --version || true' \
             --run-command '/usr/local/bin/aria-reh --version || true' \
             --run-command '{ cp /opt/uvdir/uv /usr/local/bin/ && chmod +x /usr/local/bin/uv; } || true' \
