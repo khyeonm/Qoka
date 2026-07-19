@@ -52,6 +52,29 @@ function spawnAsync(command: string, args: string[], opts: child_process.SpawnOp
 	});
 }
 
+/**
+ * Run an npm install, retrying on a crash. On Windows the npm/node child process
+ * intermittently dies with 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN, exit code
+ * 3221226505) partway through the install loop - a transient runner crash, not a
+ * real dependency error. Setting VSCODE_POSTINSTALL_CONCURRENCY=1 reduces it but
+ * doesn't eliminate it, so retry the install (npm install is idempotent) a few
+ * times before giving up, which lets the build ride out the flake.
+ */
+async function spawnAsyncWithRetry(command: string, args: string[], opts: child_process.SpawnOptions, dir: string, retries = 2): Promise<string> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await spawnAsync(command, args, opts);
+		} catch (err) {
+			if (attempt >= retries) {
+				throw err;
+			}
+			const first = (err as Error).message.split('\n')[0];
+			log(dir, `install failed (attempt ${attempt + 1}/${retries + 1}), retrying: ${first}`);
+			await new Promise(resolve => setTimeout(resolve, 1500 * (attempt + 1)));
+		}
+	}
+}
+
 async function npmInstallAsync(dir: string, opts?: child_process.SpawnOptions): Promise<void> {
 	const finalOpts: child_process.SpawnOptions = {
 		env: { ...process.env },
@@ -88,7 +111,7 @@ async function npmInstallAsync(dir: string, opts?: child_process.SpawnOptions): 
 		run('sudo', ['chown', '-R', `${userinfo.uid}:${userinfo.gid}`, `${path.resolve(root, dir)}`], syncOpts);
 	} else {
 		log(dir, 'Installing dependencies...');
-		const output = await spawnAsync(npm, command.split(' '), finalOpts);
+		const output = await spawnAsyncWithRetry(npm, command.split(' '), finalOpts, dir);
 		if (output.trim()) {
 			for (const line of output.trim().split('\n')) {
 				log(dir, line);
@@ -309,7 +332,7 @@ async function main() {
 	}
 
 	// JS-only dirs run in parallel. VSCODE_POSTINSTALL_CONCURRENCY overrides the
-	// default — set it to 1 on Windows, where parallel npm child processes have
+	// default - set it to 1 on Windows, where parallel npm child processes have
 	// been crashing the build with 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN).
 	const concurrencyOverride = parseInt(process.env['VSCODE_POSTINSTALL_CONCURRENCY'] ?? '', 10);
 	const concurrency = Number.isFinite(concurrencyOverride) && concurrencyOverride > 0
