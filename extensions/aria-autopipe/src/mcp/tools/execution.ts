@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ToolDefinition, textResult, errorResult } from './types';
+import { ensureAutopipeTabOpen } from './autopipeTab';
 import { services } from '../../common/services';
 import { workspacePathsFor } from '../../common/types';
 import { shellEscape } from '../../common/roCrate';
@@ -44,6 +45,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 			required: ['pipeline_dir', 'image_name'],
 		},
 		handler: async (args) => {
+			ensureAutopipeTabOpen();
 			try {
 				const profile = requireProfile();
 				const { ssh } = services();
@@ -152,6 +154,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 			required: ['image_name', 'input_dir'],
 		},
 		handler: async (args) => {
+			ensureAutopipeTabOpen();
 			try {
 				const profile = requireProfile();
 				const { ssh } = services();
@@ -234,6 +237,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 			required: ['image_name', 'run_name', 'input_dir'],
 		},
 		handler: async (args) => {
+			ensureAutopipeTabOpen();
 			try {
 				const profile = requireProfile();
 				const { ssh } = services();

@@ -24,7 +24,7 @@ When the user wants to write / draft / 작성 a paper, DO NOT start searching an
 4. GATHER SOURCES next: add each reference to cite with add_citation, and ask the user for their data / results / notes. Everything you write must come from these sources - do not invent facts or references.
 5. Only after format + sources are set: propose an outline (set_outline), draft section by section (set_manuscript), then export_paper.
 
-DO NOT AUTO-ADVANCE THE WIZARD. The wizard has the steps Format -> Sources -> Focus -> Outline -> Write, and the USER clicks "Next" to move between them - you do not. After you fill a stage's content (set_format / add_citation / set_focus / set_outline / set_manuscript, etc.), TELL the user the content is ready and to press the "Next" button to move to that step and see the filled-in content. You fill the content; the user clicks Next; the content is already populated when they arrive.
+DO NOT AUTO-ADVANCE THE WIZARD. The wizard has the steps Format -> Sources -> Focus -> Outline -> Write, and the USER clicks "Next" to move between them - you do not. The "press Next" guidance applies ONLY to the MIDDLE steps - Sources, Focus, Outline: after you fill that step's content (add_citation / set_focus / set_outline), TELL the user it is ready and to press the "Next" button to move to that step and see the filled-in content. Two exceptions where you must NOT say "press Next": (a) Format is the FIRST step, shown by default (visible WITHOUT Next) - after set_format just confirm the settings back and continue; telling the user to press Next here would jump them to an empty Sources, which is confusing. (b) Write is the LAST step with no Next button after it - after set_manuscript just tell the user the draft is written and to take a look at it, do NOT say press Next.
 
 EDITING AN EXISTING DRAFT - CRITICAL: once a manuscript exists, ANY change the
 user asks for (remove a citation, reword a sentence, fix a section, etc.) MUST
@@ -40,7 +40,7 @@ to accept, then run export_paper and tell them the output path.
 Always ask the user one step at a time and confirm before moving on. Begin with steps 1–3 (setup) before any drafting.
 
 PEER REVIEW flow (a separate set of tools on this same server). When the user asks IN CHAT to peer-review / critique a paper and you do NOT yet have an execId:
-1. FIRST call open_new_review to open the new-review window on the Peer Review tab. Then tell the user their draft is in the window and they can add figures / supplementary files there, and to say when they are done.
+1. FIRST call open_new_review to open the new-review window on the Peer Review tab. Then give a SHORT guidance: tell the user their written draft is already in, and that pressing the "A paper written in the Paper Writing tab" button in that window shows the loaded draft; they can then add figures / supplementary files, and say when they are done.
 2. WAIT for the user to confirm they are done. Do NOT start reviewing before then. The run is started from the Peer Review tab, which provides an execId - use that execId with get_review to load the manuscript, then run the reviewers and record_review each reviewer's concerns. The reviewer results appear in the Peer Review tab.
 3. REVISE stays as a conversation: propose fixes and, when the user accepts, stage them with record_revision (or propose_document_edit for a direct user-requested edit). Nothing is applied until the user accepts.
 4. When the user wants to keep the reviewed paper, export it (from the Peer Review tab's Save/Export controls, which write md/docx/latex into the review's own directory) and tell them where the file lands.`;
@@ -79,9 +79,13 @@ current state at any time.
    outline from the current focus, and the manuscript from the current outline.
 5. DO NOT AUTO-ADVANCE THE WIZARD - MANDATORY. The USER clicks "Next" to move
    between the Format -> Sources -> Focus -> Outline -> Write steps; you do not.
-   After you fill a stage's content (set_format / set_focus / set_outline /
-   set_manuscript, etc.), TELL the user the content is ready and to press "Next"
-   to move to that step and see the filled-in content.
+   Say "press Next" ONLY for the middle steps (Sources, Focus, Outline): after
+   filling that step (add_citation / set_focus / set_outline), tell the user to
+   press "Next" to move to it and see the filled content. Do NOT say "press Next"
+   for Format (the first step, shown by default - just confirm it after set_format;
+   pressing Next would land the user on an empty Sources) or for Write (the last
+   step, no Next after it - after set_manuscript just tell the user the draft is
+   written and to take a look).
 
 ## Stage 1 - FORMAT (set_format)
 Ask the user for and record: language (en/ko), target length (words), paper

@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ToolDefinition, textResult, errorResult } from './types';
+import { ensureAutopipeTabOpen } from './autopipeTab';
 import { services } from '../../common/services';
 import { workspacePathsFor } from '../../common/types';
 import { shellEscape } from '../../common/roCrate';
@@ -216,6 +217,7 @@ export const FILE_TOOLS: ToolDefinition[] = [
 			required: ['path', 'content'],
 		},
 		handler: async (args) => {
+			ensureAutopipeTabOpen();
 			try {
 				const profile = requireProfile();
 				const { ssh } = services();
