@@ -1,18 +1,19 @@
 # Publishes the base VM disk image the built-in Run environment downloads
 # (extensions/aria-autopipe/src/vm/provisioner.ts -> aria-vm-<arch>.qcow2).
 #
-# v4 bakes the REMOTE-EXTENSION-HOST stack AND Aria's runtimes so the image can
-# host Aria itself with ZERO guest-side install (the whole point: users download
-# the image, they never run installers):
+# v6 bakes the REMOTE-EXTENSION-HOST stack + Aria's SMALL runtimes — kept small
+# enough to fit the cloud image's ~3.5G root fs so it boots cleanly (baking the
+# large codex/claude npm trees filled the fs and every fs-expansion workaround
+# broke the UEFI boot). What is baked:
 #   - docker            (for autopipe's `docker build`)
 #   - aria-reh          (VS Code REH server = product.serverApplicationName; the
 #                        "extension runner" the host renderer connects to)
-#   - node/npm          (drives the npm CLIs below)
-#   - codex + claude    (@openai/codex, @anthropic-ai/claude-code) at /usr/local/bin
-#                        so isProviderInstalled() is true and all 9 MCP servers
-#                        register against this codex — no CLI install at launch
+#   - node/npm          (drives npm; also used by the first-boot CLI install)
 #   - uv (+uvx)         Aria's Python-skill runner
 #   - git, sshfs, fuse3 (git for projects; sshfs+fuse3 for the host→guest share)
+# codex + claude are NOT baked — they install at FIRST BOOT (aria-installcli.service)
+# via npm, since the runtime VM has internet (unlike this CI appliance) and their
+# node_modules are too large to fit the root fs.
 #
 # The REH is NOT compiled here — it is built on a clean runner by reh-build.yml
 # and downloaded from the vm-assets release. Compiling VS Code AND running
@@ -85,40 +86,26 @@ jobs:
           curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
           echo "ARIA_NODE_DIR=$PWD/$F" >> "$GITHUB_ENV"
 
-      # Aria's runtimes, prepared on the HOST runner (which HAS network) and baked
-      # via --copy-in below, so the guest install is fully OFFLINE (no passt).
-      #   - codex (@openai/codex) + claude (@anthropic-ai/claude-code): npm CLIs.
-      #     Host and guest are both linux-x64, so any native optionalDependencies
-      #     match. Installed to /usr/local in the guest — the FIRST dir
-      #     headlessCli.providerDirs()/codexMcp CODEX_CANDIDATES probe — so
-      #     isProviderInstalled() is true with zero guest-side install, and all 9
-      #     MCP servers register (`codex mcp add`) against this baked codex.
+      # Aria's SMALL runtimes, prepared on the HOST runner (which HAS network) and
+      # baked via --copy-in below, so the guest install is fully OFFLINE (no passt).
+      # (codex/claude are NOT here — too large for the root fs; they install at first
+      # boot, see aria-installcli.service.)
       #   - uv (+uvx): Aria's Python-skill runner.
       #   - git + sshfs + fuse3: .deb closure resolved in a clean ubuntu:24.04
       #     container (same family as the cloud image); installed offline via
       #     `dpkg -i`. sshfs+fuse3 back the host→guest project share.
-      - name: Prepare Aria runtimes on host (codex, claude, uv, apt debs)
+      - name: Prepare Aria runtimes on host (uv, apt debs)
         run: |
           set -euxo pipefail
           export PATH="$ARIA_NODE_DIR/bin:$PATH"
           node --version && npm --version
 
-          mkdir -p cli-prefix
-          npm install -g --prefix "$PWD/cli-prefix" @openai/codex @anthropic-ai/claude-code
-          echo '--- cli-prefix layout ---'
-          find cli-prefix -maxdepth 2 -mindepth 1 | sort
-          echo '--- cli-prefix/bin ---'
-          ls -la cli-prefix/bin
-          # Make the global-bin symlinks RELATIVE so the whole tree relocates cleanly
-          # to /opt/cli-prefix in the guest (npm may emit host-absolute links, which
-          # would dangle after copy-in). `test -e` follows the link → asserts it still
-          # resolves on the host after the rewrite.
-          for b in cli-prefix/bin/*; do
-            [ -L "$b" ] || continue
-            ln -sfr "$(readlink -f "$b")" "$b"
-          done
-          test -e cli-prefix/bin/codex
-          test -e cli-prefix/bin/claude
+          # NOTE: codex + claude are NOT baked. Their npm node_modules are large and
+          # filled the cloud image's tiny (~3.5G) root fs, forcing an fs expansion
+          # (virt-resize / boot-time growpart) that kept breaking the UEFI boot. So
+          # they are installed at FIRST BOOT instead (aria-installcli.service, baked
+          # below) — the runtime VM has internet via slirp, unlike the CI appliance.
+          # Everything else here (node/uv/git/sshfs/docker/reh) is small and baked.
 
           mkdir -p uvdir uvtmp
           curl -fsSL https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz \
@@ -161,30 +148,24 @@ jobs:
         run: |
           set -euxo pipefail
           sudo chmod 0644 /boot/vmlinuz-* || true
-          # The cloud image's root fs is only ~3.5G. Baking the runtimes
-          # (codex/claude node_modules + uv + git/sshfs) fills it, so on first boot
-          # cloud-init can't even write /var/lib/cloud ("No space left on device")
-          # and never reaches its own growpart → networkd/sshd never come up → the
-          # resolver times out. virt-resize (repartition at bake) fixed the space but
-          # BROKE UEFI boot (guest produced no console output at all). So instead keep
-          # the original, known-bootable partition layout: grow only the DISK here,
-          # and grow the PARTITION+FS at first boot via an early oneshot (aria-growroot,
-          # below) that runs BEFORE cloud-init. resize2fs GROWING needs no free space,
-          # so it works even on a 100%-full fs. This keeps the published qcow2 sparse
-          # (~1.4GB, like v4) — well under GitHub's 2GB release-asset limit, no
-          # compression needed.
+          # Runtimes are kept SMALL enough to fit the cloud image's ~3.5G root fs
+          # (docker/reh/node/uv/git/sshfs), so it boots cleanly like v3 — NO fs
+          # expansion needed (virt-resize broke UEFI boot; boot-time growpart caused
+          # partition/label waits). codex + claude (large npm trees) install at FIRST
+          # BOOT instead. Grow only the DISK here; cloud-init's own growpart expands
+          # the partition to fill the 60G overlay on first boot, now that the fs has
+          # room for cloud-init to run. Published qcow2 stays sparse (~1.4GB, under 2GB).
           qemu-img resize base.qcow2 30G
 
           printf '[Unit]\nDescription=Docker Application Container Engine\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/dockerd\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n' > docker.service
 
-          # Early root-fs grow: runs BEFORE cloud-init-local so the fs has room by the
-          # time cloud-init writes /var/lib/cloud. growpart expands partition 1 to fill
-          # the (60G overlay) disk; resize2fs grows the ext4 into it (no free space
-          # needed to grow). Both tools ship in the cloud image (cloud-guest-utils /
-          # e2fsprogs). Every step is `|| true` so a quirk never blocks boot.
-          # NOTE: the guest disk is virtio (vmLauncher uses if=virtio) → /dev/vda, not
-          # /dev/sda. Try both so it works regardless of bus.
-          printf '[Unit]\nDescription=Aria grow root fs before cloud-init\nDefaultDependencies=no\nAfter=systemd-remount-fs.service\nBefore=cloud-init-local.service sysinit.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/bin/sh -c "for d in vda sda; do if [ -b /dev/${d}1 ]; then growpart /dev/$d 1 || true; resize2fs /dev/${d}1 || true; fi; done; true"\n\n[Install]\nWantedBy=sysinit.target\n' > aria-growroot.service
+          # First-boot AI CLI install: codex + claude are NOT baked (their node_modules
+          # filled the fs). This oneshot installs them via npm once the network is up,
+          # only if missing (idempotent) — runs once on first boot, then no-ops. npm
+          # global (with the baked node) drops the bins in /usr/local/bin, the first
+          # dir the resolver/headlessCli probe. Backgrounded in boot; the workbench CLI
+          # check is made non-fatal so the connection never waits on it.
+          printf '[Unit]\nDescription=Aria install AI CLIs on first boot\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/bin/sh -c "export PATH=/usr/local/bin:$PATH; command -v codex >/dev/null 2>&1 || npm install -g @openai/codex; command -v claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code; true"\n\n[Install]\nWantedBy=multi-user.target\n' > aria-installcli.service
 
           # --no-network: everything that needs a network was fetched on the HOST
           # (Prepare Aria runtimes step) and is baked in via --copy-in below, then
@@ -200,10 +181,9 @@ jobs:
             --copy-in docker/docker-init:/usr/local/bin/ \
             --copy-in docker/docker-proxy:/usr/local/bin/ \
             --copy-in docker.service:/etc/systemd/system/ \
-            --copy-in aria-growroot.service:/etc/systemd/system/ \
+            --copy-in aria-installcli.service:/etc/systemd/system/ \
             --copy-in "${ARIA_NODE_DIR}:/opt/" \
             --copy-in "vscode-reh-linux-${{ matrix.arch }}:/opt/" \
-            --copy-in cli-prefix:/opt/ \
             --copy-in uvdir:/opt/ \
             --copy-in debs:/opt/ \
             --run-command 'mv /opt/vscode-reh-linux-'"${{ matrix.arch }}"' /opt/aria-reh' \
@@ -211,20 +191,16 @@ jobs:
             --run-command 'NODE_DIR=$(ls -d /opt/node-v* | head -1); ln -sf "$NODE_DIR/bin/node" /usr/local/bin/node; ln -sf "$NODE_DIR/bin/npm" /usr/local/bin/npm; ln -sf "$NODE_DIR/bin/npx" /usr/local/bin/npx' \
             --run-command 'groupadd -f docker || true' \
             --run-command 'systemctl enable docker.service || true' \
-            --run-command 'systemctl enable aria-growroot.service || true' \
+            --run-command 'systemctl enable aria-installcli.service || true' \
             --run-command 'systemctl enable ssh || systemctl enable sshd || true' \
             --run-command 'mkdir -p /etc/default/grub.d && echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg || true' \
             --run-command 'update-grub || true' \
             --run-command '/usr/local/bin/docker --version || true' \
             --run-command '/usr/local/bin/aria-reh --version || true' \
-            --run-command 'ls -la /opt/cli-prefix/bin /opt/cli-prefix/lib/node_modules 2>&1 | head -40 || true' \
-            --run-command 'for b in /opt/cli-prefix/bin/*; do ln -sf "$b" "/usr/local/bin/$(basename "$b")"; done' \
             --run-command '{ cp /opt/uvdir/uv /usr/local/bin/ && chmod +x /usr/local/bin/uv; } || true' \
             --run-command '{ [ -f /opt/uvdir/uvx ] && cp /opt/uvdir/uvx /usr/local/bin/ && chmod +x /usr/local/bin/uvx; } || true' \
             --run-command 'dpkg -i /opt/debs/*.deb || true' \
             --run-command 'rm -rf /opt/uvdir /opt/debs' \
-            --run-command '/usr/local/bin/codex --version || true' \
-            --run-command '/usr/local/bin/claude --version || true' \
             --run-command '/usr/local/bin/uv --version || true' \
             --run-command 'command -v sshfs && command -v git || true'
           # Just rename: qemu-img resize kept the image sparse (~1.4GB, like v4), so
