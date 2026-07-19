@@ -2,7 +2,7 @@
 	"nameShort": "Aria",
 	"nameLong": "Aria (beta)",
 	"applicationName": "aria",
-	"ariaVersion": "0.2.1",
+	"ariaVersion": "0.2.2",
 	"trustedExtensionAuthAccess": {
 		"aria": [
 			"aria.aria-memory",
