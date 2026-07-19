@@ -119,7 +119,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			//    above, one reconcile registers every server with each - so "all 9
 			//    registered" also means "with every chosen provider".
 			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-			const allRegistered = await this._registerRemainingMcp();
+			const allRegistered = await this._registerMcpFast(usable);
 			this._setupGateDone = true;
 			hideLoading();
 
@@ -167,6 +167,54 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		'aria.hypothesis.reregisterMcp',
 		'aria.overview.reregisterMcp',
 	];
+
+	/** Each Aria MCP extension also exposes this: returns { name, port } for its
+	 *  live server (or null if not up). The coordinator collects all of them and
+	 *  registers every server in ONE batched config write - far faster than the
+	 *  per-server CLI path (which is kept as the fallback). */
+	private readonly _mcpInfoCommands = [
+		'aria.autopipe.mcpInfo',
+		'aria.paper.mcpInfo',
+		'aria.paperSearch.mcpInfo',
+		'aria.memory.mcpInfo',
+		'aria.notes.mcpInfo',
+		'aria.roadmap.mcpInfo',
+		'aria.methodsSearch.mcpInfo',
+		'aria.hypothesis.mcpInfo',
+		'aria.overview.mcpInfo',
+	];
+
+	/**
+	 * Fast MCP registration. Collect every server's { name, port } (parallel reads
+	 * are race-free), then write BOTH provider config files in one batched,
+	 * single-writer call (aria.mcp.applyConfig) - which also verifies and CLI-
+	 * retries stragglers. Because the writer is verify-first, a relaunch whose
+	 * ports are unchanged is a near-instant no-op. Falls back to the original
+	 * per-extension CLI reconcile if the fast path can't confirm every server, so
+	 * registration is never worse than before.
+	 */
+	private async _registerMcpFast(providers: ConcreteProvider[]): Promise<boolean> {
+		try {
+			const infos = await Promise.all(this._mcpInfoCommands.map(cmd =>
+				Promise.resolve(this.commandService.executeCommand<unknown>(cmd)).then(r => r, () => undefined)));
+			const servers = infos.filter((r): r is { name: string; port: number } =>
+				!!r && typeof r === 'object'
+				&& typeof (r as { name?: unknown }).name === 'string'
+				&& typeof (r as { port?: unknown }).port === 'number');
+			// Only trust the fast path when every server reported; otherwise fall
+			// back so a straggler that hasn't bound yet still gets registered.
+			if (servers.length === this._mcpInfoCommands.length) {
+				const res = await this.commandService.executeCommand<{ allRegistered?: boolean }>(
+					'aria.mcp.applyConfig', { providers, servers });
+				if (res && res.allRegistered === true) {
+					return true;
+				}
+			}
+		} catch {
+			// fall through to the CLI reconcile path
+		}
+		return this._registerRemainingMcp();
+	}
 
 	/** Ask every Aria MCP to (re)register; show ONE toast if any newly did. A
 	 *  command that isn't registered yet (its extension not active) just resolves

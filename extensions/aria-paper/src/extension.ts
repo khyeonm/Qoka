@@ -235,6 +235,13 @@ export function activate(context: vscode.ExtensionContext): void {
 	// newly registered something. Awaits the server start (rather than reading a
 	// port set by the IIFE) because the coordinator may call before the port is
 	// known - and whichever awaiter the runtime resumes first must still work.
+	// Reports this MCP server's { name, port } so the startup coordinator can
+	// batch-register every Aria MCP in one direct config write (see aria.mcp.applyConfig).
+	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.mcpInfo', async () => {
+		const port = await startPromise.catch(() => undefined);
+		return port === undefined ? null : { name: 'aria-paper', port };
+	}));
+
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.reregisterMcp', async () => {
 		const port = await startPromise.catch(() => undefined);
 		if (port === undefined) { return { changed: false, registered: false }; }

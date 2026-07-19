@@ -200,6 +200,16 @@ export function activate(context: vscode.ExtensionContext): void {
 	// coordinator can show one "open a new chat" prompt across all Aria MCPs.
 	// Awaits the server start because the coordinator may call before the port
 	// is known.
+	// Reports this MCP server's { name, port } for the startup coordinator's
+	// batch config write (see aria.mcp.applyConfig).
+	context.subscriptions.push(
+		vscode.commands.registerCommand('aria.autopipe.mcpInfo', async () => {
+			try { await startPromise; } catch { return null; }
+			const port = mcpServer?.currentPort;
+			return typeof port === 'number' ? { name: 'autopipe', port } : null;
+		}),
+	);
+
 	context.subscriptions.push(
 		vscode.commands.registerCommand('aria.autopipe.reregisterMcp', async () => {
 			// refreshAiRegistrations reads mcpServer.currentPort, which the server
