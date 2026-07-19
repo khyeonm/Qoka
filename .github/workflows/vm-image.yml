@@ -162,25 +162,29 @@ jobs:
           set -euxo pipefail
           sudo chmod 0644 /boot/vmlinuz-* || true
           # The cloud image's root fs is only ~3.5G. Baking the runtimes
-          # (codex/claude node_modules + uv + git/sshfs) fills it, leaving cloud-init
-          # NO room on first boot → "No space left on device" at /var/lib/cloud →
-          # cloud-init-local + networkd fail → sshd never comes up → the resolver
-          # times out "waiting for the VM to become reachable". `qemu-img resize`
-          # only grows the DISK, not the partition/fs, and cloud-init's growpart
-          # can't run once the fs is already full. So expand the root partition+fs
-          # HERE, at bake time, before copying anything in.
-          #
-          # Expand to ONLY 8G (not 30G): just enough for the runtimes + cloud-init
-          # headroom. The user's overlay is created at ${diskGB}G (60G, see
-          # vmLauncher) backing this base, and cloud-init growpart expands the 8G
-          # partition to fill it on first boot — exactly like v3. A 30G expand grew
-          # the qcow2 past GitHub's 2GB release-asset limit (ext4 metadata); 8G +
-          # the qemu-img convert compaction below keeps the published file well under.
-          qemu-img create -f qcow2 expanded.qcow2 8G
-          virt-resize --expand /dev/sda1 base.qcow2 expanded.qcow2
-          mv -f expanded.qcow2 base.qcow2
+          # (codex/claude node_modules + uv + git/sshfs) fills it, so on first boot
+          # cloud-init can't even write /var/lib/cloud ("No space left on device")
+          # and never reaches its own growpart → networkd/sshd never come up → the
+          # resolver times out. virt-resize (repartition at bake) fixed the space but
+          # BROKE UEFI boot (guest produced no console output at all). So instead keep
+          # the original, known-bootable partition layout: grow only the DISK here,
+          # and grow the PARTITION+FS at first boot via an early oneshot (aria-growroot,
+          # below) that runs BEFORE cloud-init. resize2fs GROWING needs no free space,
+          # so it works even on a 100%-full fs. This keeps the published qcow2 sparse
+          # (~1.4GB, like v4) — well under GitHub's 2GB release-asset limit, no
+          # compression needed.
+          qemu-img resize base.qcow2 30G
 
           printf '[Unit]\nDescription=Docker Application Container Engine\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/dockerd\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n' > docker.service
+
+          # Early root-fs grow: runs BEFORE cloud-init-local so the fs has room by the
+          # time cloud-init writes /var/lib/cloud. growpart expands partition 1 to fill
+          # the (60G overlay) disk; resize2fs grows the ext4 into it (no free space
+          # needed to grow). Both tools ship in the cloud image (cloud-guest-utils /
+          # e2fsprogs). Every step is `|| true` so a quirk never blocks boot.
+          # NOTE: the guest disk is virtio (vmLauncher uses if=virtio) → /dev/vda, not
+          # /dev/sda. Try both so it works regardless of bus.
+          printf '[Unit]\nDescription=Aria grow root fs before cloud-init\nDefaultDependencies=no\nAfter=systemd-remount-fs.service\nBefore=cloud-init-local.service sysinit.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/bin/sh -c "for d in vda sda; do if [ -b /dev/${d}1 ]; then growpart /dev/$d 1 || true; resize2fs /dev/${d}1 || true; fi; done; true"\n\n[Install]\nWantedBy=sysinit.target\n' > aria-growroot.service
 
           # --no-network: everything that needs a network was fetched on the HOST
           # (Prepare Aria runtimes step) and is baked in via --copy-in below, then
@@ -196,6 +200,7 @@ jobs:
             --copy-in docker/docker-init:/usr/local/bin/ \
             --copy-in docker/docker-proxy:/usr/local/bin/ \
             --copy-in docker.service:/etc/systemd/system/ \
+            --copy-in aria-growroot.service:/etc/systemd/system/ \
             --copy-in "${ARIA_NODE_DIR}:/opt/" \
             --copy-in "vscode-reh-linux-${{ matrix.arch }}:/opt/" \
             --copy-in cli-prefix:/opt/ \
@@ -206,6 +211,7 @@ jobs:
             --run-command 'NODE_DIR=$(ls -d /opt/node-v* | head -1); ln -sf "$NODE_DIR/bin/node" /usr/local/bin/node; ln -sf "$NODE_DIR/bin/npm" /usr/local/bin/npm; ln -sf "$NODE_DIR/bin/npx" /usr/local/bin/npx' \
             --run-command 'groupadd -f docker || true' \
             --run-command 'systemctl enable docker.service || true' \
+            --run-command 'systemctl enable aria-growroot.service || true' \
             --run-command 'systemctl enable ssh || systemctl enable sshd || true' \
             --run-command 'mkdir -p /etc/default/grub.d && echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg || true' \
             --run-command 'update-grub || true' \
@@ -221,13 +227,10 @@ jobs:
             --run-command '/usr/local/bin/claude --version || true' \
             --run-command '/usr/local/bin/uv --version || true' \
             --run-command 'command -v sshfs && command -v git || true'
-          # Compress via convert (-c). The cloud image ships as a COMPRESSED qcow2;
-          # an uncompressed convert (-O qcow2 without -c) decompressed the whole
-          # image and made it BIGGER, still blowing GitHub's 2GB release-asset limit
-          # even at 8G. -c compresses everything (runtime data + the zeroed 8G ext4
-          # metadata) so the published asset lands well under 2GB. qemu reads a
-          # compressed qcow2 backing file fine — the per-boot overlay stays writable.
-          qemu-img convert -O qcow2 -c base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
+          # Just rename: qemu-img resize kept the image sparse (~1.4GB, like v4), so
+          # no compression/convert is needed to stay under GitHub's 2GB limit — and
+          # avoiding convert keeps the on-disk format identical to the bootable v4.
+          mv base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
           ls -lh "aria-vm-${{ matrix.arch }}.qcow2"
 
       - name: Publish to vm-assets release
