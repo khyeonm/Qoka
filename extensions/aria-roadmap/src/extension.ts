@@ -15,6 +15,10 @@ import { registerWorkbenchCommands, snapshotPayload } from './commands';
 let mcpServer: AriaRoadmapMcpServer | undefined;
 let store: RoadmapStore | undefined;
 let finalized = false;
+// Reveal the Roadmap view container at most once per server session so a
+// proposed node is never added to a canvas the user cannot see, without
+// stealing focus on every single node.
+let canvasRevealed = false;
 
 /**
  * Aria Roadmap - extension entry.
@@ -80,7 +84,18 @@ export function activate(context: vscode.ExtensionContext): void {
 			snapshotPayload(store!, finalized),
 		);
 	};
-	const tools = buildTools(store, notify, value => { finalized = value; });
+	// Best-effort: reveal the Roadmap view container so nodes are never proposed
+	// onto a canvas the user cannot see. Revealing the container is idempotent
+	// and cheap; guarded to fire once per session to avoid stealing focus on
+	// every node. Mirrors aria-overview's open_roadmap container reveal.
+	const ensureCanvasOpen = () => {
+		if (canvasRevealed) { return; }
+		canvasRevealed = true;
+		try {
+			void vscode.commands.executeCommand('workbench.view.ariaRoadmap');
+		} catch { /* no UI (headless / registration-only) - best-effort */ }
+	};
+	const tools = buildTools(store, notify, value => { finalized = value; }, ensureCanvasOpen);
 	mcpServer = new AriaRoadmapMcpServer(tools);
 
 	registerWorkbenchCommands(context, store, () => finalized, value => { finalized = value; });

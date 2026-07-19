@@ -55,6 +55,7 @@ export function buildTools(
 	store: RoadmapStore,
 	notify: StateChangeNotifier = () => { /* no-op */ },
 	setFinalized: (value: boolean) => void = () => { /* no-op */ },
+	ensureCanvasOpen: () => void = () => { /* no-op */ },
 ): ToolDefinition[] {
 	const state = store.state;
 	const after = <T>(value: T): T => { notify(); return value; };
@@ -118,7 +119,7 @@ export function buildTools(
 		},
 		{
 			name: 'propose_node',
-			description: 'Suggest a new node. Renders on the canvas with a "proposed" treatment so the user can accept, edit, or reject it. column is 0 (Goal), 1 (Milestone), 2 (Task), 3 (Detail), and may go deeper (4, 5, …) for sub-details. parent must be null for column 0 and otherwise reference a COMMITTED node id in the previous column. Keep label SHORT (a card headline) and put any longer text in description - the user reads the full description by clicking the node. Write all labels and descriptions in English.',
+			description: 'Suggest a new node. Renders on the canvas with a "proposed" treatment so the user can accept, edit, or reject it. BEFORE proposing nodes, make sure the roadmap canvas is OPEN and visible - if it is not, call open_roadmap (the aria-overview tool) first. NEVER tell the user you added nodes unless the canvas is visible, so they can actually see what you proposed. column is 0 (Goal), 1 (Milestone), 2 (Task), 3 (Detail), and may go deeper (4, 5, …) for sub-details. parent must be null for column 0 and otherwise reference a COMMITTED node id in the previous column. Keep label SHORT (a card headline) and put any longer text in description - the user reads the full description by clicking the node. Write all labels and descriptions in English.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -137,7 +138,8 @@ export function buildTools(
 					return err('propose_node requires column (0..3) and a non-empty label');
 				}
 				try {
-					const proposal = state.propose({
+					try { ensureCanvasOpen(); } catch { /* best-effort reveal; must not break the tool */ }
+						const proposal = state.propose({
 						parent: asString(args.parent) ?? null,
 						column,
 						label,
@@ -319,7 +321,7 @@ export function buildTools(
 		},
 		{
 			name: 'finalize_roadmap',
-			description: 'Signal that the roadmap is structurally complete. Optional, purely a marker - the roadmap already saves AUTOMATICALLY on every edit, so there is nothing to enable and no Save button. Call at most once, only after the user confirms the roadmap looks done. Do NOT tell the user to save.',
+			description: 'Signal that the roadmap is structurally complete. Optional, purely a marker - the roadmap already saves AUTOMATICALLY on every edit, so there is nothing to enable and no Save button. Call at most once, only after the user confirms the roadmap looks done. Do NOT tell the user to save. When the roadmap is complete (including when the user says something like "let\'s finish the roadmap here"), you MUST complete the hand-off so the plan moves onto the Overview and To-do: call add_tasks (the aria-overview tool) to break the plan into research / work-unit ACTION items, then call open_overview (also aria-overview) so the plan lands on the Project Overview tab, and tell the user the roadmap is on the Overview tab with the To-do list placed below it. This finalize marker does NOT replace that hand-off.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				setFinalized(true);

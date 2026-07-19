@@ -223,6 +223,18 @@ function parseConcerns(raw: unknown): Concern[] {
 export function buildReviewTools(): ToolDefinition[] {
 	return [
 		{
+			name: 'open_new_review',
+			description: 'Open Aria\'s Peer Review tab and start a NEW review window. Call this FIRST when the user asks IN CHAT to peer-review / critique a paper and you do not yet have an execId. It only opens the UI (best-effort) - it does not start the review. After calling it, tell the user their draft is in the new-review window where they can add figures / supplementary files, and to say when they are done; the actual run is started from the tab (which gives you an execId for get_review).',
+			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+			handler: async () => {
+				// Best-effort: reveal the Peer Review tab, then open the new-review
+				// window. UI failures must not fail the tool.
+				try { await vscode.commands.executeCommand('workbench.view.ariaPeerReview'); } catch { /* tab optional */ }
+				try { await vscode.commands.executeCommand('aria.peerReview.new'); } catch { /* window optional */ }
+				return ok('Opened the new-review window on the Peer Review tab. Tell the user their draft is in and they can add figures / supplementary files there, then say when they are done - only then does the review run (started from the tab).');
+			},
+		},
+		{
 			name: 'get_review',
 			description: 'Load an AI Peer Review run started from Aria\'s Peer Review tab. Returns the paper title, the MAIN manuscript text (the thing to review), any supplementary text, referenced figure names, and the reviewers to use. Call this first with the execId Aria gave you, then run the reviewer sub-agents on the manuscript.',
 			inputSchema: {

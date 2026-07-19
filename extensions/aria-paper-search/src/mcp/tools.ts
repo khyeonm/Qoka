@@ -46,6 +46,19 @@ type JsonSchemaProp =
 	| { type: 'array'; description?: string; items: JsonSchemaProp }
 	| { type: 'object'; description?: string; properties?: Record<string, JsonSchemaProp> };
 
+/**
+ * Optional callback the extension host wires up so that, after a paper is
+ * saved, the Paper Library sidebar tab is revealed (its list auto-refreshes
+ * when it becomes visible, so the freshly saved paper shows up). Kept as a
+ * best-effort hook: in a headless / no-UI context it is simply never set, and
+ * even when set it is called defensively so a failure can't break the save.
+ */
+let revealLibrary: (() => void) | undefined;
+
+export function setRevealLibrary(fn: (() => void) | undefined): void {
+	revealLibrary = fn;
+}
+
 function textResult(text: string): CallToolResult {
 	return { content: [{ type: 'text', text }] };
 }
@@ -57,7 +70,7 @@ function errorResult(text: string): CallToolResult {
 export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'save_paper',
-		description: 'Save a paper to the user\'s Aria paper library. Only the title is required. Pass whatever other metadata you have - the rest are optional but enrich the library entry. If a field such as authors is missing, first try to find it (from the search result or a quick lookup); if it still cannot be determined, save the paper anyway with what you have (leave authors empty rather than refusing). Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags.',
+		description: 'Save a paper to the user\'s Aria paper library. Only the title is required. Pass whatever other metadata you have - the rest are optional but enrich the library entry. If a field such as authors is missing, first try to find it (from the search result or a quick lookup); if it still cannot be determined, save the paper anyway with what you have (leave authors empty rather than refusing). Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags. After a successful save the Paper Library sidebar tab opens automatically to show the saved paper, so tell the user it now appears in their Paper Library tab.',
 		inputSchema: {
 			type: 'object',
 			required: ['title'],
@@ -96,6 +109,14 @@ export const ALL_TOOLS: ToolDefinition[] = [
 				abstract: typeof args.abstract === 'string' ? args.abstract : undefined,
 				source: normalizeSource(args.source),
 			});
+			// Best-effort: reveal the Paper Library tab so the saved paper shows
+			// (the view auto-refreshes when it becomes visible). Never let a
+			// headless/no-UI context or a hidden view break the save.
+			if (revealLibrary) {
+				try {
+					revealLibrary();
+				} catch { /* reveal is optional - the save already succeeded */ }
+			}
 			return textResult(`Saved "${entry.title}" to the Aria paper library (id: ${entry.id}).`);
 		},
 	},

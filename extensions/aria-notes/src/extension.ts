@@ -64,7 +64,20 @@ export function activate(context: vscode.ExtensionContext): void {
 		});
 	};
 
-	const tools = buildTools(propose);
+	// Reveal the Research Note tab and open a note file. Best-effort: opening the
+	// UI must never break note creation, so failures are swallowed.
+	const openNote = (filePath: string) => {
+		void (async () => {
+			try {
+				await vscode.commands.executeCommand('workbench.view.ariaNotes');
+				await vscode.commands.executeCommand('aria.notes.open', vscode.Uri.file(filePath));
+			} catch (e) {
+				console.warn('[aria-notes] openNote failed:', e);
+			}
+		})();
+	};
+
+	const tools = buildTools(propose, openNote);
 	mcpServer = new AriaNotesMcpServer(tools);
 
 	// Kick the server off before the first await so reregisterMcp can await it

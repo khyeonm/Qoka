@@ -30,6 +30,9 @@ export type ProposeChange = (
 	proposedMarkdown: string,
 ) => void;
 
+/** Reveal the Research Note tab and open the note at the given file path. */
+export type OpenNote = (filePath: string) => void;
+
 function ok(text: string): CallToolResult { return { content: [{ type: 'text', text }] }; }
 function err(text: string): CallToolResult { return { content: [{ type: 'text', text }], isError: true }; }
 function asString(v: unknown): string | undefined { return typeof v === 'string' ? v : undefined; }
@@ -37,9 +40,11 @@ function asString(v: unknown): string | undefined { return typeof v === 'string'
 /**
  * Note tools. Reads are direct; edits to an EXISTING note (update/append) are
  * STAGED as a proposal the user accepts in the editor - they do not write the
- * file. create/delete are direct.
+ * file. create/delete are direct. After create_note writes the new note, the
+ * Research Note tab is opened and the new note is shown - narrate that to the
+ * user.
  */
-export function buildTools(propose: ProposeChange): ToolDefinition[] {
+export function buildTools(propose: ProposeChange, openNote: OpenNote): ToolDefinition[] {
 	return [
 		{
 			name: 'list_notes',
@@ -70,7 +75,7 @@ export function buildTools(propose: ProposeChange): ToolDefinition[] {
 		},
 		{
 			name: 'create_note',
-			description: 'Create a brand-new note from Markdown (writes immediately). Use ONLY when the user wants a new note. To add to or change an EXISTING note, use append_note/update_note - those show the change inside that note for the user to Accept.',
+			description: 'Create a brand-new note from Markdown (writes immediately). After it is created, the Research Note tab opens and the new note is shown - tell the user it is now open. Use ONLY when the user wants a new note. To add to or change an EXISTING note, use append_note/update_note - those show the change inside that note for the user to Accept.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -86,7 +91,8 @@ export function buildTools(propose: ProposeChange): ToolDefinition[] {
 					const blocks = await markdownToBlocks(markdown);
 					const title = asString(args.title)?.trim() || titleFromMarkdown(markdown);
 					const info = createNote(title, blocks);
-					return ok(`Created note "${info.title}" (id: ${info.id}).`);
+					openNote(info.filePath);
+					return ok(`Created note "${info.title}" (id: ${info.id}). The Research Note tab is now open showing this note.`);
 				} catch (e) {
 					return err(`create_note failed: ${(e as Error).message}`);
 				}

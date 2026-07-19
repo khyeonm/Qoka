@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { deletePaper, ensureLibraryFile, listPapers, allTags, updateNote, updateTags } from './library';
 import { AriaPaperLibraryMcpServer } from './mcp/server';
+import { setRevealLibrary } from './mcp/tools';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 import { PaperLibraryState } from './types';
@@ -56,6 +57,15 @@ export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-paper-search] activate()');
 
 	ensureLibraryFile();
+
+	// After a paper is saved via the MCP, reveal the Paper Library sidebar tab
+	// so the newly saved paper is shown (the view auto-refreshes when it
+	// becomes visible). Best-effort: swallow rejections so a headless context
+	// or a hidden view can never break the save that already succeeded.
+	setRevealLibrary(() => {
+		Promise.resolve(vscode.commands.executeCommand('workbench.view.ariaPaperSearch'))
+			.then(undefined, () => { /* reveal is optional - the save already succeeded */ });
+	});
 
 	mcpServer = new AriaPaperLibraryMcpServer();
 

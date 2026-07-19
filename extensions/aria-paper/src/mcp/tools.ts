@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as vscode from 'vscode';
 import {
 	addCitation, createPaper, getAssets, getCitations, getManuscript, getMeta,
 	getProposal, hasUnsavedEdits, listPapers, OutlineSection, PaperFormat,
@@ -71,7 +72,18 @@ export function buildTools(): ToolDefinition[] {
 			handler: async (a) => {
 				try {
 					const meta = createPaper(asString(a.title) ?? 'Untitled');
-					return ok(`Created paper "${meta.title}" (id: ${meta.id}).`);
+					// Best-effort: move to the Paper Writing tab and open the new paper
+					// so the user lands in the wizard (folder URI is
+					// <workspace>/paper/<id>). UI failures must not fail the tool.
+					try {
+						const folder = vscode.workspace.workspaceFolders?.[0];
+						if (folder) {
+							const paperUri = vscode.Uri.joinPath(folder.uri, 'paper', meta.id);
+							await vscode.commands.executeCommand('workbench.view.ariaPaperWriter');
+							await vscode.commands.executeCommand('aria.paperWriter.open', paperUri);
+						}
+					} catch { /* opening the writing window is best-effort */ }
+					return ok(`Created paper "${meta.title}" (id: ${meta.id}). Opened the Paper Writing window - tell the user you moved to the writing window.`);
 				} catch (e) { return err(`create_paper failed: ${(e as Error).message}`); }
 			},
 		},
