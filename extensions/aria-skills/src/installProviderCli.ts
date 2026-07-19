@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
+import * as fs from 'fs';
 import { spawn } from 'child_process';
 import { HeadlessProvider, isProviderInstalled, ARIA_NPM_PREFIX } from './common/headlessCli';
 import { ensureNode } from './common/nodeBootstrap';
@@ -71,6 +72,26 @@ async function installClaude(): Promise<RunResult> {
 	return runHidden('/bin/bash', ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash']);
 }
 
+/**
+ * `npm install -g` replaces a package atomically: it renames the existing
+ * `@openai/codex` aside to a `@openai/.codex-<rand>` temp dir before extracting
+ * the new one. A leftover `.codex-*` temp from a PRIOR interrupted install makes
+ * that rename fail with `ENOTEMPTY: directory not empty`, so every retry then
+ * fails the same way. Delete those stale temps first so the install self-heals.
+ */
+function cleanStaleCodexTemp(prefix: string): void {
+	const openaiDir = isWin
+		? path.join(prefix, 'node_modules', '@openai')
+		: path.join(prefix, 'lib', 'node_modules', '@openai');
+	try {
+		for (const name of fs.readdirSync(openaiDir)) {
+			if (name.startsWith('.codex-')) {
+				try { fs.rmSync(path.join(openaiDir, name), { recursive: true, force: true }); } catch { /* best-effort */ }
+			}
+		}
+	} catch { /* no @openai dir yet - nothing to clean */ }
+}
+
 async function installCodex(): Promise<RunResult> {
 	// Codex is an npm package → it needs Node to install and to run. Provision a
 	// portable Node when the machine has none so the user installs nothing.
@@ -87,6 +108,9 @@ async function installCodex(): Promise<RunResult> {
 	// availability, MCP registration), not just aria-skills' headlessCli. On
 	// Windows keep Aria's own prefix (those resolvers are Windows-agnostic).
 	const prefix = isWin ? ARIA_NPM_PREFIX : path.join(os.homedir(), '.local');
+	// Clear any leftover `.codex-*` temp from a prior interrupted install so npm's
+	// atomic-rename doesn't fail with ENOTEMPTY.
+	cleanStaleCodexTemp(prefix);
 	const env: { [key: string]: string } = { npm_config_prefix: prefix };
 	if (nodeBin) {
 		env.PATH = nodeBin + path.delimiter + (process.env.PATH ?? '');
