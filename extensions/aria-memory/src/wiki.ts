@@ -66,7 +66,7 @@ export interface SearchHit {
  *  when no folder is open. */
 export function wikiRoot(): string | undefined {
 	const folder = vscode.workspace.workspaceFolders?.[0];
-	return folder ? path.join(folder.uri.fsPath, '.aria', 'memory', 'wiki') : undefined;
+	return folder ? path.join(folder.uri.fsPath, '.qoka', 'memory', 'wiki') : undefined;
 }
 
 function pagesDir(root: string): string { return path.join(root, 'pages'); }

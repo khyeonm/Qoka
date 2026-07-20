@@ -354,7 +354,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 
 	private overviewUri(): URI | undefined {
 		const f = this.folderUri();
-		return f ? URI.joinPath(f, '.aria', 'overview.json') : undefined;
+		return f ? URI.joinPath(f, '.qoka', 'overview.json') : undefined;
 	}
 
 	private setupWatcher(): void {
@@ -362,7 +362,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		try {
 			const f = this.folderUri();
 			if (!f) { return; }
-			const dirUri = URI.joinPath(f, '.aria');
+			const dirUri = URI.joinPath(f, '.qoka');
 			const overview = URI.joinPath(dirUri, 'overview.json');
 			const roadmapsDir = URI.joinPath(dirUri, 'roadmaps');
 			this.watcherStore.add(this.fileService.watch(dirUri));
@@ -408,7 +408,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	private async readRoadmap(): Promise<RoadmapNode[]> {
 		const f = this.folderUri();
 		if (!f) { return []; }
-		const roadmapsDir = URI.joinPath(f, '.aria', 'roadmaps');
+		const roadmapsDir = URI.joinPath(f, '.qoka', 'roadmaps');
 		try {
 			const dir = await this.fileService.resolve(roadmapsDir);
 			let newest: { nodes: RoadmapNode[]; updatedAt: number } | undefined;
@@ -428,7 +428,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		} catch { /* no roadmaps dir yet */ }
 		// Legacy single-file roadmap.
 		try {
-			const raw = (await this.fileService.readFile(URI.joinPath(f, '.aria', 'roadmap.json'))).value.toString();
+			const raw = (await this.fileService.readFile(URI.joinPath(f, '.qoka', 'roadmap.json'))).value.toString();
 			const parsed = JSON.parse(raw) as { nodes?: RoadmapNode[] };
 			return Array.isArray(parsed.nodes) ? parsed.nodes : [];
 		} catch {
@@ -441,7 +441,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		if (!uri) { return; }
 		try {
 			this.lastSelfWriteAt = Date.now();
-			await this.fileService.createFolder(URI.joinPath(this.folderUri()!, '.aria')).catch(() => { /* exists */ });
+			await this.fileService.createFolder(URI.joinPath(this.folderUri()!, '.qoka')).catch(() => { /* exists */ });
 			await this.fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(this.data, null, 2) + '\n'));
 			this.lastSelfWriteAt = Date.now();
 		} catch { /* best-effort */ }

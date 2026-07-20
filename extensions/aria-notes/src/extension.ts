@@ -113,7 +113,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// batch config write (see aria.mcp.applyConfig).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.notes.mcpInfo', async () => {
 		const port = await startPromise.catch(() => undefined);
-		return port === undefined ? null : { name: 'aria-notes', port };
+		return port === undefined ? null : { name: 'qoka-notes', port };
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('aria.notes.reregisterMcp', async () => {

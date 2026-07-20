@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
-import { ensureBuiltinServer } from '../../runtime/builtinServer';
+import { resolveRunTarget } from '../../runtime/builtinServer';
 import { windowsToWsl } from '../../common/dockerEnv';
 import { workspaceFolderPath, copyRemoteDirToLocal } from '../../common/workspaceSync';
 
@@ -77,6 +77,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 			'Run a short, self-contained script (bash | python | node) on the Qoka built-in server and return its stdout/stderr. For QUICK one-off tasks - e.g. "run this scanpy analysis". '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. '
+			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (autopipe MCP) for that instead. '
 			+ 'Files the code writes are saved under the project `analysis/<run-id>/` folder (mounted locally on Windows/WSL, copied back elsewhere). '
 			+ 'stdout is returned here (truncated if very large). Large results or images/plots are NOT shown in chat - tell the user to open them from `analysis/<run-id>/` in the Explorer.',
@@ -103,7 +104,9 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const deps = Array.isArray(args.dependencies) ? args.dependencies.map(d => String(d)).filter(Boolean) : [];
 				const timeoutMs = Math.max(1000, Math.min(900_000, Math.round(Number(args.timeout_s ?? 300) * 1000)));
 
-				const ep = await ensureBuiltinServer(); // boots the built-in server if needed
+				// Run on the ACTIVE connection (built-in server or an SSH server),
+				// chosen in the Connections tab - shared with autopipe.
+				const { profile: ep, isBuiltIn } = await resolveRunTarget();
 				const { ssh } = services();
 				const spec = LANGS[language];
 				const file = spec.file;
@@ -112,8 +115,11 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// Decide where the run dir lives. On Windows the built-in server is WSL,
 				// so write straight into analysis/<id>/ through the /mnt mount (outputs
 				// are then already local). Elsewhere use a guest dir + SFTP copy after.
+				// Mount (write straight to the local analysis dir) only when the target
+				// is the BUILT-IN server on Windows/WSL. A remote SSH host can't see the
+				// local /mnt path, so it takes the guest-dir + SFTP-copy branch below.
 				const wsRoot = workspaceFolderPath();
-				const mounted = process.platform === 'win32' && !!wsRoot;
+				const mounted = isBuiltIn && process.platform === 'win32' && !!wsRoot;
 				let runDirGuest: string;
 				let localDir: string | undefined;
 				if (mounted && wsRoot) {
@@ -214,7 +220,12 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'     micromamba run -n run samtools --version',
 	'   ($HOME/.local/bin is already on PATH for run_code.)',
 	'',
-	'Do NOT mix the two (no pip for Python, no uv for non-Python tools). The FIRST run that installs a manager or packages can take a while - tell the user it is setting up, and raise timeout_s (up to 900) for large conda/bioconda environments.',
+	'Do NOT mix the two (no pip for Python, no uv for non-Python tools).',
+	'',
+	'ALWAYS announce setup BEFORE calling run_code when an install will happen, so the user is not left waiting on a silent, long call (run_code returns only AFTER the whole thing finishes - installs are NOT streamed). Post a short message in the user\'s language, and be specific about WHAT is installing:',
+	'- Installing uv / Python packages (first Python run, or new `dependencies`): e.g. "uv로 환경을 준비하고 필요한 패키지를 설치하는 중입니다… 처음 한 번은 1~2분 걸릴 수 있어요."',
+	'- Installing micromamba and/or conda tools (bash run): e.g. "micromamba와 요청하신 도구를 설치하는 중입니다… 큰 환경은 몇 분 걸릴 수 있어요."',
+	'Say it is a ONE-TIME setup and later runs are cached and fast, and raise timeout_s (up to 900) for large conda/bioconda environments. If nothing new needs installing (already cached), no setup message is needed - just run it.',
 	'',
 	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder. stdout is returned in chat. If a result is large or an image/plot, it is NOT in chat - tell the user to open it from analysis/<run-id>/ in the Explorer.',
 ].join('\n');

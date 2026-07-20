@@ -71,7 +71,7 @@ export class RoadmapStore {
 
 	constructor(state: RoadmapState, workspaceFsPath: string | undefined) {
 		this.state = state;
-		this.dir = workspaceFsPath ? path.join(workspaceFsPath, '.aria', 'roadmaps') : undefined;
+		this.dir = workspaceFsPath ? path.join(workspaceFsPath, '.qoka', 'roadmaps') : undefined;
 	}
 
 	get hasWorkspace(): boolean {

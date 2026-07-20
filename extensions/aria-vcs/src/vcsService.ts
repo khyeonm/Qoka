@@ -126,7 +126,7 @@ export class VcsService {
 			'.claude/',        // Claude Code project/session config (MCP, settings)
 			'.codex/',         // Codex working dir
 			'.mcp.json',       // MCP server config - ports change every launch
-			'.aria/',          // Qoka app state (roadmaps etc.) - managed by the app
+			'.qoka/',          // Qoka app state (roadmaps etc.) - managed by the app
 			'node_modules/',
 			'.DS_Store',
 			'',

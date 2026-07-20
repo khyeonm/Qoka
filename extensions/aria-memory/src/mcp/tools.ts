@@ -40,7 +40,7 @@ function asStringArray(v: unknown): string[] | undefined {
  * Note on writes: `remember_project_memory` writes the page immediately.
  * A review queue for edits/deletes (the user confirms before an existing page
  * is overwritten or removed) is a planned workbench feature; until it exists,
- * the log at `.aria/memory/wiki/log.md` is the audit trail.
+ * the log at `.qoka/memory/wiki/log.md` is the audit trail.
  */
 export function buildTools(): ToolDefinition[] {
 	return [

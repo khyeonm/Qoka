@@ -239,7 +239,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// batch-register every Qoka MCP in one direct config write (see aria.mcp.applyConfig).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.mcpInfo', async () => {
 		const port = await startPromise.catch(() => undefined);
-		return port === undefined ? null : { name: 'aria-paper', port };
+		return port === undefined ? null : { name: 'qoka-paper', port };
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.reregisterMcp', async () => {

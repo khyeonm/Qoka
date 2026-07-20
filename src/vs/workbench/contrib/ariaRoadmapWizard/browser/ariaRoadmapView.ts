@@ -131,7 +131,7 @@ export class AriaRoadmapView extends ViewPane {
 		if (!folder) {
 			return undefined;
 		}
-		return joinPath(folder.uri, '.aria', 'roadmaps');
+		return joinPath(folder.uri, '.qoka', 'roadmaps');
 	}
 
 	/** Read every `<workspace>/.aria/roadmaps/*.json`, newest first, summarizing

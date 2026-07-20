@@ -206,7 +206,10 @@ export class AriaAutopipeView extends ViewPane {
 		}
 
 		this.renderStatusSection(root, status);
-		this.renderSshSection(root, status);
+		// Run-environment / SSH selection moved to the dedicated Connections tab
+		// (ariaConnectionsView). The renderSshSection/renderBuiltInVmRow/renderSshForm/
+		// saveSshProfile methods below are now unused here and can be deleted once the
+		// build is verified (kept for now to avoid noUnusedLocals cascade breakage).
 		this.renderGithubSection(root, status);
 		// No Save button - every setting (run environment, upload mode, repo
 		// name, GitHub) auto-saves the moment it changes.

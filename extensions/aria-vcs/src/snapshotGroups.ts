@@ -28,7 +28,7 @@ export interface SnapshotGroupInfo {
 type GroupMap = Record<string, SnapshotGroupInfo>;
 
 function ariaDir(cwd: string): string {
-	return path.join(cwd, '.aria');
+	return path.join(cwd, '.qoka');
 }
 
 function sidecarPath(cwd: string): string {
@@ -38,7 +38,7 @@ function sidecarPath(cwd: string): string {
 /** Path we git-exclude - ONLY the sidecar, never the whole `.aria/` dir (which
  *  may hold tracked project data like roadmap.json). Keeping it out of git also
  *  stops `git add -A` in saveSnapshot from committing it into every snapshot. */
-const EXCLUDE_LINE = '.aria/snapshot-groups.json';
+const EXCLUDE_LINE = '.qoka/snapshot-groups.json';
 
 /** Ensure the sidecar is git-ignored via `.git/info/exclude` (no tracked
  *  .gitignore change needed). Best-effort. */

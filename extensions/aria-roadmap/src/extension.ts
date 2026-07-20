@@ -163,7 +163,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// batch config write (see aria.mcp.applyConfig).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.roadmap.mcpInfo', async () => {
 		const port = await startPromise.catch(() => undefined);
-		return port === undefined ? null : { name: 'aria-roadmap', port };
+		return port === undefined ? null : { name: 'qoka-roadmap', port };
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('aria.roadmap.reregisterMcp', async () => {

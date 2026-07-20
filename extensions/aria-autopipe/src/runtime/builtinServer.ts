@@ -38,3 +38,22 @@ export async function builtinExec(command: string, opts?: RunOptions): Promise<S
 	const ep = await ensureBuiltinServer();
 	return ssh.run(ep, command, opts);
 }
+
+/**
+ * The run target for run_code, honoring the ACTIVE connection chosen in the
+ * Connections tab: the built-in server when it is the active target, otherwise
+ * the active SSH profile. `isBuiltIn` lets the caller decide whether the local
+ * /mnt mount is available (built-in on Windows/WSL) or results must be
+ * SFTP-copied back (a remote SSH host). Throws when nothing is selected.
+ */
+export async function resolveRunTarget(): Promise<{ profile: SshProfile; isBuiltIn: boolean }> {
+	const { config } = services();
+	if (config.isLocalVmActive()) {
+		return { profile: await ensureBuiltinServer(), isBuiltIn: true };
+	}
+	const profile = config.activeProfile();
+	if (!profile) {
+		throw new Error('No active connection. Open the Connections tab and select the built-in server or an SSH server.');
+	}
+	return { profile, isBuiltIn: false };
+}

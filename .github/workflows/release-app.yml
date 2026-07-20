@@ -57,17 +57,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # WSL BRANCH ONLY: Windows-only builds while iterating on the WSL
-          # runtime. RESTORE the macOS (and other) entries before merging this
-          # branch to main / doing a full cross-platform release.
-          # - { os: macos-14, plat: darwin, arch: arm64, nodearch: arm64 }
+          # Qoka 0.3.0 release: macOS (Apple Silicon) + Windows.
+          - { os: macos-14, plat: darwin, arch: arm64, nodearch: arm64 }
           - { os: windows-latest, plat: win32, arch: x64, nodearch: x64 }
-          # TEMPORARY: only macOS arm64 + Windows are built for now, to test on
-          # both machines. RESTORE the two entries below before a full
-          # cross-platform release.
-          # Intel .dmg is cross-built on the ARM runner (GitHub's macos-13
-          # Intel runner has ~zero capacity and hangs). Node stays arm64 to
-          # drive the build; npm_config_arch=x64 targets x64 native modules.
+          # Intel macOS + Linux stay disabled for now (Intel .dmg is cross-built
+          # on the ARM runner because GitHub's macos-13 Intel runner hangs, and
+          # the Linux .deb path needs more validation). Enable for a full
+          # cross-platform release:
           # - { os: macos-14, plat: darwin, arch: x64, nodearch: arm64 }
           # - { os: ubuntu-22.04, plat: linux, arch: x64, nodearch: x64 }
     runs-on: ${{ matrix.os }}

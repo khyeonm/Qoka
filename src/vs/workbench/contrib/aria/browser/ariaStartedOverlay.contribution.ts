@@ -1439,7 +1439,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// `autopipe/` holds pipeline artifacts copied back from the run environment:
 		// the pipeline CODE, an input manifest, and run OUTPUTS (see aria-autopipe's
 		// project-sync). Scaffolded up front so the layout is there before the first run.
-		const dirs = ['notes', 'references', 'data', 'downloads', 'paper', 'reviews', '.aria',
+		const dirs = ['notes', 'references', 'data', 'downloads', 'paper', 'reviews', '.qoka',
 			'autopipe', 'autopipe/pipelines', 'autopipe/pipelines_input', 'autopipe/pipelines_output'];
 		for (const dir of dirs) {
 			try {
@@ -1453,7 +1453,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			}
 		} catch { /* best-effort */ }
 		try {
-			const marker = URI.joinPath(folderUri, '.aria', 'project.json');
+			const marker = URI.joinPath(folderUri, '.qoka', 'project.json');
 			if (!(await this.fileService.exists(marker))) {
 				const body = JSON.stringify({ createdBy: 'aria', template: 'default', version: 1 }, null, 2) + '\n';
 				await this.fileService.writeFile(marker, VSBuffer.fromString(body));

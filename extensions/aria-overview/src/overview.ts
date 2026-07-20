@@ -137,7 +137,7 @@ export function markdownToBlocks(markdown: string): unknown[] {
 function overviewDir(): string {
 	const folder = vscode.workspace.workspaceFolders?.[0];
 	if (folder && folder.uri.scheme === 'file') {
-		return path.join(folder.uri.fsPath, '.aria');
+		return path.join(folder.uri.fsPath, '.qoka');
 	}
 	return path.join(os.homedir(), '.config', 'aria');
 }

@@ -189,7 +189,7 @@ export function registerWorkbenchCommands(
  *  and return its path. Used for New Project, which targets a folder other than
  *  the current workspace, so it goes straight to disk rather than via the store. */
 async function writeNewRoadmapAt(folderPath: string, nodes: unknown[]): Promise<string> {
-	const dir = path.join(folderPath, '.aria', 'roadmaps');
+	const dir = path.join(folderPath, '.qoka', 'roadmaps');
 	await fs.promises.mkdir(dir, { recursive: true });
 	const id = `r_${Math.random().toString(16).slice(2, 12)}`;
 	const filePath = path.join(dir, `${id}.json`);
