@@ -8,8 +8,105 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as path from 'path';
+import * as zlib from 'zlib';
 
 const execFileAsync = promisify(execFile);
+const gunzipAsync = promisify(zlib.gunzip);
+
+/**
+ * Extract a `.tar.gz` into `destDir`, preferring a dependency-free Node
+ * implementation (Electron ships zlib + fs; the tar format is parsed inline
+ * below) and falling back to the OS `tar` command only if that throws.
+ *
+ * WHY: the previous `execFileAsync('tar', ...)` path relied on `tar` being on
+ * PATH. It usually is on modern Windows/macOS/Linux, but a machine without
+ * `tar.exe` (older Windows, stripped images) could never unpack QEMU, so the
+ * built-in VM failed to start. Node's own gunzip + a minimal USTAR reader
+ * removes that external dependency; the OS `tar` stays as a safety net for any
+ * archive edge case the inline reader doesn't handle.
+ */
+async function extractTarGz(tgz: string, destDir: string): Promise<void> {
+	try {
+		await extractTarGzWithNode(tgz, destDir);
+	} catch (nodeErr) {
+		// Fall back to the OS tar. If that also fails, surface the Node error
+		// (it's the primary path and usually the more informative one).
+		try {
+			await execFileAsync('tar', ['-xzf', tgz, '-C', destDir], { windowsHide: true });
+		} catch {
+			throw nodeErr;
+		}
+	}
+}
+
+/**
+ * Minimal dependency-free `.tar.gz` extractor. Gunzips the whole archive, then
+ * walks 512-byte USTAR blocks. Handles regular files (type '0'/'\0'), directories
+ * (type '5'), and GNU long names ('L'); symlinks/hardlinks are recorded as-is
+ * (QEMU bundles don't rely on them on Windows). Restores the octal file mode so
+ * extracted binaries stay executable on macOS/Linux.
+ */
+async function extractTarGzWithNode(tgz: string, destDir: string): Promise<void> {
+	const gz = await fs.promises.readFile(tgz);
+	const buf = await gunzipAsync(gz);
+	const BLOCK = 512;
+	let offset = 0;
+	let longName: string | undefined;
+
+	const readStr = (start: number, len: number): string => {
+		let end = start;
+		const limit = start + len;
+		while (end < limit && buf[end] !== 0) { end++; }
+		return buf.toString('utf8', start, end);
+	};
+
+	while (offset + BLOCK <= buf.length) {
+		const header = buf.subarray(offset, offset + BLOCK);
+		// Two consecutive zero blocks mark the end of the archive.
+		if (header.every(b => b === 0)) { break; }
+
+		const rawName = readStr(offset, 100);
+		const sizeStr = readStr(offset + 124, 12).trim();
+		const size = parseInt(sizeStr, 8) || 0;
+		const type = String.fromCharCode(buf[offset + 156]);
+		const prefix = readStr(offset + 345, 155);
+		const modeStr = readStr(offset + 100, 8).trim();
+		const mode = parseInt(modeStr, 8) || 0o644;
+		offset += BLOCK;
+
+		const dataStart = offset;
+		offset += Math.ceil(size / BLOCK) * BLOCK;
+
+		if (type === 'L') {
+			// GNU long name: the entry data is the name for the NEXT header.
+			longName = buf.toString('utf8', dataStart, dataStart + size).replace(/\0+$/, '');
+			continue;
+		}
+
+		let name = longName ?? (prefix ? `${prefix}/${rawName}` : rawName);
+		longName = undefined;
+		if (!name) { continue; }
+		// Guard against path traversal from a malicious archive.
+		name = name.replace(/\\/g, '/');
+		if (name.split('/').some(seg => seg === '..')) {
+			throw new Error(`Unsafe path in archive: ${name}`);
+		}
+		const outPath = path.join(destDir, name);
+
+		if (type === '5') {
+			await fs.promises.mkdir(outPath, { recursive: true });
+			continue;
+		}
+		if (type !== '0' && type !== '\0' && type !== '') {
+			// Skip symlinks/hardlinks/other; QEMU Windows/macOS bundles are plain
+			// files + dirs. (A truly unsupported entry falls back to OS tar above.)
+			continue;
+		}
+		await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
+		await fs.promises.writeFile(outPath, buf.subarray(dataStart, dataStart + size));
+		try { await fs.promises.chmod(outPath, mode); } catch { /* best-effort (Windows ignores) */ }
+	}
+}
 
 /**
  * Downloads the assets the built-in VM needs - a PORTABLE QEMU build and the base
@@ -75,7 +172,7 @@ export class Provisioner {
 		await this.download(`${RELEASE_BASE}/${asset}`, tgz, (pct) => progress('Downloading vfkit…', pct));
 		progress('Unpacking vfkit…');
 		fs.mkdirSync(this.vfkitDir(), { recursive: true });
-		await execFileAsync('tar', ['-xzf', tgz, '-C', this.vfkitDir()]);
+		await extractTarGz(tgz, this.vfkitDir());
 		try { fs.rmSync(tgz); } catch { /* ignore */ }
 		if (!fs.existsSync(vfkit) || !fs.existsSync(gvproxy)) {
 			throw new Error('vfkit package did not contain the expected binaries.');
@@ -123,7 +220,7 @@ export class Provisioner {
 		await this.download(`${RELEASE_BASE}/${asset}`, tgz, (pct) => progress('Downloading QEMU…', pct));
 		progress('Unpacking QEMU…');
 		fs.mkdirSync(this.qemuDir(), { recursive: true });
-		await execFileAsync('tar', ['-xzf', tgz, '-C', this.qemuDir()]);
+		await extractTarGz(tgz, this.qemuDir());
 		try { fs.rmSync(tgz); } catch { /* ignore */ }
 		if (!fs.existsSync(bin)) {
 			throw new Error('QEMU package did not contain the expected binary.');

@@ -126,7 +126,7 @@ export const FILE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'list_files',
-		description: "List files and directories at a remote path on the SSH server. RESULTS-VIEWING WORKFLOW: when the user asks to view, check, or see results/output files: (1) call list_files to see what's there, (2) give the user a brief one-paragraph summary in chat (file count, names, sizes, optionally a 5-10 line excerpt from a single small text/log/summary file when it adds context), (3) tell them the visual viewer (show_results) is available for detailed inspection. Do NOT ask 'viewer or chat?' and do NOT dump entire file contents into chat.",
+		description: "List files and directories at a remote path on the SSH server. RESULTS-VIEWING WORKFLOW: when the user asks to view, check, or see results/output files: (1) call list_files to see what's there, (2) give the user a brief one-paragraph summary in chat (file count, names, sizes, optionally a 5-10 line excerpt from a single small text/log/summary file when it adds context), (3) tell them that once the results are saved to the project (save_results_to_project) they can be opened from the Explorer under autopipe/pipelines_output/<run_name>/. Do NOT dump entire file contents into chat.",
 		inputSchema: {
 			type: 'object',
 			properties: { path: { type: 'string' } },
@@ -152,7 +152,7 @@ export const FILE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'read_file',
-		description: "Read a file's contents on the remote SSH server. Two valid uses:\n(1) INTERNAL ANALYSIS - you (the AI) need to inspect a code or config file for your own work, e.g. the pre-download security review required by download_pipeline. In this mode read silently: do NOT echo the full contents to the user.\n(2) USER ASKED FOR ONE FILE'S CONTENTS - the user explicitly said something like 'show me X'. For binary/image/large/genomic files do NOT use read_file - direct the user to show_results instead.\nINPUT DATA - SENSITIVE: Files under the input directory must NOT be read without the user's consent. If you call read_file on one, the tool returns a consent request - relay it to the user and only re-call with confirm_read=true after they explicitly agree.",
+		description: "Read a file's contents on the remote SSH server. Two valid uses:\n(1) INTERNAL ANALYSIS - you (the AI) need to inspect a code or config file for your own work, e.g. the pre-download security review required by download_pipeline. In this mode read silently: do NOT echo the full contents to the user.\n(2) USER ASKED FOR ONE FILE'S CONTENTS - the user explicitly said something like 'show me X'. For binary/image/large/genomic files do NOT use read_file - direct the user to open them from the Explorer under autopipe/pipelines_output/<run_name>/ after saving with save_results_to_project.\nINPUT DATA - SENSITIVE: Files under the input directory must NOT be read without the user's consent. If you call read_file on one, the tool returns a consent request - relay it to the user and only re-call with confirm_read=true after they explicitly agree.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -190,13 +190,13 @@ export const FILE_TOOLS: ToolDefinition[] = [
 				const content = r.stdout;
 				if (content.length > MAX) {
 					return textResult(
-						`NOT READ - '${path}' is too large to load into the conversation (> ${MAX / (1024 * 1024)} MB). Large files are usually raw data; view it with show_results (in the browser) or save it with download_results instead.`,
+						`NOT READ - '${path}' is too large to load into the conversation (> ${MAX / (1024 * 1024)} MB). Large files are usually raw data; save it into the project with save_results_to_project (then open it from the Explorer under autopipe/pipelines_output/<run_name>/) or download it with download_results instead.`,
 					);
 				}
 				const head = content.slice(0, 8192);
 				if (head.includes('\x00')) {
 					return textResult(
-						`NOT READ - '${path}' looks like a binary file (contains NUL bytes). Use show_results to view it in the browser instead of read_file.`,
+						`NOT READ - '${path}' looks like a binary file (contains NUL bytes). Save it into the project with save_results_to_project and open it from the Explorer under autopipe/pipelines_output/<run_name>/ instead of read_file.`,
 					);
 				}
 				return textResult(content);

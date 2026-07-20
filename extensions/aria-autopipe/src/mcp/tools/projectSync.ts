@@ -107,8 +107,8 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 			+ 'ALWAYS: (1) copies the pipeline CODE, and (2) writes an input MANIFEST (file list + sizes, NOT the input bytes). '
 			+ 'OUTPUT files are copied only when you pass `files` (relative paths from list_run_outputs); omit `files` to save just code + manifest. '
 			+ 'Recommended flow: call list_run_outputs first, ASK the user which files to save, then call this. Do NOT ask about pipeline code - it is always saved. '
-				+ 'SIZE GATE: if the selection is big enough to take a while to transfer (~1 GB+ on a remote host; only much larger on the fast built-in VM), this tool does NOT copy - it returns a warning with the total size. When that happens, tell the user it may take a while, get their OK, then call again with the SAME files and confirm_large: true. '
-			+ 'Copies stream over SFTP (memory-safe for multi-GB files). Returns a per-file success/failure summary; if a file fails, tell the user it can still be opened in-app with show_results. '
+			+ 'SIZE GATE: if the selection is big enough to take a while to transfer (~1 GB+ on a remote host; only much larger on the fast built-in VM), this tool does NOT copy - it returns a warning with the total size. When that happens, tell the user it may take a while, get their OK, then call again with the SAME files and confirm_large: true. '
+			+ 'Copies stream over SFTP (memory-safe for multi-GB files). Returns a per-file success/failure summary; if a file fails, tell the user it can be listed with list_files. '
 			+ 'No-ops with a clear message if no project folder is open.',
 		inputSchema: {
 			type: 'object',
@@ -190,7 +190,7 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 					lines.push('');
 					lines.push(`Outputs: ${result.outputsCopied} copied, ${result.outputsFailed} failed${result.localOutputDir ? ` -> ${result.localOutputDir}` : ''}.`);
 					if (result.outputErrors.length > 0) {
-						lines.push('Failed files (still viewable in-app with show_results):');
+						lines.push('Failed files (can still be listed with list_files):');
 						for (const e of result.outputErrors) {
 							lines.push(`  FAIL ${e}`);
 						}
@@ -199,9 +199,9 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 					lines.push('');
 					lines.push('No output files requested - saved pipeline code' + (includeManifest ? ' and input manifest' : '') + ' only.');
 				}
-				// After a successful output save, prompt the assistant to offer the viewer.
+				// After a successful output save, tell the user where the files landed.
 				if (result.outputsCopied > 0) {
-					lines.push('', 'Now OFFER to open the saved results in the viewer (show_results), e.g. ask the user "Shall I open the results in the viewer?".');
+					lines.push('', `Tell the user the results were saved and can be opened from the Explorer under autopipe/pipelines_output/${runName}/.`);
 				}
 				return textResult(lines.join('\n'));
 			} catch (err) {

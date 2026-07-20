@@ -8,7 +8,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
-import { openViewerForDirectory } from '../../viewer/viewerPanel';
+// The in-app Autopipe Viewer is disabled: results are inspected in the Explorer
+// under `autopipe/pipelines_output/<run>/` instead. Kept as a comment so the
+// viewer can be re-enabled later without re-deriving the wiring.
+// import { openViewerForDirectory } from '../../viewer/viewerPanel';
 import { shellEscape } from '../../common/roCrate';
 import { windowsToWsl } from '../../common/dockerEnv';
 
@@ -108,11 +111,11 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'show_results',
-		description: 'Open the in-app Results Viewer panel (a built-in Qoka panel, NOT a web browser - never tell the user to open a browser or a 127.0.0.1 URL) for inspecting result files. Pass a DIRECTORY path to view all files in it, or a single FILE path to view only that file. File formats are handled by viewer plugins (auto-routed by file extension): defaults include images, PDF, text, CSV, FASTA/FASTQ, BAM/BED/GFF/CRAM/VCF/BCF, and HDF5 (h5ad).',
+		description: "List the result files at a remote path and tell the user where to open them. There is NO in-app viewer: saved pipeline results live in the project's Explorer under `autopipe/pipelines_output/<run_name>/` (put there by save_results_to_project). This tool reports the files present so you can summarise them; then direct the user to open them from the Explorer file tree (autopipe/pipelines_output/<run_name>/). Never tell the user to open a browser, a 127.0.0.1 URL, or an in-app viewer panel. Pass a DIRECTORY path to list its files, or a single FILE path to report just that file.",
 		inputSchema: {
 			type: 'object',
 			properties: {
-				path: { type: 'string', description: 'Remote file or directory path to display in the in-app viewer panel.' },
+				path: { type: 'string', description: 'Remote file or directory path whose result files should be listed.' },
 				filter: { type: 'string', description: 'Optional filter: "image", "text", "genomics", "pdf", "hdf5".' },
 				reference: { type: 'string', description: 'For BAM/BED/GFF/CRAM viewing: a FASTA filename in the same directory, or absolute path, or "none".' },
 			},
@@ -125,7 +128,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 				if (!target) {
 					return errorResult('show_results: `path` is required');
 				}
-				const { ssh, plugins } = services();
+				const { ssh } = services();
 
 				// Detect whether target is a directory or a file. `test -d`
 				// is the simplest portable check.
@@ -137,68 +140,32 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 				}
 
 				if (kind === 'FILE') {
-					// Open the single Autopipe Viewer tab on the file's
-					// parent directory so the user has the rest of the
-					// run's outputs available in the sidebar too. The
-					// viewer auto-selects the requested file as soon as
-					// the listing comes back.
-					const parent = target.replace(/\/[^/]+$/, '') || '/';
-					await openViewerForDirectory(parent, target);
-					const ext = path.extname(target);
-					const plugin = ext ? plugins.findForExtension(ext) : null;
-					const hint = plugin
-						? `Selected ${path.basename(target)} (${plugin.manifest.name} v${plugin.manifest.version}).`
-						: `No installed plugin handles "${ext}" yet - install one from the Plugins tab to view this file.`;
+					// Viewer disabled: point the user to the file in the Explorer
+					// instead of opening the in-app viewer.
+					// const parent = target.replace(/\/[^/]+$/, '') || '/';
+					// await openViewerForDirectory(parent, target);
 					return textResult([
-						`Opened the Autopipe Viewer at ${parent}.`,
-						hint,
+						`${path.basename(target)} is ready.`,
+						`Open it from the Explorer under autopipe/pipelines_output/<run_name>/ (after the results are saved to the project with save_results_to_project).`,
 					].join('\n'));
 				}
 
-				// Directory: open the Autopipe Viewer rooted on this folder.
-				// The user navigates the file list inside the viewer and
-				// picks what they want to render - much less noisy than
-				// spawning a tab per file.
+				// Directory: viewer disabled. List the files so the AI can
+				// summarise them, then direct the user to the Explorer.
+				// await openViewerForDirectory(target);
 				const { stdout } = await ssh.run(profile, `ls -1 -- ${q(target)}`);
 				const entries = stdout.trim().split('\n').filter(Boolean);
 				if (entries.length === 0) {
 					return textResult(`${target} is empty.`);
 				}
-				await openViewerForDirectory(target);
-
-				const rendered: string[] = [];
-				const skipped: string[] = [];
-
-				for (const name of entries) {
-					const ext = path.extname(name);
-					if (!ext) {
-						skipped.push(`${name} (directory or no extension)`);
-						continue;
-					}
-					const plug = plugins.findForExtension(ext);
-					if (!plug) {
-						skipped.push(`${name} (no plugin for ${ext})`);
-						continue;
-					}
-					rendered.push(`${name} (${plug.manifest.name})`);
-				}
 
 				const lines: string[] = [];
-				lines.push(`Opened the Autopipe Viewer at ${target}. Click any file in the left pane to render it.`);
+				lines.push(`Result files in ${target}:`);
+				for (const name of entries) {
+					lines.push(`  ${name}`);
+				}
 				lines.push('');
-				if (rendered.length > 0) {
-					lines.push(`Viewable files (matched to plugins):`);
-					for (const r of rendered) {
-						lines.push(`  ${r}`);
-					}
-				}
-				if (skipped.length > 0) {
-					lines.push('');
-					lines.push('Files without a viewer plugin:');
-					for (const s of skipped) {
-						lines.push(`  ${s}`);
-					}
-				}
+				lines.push('Tell the user these results open in the Explorer under autopipe/pipelines_output/<run_name>/ (save them there first with save_results_to_project if not done yet).');
 				return textResult(lines.join('\n'));
 			} catch (err) {
 				return errorResult((err as Error).message);

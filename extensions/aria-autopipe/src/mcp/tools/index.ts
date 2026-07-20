@@ -31,7 +31,11 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	FILE_TOOLS[2], // write_file
 	FILE_TOOLS[5], FILE_TOOLS[6], FILE_TOOLS[7], // prepare_input, check_download_status, remove_input
 	FILE_TOOLS[8], // upload_local_input (upload data from the user's local machine into pipelines_input)
-	RESULT_TOOLS[1], // show_results
+	// show_results (RESULT_TOOLS[1]) disabled: the in-app viewer is gone, results
+	// are inspected in the Explorer under autopipe/pipelines_output/<run>/. Use
+	// list_files to enumerate result files instead. Kept in results.ts so the tool
+	// can be re-registered later if the viewer returns.
+	// RESULT_TOOLS[1], // show_results
 	...PROJECT_TOOLS, // list_run_outputs, save_results_to_project (durable save into the open project folder)
 	...WORKSPACE_TOOLS.slice(1), // get_templates, get_generation_guide
 	...PLUGIN_TOOLS,
