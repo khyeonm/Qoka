@@ -126,26 +126,33 @@ export function provisionScript(user: string, port: number, pubKey: string, repo
 	return [
 		'set -e',
 		'export DEBIAN_FRONTEND=noninteractive',
-		'NEED_APT=0',
-		'command -v sshd >/dev/null 2>&1 || NEED_APT=1',
-		'command -v docker >/dev/null 2>&1 || NEED_APT=1',
-		'if [ "$NEED_APT" = "1" ]; then apt-get update -y && apt-get install -y openssh-server docker.io; fi',
+		'APT_UPDATED=0',
+		'apt_update_once() { if [ "$APT_UPDATED" = 0 ]; then apt-get update -y; APT_UPDATED=1; fi; }',
+		// Decide by the REAL artifact, not `command -v`: on a box with Docker
+		// Desktop the injected `docker` CLI makes `command -v docker` succeed while
+		// openssh-server is still absent, so a `command -v sshd` heuristic wrongly
+		// skips the install and the later sed on /etc/ssh/sshd_config fails.
+		'if [ ! -f /etc/ssh/sshd_config ]; then apt_update_once; apt-get install -y openssh-server; fi',
+		// Install the native docker engine only when NO docker CLI works, leaving a
+		// Docker Desktop WSL integration untouched.
+		'if ! command -v docker >/dev/null 2>&1; then apt_update_once; apt-get install -y docker.io; fi',
 		// docker-in-WSL2 needs the legacy iptables backend on some kernels.
 		'update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true',
-		`usermod -aG docker '${u}' || true`,
+		`usermod -aG docker '${u}' 2>/dev/null || true`,
 		`install -d -m 700 -o '${u}' -g '${u}' '/home/${u}/.ssh'`,
 		`printf '%s\\n' '${pubKey}' > '/home/${u}/.ssh/authorized_keys'`,
 		`chown '${u}':'${u}' '/home/${u}/.ssh/authorized_keys'`,
 		`chmod 600 '/home/${u}/.ssh/authorized_keys'`,
 		`install -d -o '${u}' -g '${u}' '${repoDir}'`,
 		// sshd: fixed port + host keys + run dir. Rewrite any existing Port line,
-		// then ensure one is present.
+		// then ensure one is present. sshd_config is guaranteed present by now.
 		`sed -i 's/^#\\?Port .*/Port ${port}/' /etc/ssh/sshd_config`,
 		`grep -q '^Port ${port}$' /etc/ssh/sshd_config || echo 'Port ${port}' >> /etc/ssh/sshd_config`,
 		'ssh-keygen -A',
 		'mkdir -p /run/sshd',
 		'service ssh restart >/dev/null 2>&1 || /usr/sbin/sshd',
-		'service docker start >/dev/null 2>&1 || (dockerd >/tmp/qoka-dockerd.log 2>&1 &)',
+		// Start a native dockerd only; Docker Desktop manages its own daemon.
+		'if command -v dockerd >/dev/null 2>&1; then service docker start >/dev/null 2>&1 || (dockerd >/tmp/qoka-dockerd.log 2>&1 &); fi',
 		'echo QOKA_PROVISION_OK',
 	].join('\n');
 }

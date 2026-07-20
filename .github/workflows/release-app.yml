@@ -274,5 +274,5 @@ jobs:
         shell: bash
         run: |
           VER="${GITHUB_REF_NAME#qoka-v}"
-          gh release create "${GITHUB_REF_NAME}" --title "Qoka ${VER}" --notes "Qoka ${VER}" 2>/dev/null || true
+          gh release create "${GITHUB_REF_NAME}" --title "Qoka ${VER}" --notes "Qoka ${VER}" --prerelease 2>/dev/null || true
           for f in artifacts/*; do gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; done
