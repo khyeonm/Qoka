@@ -11,6 +11,12 @@
 			"aria.aria-methods-search"
 		]
 	},
+	"extensionEnabledApiProposals": {
+		"openai.chatgpt": [
+			"chatSessionsProvider",
+			"languageModelProxy"
+		]
+	},
 	"dataFolderName": ".qoka",
 	"extensionsGallery": {
 		"serviceUrl": "https://open-vsx.org/vscode/gallery",
