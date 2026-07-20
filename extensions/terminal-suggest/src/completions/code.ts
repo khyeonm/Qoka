@@ -1048,7 +1048,7 @@ export const codeTunnelSubcommands: Fig.Subcommand[] = [
 
 const codeCompletionSpec: Fig.Spec = {
 	name: 'code',
-	description: 'Aria',
+	description: 'Qoka',
 	args: {
 		template: ['filepaths', 'folders'],
 		isVariadic: true,

@@ -191,7 +191,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	void bootMcp();
 
 	// Sole registration entry point: the workbench chat-open coordinator calls
-	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// this (serialized across every Qoka MCP) so the concurrent `claude mcp add`
 	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
 	// newly registered something. Awaits the server start (rather than reading a
 	// port set by bootMcp) because the coordinator may call before the port is
@@ -257,8 +257,8 @@ function truncate(s: string, max: number): string {
 export async function deactivate(): Promise<void> {
 	console.log('[aria-paper-search] deactivate()');
 	// Deliberately DO NOT unregister from Claude / Codex on shutdown.
-	// Removing the entry from ~/.claude.json on every Aria close means
-	// the next launch always has to re-add - Aria UI then shows
+	// Removing the entry from ~/.claude.json on every Qoka close means
+	// the next launch always has to re-add - Qoka UI then shows
 	// "Paper Library MCP registered" every time even though the
 	// effective state is unchanged. autopipe follows the same pattern:
 	// the registration persists across runs so the optimization can

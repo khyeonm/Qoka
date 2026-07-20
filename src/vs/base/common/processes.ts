@@ -99,7 +99,7 @@ export interface ProcessItem {
 }
 
 /**
- * Sanitizes a Aria process environment by removing all Electron/Aria-related values.
+ * Sanitizes a Qoka process environment by removing all Electron/Qoka-related values.
  */
 export function sanitizeProcessEnvironment(env: IProcessEnvironment, ...preserve: string[]): void {
 	const set = preserve.reduce<Record<string, boolean>>((set, key) => {

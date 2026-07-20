@@ -9,7 +9,7 @@ import { Schemas } from '../../../../../base/common/network.js';
 import { localize } from '../../../../../nls.js';
 
 /**
- * EditorInput for the Aria Start Page. Identified by a singleton URI so the
+ * EditorInput for the Qoka Start Page. Identified by a singleton URI so the
  * workbench treats it as a single editor instance - opening the start page
  * a second time reveals the existing one instead of creating a duplicate.
  */
@@ -27,7 +27,7 @@ export class AriaStartPageInput extends EditorInput {
 	}
 
 	override getName(): string {
-		return localize('aria.startPage.title', "Welcome to Aria");
+		return localize('aria.startPage.title', "Welcome to Qoka");
 	}
 
 	override matches(other: EditorInput): boolean {

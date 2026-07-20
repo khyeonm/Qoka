@@ -168,7 +168,7 @@ export class ClaudeAgentSdkService implements IClaudeAgentSdkService {
 	}
 
 	protected async _loadSdk(): Promise<IClaudeSdkBindings> {
-		// The SDK is intentionally not bundled with Aria. The user supplies an
+		// The SDK is intentionally not bundled with Qoka. The user supplies an
 		// absolute path to a locally-installed `@anthropic-ai/claude-agent-sdk`
 		// package via the `chat.agentHost.claudeAgent.path` setting, which is
 		// forwarded to this process as `AgentHostClaudeSdkPathEnvVar`. Convert

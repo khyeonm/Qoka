@@ -186,17 +186,17 @@ export class RemoteTunnelService extends Disposable implements IRemoteTunnelServ
 		if (!this._tunnelCommand) {
 			let binParentLocation;
 			if (isMacintosh) {
-				// appRoot = /Applications/Aria - Insiders.app/Contents/Resources/app
-				// bin = /Applications/Aria - Insiders.app/Contents/Resources/app/bin
+				// appRoot = /Applications/Qoka - Insiders.app/Contents/Resources/app
+				// bin = /Applications/Qoka - Insiders.app/Contents/Resources/app/bin
 				binParentLocation = this.environmentService.appRoot;
 			} else if (isWindows) {
 				if (this.productService.win32VersionedUpdate) {
-					// appRoot = C:\Users\<name>\AppData\Local\Programs\Microsoft Aria Insiders\<version>\resources\app
-					// bin = C:\Users\<name>\AppData\Local\Programs\Microsoft Aria Insiders\bin
+					// appRoot = C:\Users\<name>\AppData\Local\Programs\Microsoft Qoka Insiders\<version>\resources\app
+					// bin = C:\Users\<name>\AppData\Local\Programs\Microsoft Qoka Insiders\bin
 					binParentLocation = dirname(dirname(dirname(this.environmentService.appRoot)));
 				} else {
-					// appRoot = C:\Users\<name>\AppData\Local\Programs\Microsoft Aria Insiders\resources\app
-					// bin = C:\Users\<name>\AppData\Local\Programs\Microsoft Aria Insiders\bin
+					// appRoot = C:\Users\<name>\AppData\Local\Programs\Microsoft Qoka Insiders\resources\app
+					// bin = C:\Users\<name>\AppData\Local\Programs\Microsoft Qoka Insiders\bin
 					binParentLocation = dirname(dirname(this.environmentService.appRoot));
 				}
 			} else {

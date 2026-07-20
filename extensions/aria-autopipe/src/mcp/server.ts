@@ -85,7 +85,7 @@ export class AriaAutopipeMcpServer {
 			}
 		}
 
-		throw new Error('Could not find a free port for the Aria Autopipe MCP server');
+		throw new Error('Could not find a free port for the Qoka Autopipe MCP server');
 	}
 
 	private tryListen(port: number): Promise<http.Server> {
@@ -193,7 +193,7 @@ export class AriaAutopipeMcpServer {
 	 * One POST = one JSON-RPC request; response is returned inline as JSON
 	 * (or 202 No Content for notifications). Mcp-Session-Id is generated on
 	 * the initialize response and echoed back on subsequent requests, but
-	 * we don't validate session contents - Aria runs single-user.
+	 * we don't validate session contents - Qoka runs single-user.
 	 */
 	private handleStreamable(req: http.IncomingMessage, res: http.ServerResponse): void {
 		let body = '';

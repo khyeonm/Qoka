@@ -404,7 +404,7 @@ export interface IExtensionGalleryCapabilities {
 export const IExtensionGalleryService = createDecorator<IExtensionGalleryService>('extensionGalleryService');
 
 /**
- * Service to interact with the Aria Marketplace to get extensions.
+ * Service to interact with the Qoka Marketplace to get extensions.
  * @throws Error if the Marketplace is not enabled or not reachable.
  */
 export interface IExtensionGalleryService {

@@ -1,5 +1,5 @@
 # Publishes the base VM disk image the built-in Run environment downloads
-# (extensions/aria-autopipe/src/vm/provisioner.ts → aria-vm-<arch>.qcow2).
+# (extensions/aria-autopipe/src/vm/provisioner.ts → qoka-vm-<arch>.qcow2).
 #
 # v2 BAKES docker into the image with virt-customize so the guest has a working
 # docker daemon the moment sshd is up. v1 relied on the cloud-init seed running
@@ -88,7 +88,7 @@ jobs:
             --run-command 'echo "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0 console=hvc0\"" > /etc/default/grub.d/99-aria-console.cfg' \
             --run-command 'update-grub' \
             --run-command '/usr/local/bin/docker --version'
-          mv base.qcow2 "aria-vm-${{ matrix.arch }}.qcow2"
+          mv base.qcow2 "qoka-vm-${{ matrix.arch }}.qcow2"
 
       - name: Publish to vm-assets release
         shell: bash
@@ -97,5 +97,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create vm-assets-v1 --title "VM assets" \
-            --notes "Portable QEMU + base image for Aria's built-in run environment." 2>/dev/null || true
-          gh release upload vm-assets-v1 "aria-vm-${{ matrix.arch }}.qcow2" --clobber
+            --notes "Portable QEMU + base image for Qoka's built-in run environment." 2>/dev/null || true
+          gh release upload vm-assets-v1 "qoka-vm-${{ matrix.arch }}.qcow2" --clobber

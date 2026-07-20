@@ -99,7 +99,7 @@ export abstract class FilesystemMcpDiscovery extends Disposable implements IMcpD
 
 /**
  * Base class that discovers MCP servers on a filesystem, outside of the ones
- * defined in Aria settings.
+ * defined in Qoka settings.
  */
 export abstract class NativeFilesystemMcpDiscovery extends FilesystemMcpDiscovery implements IMcpDiscovery {
 	private readonly adapters: readonly NativeMpcDiscoveryAdapter[];

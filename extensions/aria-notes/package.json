@@ -1,7 +1,7 @@
 {
 	"name": "aria-notes",
-	"displayName": "Aria Notes",
-	"description": "Research notes MCP: lets Claude Code read and propose edits to BlockNote notes via a local MCP server. Built into Aria.",
+	"displayName": "Qoka Notes",
+	"description": "Research notes MCP: lets Claude Code read and propose edits to BlockNote notes via a local MCP server. Built into Qoka.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",

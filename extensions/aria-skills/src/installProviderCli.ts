@@ -14,7 +14,7 @@ import { log } from './common/logger';
 
 /**
  * Install a provider's command-line tool when onboarding picks that AI. The chat
- * panel and Aria's background features (version summaries, peer review) are
+ * panel and Qoka's background features (version summaries, peer review) are
  * CLI-backed, so choosing a provider means its CLI must exist - not just its VS
  * Code extension.
  *
@@ -29,7 +29,7 @@ import { log } from './common/logger';
  *     login shell so `curl` and the install dir resolve), the native PowerShell
  *     installer on Windows. Neither needs Node.
  *   - Codex is an npm package, so it needs Node. When the machine has none we
- *     download a portable Node first (see nodeBootstrap) and point npm at Aria's
+ *     download a portable Node first (see nodeBootstrap) and point npm at Qoka's
  *     own prefix, which headlessCli also probes.
  *
  * The "already attempted" guard is per-SESSION (in-memory), so it never nags
@@ -104,9 +104,9 @@ async function installCodex(): Promise<RunResult> {
 		return { code: -1, output: `Couldn't set up Node for Codex: ${message}` };
 	}
 	// Install into ~/.local on Unix so the codex bin lands in ~/.local/bin - a
-	// directory EVERY Aria extension's resolver already probes (peer-review
+	// directory EVERY Qoka extension's resolver already probes (peer-review
 	// availability, MCP registration), not just aria-skills' headlessCli. On
-	// Windows keep Aria's own prefix (those resolvers are Windows-agnostic).
+	// Windows keep Qoka's own prefix (those resolvers are Windows-agnostic).
 	const prefix = isWin ? ARIA_NPM_PREFIX : path.join(os.homedir(), '.local');
 	// Clear any leftover `.codex-*` temp from a prior interrupted install so npm's
 	// atomic-rename doesn't fail with ENOTEMPTY.
@@ -152,13 +152,13 @@ export async function installProviderCli(arg: unknown): Promise<void> {
 			// done regardless.
 			if (isProviderInstalled(provider)) {
 				log(`installProviderCli: ${provider} CLI installed successfully.`);
-				vscode.window.showInformationMessage(`${label} is ready. Reload Aria if the chat doesn't pick it up.`);
+				vscode.window.showInformationMessage(`${label} is ready. Reload Qoka if the chat doesn't pick it up.`);
 				return;
 			}
 			log(`installProviderCli: ${provider} CLI install did not complete (exit ${result.code}). Output:\n${result.output}`);
 			// Let the session retry on next launch rather than latching failure.
 			attemptedThisSession.delete(provider);
-			vscode.window.showErrorMessage(`Aria couldn't install the ${label} command-line tool automatically. See the Aria Skills log for details.`);
+			vscode.window.showErrorMessage(`Qoka couldn't install the ${label} command-line tool automatically. See the Qoka Skills log for details.`);
 		},
 	);
 }

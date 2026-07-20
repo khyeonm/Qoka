@@ -10,7 +10,7 @@ import { services } from '../../common/services';
 export const PLUGIN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'list_installed_plugins',
-		description: 'List all viewer plugins installed locally for Aria, with their supported file extensions and versions. Plugins live under ~/.aria-autopipe-plugins/ and work across every SSH host the user connects to.',
+		description: 'List all viewer plugins installed locally for Qoka, with their supported file extensions and versions. Plugins live under ~/.aria-autopipe-plugins/ and work across every SSH host the user connects to.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			// Single-user, local plugin set: no SSH round-trip needed.
@@ -23,7 +23,7 @@ export const PLUGIN_TOOLS: ToolDefinition[] = [
 					return textResult([
 						`No plugins installed under ${plugins.pluginsDirectory()} yet.`,
 						'',
-						'They are normally fetched from Autopipe Hub on first run. If the bootstrap failed, open Aria → Autopipe → Plugins and use the Install / Update buttons.',
+						'They are normally fetched from Autopipe Hub on first run. If the bootstrap failed, open Qoka → Autopipe → Plugins and use the Install / Update buttons.',
 					].join('\n'));
 				}
 				const lines = installed.map(p =>
@@ -42,7 +42,7 @@ export const PLUGIN_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'open_plugin_dir',
-		description: 'Open the local Aria plugins directory in the OS file explorer. Useful for manually inspecting or editing plugin code during development.',
+		description: 'Open the local Qoka plugins directory in the OS file explorer. Useful for manually inspecting or editing plugin code during development.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			try {

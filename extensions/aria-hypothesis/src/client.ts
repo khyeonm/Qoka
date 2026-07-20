@@ -9,7 +9,7 @@ import * as https from 'https';
 import { URL } from 'url';
 
 /**
- * Client for the hypothesis-search endpoint on the Aria server, behind login.
+ * Client for the hypothesis-search endpoint on the Qoka server, behind login.
  *
  * The server holds the ~1M-paper research corpus (flat shards) and greps it via
  * `search_corpus.py`. This extension never touches the corpus directly - it sends
@@ -17,15 +17,15 @@ import { URL } from 'url';
  * API, which runs the grep and returns candidate papers + context windows.
  *
  * Config (env):
- *   ARIA_HYPOTHESIS_SERVER_URL   base URL of the Aria server (default: aria.pnucolab.com)
- *   ARIA_HYPOTHESIS_INSECURE_TLS set to '0' to enforce strict TLS verification. The
+ *   ARIA_HYPOTHESIS_SERVER_URL   base URL of the Qoka server (default: qoka.org)
+ *   ARIA_HYPOTHESIS_INSECURE_TLS set to '1' to ACCEPT self-signed certs. The
  *                                lab server may use a self-signed cert (Caddy
- *                                `tls internal`), so self-signed is allowed by default.
+ *                                `tls internal`), but the real server has a CA cert so verification is strict by default.
  */
 
-const SERVER_URL = process.env.ARIA_HYPOTHESIS_SERVER_URL || 'https://aria.pnucolab.com';
+const SERVER_URL = process.env.ARIA_HYPOTHESIS_SERVER_URL || 'https://qoka.org';
 const AUTH_ID = 'aria';
-const ALLOW_SELF_SIGNED = process.env.ARIA_HYPOTHESIS_INSECURE_TLS !== '0';
+const ALLOW_SELF_SIGNED = process.env.ARIA_HYPOTHESIS_INSECURE_TLS === '1';
 
 // The server greps the whole corpus (~4-5s) per query; allow generous headroom
 // above the server's own 60s subprocess cap so a slow-but-valid search is not cut.
@@ -35,7 +35,7 @@ const SEARCH_TIMEOUT_MS = 70000;
 async function authToken(): Promise<string> {
 	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
 	if (!session) {
-		throw new Error('Not signed in to Aria - hypothesis search requires sign-in.');
+		throw new Error('Not signed in to Qoka - hypothesis search requires sign-in.');
 	}
 	return session.accessToken;
 }
@@ -64,14 +64,14 @@ function postJson(path: string, body: unknown, token: string, timeoutMs: number)
 			res.on('end', () => {
 				const code = res.statusCode ?? 0;
 				if (code < 200 || code >= 300) {
-					reject(new Error(`Aria hypothesis ${code}: ${data.slice(0, 300)}`));
+					reject(new Error(`Qoka hypothesis ${code}: ${data.slice(0, 300)}`));
 					return;
 				}
 				try { resolve(JSON.parse(data || '{}')); } catch { resolve({ raw: data }); }
 			});
 		});
 		req.on('error', reject);
-		req.on('timeout', () => { req.destroy(new Error('Aria hypothesis server timeout')); });
+		req.on('timeout', () => { req.destroy(new Error('Qoka hypothesis server timeout')); });
 		req.write(payload);
 		req.end();
 	});

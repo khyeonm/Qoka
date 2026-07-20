@@ -56,25 +56,25 @@ export class AriaModeStatusBarContribution extends Disposable implements IWorkbe
 		const advancedActive = mode === 'advanced';
 
 		const easyData = {
-			name: localize('aria.mode.easy.name', "Aria - Easy Mode"),
+			name: localize('aria.mode.easy.name', "Qoka - Easy Mode"),
 			text: '$(beaker) Easy',
-			ariaLabel: localize('aria.mode.easy.aria', "Switch Aria to Easy mode"),
+			ariaLabel: localize('aria.mode.easy.aria', "Switch Qoka to Easy mode"),
 			tooltip: easyActive
-				? localize('aria.mode.easy.activeTooltip', "Aria is in Easy mode")
-				: localize('aria.mode.easy.inactiveTooltip', "Click to switch Aria to Easy mode"),
-			command: { id: ARIA_SET_MODE_COMMAND, title: 'Set Aria Mode to Easy', arguments: ['easy' as AriaMode] },
+				? localize('aria.mode.easy.activeTooltip', "Qoka is in Easy mode")
+				: localize('aria.mode.easy.inactiveTooltip', "Click to switch Qoka to Easy mode"),
+			command: { id: ARIA_SET_MODE_COMMAND, title: 'Set Qoka Mode to Easy', arguments: ['easy' as AriaMode] },
 			backgroundColor: easyActive ? { id: 'statusBarItem.prominentBackground' } : undefined,
 			color: easyActive ? { id: 'statusBarItem.prominentForeground' } : undefined,
 		};
 
 		const advancedData = {
-			name: localize('aria.mode.advanced.name', "Aria - Advanced Mode"),
+			name: localize('aria.mode.advanced.name', "Qoka - Advanced Mode"),
 			text: '$(tools) Advanced',
-			ariaLabel: localize('aria.mode.advanced.aria', "Switch Aria to Advanced mode"),
+			ariaLabel: localize('aria.mode.advanced.aria', "Switch Qoka to Advanced mode"),
 			tooltip: advancedActive
-				? localize('aria.mode.advanced.activeTooltip', "Aria is in Advanced mode")
-				: localize('aria.mode.advanced.inactiveTooltip', "Click to switch Aria to Advanced mode"),
-			command: { id: ARIA_SET_MODE_COMMAND, title: 'Set Aria Mode to Advanced', arguments: ['advanced' as AriaMode] },
+				? localize('aria.mode.advanced.activeTooltip', "Qoka is in Advanced mode")
+				: localize('aria.mode.advanced.inactiveTooltip', "Click to switch Qoka to Advanced mode"),
+			command: { id: ARIA_SET_MODE_COMMAND, title: 'Set Qoka Mode to Advanced', arguments: ['advanced' as AriaMode] },
 			backgroundColor: advancedActive ? { id: 'statusBarItem.prominentBackground' } : undefined,
 			color: advancedActive ? { id: 'statusBarItem.prominentForeground' } : undefined,
 		};

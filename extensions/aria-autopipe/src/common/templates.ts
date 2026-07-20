@@ -7,7 +7,7 @@
  * Bundled pipeline templates and the AutoPipe pipeline-generation guide.
  * Ported verbatim from autopipe-app's `crates/common/src/templates.rs`
  * so Claude/Codex see the exact same starter files regardless of whether
- * they're driving the Tauri app or Aria.
+ * they're driving the Tauri app or Qoka.
  */
 
 export const SNAKEFILE_TEMPLATE = `configfile: "config.yaml"

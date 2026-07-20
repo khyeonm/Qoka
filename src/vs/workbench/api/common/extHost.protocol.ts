@@ -3711,9 +3711,9 @@ export interface MainThreadTestingShape {
 	$updateController(controllerId: string, patch: ITestControllerPatch): void;
 	/** Diposes of the test controller with the given ID */
 	$unregisterTestController(controllerId: string): void;
-	/** Requests tests published to Aria. */
+	/** Requests tests published to Qoka. */
 	$subscribeToDiffs(): void;
-	/** Stops requesting tests published to Aria. */
+	/** Stops requesting tests published to Qoka. */
 	$unsubscribeFromDiffs(): void;
 	/** Publishes that new tests were available on the given source. */
 	$publishDiff(controllerId: string, diff: TestsDiffOp.Serialized[]): void;

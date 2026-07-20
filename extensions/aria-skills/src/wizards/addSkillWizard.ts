@@ -367,7 +367,7 @@ async function editDescription(initial: string): Promise<string | undefined> {
 async function confirmDependencies(deps: SkillDependency[]): Promise<boolean> {
 	const lines = deps.map(d => `• ${d.name}${d.required ? ' (required)' : ''}${d.reason ? ` - ${d.reason}` : ''}`).join('\n');
 	const choice = await vscode.window.showWarningMessage(
-		`This skill expects the following dependencies. Aria currently records them in the manifest only - install them yourself if needed.\n\n${lines}`,
+		`This skill expects the following dependencies. Qoka currently records them in the manifest only - install them yourself if needed.\n\n${lines}`,
 		{ modal: true },
 		'Continue',
 		'Cancel',

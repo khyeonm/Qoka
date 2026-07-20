@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The set of skills Aria installs on first run. Keeping the list here
+ * The set of skills Qoka installs on first run. Keeping the list here
  * (instead of in a config file) makes it visible in code review and
  * lets the first-run wizard treat each entry as a hard requirement.
  *

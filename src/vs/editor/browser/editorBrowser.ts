@@ -590,12 +590,12 @@ export interface IDiffEditorConstructionOptions extends IDiffEditorOptions, IEdi
 	overflowWidgetsDomNode?: HTMLElement;
 
 	/**
-	 * Aria label for original editor.
+	 * Qoka label for original editor.
 	 */
 	originalAriaLabel?: string;
 
 	/**
-	 * Aria label for modified editor.
+	 * Qoka label for modified editor.
 	 */
 	modifiedAriaLabel?: string;
 }

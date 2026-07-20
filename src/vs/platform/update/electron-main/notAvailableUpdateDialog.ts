@@ -14,7 +14,7 @@ import { IUpdateService, StateType } from '../common/update.js';
 /**
  * Shows a native "no updates available" dialog when an explicit update check
  * finds nothing. Shown by whichever app currently owns focus, so it appears
- * once across sibling apps (Aria / Agents). On macOS the dialog is also
+ * once across sibling apps (Qoka / Agents). On macOS the dialog is also
  * shown when the app is active but has no focused window (e.g. "Check for
  * Updates" invoked from the menu bar with all windows closed/minimized).
  */

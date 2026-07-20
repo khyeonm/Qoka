@@ -1,7 +1,7 @@
 {
 	"name": "aria-overview",
-	"displayName": "Aria Project Overview",
-	"description": "Project Overview MCP: lets the AI assistant read the project's title, summary, and To-do list and propose task completions. Built into Aria.",
+	"displayName": "Qoka Project Overview",
+	"description": "Project Overview MCP: lets the AI assistant read the project's title, summary, and To-do list and propose task completions. Built into Qoka.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",

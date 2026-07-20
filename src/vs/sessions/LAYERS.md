@@ -2,7 +2,7 @@
 
 This document describes the import layering rules for `src/vs/sessions/`, enforced by the `local/code-import-patterns` ESLint rule.
 
-The sessions layer sits above `vs/workbench` in the Aria source code hierarchy. For the broader Aria layer rules (base → platform → editor → workbench → sessions), see `.github/instructions/source-code-organization.instructions.md`.
+The sessions layer sits above `vs/workbench` in the Qoka source code hierarchy. For the broader Qoka layer rules (base → platform → editor → workbench → sessions), see `.github/instructions/source-code-organization.instructions.md`.
 
 ## Layer Hierarchy
 

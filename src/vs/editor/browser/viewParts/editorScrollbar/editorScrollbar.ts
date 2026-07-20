@@ -17,7 +17,7 @@ import { EditorOption } from '../../../common/config/editorOptions.js';
 import { IMouseWheelEvent } from '../../../../base/browser/mouseEvent.js';
 
 /**
- * The editor scrollbar built on Aria's scrollable element that sits beside
+ * The editor scrollbar built on Qoka's scrollable element that sits beside
  * the minimap.
  */
 export class EditorScrollbar extends ViewPart {

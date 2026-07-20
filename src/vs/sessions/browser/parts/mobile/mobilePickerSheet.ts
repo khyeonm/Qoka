@@ -113,7 +113,7 @@ export interface IMobilePickerSheetSearchSource {
 	readonly placeholder: string;
 	/** Section title shown above the result list. */
 	readonly resultsSectionTitle?: string;
-	/** Aria label for the search input (defaults to {@link placeholder}). */
+	/** Qoka label for the search input (defaults to {@link placeholder}). */
 	readonly ariaLabel?: string;
 	/** Message rendered inside the result list when zero results are returned. */
 	readonly emptyMessage?: string;

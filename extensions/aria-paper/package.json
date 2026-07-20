@@ -1,7 +1,7 @@
 {
 	"name": "aria-paper",
-	"displayName": "Aria Paper Writer",
-	"description": "Paper-writing MCP: lets Claude Code draft, cite, and export scientific manuscripts (Markdown / DOCX / LaTeX via pandoc + citeproc). Built into Aria.",
+	"displayName": "Qoka Paper Writer",
+	"description": "Paper-writing MCP: lets Claude Code draft, cite, and export scientific manuscripts (Markdown / DOCX / LaTeX via pandoc + citeproc). Built into Qoka.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",

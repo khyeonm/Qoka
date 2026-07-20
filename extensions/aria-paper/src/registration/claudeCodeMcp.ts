@@ -13,7 +13,7 @@ const execAsync = promisify(exec);
 
 /** Name Claude Code lists this MCP under. Must match the `name` returned by
  *  the server's `initialize` response so the user sees one consistent label. */
-const MCP_NAME = 'aria-paper';
+const MCP_NAME = 'qoka-paper';
 
 export interface RegistrationResult {
 	ok: boolean;
@@ -24,9 +24,9 @@ export interface RegistrationResult {
 }
 
 /**
- * Shell-installed locations the Claude CLI lands in. The Aria launcher
+ * Shell-installed locations the Claude CLI lands in. The Qoka launcher
  * inherits a minimal PATH that often misses these; mirrors the candidate
- * list used by Aria's other MCP extensions so behaviour stays consistent.
+ * list used by Qoka's other MCP extensions so behaviour stays consistent.
  */
 function candidateClaudePaths(): string[] {
 	const home = os.homedir();
@@ -82,8 +82,8 @@ async function readClaudeRegisteredPort(claude: string): Promise<number | null> 
 }
 
 /**
- * (Re-)register the Aria Paper MCP server with Claude Code. Mirrors the other
- * Aria MCP extensions: best-effort removes any prior entry across all three
+ * (Re-)register the Qoka Paper MCP server with Claude Code. Mirrors the other
+ * Qoka MCP extensions: best-effort removes any prior entry across all three
  * scopes, then adds the current live port at --scope user so the MCP is
  * reachable from every project Claude Code opens.
  */
@@ -130,7 +130,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 
 	let addResult = await runAdd();
 	if (!addResult.ok && /already exists/i.test(addResult.stderr)) {
-		// Race: several Aria MCP extensions touch the same `~/.claude.json`
+		// Race: several Qoka MCP extensions touch the same `~/.claude.json`
 		// from concurrent CLI invocations. Re-remove after a short jitter and
 		// retry the add once.
 		console.warn('[aria-paper] mcp add raced with another writer; retrying after re-remove');

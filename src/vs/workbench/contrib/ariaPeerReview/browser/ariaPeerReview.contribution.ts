@@ -69,7 +69,7 @@ CommandsRegistry.registerCommand('aria.peerReview.delete', async (accessor, exec
 // --- Sidebar "AI Peer Review" view ------------------------------------------
 
 const PEER_REVIEW_CONTAINER_ID = 'workbench.view.ariaPeerReview';
-const peerReviewIcon = registerIcon('aria-peer-review-view', Codicon.commentDiscussion, localize('aria.peerReview.iconLabel', "Aria Peer Review activity bar icon"));
+const peerReviewIcon = registerIcon('aria-peer-review-view', Codicon.commentDiscussion, localize('aria.peerReview.iconLabel', "Qoka Peer Review activity bar icon"));
 
 const peerReviewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({

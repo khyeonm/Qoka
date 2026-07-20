@@ -115,7 +115,7 @@ export class EditorGroupWatermark extends Disposable {
 
 	private registerListeners(): void {
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
-			// Re-render when Aria's easy/advanced mode flips — easy mode swaps the
+			// Re-render when Qoka's easy/advanced mode flips — easy mode swaps the
 			// developer cheat-sheet for a simple welcome.
 			if (e.affectsConfiguration('aria.mode')) {
 				this.render();
@@ -163,7 +163,7 @@ export class EditorGroupWatermark extends Disposable {
 		this.ariaWelcome?.remove();
 		this.ariaWelcome = undefined;
 
-		// Aria easy mode: show a friendly welcome (title + hint pointing at the
+		// Qoka easy mode: show a friendly welcome (title + hint pointing at the
 		// left sidebar) instead of the developer keybinding cheat-sheet, and hide
 		// the code-editor letterpress logo. Always shown regardless of tips setting.
 		if (this.configurationService.getValue<string>('aria.mode') === 'easy') {
@@ -223,7 +223,7 @@ export class EditorGroupWatermark extends Disposable {
 		});
 
 		const title = append(box, $('div'));
-		title.textContent = 'Aria';
+		title.textContent = 'Qoka';
 		Object.assign(title.style, { fontSize: '40px', fontWeight: '600', letterSpacing: '0.02em', opacity: '0.9' });
 
 		const hint = append(box, $('div'));

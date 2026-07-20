@@ -18,7 +18,7 @@ interface SseSession {
 }
 
 /**
- * Aria paper-library MCP server. Mirrors the autopipe MCP server's
+ * Qoka paper-library MCP server. Mirrors the autopipe MCP server's
  * HTTP+SSE / Streamable HTTP dual-transport design - Claude Code uses
  * the older SSE protocol, Codex uses the newer Streamable HTTP - so
  * paper-library tools work in both clients.

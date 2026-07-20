@@ -10,7 +10,7 @@ import { AriaAiProvider, AriaConcreteProvider } from '../common/ariaConfiguratio
  * the Started overlay) and the startup chat auto-open. Kept UI-free so both a
  * contribution and a plain module can import it without a dependency cycle.
  *
- * Aria's chat is provided by a Marketplace extension - Claude Code
+ * Qoka's chat is provided by a Marketplace extension - Claude Code
  * (`anthropic.claude-code`) or Codex (`openai.chatgpt`) - so the picker's job is
  * to let the user choose which one(s) to use and route them to install when a
  * chosen provider isn't present yet.

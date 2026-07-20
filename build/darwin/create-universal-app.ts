@@ -42,7 +42,7 @@ async function main(buildDir?: string) {
 	}
 
 	const product = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8'));
-	// nameShort ("Aria.app") - matches the bundle name from electron productAppName.
+	// nameShort ("Qoka.app") - matches the bundle name from electron productAppName.
 	const appName = product.nameShort + '.app';
 	const x64AppPath = path.join(buildDir, 'VSCode-darwin-x64', appName);
 	const arm64AppPath = path.join(buildDir, 'VSCode-darwin-arm64', appName);

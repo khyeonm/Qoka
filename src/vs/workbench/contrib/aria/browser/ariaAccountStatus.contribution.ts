@@ -26,7 +26,7 @@ const ACCOUNT_MENU_COMMAND = 'aria.account.menu';
 const ACCOUNT_CACHE_KEY = 'aria.account.displayCache';
 
 /**
- * The signed-in Aria account, a Change project button, and a Sign out button
+ * The signed-in Qoka account, a Change project button, and a Sign out button
  * (previously only in the launch overlay) live at the bottom-right of the status
  * bar. Shown in BOTH modes: the account item's menu is where AI providers is
  * chosen and Sign out belongs with the account, so they stay on the right in
@@ -122,12 +122,12 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	 * clears it (see signOut).
 	 */
 	private reconcile(): void {
-		// The Aria account / Change project / Sign out items live at the bottom-right
+		// The Qoka account / Change project / Sign out items live at the bottom-right
 		// (status bar) in BOTH modes now - advanced mode used to keep the stock bar,
 		// but the account menu (where AI providers is chosen) and Sign out belong
 		// with the account in every mode, so they sit on the right consistently.
 		if (this.session) {
-			const name = this.session.account.label || localize('aria.account.fallback', "Aria user");
+			const name = this.session.account.label || localize('aria.account.fallback', "Qoka user");
 			// The provider (google / orcid) comes from the extension (scopes are []).
 			const label = this.provider ? `${name} (${this.provider})` : name;
 			this.storageService.store(ACCOUNT_CACHE_KEY, JSON.stringify({ label }), StorageScope.APPLICATION, StorageTarget.MACHINE);
@@ -147,10 +147,10 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		this.disposeEntries();
 
 		this.accountEntry = this.statusbarService.addEntry({
-			name: localize('aria.account.name', "Aria account"),
+			name: localize('aria.account.name', "Qoka account"),
 			text: `$(account) ${label}`,
 			ariaLabel: localize('aria.account.ariaLabel', "Signed in as {0}", label),
-			tooltip: localize('aria.account.tooltip', "Aria account - click for AI providers"),
+			tooltip: localize('aria.account.tooltip', "Qoka account - click for AI providers"),
 			command: ACCOUNT_MENU_COMMAND,
 		}, 'aria.account', StatusbarAlignment.RIGHT, 100);
 
@@ -172,7 +172,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 			name: localize('aria.signout.name', "Sign out"),
 			text: localize('aria.signout.text', "Sign out"),
 			ariaLabel: localize('aria.signout.text', "Sign out"),
-			tooltip: localize('aria.signout.tooltip', "Sign out of Aria"),
+			tooltip: localize('aria.signout.tooltip', "Sign out of Qoka"),
 			command: SIGN_OUT_COMMAND,
 		}, 'aria.signout', StatusbarAlignment.RIGHT, 98);
 	}
@@ -196,7 +196,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	}
 
 	/** Clicking the account item opens a small menu ABOVE it. Currently: choose
-	 *  which AI(s) Aria uses (Claude / Codex). */
+	 *  which AI(s) Qoka uses (Claude / Codex). */
 	private showAccountMenu(): void {
 		const anchor = mainWindow.document.getElementById('status.aria.account')
 			?? (mainWindow.document.querySelector('.part.statusbar .right-items') as HTMLElement | null)
@@ -218,11 +218,11 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		if (!this.session) {
 			// Painted from the cached label but the live session object isn't set
 			// (auth ext still restoring). The button then appears to do nothing.
-			// Actively remove ANY lingering Aria session so the reloaded empty
+			// Actively remove ANY lingering Qoka session so the reloaded empty
 			// workbench sees no session and lands on sign-in - otherwise the
 			// overlay's auto-reopen would treat this as a normal launch and reopen
 			// the project we're trying to sign out of.
-			console.log('[aria] sign out: no live session object - removing all Aria sessions, then closing folder');
+			console.log('[aria] sign out: no live session object - removing all Qoka sessions, then closing folder');
 			try {
 				const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
 				for (const s of sessions) {

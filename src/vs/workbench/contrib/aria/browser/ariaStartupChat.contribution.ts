@@ -26,7 +26,7 @@ import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConf
  *      project window exists - so they can install, then reload. We don't also
  *      reveal the chat that run (they're installing).
  *   2. Otherwise auto-open the chosen provider's chat so the chat surface is
- *      present the moment Aria opens.
+ *      present the moment Qoka opens.
  *
  * Sequencing:
  *   - EMPTY workbench (no folder): skip. The Started overlay owns the screen.
@@ -76,7 +76,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 
 		// Cover the window IMMEDIATELY (synchronously, at window load) so the bare
 		// workbench never flashes, then decide once we can read the live state.
-		const hideLoading = this._showLoadingOverlay('Preparing Aria…');
+		const hideLoading = this._showLoadingOverlay('Preparing Qoka…');
 		// Drain the stale one-shot; the decision below is made from LIVE state.
 		takePendingInstall();
 		void (async () => {
@@ -107,11 +107,11 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			if (usable.length === 0) {
 				this._setupGateDone = true;
 				hideLoading();
-				this.notificationService.warn('Aria could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
+				this.notificationService.warn('Qoka could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
 				return;
 			}
 
-			// 3) Wait for the MCP servers to come up, then register every Aria MCP
+			// 3) Wait for the MCP servers to come up, then register every Qoka MCP
 			//    with the usable provider CLI(s) and HOLD the loader until they ALL
 			//    report registered - a real completion signal (registeredCount), not a
 			//    timer. MCP ports are per-window, so THIS project window's registration
@@ -127,7 +127,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				const labels = failed.map(p => PROVIDER_LABEL[p]).join(' and ');
 				this.notificationService.warn(`Couldn't set up ${labels}. The other AI tools are ready; reload the window later to retry ${labels}.`);
 			} else if (!allRegistered) {
-				this.notificationService.warn('Some Aria tools could not connect. Reload the window to retry.');
+				this.notificationService.warn('Some Qoka tools could not connect. Reload the window to retry.');
 			}
 
 			// If the chosen provider's chat EXTENSION isn't installed yet, open the
@@ -152,7 +152,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  can't reconcile concurrently with the gate or fire a premature toast. */
 	private _setupGateDone = false;
 
-	/** Every Aria MCP extension exposes this command: re-run its registration
+	/** Every Qoka MCP extension exposes this command: re-run its registration
 	 *  with whatever provider CLIs are present, returning true if it NEWLY
 	 *  registered something. Firing all of them and OR-ing the results lets us
 	 *  show a single "open a new chat" prompt. */
@@ -168,7 +168,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		'aria.overview.reregisterMcp',
 	];
 
-	/** Each Aria MCP extension also exposes this: returns { name, port } for its
+	/** Each Qoka MCP extension also exposes this: returns { name, port } for its
 	 *  live server (or null if not up). The coordinator collects all of them and
 	 *  registers every server in ONE batched config write - far faster than the
 	 *  per-server CLI path (which is kept as the fallback). */
@@ -216,7 +216,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		return this._registerRemainingMcp();
 	}
 
-	/** Ask every Aria MCP to (re)register; show ONE toast if any newly did. A
+	/** Ask every Qoka MCP to (re)register; show ONE toast if any newly did. A
 	 *  command that isn't registered yet (its extension not active) just resolves
 	 *  to false. Registration is done via each provider's CLI, so the config
 	 *  schema is always correct - we never hand-write ~/.claude.json / config.toml. */
@@ -246,13 +246,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// `silent` suppresses the toast during onboarding / first-run setup (the user
 		// hasn't opened a chat yet, so "open a NEW chat" would be premature).
 		if (anyChanged && !silent) {
-			this.notificationService.info('Aria tools connected. Open a NEW Claude or Codex chat to use them.');
+			this.notificationService.info('Qoka tools connected. Open a NEW Claude or Codex chat to use them.');
 		}
 		return { anyChanged, registeredCount };
 	}
 
 	/**
-	 * Register every Aria MCP server, retrying ONLY the ones not yet registered.
+	 * Register every Qoka MCP server, retrying ONLY the ones not yet registered.
 	 * The pending set draining to empty is the real COMPLETION signal - the loader
 	 * holds until then. Retrying just the stragglers avoids re-spawning a `mcp add`/
 	 * `mcp get` for the servers already done (each is a process on Windows).
@@ -288,7 +288,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  CLIs are installed.
 	 *
 	 *  Note: this runs in the EMPTY window. It deliberately does NOT register the
-	 *  MCP servers - picking a project reloads into a new window where every Aria
+	 *  MCP servers - picking a project reloads into a new window where every Qoka
 	 *  MCP server gets a FRESH port, so any registration here is immediately stale.
 	 *  Only the CLI install (a persistent binary) is worth doing now; the project
 	 *  window is where registration happens, and its loader holds until all servers
@@ -328,7 +328,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 
 	/** When the installed extension set changes (a provider added later from the
 	 *  Marketplace / Settings), install its CLI if needed and register once - this
-	 *  is where the "Aria tools connected. Open a NEW chat" toast belongs, since a
+	 *  is where the "Qoka tools connected. Open a NEW chat" toast belongs, since a
 	 *  chat may already be open. First-run setup goes through the loading gate,
 	 *  which is silent. */
 	private _wireMcpReconcile(): void {

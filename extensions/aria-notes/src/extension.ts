@@ -44,7 +44,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
 }
 
 /**
- * Aria Notes - boots a local MCP server so an AI assistant can read notes
+ * Qoka Notes - boots a local MCP server so an AI assistant can read notes
  * (as Markdown) and propose edits. Edits are not written directly: the server
  * fires `aria.notes.workbench.onProposal`, and the workbench note editor shows
  * the change for the user to Accept/Reject.
@@ -104,7 +104,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	})();
 
 	// Sole registration entry point: the workbench chat-open coordinator calls
-	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// this (serialized across every Qoka MCP) so the concurrent `claude mcp add`
 	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
 	// newly registered something. Awaits the server start (rather than reading a
 	// port set by the IIFE) because the coordinator may call before the port is

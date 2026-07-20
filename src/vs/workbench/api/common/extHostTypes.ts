@@ -1687,7 +1687,7 @@ export class DataTransferItem implements vscode.DataTransferItem {
 }
 
 /**
- * A data transfer item that has been created by Aria instead of by a extension.
+ * A data transfer item that has been created by Qoka instead of by a extension.
  *
  * Intentionally not exported to extensions.
  */
@@ -2719,13 +2719,13 @@ export class TimelineItem implements vscode.TimelineItem {
 export enum ExtensionMode {
 	/**
 	 * The extension is installed normally (for example, from the marketplace
-	 * or VSIX) in Aria.
+	 * or VSIX) in Qoka.
 	 */
 	Production = 1,
 
 	/**
 	 * The extension is running from an `--extensionDevelopmentPath` provided
-	 * when launching Aria.
+	 * when launching Qoka.
 	 */
 	Development = 2,
 

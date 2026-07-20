@@ -27,7 +27,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: true,
 			tags: ['experimental'],
 			experiment: { mode: 'startup' },
-			description: localize('sessions.chat.localAgent.enabled', "Enable Local Aria chat sessions in the Agents Window. Reload the window for changes to take effect."),
+			description: localize('sessions.chat.localAgent.enabled', "Enable Local Qoka chat sessions in the Agents Window. Reload the window for changes to take effect."),
 		},
 	},
 });

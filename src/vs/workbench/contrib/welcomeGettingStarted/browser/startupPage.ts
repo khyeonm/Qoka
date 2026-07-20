@@ -109,7 +109,7 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 			}
 		}));
 
-		// Aria easy mode: if the user switches into easy mode while the developer
+		// Qoka easy mode: if the user switches into easy mode while the developer
 		// Welcome page is open, close it — easy mode uses the watermark welcome.
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('aria.mode') && this.configurationService.getValue<string>('aria.mode') === 'easy') {
@@ -126,11 +126,11 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 		// Wait for resolving startup editor until we are restored to reduce startup pressure
 		await this.lifecycleService.when(LifecyclePhase.Restored);
 
-		// Aria: the developer Welcome / Getting Started page is removed in BOTH
+		// Qoka: the developer Welcome / Getting Started page is removed in BOTH
 		// modes. Never auto-open it, and close any a previous session restored (the
 		// input has a serializer, so it comes back) so it doesn't linger. It stays
 		// reachable on demand via Help › Welcome (workbench.action.openWalkthrough).
-		// In easy mode the empty-editor watermark shows the Aria welcome instead.
+		// In easy mode the empty-editor watermark shows the Qoka welcome instead.
 		const restoredWelcome = this.editorService.findEditors(GettingStartedInput.RESOURCE);
 		if (restoredWelcome.length) {
 			await this.editorService.closeEditors(restoredWelcome);
@@ -213,7 +213,7 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 				]);
 			}
 			// If no readme is found we intentionally do nothing — the dev welcome
-			// page is removed in Aria (reachable via Help › Welcome if wanted).
+			// page is removed in Qoka (reachable via Help › Welcome if wanted).
 		}
 	}
 

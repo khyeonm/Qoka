@@ -16,9 +16,9 @@ const REVEAL_COMMANDS: Record<AriaConcreteProvider, string[]> = {
 
 /**
  * Reveal whichever AI provider chat the user has installed - Claude Code
- * or Codex. Aria does NOT own the chat UI: each provider is a
+ * or Codex. Qoka does NOT own the chat UI: each provider is a
  * separate VS Code extension contributing its own sidebar view, so we can't
- * open "the Aria chat". Instead we focus the auxiliary bar and then try each
+ * open "the Qoka chat". Instead we focus the auxiliary bar and then try each
  * provider's reveal command in turn. Only the installed provider's command is
  * registered, so unknown commands throw and are skipped; the first that
  * resolves wins.

@@ -179,21 +179,21 @@ export const schema: IJSONSchema = {
 			properties: {
 				'vscode': {
 					type: 'string',
-					description: nls.localize('vscode.extension.engines.vscode', 'For Aria extensions, specifies the Aria version that the extension is compatible with. Cannot be *. For example: ^1.105.0 indicates compatibility with a minimum Aria version of 1.105.0.'),
+					description: nls.localize('vscode.extension.engines.vscode', 'For Qoka extensions, specifies the Qoka version that the extension is compatible with. Cannot be *. For example: ^1.105.0 indicates compatibility with a minimum Qoka version of 1.105.0.'),
 					default: '^1.105.0',
 				}
 			}
 		},
 		publisher: {
-			description: nls.localize('vscode.extension.publisher', 'The publisher of the Aria extension.'),
+			description: nls.localize('vscode.extension.publisher', 'The publisher of the Qoka extension.'),
 			type: 'string'
 		},
 		displayName: {
-			description: nls.localize('vscode.extension.displayName', 'The display name for the extension used in the Aria gallery.'),
+			description: nls.localize('vscode.extension.displayName', 'The display name for the extension used in the Qoka gallery.'),
 			type: 'string'
 		},
 		categories: {
-			description: nls.localize('vscode.extension.categories', 'The categories used by the Aria gallery to categorize the extension.'),
+			description: nls.localize('vscode.extension.categories', 'The categories used by the Qoka gallery to categorize the extension.'),
 			type: 'array',
 			uniqueItems: true,
 			items: {
@@ -210,10 +210,10 @@ export const schema: IJSONSchema = {
 		},
 		galleryBanner: {
 			type: 'object',
-			description: nls.localize('vscode.extension.galleryBanner', 'Banner used in the Aria marketplace.'),
+			description: nls.localize('vscode.extension.galleryBanner', 'Banner used in the Qoka marketplace.'),
 			properties: {
 				color: {
-					description: nls.localize('vscode.extension.galleryBanner.color', 'The banner color on the Aria marketplace page header.'),
+					description: nls.localize('vscode.extension.galleryBanner.color', 'The banner color on the Qoka marketplace page header.'),
 					type: 'string'
 				},
 				theme: {
@@ -224,7 +224,7 @@ export const schema: IJSONSchema = {
 			}
 		},
 		contributes: {
-			description: nls.localize('vscode.extension.contributes', 'All contributions of the Aria extension represented by this package.'),
+			description: nls.localize('vscode.extension.contributes', 'All contributions of the Qoka extension represented by this package.'),
 			type: 'object',
 			// eslint-disable-next-line local/code-no-any-casts
 			properties: {
@@ -259,7 +259,7 @@ export const schema: IJSONSchema = {
 			]
 		},
 		activationEvents: {
-			description: nls.localize('vscode.extension.activationEvents', 'Activation events for the Aria extension.'),
+			description: nls.localize('vscode.extension.activationEvents', 'Activation events for the Qoka extension.'),
 			type: 'array',
 			items: {
 				type: 'string',
@@ -426,7 +426,7 @@ export const schema: IJSONSchema = {
 					},
 					{
 						label: '*',
-						description: nls.localize('vscode.extension.activationEvents.star', 'An activation event emitted on Aria startup. To ensure a great end user experience, please use this activation event in your extension only when no other activation events combination works in your use-case.'),
+						description: nls.localize('vscode.extension.activationEvents.star', 'An activation event emitted on Qoka startup. To ensure a great end user experience, please use this activation event in your extension only when no other activation events combination works in your use-case.'),
 						body: '*'
 					}
 				],
@@ -607,11 +607,11 @@ export const schema: IJSONSchema = {
 			type: 'object',
 			properties: {
 				'vscode:prepublish': {
-					description: nls.localize('vscode.extension.scripts.prepublish', 'Script executed before the package is published as a Aria extension.'),
+					description: nls.localize('vscode.extension.scripts.prepublish', 'Script executed before the package is published as a Qoka extension.'),
 					type: 'string'
 				},
 				'vscode:uninstall': {
-					description: nls.localize('vscode.extension.scripts.uninstall', 'Uninstall hook for Aria extension. Script that gets executed when the extension is completely uninstalled from Aria which is when Aria is restarted (shutdown and start) after the extension is uninstalled. Only Node scripts are supported.'),
+					description: nls.localize('vscode.extension.scripts.uninstall', 'Uninstall hook for Qoka extension. Script that gets executed when the extension is completely uninstalled from Qoka which is when Qoka is restarted (shutdown and start) after the extension is uninstalled. Only Node scripts are supported.'),
 					type: 'string'
 				}
 			}

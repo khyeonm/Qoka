@@ -11,7 +11,7 @@ import { InMemoryDocument } from './inMemoryDocument';
 import { ResourceMap } from '../util/resourceMap';
 
 /**
- * Provides set of markdown files known to Aria.
+ * Provides set of markdown files known to Qoka.
  *
  * This includes both opened text documents and markdown files in the workspace.
  */

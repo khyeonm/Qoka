@@ -32,7 +32,7 @@ export interface IBaseSerializableStorageRequest {
 
 	/**
 	 * Whether this request targets the application shared storage
-	 * that is shared across Aria and Sessions app.
+	 * that is shared across Qoka and Sessions app.
 	 */
 	readonly applicationShared?: boolean;
 

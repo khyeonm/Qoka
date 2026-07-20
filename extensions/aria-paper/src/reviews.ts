@@ -23,7 +23,7 @@ const execFileAsync = promisify(execFile);
  *   - revisions/     (Phase 2) staged defensive revisions
  *
  * execId is unique per run, so two reviews of a same-titled paper stay distinct.
- * The Aria Peer Review tab reads meta/concerns directly; these MCP tools are for
+ * The Qoka Peer Review tab reads meta/concerns directly; these MCP tools are for
  * the reviewer agent (extract text on read, record structured concerns).
  */
 
@@ -224,7 +224,7 @@ export function buildReviewTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'open_new_review',
-			description: 'Open Aria\'s Peer Review tab and start a NEW review window. Call this FIRST when the user asks IN CHAT to peer-review / critique a paper and you do not yet have an execId. It only opens the UI (best-effort) - it does not start the review. After calling it, tell the user their draft is in the new-review window where they can add figures / supplementary files, and to say when they are done; the actual run is started from the tab (which gives you an execId for get_review).',
+			description: 'Open Qoka\'s Peer Review tab and start a NEW review window. Call this FIRST when the user asks IN CHAT to peer-review / critique a paper and you do not yet have an execId. It only opens the UI (best-effort) - it does not start the review. After calling it, tell the user their draft is in the new-review window where they can add figures / supplementary files, and to say when they are done; the actual run is started from the tab (which gives you an execId for get_review).',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				// Best-effort: reveal the Peer Review tab, then open the new-review
@@ -236,10 +236,10 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'get_review',
-			description: 'Load an AI Peer Review run started from Aria\'s Peer Review tab. Returns the paper title, the MAIN manuscript text (the thing to review), any supplementary text, referenced figure names, and the reviewers to use. Call this first with the execId Aria gave you, then run the reviewer sub-agents on the manuscript.',
+			description: 'Load an AI Peer Review run started from Qoka\'s Peer Review tab. Returns the paper title, the MAIN manuscript text (the thing to review), any supplementary text, referenced figure names, and the reviewers to use. Call this first with the execId Qoka gave you, then run the reviewer sub-agents on the manuscript.',
 			inputSchema: {
 				type: 'object',
-				properties: { execId: { type: 'string', description: 'The review run id Aria passed in the prompt.' } },
+				properties: { execId: { type: 'string', description: 'The review run id Qoka passed in the prompt.' } },
 				required: ['execId'],
 			},
 			handler: async (args) => {
@@ -300,7 +300,7 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'record_review',
-			description: 'Record one reviewer\'s Major/Minor Concerns for a review run so Aria\'s Peer Review tab can display them. Call once per reviewer after aggregating that reviewer\'s sub-agents. `concerns` is an array of { severity: "major"|"minor", title, detail }.',
+			description: 'Record one reviewer\'s Major/Minor Concerns for a review run so Qoka\'s Peer Review tab can display them. Call once per reviewer after aggregating that reviewer\'s sub-agents. `concerns` is an array of { severity: "major"|"minor", title, detail }.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -334,17 +334,17 @@ export function buildReviewTools(): ToolDefinition[] {
 					return err(`record_review failed: ${(e as Error).message}`);
 				}
 				const major = concerns.filter(c => c.severity === 'major').length;
-				return ok(`Recorded ${concerns.length} concern(s) for "${reviewer}" (${major} major). Aria's Peer Review tab will show them.`);
+				return ok(`Recorded ${concerns.length} concern(s) for "${reviewer}" (${major} major). Qoka's Peer Review tab will show them.`);
 			},
 		},
 		{
 			name: 'record_revision',
-			description: 'Propose UP TO 3 alternative revision strategies that resolve ONE concern from a review run. Aria shows them in a "< N/3 >" carousel with an Accept button; the user browses the strategies and accepts one, which replaces that span in the paper. Call get_review first to read the CURRENT paper. Each proposal is a distinct strategy (different argument / edit footprint / risk) with the EXACT original span to replace (verbatim, long enough to be unique) and the full replacement. Only add reasoning/scoping/framing grounded in the existing paper - never invent data, numbers, procedures, or citations.',
+			description: 'Propose UP TO 3 alternative revision strategies that resolve ONE concern from a review run. Qoka shows them in a "< N/3 >" carousel with an Accept button; the user browses the strategies and accepts one, which replaces that span in the paper. Call get_review first to read the CURRENT paper. Each proposal is a distinct strategy (different argument / edit footprint / risk) with the EXACT original span to replace (verbatim, long enough to be unique) and the full replacement. Only add reasoning/scoping/framing grounded in the existing paper - never invent data, numbers, procedures, or citations.',
 			inputSchema: {
 				type: 'object',
 				properties: {
 					execId: { type: 'string', description: 'The review run id.' },
-					concernId: { type: 'string', description: 'The concern id Aria gave you in the Suggest Revision prompt (e.g. "claude#0").' },
+					concernId: { type: 'string', description: 'The concern id Qoka gave you in the Suggest Revision prompt (e.g. "claude#0").' },
 					documentKey: { type: 'string', description: 'Which document to edit: "main" for the manuscript (default), or a supplementary key like "suppl-1" from get_review.' },
 					proposals: {
 						type: 'array',
@@ -391,12 +391,12 @@ export function buildReviewTools(): ToolDefinition[] {
 				} catch (e) {
 					return err(`record_revision failed: ${(e as Error).message}`);
 				}
-				return ok(`Recorded ${proposals.length} revision strategy(ies) for concern ${concernId}. Aria shows them in a "< N/${proposals.length} >" carousel with an Accept button.`);
+				return ok(`Recorded ${proposals.length} revision strategy(ies) for concern ${concernId}. Qoka shows them in a "< N/${proposals.length} >" carousel with an Accept button.`);
 			},
 		},
 		{
 			name: 'propose_document_edit',
-			description: 'Propose an edit to ONE document of a review (the "main" manuscript or a supplementary doc like "suppl-1") that the USER directly asked for and is NOT tied to a review concern - e.g. "delete the title in the supplementary", "fix this typo". Aria shows it inline in that document (auto-switching to its tab) with an Accept button; nothing changes until the user accepts. This is for the REVIEW\'s documents - do NOT use Paper Writer tools for these. (For fixing a specific review concern, use record_revision instead.) You may give up to 3 alternative `proposals`; the user browses "< N/3 >" and accepts one. Call get_review first and copy the exact text. Set `replacement` to "" to delete a span.',
+			description: 'Propose an edit to ONE document of a review (the "main" manuscript or a supplementary doc like "suppl-1") that the USER directly asked for and is NOT tied to a review concern - e.g. "delete the title in the supplementary", "fix this typo". Qoka shows it inline in that document (auto-switching to its tab) with an Accept button; nothing changes until the user accepts. This is for the REVIEW\'s documents - do NOT use Paper Writer tools for these. (For fixing a specific review concern, use record_revision instead.) You may give up to 3 alternative `proposals`; the user browses "< N/3 >" and accepts one. Call get_review first and copy the exact text. Set `replacement` to "" to delete a span.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -446,7 +446,7 @@ export function buildReviewTools(): ToolDefinition[] {
 				} catch (e) {
 					return err(`propose_document_edit failed: ${(e as Error).message}`);
 				}
-				return ok(`Proposed ${proposals.length} edit option(s) for "${documentKey}". Aria switched to that document and shows an Accept button - nothing is applied until the user accepts.`);
+				return ok(`Proposed ${proposals.length} edit option(s) for "${documentKey}". Qoka switched to that document and shows an Accept button - nothing is applied until the user accepts.`);
 			},
 		},
 	];

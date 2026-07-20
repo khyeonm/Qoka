@@ -68,7 +68,7 @@ export class DiskTypeScriptVersionProvider implements ITypeScriptVersionProvider
 			return version;
 		}
 
-		vscode.window.showErrorMessage(vscode.l10n.t("Aria\'s tsserver was deleted by another application such as a misbehaving virus detection tool. Please reinstall Aria."));
+		vscode.window.showErrorMessage(vscode.l10n.t("Qoka\'s tsserver was deleted by another application such as a misbehaving virus detection tool. Please reinstall Qoka."));
 		throw new Error('Could not find bundled tsserver.js');
 	}
 

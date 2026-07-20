@@ -19,7 +19,7 @@ import { SshService } from '../ssh/sshService';
 const execFileAsync = promisify(execFile);
 
 /**
- * Manages the built-in local VM ("Aria built-in" Run environment). The VM is a
+ * Manages the built-in local VM ("Qoka built-in" Run environment). The VM is a
  * headless QEMU Linux guest with docker + sshd; autopipe talks to it exactly
  * like any SSH server (it's exposed as a synthetic SshProfile on 127.0.0.1).
  *
@@ -408,7 +408,7 @@ export class VMManager {
 	// --- helpers ------------------------------------------------------------
 
 	private profileFor(host: string, port: number, username: string, keyPath: string, repo: string): SshProfile {
-		return { id: LOCAL_VM_ID, name: 'Aria built-in', host, port, username, auth: { type: 'key', key_path: keyPath }, repo_path: repo };
+		return { id: LOCAL_VM_ID, name: 'Qoka built-in', host, port, username, auth: { type: 'key', key_path: keyPath }, repo_path: repo };
 	}
 
 	private qemuImg(qemu: string): string {

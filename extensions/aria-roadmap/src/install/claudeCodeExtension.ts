@@ -20,12 +20,12 @@ export interface InstallResult {
 /**
  * Ensure the Anthropic Claude Code extension is installed.
  *
- * Aria's first launch uses this to bring Claude Code in from the
+ * Qoka's first launch uses this to bring Claude Code in from the
  * Marketplace so the New Project wizard's chat panel works the moment
  * the user clicks it. We DO NOT vendor the extension - Anthropic
- * publishes it on the Marketplace, redistributing the VSIX with Aria
+ * publishes it on the Marketplace, redistributing the VSIX with Qoka
  * would conflict with Marketplace terms / the extension EULA. The
- * Marketplace install path keeps Aria's distribution clean while
+ * Marketplace install path keeps Qoka's distribution clean while
  * still giving the user a one-launch experience.
  *
  * Returns a structured result so the caller (which participates in the
@@ -76,6 +76,6 @@ export async function ensureClaudeCodeInstalled(): Promise<InstallResult> {
 	return {
 		installed: false,
 		changed: true,
-		summary: 'Claude Code - install dispatched, not yet visible (you may need to reload Aria)',
+		summary: 'Claude Code - install dispatched, not yet visible (you may need to reload Qoka)',
 	};
 }

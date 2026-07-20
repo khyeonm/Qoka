@@ -50,7 +50,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	};
 	setServices(services);
 
-	// Built-in local VM ("Aria built-in" Run environment). Runs pipelines on a
+	// Built-in local VM ("Qoka built-in" Run environment). Runs pipelines on a
 	// bundled QEMU Linux guest (Mac/Win) or a dev SSH stand-in (Linux), exposed
 	// to the rest of autopipe as a synthetic SSH profile.
 	const vm = new VMManager(context, config);
@@ -156,7 +156,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Boot the MCP server only. Registration with the AI clients is NOT done
 	// here: `claude mcp add` is a read-modify-write of ~/.claude.json with no
-	// locking, so every Aria extension registering itself at activate() raced the
+	// locking, so every Qoka extension registering itself at activate() raced the
 	// others and a random subset of the servers survived. The workbench
 	// chat-open coordinator now drives registration for all of them, one at a
 	// time, through aria.autopipe.reregisterMcp below.
@@ -194,10 +194,10 @@ export function activate(context: vscode.ExtensionContext): void {
 	})();
 
 	// Sole registration entry point: the chat-open coordinator (workbench) calls
-	// this when an AI chat opens, serialized across every Aria MCP, so a provider
+	// this when an AI chat opens, serialized across every Qoka MCP, so a provider
 	// whose CLI was installed after startup gets registered right when the user
 	// goes to use it. Returns true if it newly registered something, so the
-	// coordinator can show one "open a new chat" prompt across all Aria MCPs.
+	// coordinator can show one "open a new chat" prompt across all Qoka MCPs.
 	// Awaits the server start because the coordinator may call before the port
 	// is known.
 	// Reports this MCP server's { name, port } for the startup coordinator's
@@ -271,7 +271,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			// didn't land.
 			if (!mcpServer || !mcpServer.currentPort) {
 				if (!silent) {
-					vscode.window.showErrorMessage('Aria MCP server is not running yet.');
+					vscode.window.showErrorMessage('Qoka MCP server is not running yet.');
 				}
 				return;
 			}
@@ -316,11 +316,11 @@ export function activate(context: vscode.ExtensionContext): void {
  * already match the latest Hub version; otherwise downloads in the
  * background with a progress notification. Failures are reported but
  * non-fatal: the panel still works, the user can retry from the Plugins
- * tab once it ships, and Aria's other features don't depend on plugins.
+ * tab once it ships, and Qoka's other features don't depend on plugins.
  *
  * The reference list (`DEFAULT_PLUGIN_NAMES`) is the canonical 13 viewer
  * plugins the autopipe team ships with - every common bioinformatics
- * file type Aria knows how to render at install time.
+ * file type Qoka knows how to render at install time.
  */
 async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient): Promise<void> {
 	console.log('[aria-autopipe] bootstrapDefaultPlugins() starting');
@@ -381,14 +381,14 @@ async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient
 
 /**
  * Re-run MCP registration when an AI extension is installed/removed after
- * Aria booted. Only acts on transitions - Claude/Codex newly available
+ * Qoka booted. Only acts on transitions - Claude/Codex newly available
  * gets registered; previously-registered client now uninstalled gets
  * cleaned up. Idempotent because the underlying register/unregister
  * functions remove any prior entry before adding.
  */
 // Returns true if a provider was NEWLY registered (so the caller can prompt the
 // user to open a fresh chat). The self-notification is gone: the chat-open
-// coordinator shows a single toast across all Aria MCPs instead.
+// coordinator shows a single toast across all Qoka MCPs instead.
 /**
  * Codex caches its MCP servers at extension-activation time (not per-chat), so
  * if the Codex extension activated before our `codex mcp add` landed, the user
@@ -442,7 +442,7 @@ async function refreshAiRegistrations(): Promise<{ changed: boolean; registered:
 
 			// Register on CLI presence, NOT on the provider EXTENSION being installed.
 			// The registration helpers resolve the CLI themselves and no-op (ok=false)
-			// when it's absent - exactly like every other Aria MCP. Gating on the
+			// when it's absent - exactly like every other Qoka MCP. Gating on the
 			// extension used to make autopipe the one server that stayed unregistered
 			// through onboarding (the CLI is installed at AI-pick time; the extension
 			// only later), so it registered a pass behind the other seven.
@@ -483,12 +483,12 @@ async function refreshAiRegistrations(): Promise<{ changed: boolean; registered:
 
 export async function deactivate(): Promise<void> {
 	// Intentionally leave the client registrations in place on shutdown.
-	// The next Aria launch validates them by comparing the registered port to
+	// The next Qoka launch validates them by comparing the registered port to
 	// the live MCP port and only rewrites when stale - so persisting the entry
 	// lets that fast path skip a redundant remove+add (and the "start a new
-	// chat" toast) on every restart. A stale entry (port changed while Aria was
+	// chat" toast) on every restart. A stale entry (port changed while Qoka was
 	// closed) is self-healed on the next launch; the only lingering case is a
-	// full Aria uninstall, which the user can clear with `claude/codex mcp
+	// full Qoka uninstall, which the user can clear with `claude/codex mcp
 	// remove autopipe`. (unregisterFromClaudeCode/Codex are still used by
 	// refreshAiRegistrations when the Claude/Codex extension itself is removed.)
 	if (mcpServer) {

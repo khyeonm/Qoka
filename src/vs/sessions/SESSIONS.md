@@ -57,7 +57,7 @@ Each provider lives in its own subfolder and implements `ISessionsProvider`:
 src/vs/sessions/contrib/providers/
 ├── agentHost/            # Local agent host provider
 ├── copilotChatSessions/  # Copilot chat sessions provider (wraps ChatSessionsService)
-├── localChatSessions/    # Local in-process Aria chat sessions provider
+├── localChatSessions/    # Local in-process Qoka chat sessions provider
 └── remoteAgentHost/      # Remote agent host provider (one instance per connection)
 ```
 
@@ -66,7 +66,7 @@ Providers can import from all layers below them (core, services, non-provider co
 ### Provider-Specific Documentation
 
 - [Copilot Chat Sessions Provider](contrib/providers/copilotChatSessions/COPILOT_CHAT_SESSIONS_PROVIDER.md) — wraps `ChatSessionsService`, metadata contract, workspace derivation
-- [Local Chat Sessions Provider](contrib/providers/localChatSessions/LOCAL_CHAT_SESSIONS_PROVIDER.md) — local in-process Aria chat, self-managed session list via storage
+- [Local Chat Sessions Provider](contrib/providers/localChatSessions/LOCAL_CHAT_SESSIONS_PROVIDER.md) — local in-process Qoka chat, self-managed session list via storage
 - [Remote Agent Host Provider](contrib/providers/remoteAgentHost/REMOTE_AGENT_HOST_SESSIONS_PROVIDER.md) — remote connections, per-host provider instances
 
 ### Related Specifications

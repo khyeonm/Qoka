@@ -8,14 +8,14 @@
  * the user types into github.com/login/device. Mirrors the same flow
  * autopipe-app implements in `crates/desktop/src/github.rs`.
  *
- * The CLIENT_ID is the public identifier for Aria's GitHub OAuth App; it
+ * The CLIENT_ID is the public identifier for Qoka's GitHub OAuth App; it
  * needs no secret because Device Flow is designed for installed apps.
  * Plug a real CLIENT_ID in here before shipping - the placeholder below
  * lets the type-check pass but won't actually authenticate.
  */
 
-// Aria reuses autopipe-app's registered GitHub OAuth App so we don't have
-// to maintain a separate one. The OAuth App represents Aria/autopipe to
+// Qoka reuses autopipe-app's registered GitHub OAuth App so we don't have
+// to maintain a separate one. The OAuth App represents Qoka/autopipe to
 // GitHub; the access tokens it produces are scoped per-user.
 const ARIA_GITHUB_CLIENT_ID = 'Ov23licUjPEZraXFIpvR';
 

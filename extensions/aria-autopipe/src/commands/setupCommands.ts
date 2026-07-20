@@ -60,7 +60,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 					{ label: 'SSH agent (recommended - ssh-add already loaded your key)', value: 'agent' as const },
 					{ label: 'SSH key file (point to ~/.ssh/id_ed25519 or similar)', value: 'key' as const },
 				],
-				{ placeHolder: 'How should Aria authenticate?' },
+				{ placeHolder: 'How should Qoka authenticate?' },
 			);
 			if (!authChoice) {
 				return;
@@ -222,7 +222,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.autopipe.ssh.setActive', async () => {
 			const cfg = services().config.get();
 			if (cfg.ssh_profiles.length === 0) {
-				vscode.window.showWarningMessage('Add an SSH profile first via Aria → Autopipe → Setup.');
+				vscode.window.showWarningMessage('Add an SSH profile first via Qoka → Autopipe → Setup.');
 				return;
 			}
 			const pick = await vscode.window.showQuickPick(
@@ -313,7 +313,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 							return;
 						}
 					}
-					vscode.window.showWarningMessage('GitHub login timed out. Try again from Aria → Autopipe → GitHub.');
+					vscode.window.showWarningMessage('GitHub login timed out. Try again from Qoka → Autopipe → GitHub.');
 				},
 			);
 		}),
@@ -331,7 +331,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 					{ label: 'Per-pipeline repo (each pipeline gets its own GitHub repo)', value: true },
 					{ label: 'Single repo (all pipelines live under one shared repo)', value: false },
 				],
-				{ placeHolder: 'How should Aria upload pipelines?' },
+				{ placeHolder: 'How should Qoka upload pipelines?' },
 			);
 			if (!pick) {
 				return;

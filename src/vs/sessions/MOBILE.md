@@ -40,7 +40,7 @@ Two registrations can target the same slot with opposite `when` clauses, pointin
 | Files view (AuxiliaryBar) | ❌ Gated | `when: !sessionsIsPhoneLayout` on view descriptor |
 | Logs view (Panel) | ❌ Gated | `when: !sessionsIsPhoneLayout` on view descriptor |
 | Terminal actions | ❌ Gated | `when: !sessionsIsPhoneLayout` on menu item |
-| "Open in Aria" action | ❌ Gated | `when: !sessionsIsPhoneLayout` on menu item |
+| "Open in Qoka" action | ❌ Gated | `when: !sessionsIsPhoneLayout` on menu item |
 | Code review toolbar | ❌ Gated | `when: !sessionsIsPhoneLayout` on menu item |
 | Customizations toolbar | ❌ Hidden | CSS `display: none` on phone |
 | Titlebar | ❌ Hidden | Grid `visible: false` + CSS + MobileTitlebarPart replacement |
@@ -125,7 +125,7 @@ The workbench toggles the `phone-layout` CSS class on `layout()` and creates/des
 
 ### Mobile Picker Subclasses
 
-Mobile picker subclasses live in `contrib/` alongside their base classes (not in `browser/parts/mobile/`), because Aria's layering rules prohibit `browser/` from importing `contrib/`. Each subclass extends the desktop picker and overrides the `_showPicker()` method to use `showMobilePickerSheet()` on phone, falling back to `super._showPicker()` on desktop. This means:
+Mobile picker subclasses live in `contrib/` alongside their base classes (not in `browser/parts/mobile/`), because Qoka's layering rules prohibit `browser/` from importing `contrib/`. Each subclass extends the desktop picker and overrides the `_showPicker()` method to use `showMobilePickerSheet()` on phone, falling back to `super._showPicker()` on desktop. This means:
 
 - The mobile subclass is always instantiated (even on desktop), so viewport-class transitions (rotation) work without re-creation.
 - Desktop code has zero phone-layout checks — all phone branching lives in the mobile subclass's override.

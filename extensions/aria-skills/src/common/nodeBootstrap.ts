@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Make a `node`/`npm` available for Aria's CLI installs on machines that don't
+ * Make a `node`/`npm` available for Qoka's CLI installs on machines that don't
  * ship them (the common case for a non-developer on Windows). The Codex CLI is
  * an npm package, so without Node it can neither be installed nor run.
  *
@@ -46,7 +46,7 @@ function nodeArch(): string {
 }
 
 /** True when a `node` (and `npm`) already resolves - system install or a Node
- *  Aria provisioned earlier. */
+ *  Qoka provisioned earlier. */
 function hasUsableNode(): boolean {
 	if (ariaNodeBinDir()) {
 		return true;

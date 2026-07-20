@@ -760,7 +760,7 @@ export class SettingsEditor2 extends EditorPane {
 			styleOverrides: {
 				inputBorder: settingsTextInputBorder
 			}
-			// TODO: Aria-live
+			// TODO: Qoka-live
 		}));
 		this._register(this.searchWidget.onDidFocus(() => {
 			this._currentFocusContext = SettingsFocusContext.Search;

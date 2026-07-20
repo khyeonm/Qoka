@@ -69,13 +69,13 @@ export interface IBuildOptionsInput {
  */
 /**
  * Appended to the Claude Code system-prompt preset so the agent routes ALL
- * long-term memory through Aria's `aria-memory` MCP tools instead of the
+ * long-term memory through Qoka's `aria-memory` MCP tools instead of the
  * built-in auto-memory (which we disable via `managedSettings.autoMemoryEnabled`).
  * Without this, the native memory habit wins and the agent never touches our
  * store — see the test where every "remember this" landed in ~/.claude.
  */
 const ARIA_MEMORY_APPEND = [
-	'## Aria memory',
+	'## Qoka memory',
 	'This workbench manages long-term memory through the `aria-memory` MCP tools. The built-in auto-memory is disabled — those tools are your only memory store, so never write memory into MEMORY.md or any ~/.claude path.',
 	'There are two scopes, each with its own tools:',
 	'- PROJECT memory (this project only): `remember_project_memory`, `search_project_memory`, `project_memory_index`. For this project\'s decisions, architecture, data locations, experiment results, and project-specific terms.',
@@ -139,7 +139,7 @@ export async function buildOptions(
 		// widen, and its doc names desktop-app embedding as the exact use case:
 		// enforce config on the spawned subprocess without writing files. With
 		// native memory off, the `aria-memory` MCP tools (steered by
-		// ARIA_MEMORY_APPEND) become the sole memory store. Applies to every Aria
+		// ARIA_MEMORY_APPEND) become the sole memory store. Applies to every Qoka
 		// session; writes no files and does not affect the user's own `claude` CLI.
 		managedSettings: { autoMemoryEnabled: false },
 		systemPrompt: { type: 'preset', preset: 'claude_code', append: ARIA_MEMORY_APPEND },

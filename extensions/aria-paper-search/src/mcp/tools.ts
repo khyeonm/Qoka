@@ -9,7 +9,7 @@ import { listPapers, savePaper } from '../library';
  * Two MCP tools the paper-library server exposes:
  *
  *  - save_paper:      Claude calls this when the user asks to save a
- *                     paper to their Aria library.
+ *                     paper to their Qoka library.
  *  - list_saved_papers: Claude calls this when the user asks "what's in
  *                     my library" or wants to filter against the saved
  *                     set rather than search the web.
@@ -70,7 +70,7 @@ function errorResult(text: string): CallToolResult {
 export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'save_paper',
-		description: 'Save a paper to the user\'s Aria paper library. Only the title is required. Pass whatever other metadata you have - the rest are optional but enrich the library entry. If a field such as authors is missing, first try to find it (from the search result or a quick lookup); if it still cannot be determined, save the paper anyway with what you have (leave authors empty rather than refusing). Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags. After a successful save the Paper Library sidebar tab opens automatically to show the saved paper, so tell the user it now appears in their Paper Library tab.',
+		description: 'Save a paper to the user\'s Qoka paper library. Only the title is required. Pass whatever other metadata you have - the rest are optional but enrich the library entry. If a field such as authors is missing, first try to find it (from the search result or a quick lookup); if it still cannot be determined, save the paper anyway with what you have (leave authors empty rather than refusing). Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags. After a successful save the Paper Library sidebar tab opens automatically to show the saved paper, so tell the user it now appears in their Paper Library tab.',
 		inputSchema: {
 			type: 'object',
 			required: ['title'],
@@ -117,12 +117,12 @@ export const ALL_TOOLS: ToolDefinition[] = [
 					revealLibrary();
 				} catch { /* reveal is optional - the save already succeeded */ }
 			}
-			return textResult(`Saved "${entry.title}" to the Aria paper library (id: ${entry.id}).`);
+			return textResult(`Saved "${entry.title}" to the Qoka paper library (id: ${entry.id}).`);
 		},
 	},
 	{
 		name: 'list_saved_papers',
-		description: 'List the papers in the user\'s Aria paper library. Optional `query` filters by title, authors, abstract, venue, note, or tag (case-insensitive substring). Returns at most 200 papers in JSON.',
+		description: 'List the papers in the user\'s Qoka paper library. Optional `query` filters by title, authors, abstract, venue, note, or tag (case-insensitive substring). Returns at most 200 papers in JSON.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -135,7 +135,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 			const tag = typeof args.tag === 'string' ? args.tag : undefined;
 			const papers = listPapers({ query, tag }).slice(0, 200);
 			if (papers.length === 0) {
-				return textResult('The Aria paper library has no papers matching that filter yet.');
+				return textResult('The Qoka paper library has no papers matching that filter yet.');
 			}
 			const summary = papers.map(p => ({
 				id: p.id,

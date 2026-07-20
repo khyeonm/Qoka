@@ -12,7 +12,7 @@ import { registerWithCodex } from './registration/codexMcp';
  * Methods Search extension entry. Boots the methods-search MCP server and
  * registers it with Claude Code + Codex. The MCP exposes recommend_methods /
  * search_hypotheses; both are read-only queries against the logic-graph Neo4j
- * on the Aria server (via the /api/methods endpoints), so there is nothing
+ * on the Qoka server (via the /api/methods endpoints), so there is nothing
  * destructive for the assistant to do and no sidebar to drive.
  */
 
@@ -57,7 +57,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	void bootMcp();
 
 	// Sole registration entry point: the workbench chat-open coordinator calls
-	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// this (serialized across every Qoka MCP) so the concurrent `claude mcp add`
 	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
 	// newly registered something. Awaits the server start (rather than reading a
 	// port set by bootMcp) because the coordinator may call before the port is

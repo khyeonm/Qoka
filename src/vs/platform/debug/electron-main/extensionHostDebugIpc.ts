@@ -77,10 +77,10 @@ export class ElectronExtensionHostDebugBroadcastChannel<TContext> extends Extens
 			if (req.url === '/json/list' || req.url === '/json') {
 				res.setHeader('Content-Type', 'application/json');
 				res.end(JSON.stringify([{
-					description: 'Aria Renderer',
+					description: 'Qoka Renderer',
 					devtoolsFrontendUrl: '',
 					id: ident,
-					title: 'Aria Renderer',
+					title: 'Qoka Renderer',
 					type: 'page',
 					url: 'vscode://renderer',
 					webSocketDebuggerUrl: wsUrl
@@ -89,7 +89,7 @@ export class ElectronExtensionHostDebugBroadcastChannel<TContext> extends Extens
 			} else if (req.url === '/json/version') {
 				res.setHeader('Content-Type', 'application/json');
 				res.end(JSON.stringify({
-					'Browser': 'Aria Renderer',
+					'Browser': 'Qoka Renderer',
 					'Protocol-Version': '1.3',
 					'webSocketDebuggerUrl': wsUrl
 				}));
@@ -169,7 +169,7 @@ export class ElectronExtensionHostDebugBroadcastChannel<TContext> extends Extens
 
 				if (debugRenderer) {
 					// Emulate Target.* methods that js-debug expects but Electron's debugger doesn't support
-					const targetInfo = { targetId: ident, type: 'page', title: 'Aria Renderer', url: 'vscode://renderer' };
+					const targetInfo = { targetId: ident, type: 'page', title: 'Qoka Renderer', url: 'vscode://renderer' };
 					if (data.method === 'Target.setDiscoverTargets') {
 						writeMessage({ id: data.id, sessionId: data.sessionId, result: {} });
 						writeMessage({ method: 'Target.targetCreated', sessionId: data.sessionId, params: { targetInfo: { ...targetInfo, attached: false, canAccessOpener: false } } });

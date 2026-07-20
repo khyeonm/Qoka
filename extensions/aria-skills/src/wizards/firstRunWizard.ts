@@ -49,7 +49,7 @@ export async function runFirstRunWizardIfNeeded(): Promise<void> {
 		if (missing.length === 0) {
 			// All defaults present. Mark first-run as completed if it
 			// wasn't already (e.g. defaults arrived via a manual install
-			// before Aria saw them) so we don't re-check on every launch.
+			// before Qoka saw them) so we don't re-check on every launch.
 			if (!manifest.firstRunCompleted) {
 				svc.manifest.markFirstRunCompleted();
 			}

@@ -24,7 +24,7 @@ import * as path from 'path';
  * Scope is deliberately per-project, not the global `~/.claude/settings.json`:
  * that keeps native memory working for the user's standalone `claude` CLI
  * sessions (where the aria-memory MCP server isn't running), and only unifies
- * memory inside Aria.
+ * memory inside Qoka.
  *
  * Non-destructive: merges the one key into whatever else is in the file, and
  * bails without writing if the file is present but unparseable or not an

@@ -209,7 +209,7 @@ export class McpGatewaySession extends Disposable {
 				},
 			},
 			serverInfo: {
-				name: 'Aria MCP Gateway',
+				name: 'Qoka MCP Gateway',
 				version: '1.0.0',
 			}
 		};

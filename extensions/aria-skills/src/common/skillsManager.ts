@@ -29,9 +29,9 @@ import { writeEnv } from './envManager';
 const execFileAsync = promisify(execFile);
 
 /**
- * Manages the on-disk skill directories under ~/.claude/skills/. Aria's
+ * Manages the on-disk skill directories under ~/.claude/skills/. Qoka's
  * manifest stays in sync via skillManifest.ts - the two together are the
- * single source of truth for "which skills does Aria know about".
+ * single source of truth for "which skills does Qoka know about".
  *
  * Skill install is currently git-clone-only. Future sources (local path,
  * tarball, registry) can be added by branching at `install()`.
@@ -96,7 +96,7 @@ export function deriveSkillName(url: string): string {
 	return parsed.repo;
 }
 
-/** Where Aria expects ~/.claude/skills/ to live. Surfaces it for tooling. */
+/** Where Qoka expects ~/.claude/skills/ to live. Surfaces it for tooling. */
 export function skillsRootDir(): string {
 	return SKILLS_DIR;
 }
@@ -220,7 +220,7 @@ async function fetchGithubTarball(parsed: { owner: string; repo: string; branch?
 function httpsDownload(url: string, dest: string, redirects = 0): Promise<void> {
 	return new Promise((resolve, reject) => {
 		if (redirects > 5) { reject(new Error(`Too many redirects for ${url}`)); return; }
-		https.get(url, { headers: { 'User-Agent': 'Aria' } }, (res) => {
+		https.get(url, { headers: { 'User-Agent': 'Qoka' } }, (res) => {
 			if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
 				res.resume();
 				httpsDownload(res.headers.location, dest, redirects + 1).then(resolve, reject);
@@ -283,7 +283,7 @@ function hardRemove(target: string): void {
  */
 /**
  * Install a skill by copying an app-bundled directory into
- * ~/.claude/skills/<name>/. Used for default skills that ship WITH Aria (e.g.
+ * ~/.claude/skills/<name>/. Used for default skills that ship WITH Qoka (e.g.
  * iterative-paper-defense) instead of being cloned from GitHub - no network.
  */
 /**
@@ -309,7 +309,7 @@ export function installFromLocal(srcDir: string, targetName: string): string {
 }
 
 /**
- * Non-Claude AI providers scan their OWN skills directory. Aria installs the
+ * Non-Claude AI providers scan their OWN skills directory. Qoka installs the
  * canonical copy under ~/.claude/skills/ and mirrors each skill into every
  * installed provider's dir so Codex discovers the same skills. The
  * SKILL.md payload is provider-neutral; only the scan path differs.
@@ -489,7 +489,7 @@ export function cleanupEnvDescriptions(): void {
  * Drop manifest entries whose on-disk directory disappeared (e.g. the
  * user `rm -rf`'d ~/.claude/skills/foo). Doesn't add entries for skills
  * that exist on disk but aren't in the manifest - those were likely
- * installed by another tool and Aria shouldn't claim them.
+ * installed by another tool and Qoka shouldn't claim them.
  */
 export function reconcileWithDisk(): SkillInfo[] {
 	const managed = listManaged();

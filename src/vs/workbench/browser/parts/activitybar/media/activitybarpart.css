@@ -73,7 +73,7 @@
 	height: 35px;
 }
 
-/* Aria easy mode — larger, more noticeable rail hover bubble (the class is added
+/* Qoka easy mode — larger, more noticeable rail hover bubble (the class is added
  * in compositeBarActions.ts only when aria.mode === 'easy'). The hover widget
  * renders outside the activity bar, so this rule is global by design. */
 .monaco-hover.aria-easy-composite-hover {

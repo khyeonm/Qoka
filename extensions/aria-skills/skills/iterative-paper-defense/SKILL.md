@@ -1,23 +1,23 @@
 ---
 name: iterative-paper-defense
-description: Automated AI peer review with iterative, defensive revision of a scientific manuscript. Runs multiple independent reviewer sub-agents (diverse lenses) to surface Major/Minor Concerns, records them for Aria's Peer Review tab, then optionally defends the paper with minimal, non-fabricated edits. Use when the user asks to peer-review / critique / defend a paper, or when Aria's Peer Review tab starts a review (it passes an `execId`).
+description: Automated AI peer review with iterative, defensive revision of a scientific manuscript. Runs multiple independent reviewer sub-agents (diverse lenses) to surface Major/Minor Concerns, records them for Qoka's Peer Review tab, then optionally defends the paper with minimal, non-fabricated edits. Use when the user asks to peer-review / critique / defend a paper, or when Qoka's Peer Review tab starts a review (it passes an `execId`).
 ---
 
 # Iterative Paper Defense (AI Peer Review)
 
 Automate rigorous peer review of a manuscript and, when asked, iteratively defend
 it - reframing scope/logic without ever fabricating results. This runs inside
-Aria. Reviewers are **independent models** (`claude` and `codex`). You are the
+Qoka. Reviewers are **independent models** (`claude` and `codex`). You are the
 **driver** - the model running this review - and you know which one you are:
 whichever reviewer id matches your own model you review **directly**, and any
 **other** model you run **headless via its CLI** (so it is a genuinely separate
-opinion). Results are recorded through Aria's paper-review MCP tools so the **Peer
+opinion). Results are recorded through Qoka's paper-review MCP tools so the **Peer
 Review tab** renders them. There is no `wdiff`, no `sudo`, and no external diff
-file - Aria's UI computes and shows the diff.
+file - Qoka's UI computes and shows the diff.
 
-## When Aria starts a review
+## When Qoka starts a review
 
-Aria's Peer Review tab creates a review and sends you a prompt containing an
+Qoka's Peer Review tab creates a review and sends you a prompt containing an
 `execId`. Your job:
 
 1. **Load the paper.** Call `get_review(execId)`. It returns the **`manuscript`**
@@ -150,7 +150,7 @@ Call once per reviewer:
 record_review(execId, reviewer="claude", concerns=[ {severity, title, detail}, ... ])
 ```
 
-`record_review` stores the concerns for that reviewer and iteration; Aria's tab
+`record_review` stores the concerns for that reviewer and iteration; Qoka's tab
 groups them into Major / Minor and shows a per-reviewer tab with counts (e.g.
 "Claude (9)").
 
@@ -194,7 +194,7 @@ single, concrete edit that resolves **that one** concern:
    be unique) from THAT document, `replacement` is the full new text, `explanation`
    states the strategy's argument (and any risk) in one or two sentences.
 
-Aria shows the strategies inline in the paper as a **"< N/3 >" carousel**; the user
+Qoka shows the strategies inline in the paper as a **"< N/3 >" carousel**; the user
 browses them and clicks **Accept** on the one they want, which applies that span and
 marks the concern resolved. They can then **Re-run** the review on the revised paper.
 Record one `record_revision` call per concern the user asks about.
@@ -204,7 +204,7 @@ Record one `record_revision` call per concern the user asks about.
 When the user asks you to edit a document **directly** - not to resolve a review
 concern (e.g. "delete the title in the supplementary", "fix this typo in suppl-1")
 - use **`propose_document_edit(execId, documentKey, proposals)`**. It does NOT change
-anything immediately: Aria shows the edit inline in that document (auto-switching to
+anything immediately: Qoka shows the edit inline in that document (auto-switching to
 its tab) with an **Accept** button, and applies it only when the user accepts. Give
 1–3 alternative `proposals` (each `{ original, replacement, explanation }`); set
 `replacement` to `""` to delete a span. `documentKey` is `"main"` or a supplementary

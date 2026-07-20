@@ -189,12 +189,12 @@ export class ChatSuggestNextWidget extends Disposable {
 
 	private composeAgentsWindowQuery(handoffPrompt: string, transcript: { lastUserMessage: string; lastAssistantReply: string }): string {
 		const parts: string[] = [];
-		parts.push(localize('chat.suggestNext.handoffHeader', "Handing off from Aria chat. Original request:"));
+		parts.push(localize('chat.suggestNext.handoffHeader', "Handing off from Qoka chat. Original request:"));
 		if (transcript.lastUserMessage) {
 			parts.push('', '> ' + transcript.lastUserMessage.split('\n').join('\n> '));
 		}
 		if (transcript.lastAssistantReply) {
-			parts.push('', localize('chat.suggestNext.handoffPlanHeader', "Plan from Aria chat:"), '', transcript.lastAssistantReply);
+			parts.push('', localize('chat.suggestNext.handoffPlanHeader', "Plan from Qoka chat:"), '', transcript.lastAssistantReply);
 		}
 		if (handoffPrompt) {
 			parts.push('', '---', '', handoffPrompt);

@@ -283,7 +283,7 @@ export class SshService {
 	}
 }
 
-/** Translate an Aria SshProfile into ssh2's connection config. Throws with a
+/** Translate an Qoka SshProfile into ssh2's connection config. Throws with a
  *  clear message when required auth material is missing. */
 function connectConfig(profile: SshProfile, timeoutMs?: number): ConnectConfig {
 	const cfg: ConnectConfig = {

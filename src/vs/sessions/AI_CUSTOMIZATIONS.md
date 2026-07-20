@@ -6,7 +6,7 @@ This document describes the AI customization experience: a management editor and
 
 ### File Structure
 
-The management editor lives in `vs/workbench` (shared between core Aria and sessions):
+The management editor lives in `vs/workbench` (shared between core Qoka and sessions):
 
 ```
 src/vs/workbench/contrib/chat/browser/aiCustomization/
@@ -19,7 +19,7 @@ src/vs/workbench/contrib/chat/browser/aiCustomization/
 ├── promptsServiceCustomizationItemProvider.ts  # Adapts IPromptsService → ICustomizationItemProvider
 ├── aiCustomizationListWidgetUtils.ts           # List item helpers (truncation, etc.)
 ├── aiCustomizationDebugPanel.ts                # Debug diagnostics panel
-├── aiCustomizationWorkspaceService.ts          # Core Aria workspace service impl
+├── aiCustomizationWorkspaceService.ts          # Core Qoka workspace service impl
 ├── customizationHarnessService.ts              # Core harness service impl (agent-gated)
 ├── customizationCreatorService.ts              # AI-guided creation flow
 ├── customizationGroupHeaderRenderer.ts         # Collapsible group header renderer
@@ -62,7 +62,7 @@ src/vs/sessions/contrib/sessions/browser/
 
 The `IAICustomizationWorkspaceService` interface controls per-window behavior:
 
-| Property / Method | Core Aria | Agent Sessions Window |
+| Property / Method | Core Qoka | Agent Sessions Window |
 |----------|-------------|----------|
 | `managementSections` | All sections except Models | All sections except Models |
 | `getStorageSourceFilter(type)` | Delegates to `ICustomizationHarnessService` | Delegates to `ICustomizationHarnessService` |
@@ -78,7 +78,7 @@ Storage answers "where did this come from?"; harness answers "who consumes it?".
 The service is defined in `common/customizationHarnessService.ts` which also provides:
 - **`CustomizationHarnessServiceBase`** — reusable base class handling active-harness state, the observable list, and `getStorageSourceFilter` dispatch.
 - **`ISectionOverride`** — per-section UI customization: `commandId` (command invocation), `rootFile` + `label` (root-file creation), `typeLabel` (custom type name), `fileExtension` (override default), `rootFileShortcuts` (dropdown shortcuts).
-- **Factory functions** — `createVSCodeHarnessDescriptor`, `createCliHarnessDescriptor`, `createClaudeHarnessDescriptor`. The Aria harness receives `[AICustomizationSources.extension, AICustomizationSources.builtin]` as extras; CLI and Claude in core receive `[]` (no extension source). Sessions CLI receives `[AICustomizationSources.builtin]`.
+- **Factory functions** — `createVSCodeHarnessDescriptor`, `createCliHarnessDescriptor`, `createClaudeHarnessDescriptor`. The Qoka harness receives `[AICustomizationSources.extension, AICustomizationSources.builtin]` as extras; CLI and Claude in core receive `[]` (no extension source). Sessions CLI receives `[AICustomizationSources.builtin]`.
 - **Well-known root helpers** — `getCliUserRoots(userHome)` and `getClaudeUserRoots(userHome)` centralize the `~/.copilot`, `~/.claude`, `~/.agents` path knowledge.
 - **Filter helpers** — `matchesWorkspaceSubpath()` for segment-safe subpath matching; `matchesInstructionFileFilter()` for filename/path-prefix pattern matching.
 
@@ -90,7 +90,7 @@ Available harnesses:
 | `cli` | Copilot CLI | Restricts user roots to `~/.copilot`, `~/.claude`, `~/.agents` |
 | `claude` | Claude | Restricts user roots to `~/.claude`; hides Prompts + Plugins sections |
 
-In core Aria, all three harnesses are registered but CLI and Claude only appear when their respective agents are registered (`requiredAgentId` checked via `IChatAgentService`). Aria is the default.
+In core Qoka, all three harnesses are registered but CLI and Claude only appear when their respective agents are registered (`requiredAgentId` checked via `IChatAgentService`). Qoka is the default.
 In sessions, harnesses are accepted for any session type that has a registered content provider (checked via `IChatSessionsService.getContentProviderSchemes()`). AHP remote servers register directly via `registerExternalHarness`.
 
 Remote agent hosts can also register **external harnesses** dynamically. Each remote agent harness may contribute:
@@ -137,7 +137,7 @@ The shared `applyStorageSourceFilter()` helper applies this filter to any `{uri,
 | Prompts | `[local, user, plugin, builtin]` | `undefined` (all roots) |
 | Agents, Skills, Instructions | `[local, user, plugin, builtin]` | `[~/.copilot, ~/.claude, ~/.agents]` |
 
-**Core Aria filter behavior:**
+**Core Qoka filter behavior:**
 
 Local harness: all types use `[local, user, extension, plugin, builtin]` with no user root filter. Items from the default chat extension (`productService.defaultChatAgent.chatExtensionId`) are grouped under "Built-in" via `groupKey` override in the list widget.
 
@@ -163,9 +163,9 @@ Claude additionally applies:
 - `workspaceSubpaths: ['.claude']` (instruction files matching `instructionFileFilter` are exempt)
 - `sectionOverrides`: Hooks → `copilot.claude.hooks` command; Instructions → "Add CLAUDE.md" primary, "Rule" type label, `.md` file extension
 
-### Built-in Extension Grouping (Core Aria)
+### Built-in Extension Grouping (Core Qoka)
 
-In core Aria, customization items contributed by the default chat extension (`productService.defaultChatAgent.chatExtensionId`, typically `GitHub.copilot-chat`) are grouped under the "Built-in" header in the management editor list widget, separate from third-party "Extensions".
+In core Qoka, customization items contributed by the default chat extension (`productService.defaultChatAgent.chatExtensionId`, typically `GitHub.copilot-chat`) are grouped under the "Built-in" header in the management editor list widget, separate from third-party "Extensions".
 
 `PromptsServiceCustomizationItemProvider` handles this via `applyBuiltinGroupKeys()`: it builds a URI→extension-ID lookup from prompt file metadata, then sets `groupKey: BUILTIN_STORAGE` on items whose extension matches the chat extension ID (checked via the shared `isChatExtensionItem()` utility). The underlying `storage` remains `PromptsStorage.extension` — the grouping is a `groupKey` override that keeps `applyStorageSourceFilter` working while visually distinguishing chat-extension items from third-party extension items.
 
@@ -219,7 +219,7 @@ Sessions overrides `PromptsService` via `AgenticPromptsService` (in `promptsServ
 - **Discovery**: `AgenticPromptFilesLocator` scopes workspace folders to the active session's worktree
 - **Built-in skills**: Discovers bundled `SKILL.md` files from `vs/sessions/skills/{name}/` and surfaces them with `PromptsStorage.builtin` storage type
 - **User override**: Built-in skills are omitted when a user or workspace skill with the same name exists
-- **Creation targets**: `getSourceFolders()` override replaces Aria profile user roots with `~/.copilot/{subfolder}` for CLI compatibility
+- **Creation targets**: `getSourceFolders()` override replaces Qoka profile user roots with `~/.copilot/{subfolder}` for CLI compatibility
 - **Hook folders**: Falls back to `.github/hooks` in the active worktree
 
 ### Built-in Skills

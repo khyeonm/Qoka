@@ -9,7 +9,7 @@ import * as https from 'https';
 import { URL } from 'url';
 
 /**
- * Client for the logic-graph methods recommendation on the Aria server. The
+ * Client for the logic-graph methods recommendation on the Qoka server. The
  * graph (Neo4j) and the embeddings model live on the lab server (gemma4) which
  * the desktop app can't reach directly, so all queries go through the Django
  * API (`/api/methods/...`), exactly like the cross-project memory client.
@@ -19,15 +19,15 @@ import { URL } from 'url';
  * the request. Sign-in is therefore required.
  *
  * Config (env):
- *   ARIA_METHODS_SERVER_URL   base URL of the Aria server (default: aria.pnucolab.com)
- *   ARIA_METHODS_INSECURE_TLS set to '0' to enforce strict TLS verification. The
+ *   ARIA_METHODS_SERVER_URL   base URL of the Qoka server (default: qoka.org)
+ *   ARIA_METHODS_INSECURE_TLS set to '1' to ACCEPT self-signed certs. The
  *                             lab server may use a self-signed cert (Caddy
- *                             `tls internal`), so self-signed is allowed by default.
+ *                             `tls internal`), but the real server has a CA cert so verification is strict by default.
  */
 
-const SERVER_URL = process.env.ARIA_METHODS_SERVER_URL || 'https://aria.pnucolab.com';
+const SERVER_URL = process.env.ARIA_METHODS_SERVER_URL || 'https://qoka.org';
 const AUTH_ID = 'aria';
-const ALLOW_SELF_SIGNED = process.env.ARIA_METHODS_INSECURE_TLS !== '0';
+const ALLOW_SELF_SIGNED = process.env.ARIA_METHODS_INSECURE_TLS === '1';
 
 /** A single recommended method row. */
 export interface MethodRow {
@@ -57,7 +57,7 @@ export interface HypothesisMatch {
 async function authToken(): Promise<string> {
 	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
 	if (!session) {
-		throw new Error('Not signed in to Aria - methods search requires sign-in.');
+		throw new Error('Not signed in to Qoka - methods search requires sign-in.');
 	}
 	return session.accessToken;
 }
@@ -86,14 +86,14 @@ function postJson(path: string, body: unknown, token: string, timeoutMs = 30000)
 			res.on('end', () => {
 				const code = res.statusCode ?? 0;
 				if (code < 200 || code >= 300) {
-					reject(new Error(`Aria methods ${code}: ${data.slice(0, 300)}`));
+					reject(new Error(`Qoka methods ${code}: ${data.slice(0, 300)}`));
 					return;
 				}
 				try { resolve(JSON.parse(data || '{}')); } catch { resolve({ raw: data }); }
 			});
 		});
 		req.on('error', reject);
-		req.on('timeout', () => { req.destroy(new Error('Aria methods server timeout')); });
+		req.on('timeout', () => { req.destroy(new Error('Qoka methods server timeout')); });
 		req.write(payload);
 		req.end();
 	});

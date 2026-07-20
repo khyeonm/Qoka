@@ -13,22 +13,22 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Downloads the assets the built-in VM needs - a PORTABLE QEMU build and the base
- * disk image - from GitHub Releases into Aria's app-data. This is what lets a
+ * disk image - from GitHub Releases into Qoka's app-data. This is what lets a
  * user with no admin rights run the VM: nothing is installed system-wide; qemu
  * runs in-place from the app folder.
  *
  * Assets are produced by the release CI and named by platform/arch:
  *   qemu-<darwin|win32|linux>-<arm64|x64>.tar.gz   (contains bin/qemu-system-*)
- *   aria-vm-<arm64|x64>.qcow2                       (prebuilt Ubuntu+docker image)
+ *   qoka-vm-<arm64|x64>.qcow2                       (prebuilt Ubuntu+docker image)
  *
  * Dev escape hatches: ARIA_QEMU_PATH / ARIA_AUTOPIPE_VM_IMAGE point at local files
  * and skip downloading; ARIA_VM_RELEASE_BASE overrides the asset host.
  */
 
 const RELEASE_BASE = process.env.ARIA_VM_RELEASE_BASE
-	|| 'https://github.com/khyeonm/aria-vscode/releases/download/vm-assets-v1';
+	|| 'https://github.com/khyeonm/Qoka/releases/download/vm-assets-v1';
 
-// Bumped whenever the published aria-vm-<arch>.qcow2 changes in a way that a
+// Bumped whenever the published qoka-vm-<arch>.qcow2 changes in a way that a
 // cached copy must be replaced. v2 = docker baked in + disk resized to 20G.
 // A cached image whose tag differs is deleted and re-downloaded (see
 // ensureImage), and its overlay is discarded so it rebuilds against the new base.
@@ -155,7 +155,7 @@ export class Provisioner {
 		// the qemu overlay (Windows) and the vfkit raw conversion (macOS).
 		try { fs.rmSync(path.join(this.dir, 'overlay.qcow2')); } catch { /* may not exist */ }
 		try { fs.rmSync(path.join(this.dir, 'disk.raw')); } catch { /* may not exist */ }
-		const asset = `aria-vm-${this.arch()}.qcow2`;
+		const asset = `qoka-vm-${this.arch()}.qcow2`;
 		progress('Downloading the run environment image…');
 		await this.download(`${RELEASE_BASE}/${asset}`, img + '.part', (pct) => progress('Downloading VM image…', pct));
 		fs.renameSync(img + '.part', img); // atomic: a half-download never looks complete
@@ -168,7 +168,7 @@ export class Provisioner {
 	private download(url: string, dest: string, onPct: (pct: number) => void, redirects = 0): Promise<void> {
 		return new Promise((resolve, reject) => {
 			if (redirects > 5) { reject(new Error('Too many redirects downloading ' + url)); return; }
-			const req = https.get(url, { headers: { 'User-Agent': 'Aria' } }, (res) => {
+			const req = https.get(url, { headers: { 'User-Agent': 'Qoka' } }, (res) => {
 				if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
 					res.resume();
 					this.download(res.headers.location, dest, onPct, redirects + 1).then(resolve, reject);

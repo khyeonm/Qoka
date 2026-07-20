@@ -9,11 +9,11 @@ import { isAgentHostProvider } from '../common/agentHostSessionsProvider.js';
 import { encodeHex, VSBuffer } from '../../base/common/buffer.js';
 
 /**
- * Resolves the Aria remote authority for the given session provider,
+ * Resolves the Qoka remote authority for the given session provider,
  * e.g. `ssh-remote+myhost` or `tunnel+myTunnel`.
  *
  * Returns `undefined` for local or WebSocket-only providers where no
- * Aria remote extension can handle the connection.
+ * Qoka remote extension can handle the connection.
  */
 export function resolveRemoteAuthority(
 	providerId: string,

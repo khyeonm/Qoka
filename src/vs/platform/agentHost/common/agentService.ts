@@ -66,7 +66,7 @@ export const AgentHostRubberDuckEnabledSettingId = 'chat.agentHost.rubberDuck.en
  * provider is registered inside the agent host and the SDK module is loaded
  * via dynamic `import()` from this path. When empty (the default), the
  * Claude provider is not registered. The SDK is intentionally not bundled
- * with Aria; users opting into the Claude agent install the SDK
+ * with Qoka; users opting into the Claude agent install the SDK
  * themselves and point this setting at it. The agent host process must be
  * restarted for changes to take effect.
  */
@@ -87,7 +87,7 @@ export const AgentHostClaudeSdkPathEnvVar = 'VSCODE_AGENT_HOST_CLAUDE_SDK_PATH';
 // The `chat.agentHost.otel.*` namespace surfaces the same exporter knobs the CLI
 // runtime documents in `extensions/copilot/docs/monitoring/agent_monitoring.md`,
 // but routes them through the agent host process so the user's settings stay in
-// Aria instead of leaking via shell env.
+// Qoka instead of leaking via shell env.
 //
 // `chat.agentHost.otel.dbSpanExporter.enabled` switches on the in-process
 // loopback receiver + persistent SQLite span store; the other settings still

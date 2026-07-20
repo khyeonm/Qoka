@@ -60,7 +60,7 @@ export class OpenerValidatorContributions implements IWorkbenchContribution {
 			return true;
 		} else {
 
-			// Aria: show only the plain question — the raw URL line is intentionally
+			// Qoka: show only the plain question — the raw URL line is intentionally
 			// omitted (no `detail`) so the dialog stays clean.
 			const { result } = await this._dialogService.prompt<boolean>({
 				type: Severity.Info,

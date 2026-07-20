@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Per-tab help content for Aria's sidebar tabs. Two pieces render from this:
+ * Per-tab help content for Qoka's sidebar tabs. Two pieces render from this:
  *  - `summary` - a one-line "what is this tab" shown at the top of the sidebar.
  *  - `howTo`   - a longer, user-facing "How to use" guide (Markdown) opened as a
  *               read-only editor tab when the user clicks "How to use?".
@@ -126,7 +126,7 @@ Have independent AI reviewers read your paper and point out concerns - the way a
 
 ## Tips
 - You don't paste the prompt into every AI - paste it into **one** of the AI apps you picked in step 3.
-- If a reviewer shows **"CLI not installed"**, click the **account info at the bottom** and choose an **AI provider** - Aria then downloads its CLI. You also need to install that AI's **extension** and **sign in** to it before you can use it.`,
+- If a reviewer shows **"CLI not installed"**, click the **account info at the bottom** and choose an **AI provider** - Qoka then downloads its CLI. You also need to install that AI's **extension** and **sign in** to it before you can use it.`,
 	},
 	'autopipe': {
 		title: 'Autopipe',

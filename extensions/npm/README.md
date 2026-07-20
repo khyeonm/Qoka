@@ -1,6 +1,6 @@
 # Node npm
 
-**Notice:** This extension is bundled with Aria. It can be disabled but not uninstalled.
+**Notice:** This extension is bundled with Qoka. It can be disabled but not uninstalled.
 
 ## Features
 

@@ -20,7 +20,7 @@ interface PluginRow {
 }
 
 /**
- * Editor-area webview panel listing every plugin Aria knows about. Combines
+ * Editor-area webview panel listing every plugin Qoka knows about. Combines
  * the Hub catalog with the user's local install directory so each row
  * shows install/update state alongside the description.
  */
@@ -156,7 +156,7 @@ function renderHtml(webview: vscode.Webview): string {
 </head>
 <body>
 	<h1>Autopipe Plugins</h1>
-	<div class="subtitle">Viewer plugins matched to file extensions. Defaults install automatically the first time Aria starts.</div>
+	<div class="subtitle">Viewer plugins matched to file extensions. Defaults install automatically the first time Qoka starts.</div>
 	<div class="search"><input id="q" placeholder="Search by name, description, or extension…" /></div>
 	<div id="results"></div>
 	<div id="toast"></div>

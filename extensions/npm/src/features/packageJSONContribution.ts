@@ -14,7 +14,7 @@ import { fromNow } from './date';
 
 const LIMIT = 40;
 
-const USER_AGENT = 'Aria';
+const USER_AGENT = 'Qoka';
 
 export class PackageJSONContribution implements IJSONContribution {
 

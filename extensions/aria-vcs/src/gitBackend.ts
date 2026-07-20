@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Hybrid git backend for Aria's "Versions" feature.
+ * Hybrid git backend for Qoka's "Versions" feature.
  *
  * The rest of the extension talks to a single `git(args, cwd)` dispatcher in
  * vcsService.ts. That dispatcher asks {@link resolveGit} which mode to run in:
@@ -474,7 +474,7 @@ async function isoDiff(dir: string, args: string[]): Promise<string> {
 // ---------------------------------------------------------------------------
 
 async function isoCommit(dir: string, message: string): Promise<string> {
-	const name = ((await isogit.getConfig({ fs, dir, path: 'user.name' })) as string | undefined) || 'Aria User';
+	const name = ((await isogit.getConfig({ fs, dir, path: 'user.name' })) as string | undefined) || 'Qoka User';
 	const email = ((await isogit.getConfig({ fs, dir, path: 'user.email' })) as string | undefined) || 'aria@localhost';
 	const sha = await isogit.commit({
 		fs,

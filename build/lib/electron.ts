@@ -106,11 +106,11 @@ const electronVersion = '42.2.0';
 export const config = {
 	version: electronVersion,
 	tag: product.electronRepository ? `v${electronVersion}-${msBuildId}` : undefined,
-	// Use nameShort ("Aria") for the macOS .app bundle FILE so it is "Aria.app"
-	// (no spaces/parens that break `xattr -cr Aria.app`). The app-menu / top-bar
+	// Use nameShort ("Qoka") for the macOS .app bundle FILE so it is "Qoka.app"
+	// (no spaces/parens that break `xattr -cr Qoka.app`). The app-menu / top-bar
 	// display name is decoupled: productDisplayName sets CFBundleDisplayName, which
-	// macOS shows in the menu bar - so the file is "Aria" but the menu reads
-	// "Aria (beta)". (gulp-electron overrides productName from package.json but
+	// macOS shows in the menu bar - so the file is "Qoka" but the menu reads
+	// "Qoka (beta)". (gulp-electron overrides productName from package.json but
 	// leaves productDisplayName untouched, so this survives.)
 	productAppName: product.nameShort,
 	productDisplayName: product.nameLong,

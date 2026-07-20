@@ -81,7 +81,7 @@ export enum Filters {
 	ExtensionVersion = 'X-VSCode-ExtensionVersion',
 
 	/**
-	 * The language in use by Aria
+	 * The language in use by Qoka
 	 */
 	Language = 'X-VSCode-Language',
 
@@ -92,12 +92,12 @@ export enum Filters {
 	TargetPopulation = 'X-VSCode-TargetPopulation',
 
 	/**
-	 * The platform (OS) on which Aria is running.
+	 * The platform (OS) on which Qoka is running.
 	 */
 	Platform = 'X-VSCode-Platform',
 
 	/**
-	 * The release/build date of Aria (UTC) in the format yyyymmddHH.
+	 * The release/build date of Qoka (UTC) in the format yyyymmddHH.
 	 */
 	ReleaseDate = 'X-VSCode-ReleaseDate',
 }

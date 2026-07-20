@@ -242,7 +242,7 @@ export interface IProductConfiguration {
 	readonly onboardingThemes?: readonly IProductOnboardingTheme[];
 
 	/**
-	 * When running as an embedded app, the parent Aria's policy
+	 * When running as an embedded app, the parent Qoka's policy
 	 * identity (win32RegValueName / darwinBundleIdentifier) so that
 	 * enterprise policies deployed to the parent also apply here.
 	 */

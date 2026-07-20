@@ -10,7 +10,7 @@ import { URL } from 'url';
 import type { AddressInfo } from 'net';
 
 /**
- * Authentication provider for Aria - ORCID / Google sign-in via the Aria backend.
+ * Authentication provider for Qoka - ORCID / Google sign-in via the Qoka backend.
  *
  * Flow (localhost loopback - reliable on every OS, no URI-scheme registration):
  *   createSession() → start a throwaway HTTP server on 127.0.0.1:<port> → open the
@@ -28,10 +28,10 @@ import type { AddressInfo } from 'net';
  */
 
 const SECRET_KEY = 'aria.auth.session';
-const SERVER_URL = process.env.ARIA_SERVER_URL || 'https://aria.pnucolab.com';
+const SERVER_URL = process.env.ARIA_SERVER_URL || 'https://qoka.org';
 
 // --- Local testing bypass -------------------------------------------------
-// When the Aria backend is unreachable, set ARIA_FAKE_AUTH=1 to skip real
+// When the Qoka backend is unreachable, set ARIA_FAKE_AUTH=1 to skip real
 // sign-in: getSessions()/currentSession() return a stub session so the login
 // gate, started overlay and status bar all treat the app as signed-in and the
 // rest of the app can be exercised. Server-backed features (cross-project
@@ -57,9 +57,11 @@ const FAKE_SESSION: StoredSession = {
 	provider: 'orcid',
 };
 // --------------------------------------------------------------------------
-// The lab server may use a self-signed cert (Caddy `tls internal`); allow it by
-// default. Set ARIA_INSECURE_TLS=0 to enforce strict verification.
-const ALLOW_SELF_SIGNED = process.env.ARIA_INSECURE_TLS !== '0';
+// The server presents a real CA certificate, so verify it strictly by default:
+// this token travels to the API, and accepting any cert would let a network
+// attacker impersonate the server and capture it. Set ARIA_INSECURE_TLS=1 to
+// opt into accepting self-signed certs (e.g. a lab box on Caddy `tls internal`).
+const ALLOW_SELF_SIGNED = process.env.ARIA_INSECURE_TLS === '1';
 // Refresh the access token when it's within this many seconds of expiry. Large
 // (12h) so a periodic background check comfortably renews it well before the
 // 7-day access token would ever expire - the user shouldn't notice.
@@ -144,10 +146,10 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 		// A modal (center-screen) dialog rather than a corner toast or status-bar
 		// item, so an expired session can't fail silently and unnoticed.
 		void vscode.window.showWarningMessage(
-			'Sign in to Aria',
+			'Sign in to Qoka',
 			{
 				modal: true,
-				detail: 'Your Aria sign-in has expired. Sign in again to keep your cross-project memory working.',
+				detail: 'Your Qoka sign-in has expired. Sign in again to keep your cross-project memory working.',
 			},
 			'Sign in',
 		).then(choice => {
@@ -220,10 +222,10 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 					{ label: 'ORCID', id: 'orcid' },
 					{ label: 'Google', id: 'google' },
 				],
-				{ title: 'Sign in to Aria', placeHolder: 'Choose how to sign in' },
+				{ title: 'Sign in to Qoka', placeHolder: 'Choose how to sign in' },
 			);
 			if (!pick) {
-				throw new Error('Aria sign-in cancelled.');
+				throw new Error('Qoka sign-in cancelled.');
 			}
 			providerId = pick.id;
 		}
@@ -232,7 +234,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 		// so a user who changes their mind or closes the tab can Cancel and get
 		// the sign-in screen back at once (the loopback otherwise waits 5 min).
 		const callback = await vscode.window.withProgress(
-			{ location: vscode.ProgressLocation.Notification, title: 'Finish signing in to Aria in your browser, or Cancel to go back…', cancellable: true },
+			{ location: vscode.ProgressLocation.Notification, title: 'Finish signing in to Qoka in your browser, or Cancel to go back…', cancellable: true },
 			(_progress, token) => this._loopbackLogin(providerId, token),
 		);
 
@@ -243,7 +245,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 		const email = q.get('email') ?? '';
 		const name = q.get('name') ?? '';
 		if (!access || !refresh) {
-			throw new Error('Aria sign-in failed: no token in the callback.');
+			throw new Error('Qoka sign-in failed: no token in the callback.');
 		}
 
 		const stored: StoredSession = { id: userId || access.slice(0, 16), access, refresh, userId, email, name, provider: providerId };
@@ -291,8 +293,8 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 				res.end(
 					'<!doctype html><meta charset="utf-8">' +
 					'<body style="font-family:system-ui,sans-serif;text-align:center;padding-top:64px;color:#222">' +
-					'<h2>&#10003; Signed in to Aria</h2>' +
-					'<p>You can close this tab and return to Aria.</p>' +
+					'<h2>&#10003; Signed in to Qoka</h2>' +
+					'<p>You can close this tab and return to Qoka.</p>' +
 					// Best-effort auto-close. Browsers only honour window.close() for
 					// script-opened tabs, so this may be a no-op - the message above is
 					// the fallback.
@@ -305,7 +307,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 
 			const timer = setTimeout(() => {
 				cleanup();
-				reject(new Error('Aria sign-in timed out.'));
+				reject(new Error('Qoka sign-in timed out.'));
 			}, 5 * 60 * 1000);
 
 			const cleanup = () => {
@@ -320,7 +322,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 			// linger, and a following sign-in with a different provider can't proceed.
 			this._activeLoginCancel = () => {
 				cleanup();
-				reject(new Error('Aria sign-in cancelled.'));
+				reject(new Error('Qoka sign-in cancelled.'));
 			};
 
 			// Let the user bail out (changed their mind, closed the browser tab)
@@ -328,7 +330,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 			// the 5-minute timeout.
 			token?.onCancellationRequested(() => {
 				cleanup();
-				reject(new Error('Aria sign-in cancelled.'));
+				reject(new Error('Qoka sign-in cancelled.'));
 			});
 
 			server.on('error', err => { cleanup(); reject(err); });
@@ -350,7 +352,7 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 		return {
 			id: s.id,
 			accessToken: s.access,
-			account: { id: s.userId, label: s.name || s.email || s.userId || 'Aria user' },
+			account: { id: s.userId, label: s.name || s.email || s.userId || 'Qoka user' },
 			// Empty scopes: other extensions (e.g. aria-memory) look up the token
 			// with getSession('aria', []), which only matches a session whose
 			// scopes are also []. The login provider is surfaced separately via

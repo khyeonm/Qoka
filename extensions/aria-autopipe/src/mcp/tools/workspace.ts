@@ -24,7 +24,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 			const profile = config.activeProfile();
 			// Surfacing what the handler actually saw makes it easy to
 			// tell whether a "stale data" complaint is our cache or
-			// Claude's conversational memory. Look in the Aria DevTools
+			// Claude's conversational memory. Look in the Qoka DevTools
 			// console (Help → Toggle Developer Tools).
 			console.log('[aria-autopipe] get_workspace_info called', {
 				profileId: cfg.active_ssh_profile_id,
@@ -39,7 +39,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				if (config.isLocalVmActive()) {
 					const vm = cfg.local_vm;
 					return textResult([
-						'Run environment: the Aria built-in server (local VM) is selected, but it is NOT running yet, so there is no reachable endpoint right now.',
+						'Run environment: the Qoka built-in server (local VM) is selected, but it is NOT running yet, so there is no reachable endpoint right now.',
 						'Do NOT ask the user to add an SSH server, and do NOT tell them to press a button - that is not the flow.',
 						'If it is not running, call the start_built_in_server tool to start it (downloads/boots in a minute or two), tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again and retry. If it is already downloading/booting, just wait and retry.',
 						`Configured resources (apply on start): memory ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores ${vm.cpus}, disk ${vm.diskGB} GB.`,
@@ -72,7 +72,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 			return textResult([
 				`SSH: ${profile.username}@${profile.host}:${profile.port}`,
 				config.isLocalVmActive()
-					? `Run environment: Aria built-in server (local VM) - memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`
+					? `Run environment: Qoka built-in server (local VM) - memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`
 					: 'Run environment: user-provided SSH server.',
 				`Repo path: ${paths.repo_path}`,
 				`Pipelines: ${paths.pipelines_dir}`,

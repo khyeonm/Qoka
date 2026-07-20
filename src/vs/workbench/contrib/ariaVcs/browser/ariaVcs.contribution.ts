@@ -36,7 +36,7 @@ class AriaVersionsViewPaneContainer extends ViewPaneContainer {
 const versionsIcon = registerIcon(
 	'aria-versions-view',
 	Codicon.archive,
-	localize('aria.versions.iconLabel', "Aria Versions activity bar icon")
+	localize('aria.versions.iconLabel', "Qoka Versions activity bar icon")
 );
 
 // Single merged view → `mergeViewWithContainerWhenSingleView: true` collapses the

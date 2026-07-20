@@ -35,7 +35,7 @@ export type RemoteAgentHostConnectionStatus =
 		/**
 		 * JSON-RPC method the server has advertised via `_meta` that the
 		 * client may invoke to ask the hosting CLI to upgrade the server.
-		 * Set only when the server was spawned by a Aria CLI willing
+		 * Set only when the server was spawned by a Qoka CLI willing
 		 * to receive upgrade signals.
 		 */
 		readonly vscodeUpgradeMethod?: string;
@@ -125,13 +125,13 @@ export interface IRemoteAgentHostSSHConnection {
 	 * SSH config host alias (e.g. `myserver`). When set, the SSH tunnel is
 	 * automatically re-established on startup using the user's SSH config.
 	 * This takes precedence over {@link hostName} when constructing the
-	 * Aria Remote SSH authority.
+	 * Qoka Remote SSH authority.
 	 */
 	readonly sshConfigHost?: string;
 	/**
 	 * The actual SSH hostname or IP address of the remote machine
 	 * (e.g. `myserver.example.com`). This is the host that the SSH
-	 * client connects to, and is used to construct the Aria Remote
+	 * client connects to, and is used to construct the Qoka Remote
 	 * SSH authority when {@link sshConfigHost} is not available.
 	 */
 	readonly hostName: string;
@@ -149,7 +149,7 @@ export interface IRemoteAgentHostTunnelConnection {
 	readonly clusterId: string;
 	/**
 	 * User-defined display name for this tunnel (derived from tunnel tags).
-	 * Used as the tunnel name in the Aria Remote Tunnels authority
+	 * Used as the tunnel name in the Qoka Remote Tunnels authority
 	 * (e.g. `tunnel+<label>`). Falls back to {@link tunnelId} if not set.
 	 */
 	readonly label?: string;

@@ -218,7 +218,7 @@ export class NewChatContextAttachments extends Disposable {
 				e.stopPropagation();
 				hideOverlay();
 
-				// Extract editor data from Aria internal drags (e.g., explorer view)
+				// Extract editor data from Qoka internal drags (e.g., explorer view)
 				const editorDropData = extractEditorsDropData(e);
 				if (editorDropData.length > 0) {
 					for (const editor of editorDropData) {

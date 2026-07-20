@@ -127,7 +127,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
 }
 
 /**
- * Aria Paper Writer - boots a local MCP server so an AI assistant can draft,
+ * Qoka Paper Writer - boots a local MCP server so an AI assistant can draft,
  * cite, and export scientific manuscripts. Reads/structure/export are
  * deterministic; the prose is written by the agent following get_writing_guide.
  */
@@ -230,13 +230,13 @@ export function activate(context: vscode.ExtensionContext): void {
 	})();
 
 	// Sole registration entry point: the workbench chat-open coordinator calls
-	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// this (serialized across every Qoka MCP) so the concurrent `claude mcp add`
 	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
 	// newly registered something. Awaits the server start (rather than reading a
 	// port set by the IIFE) because the coordinator may call before the port is
 	// known - and whichever awaiter the runtime resumes first must still work.
 	// Reports this MCP server's { name, port } so the startup coordinator can
-	// batch-register every Aria MCP in one direct config write (see aria.mcp.applyConfig).
+	// batch-register every Qoka MCP in one direct config write (see aria.mcp.applyConfig).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.mcpInfo', async () => {
 		const port = await startPromise.catch(() => undefined);
 		return port === undefined ? null : { name: 'aria-paper', port };

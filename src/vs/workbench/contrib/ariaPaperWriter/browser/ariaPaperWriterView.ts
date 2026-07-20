@@ -31,7 +31,7 @@ import { IViewDescriptorService } from '../../../common/views.js';
  */
 export class AriaPaperWriterView extends ViewPane {
 
-	// Pinned, prefix-free id like the other working Aria views (Skills/Autopipe).
+	// Pinned, prefix-free id like the other working Qoka views (Skills/Autopipe).
 	static readonly ID = 'aria.paperWriter.main';
 
 	private viewBody: HTMLElement | undefined;

@@ -451,7 +451,7 @@ export class ChatMcpAppModel extends Disposable {
 					break;
 
 				case 'ui/request-display-mode':
-					// Aria only supports inline display mode
+					// Qoka only supports inline display mode
 					result = { mode: 'inline' } satisfies McpApps.McpUiRequestDisplayModeResult;
 					break;
 

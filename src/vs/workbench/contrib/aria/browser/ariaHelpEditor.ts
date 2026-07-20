@@ -145,7 +145,7 @@ function ensureHelpCommand(key: AriaTabKey): string {
 }
 
 /**
- * Register the "How to use?" title-bar action for an Aria sidebar view. Call this
+ * Register the "How to use?" title-bar action for an Qoka sidebar view. Call this
  * once at module-load time from the view's contribution, passing the view id and
  * its help key. It adds a `MenuId.ViewTitle` item (shown in the view's title bar,
  * to the right of the title) that opens the how-to guide. The view should render

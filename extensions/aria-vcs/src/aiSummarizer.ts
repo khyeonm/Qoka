@@ -37,7 +37,7 @@ export interface SnapshotSummary {
 const isWin = process.platform === 'win32';
 const HOME = os.homedir();
 
-// Aria's private home for tools it provisions itself (portable Node,
+// Qoka's private home for tools it provisions itself (portable Node,
 // npm-installed CLIs). These MUST match aria-skills/headlessCli so a
 // self-provisioned CLI is found here too. On Windows npm's `.cmd` shims sit at
 // the prefix root; on Unix they land under `<prefix>/bin`.
@@ -45,7 +45,7 @@ const ARIA_HOME = path.join(HOME, '.aria');
 const ARIA_NODE_DIR = path.join(ARIA_HOME, 'node');
 const ARIA_NPM_PREFIX = path.join(ARIA_HOME, 'npm');
 
-/** Portable Node bin dir (root on Windows, `bin/` on Unix), if Aria provisioned
+/** Portable Node bin dir (root on Windows, `bin/` on Unix), if Qoka provisioned
  *  it - prepended to PATH so an npm-installed CLI's node shebang resolves. */
 function ariaNodeBinDir(): string | undefined {
 	const dir = isWin ? ARIA_NODE_DIR : path.join(ARIA_NODE_DIR, 'bin');
@@ -76,7 +76,7 @@ function providerDirs(): string[] {
 		const localappdata = process.env.LOCALAPPDATA ?? path.join(HOME, 'AppData', 'Local');
 		return [
 			ARIA_NODE_DIR,                                   // portable node's own dir (npm.cmd etc.)
-			ARIA_NPM_PREFIX,                                 // Aria-managed npm global (.cmd shims at root)
+			ARIA_NPM_PREFIX,                                 // Qoka-managed npm global (.cmd shims at root)
 			path.join(appdata, 'npm'),                       // default npm global on Windows
 			path.join(HOME, '.local', 'bin'),                // Claude's Windows installer mirrors ~/.local/bin
 			path.join(localappdata, 'Programs', 'claude'),   // alt Claude install location
@@ -162,7 +162,7 @@ function headlessArgs(provider: AiProvider): string[] {
 
 function runWithStdin(bin: string, args: string[], input: string, timeoutMs: number): Promise<string> {
 	return new Promise((resolve, reject) => {
-		// If Aria provisioned a portable Node, put it on PATH so an npm-installed
+		// If Qoka provisioned a portable Node, put it on PATH so an npm-installed
 		// CLI (e.g. codex) finds `node` for its shebang even with no system Node.
 		const nodeBin = ariaNodeBinDir();
 		const env = nodeBin

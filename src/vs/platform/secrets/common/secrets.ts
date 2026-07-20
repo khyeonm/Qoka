@@ -75,9 +75,9 @@ export async function writeEncryptedSecret(
 }
 
 /**
- * Secret keys that should be shared between the Aria app and the agents app.
+ * Secret keys that should be shared between the Qoka app and the agents app.
  * When the agents app starts and doesn't have these secrets, it requests them
- * from Aria via crossAppIPC.
+ * from Qoka via crossAppIPC.
  */
 export const CROSS_APP_SHARED_SECRET_KEYS: readonly string[] = [
 	'{"extensionId":"vscode.github-authentication","key":"github.auth"}',

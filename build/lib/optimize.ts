@@ -229,7 +229,7 @@ export function minifyTask(src: string, sourceMapBaseUrl?: string): (cb: any) =>
 
 	return cb => {
 
-		// Aria ships a few PRE-BUNDLED browser assets (e.g. ariaNotes'
+		// Qoka ships a few PRE-BUNDLED browser assets (e.g. ariaNotes'
 		// notesEditor.js/.css - a ~1.7MB BlockNote bundle). Re-running esbuild on
 		// them is wrong: it treats the IIFE bundle as an ESM entry point and can
 		// trip the non-ASCII guard below, so they'd vanish from the packaged app

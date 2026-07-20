@@ -1,7 +1,7 @@
 {
 	"name": "aria-paper-search",
-	"displayName": "Aria Paper Library",
-	"description": "Manage the user's saved-paper library. Exposes save_paper / list_saved_papers as MCP tools for Claude Code and Codex; the sidebar tab handles delete / note / tag edits locally. Built into Aria.",
+	"displayName": "Qoka Paper Library",
+	"description": "Manage the user's saved-paper library. Exposes save_paper / list_saved_papers as MCP tools for Claude Code and Codex; the sidebar tab handles delete / note / tag edits locally. Built into Qoka.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",
@@ -17,27 +17,27 @@
 		"commands": [
 			{
 				"command": "aria.paperSearch.list",
-				"title": "Aria: List Saved Papers"
+				"title": "Qoka: List Saved Papers"
 			},
 			{
 				"command": "aria.paperSearch.delete",
-				"title": "Aria: Delete Saved Paper"
+				"title": "Qoka: Delete Saved Paper"
 			},
 			{
 				"command": "aria.paperSearch.updateNote",
-				"title": "Aria: Update Paper Note"
+				"title": "Qoka: Update Paper Note"
 			},
 			{
 				"command": "aria.paperSearch.updateTags",
-				"title": "Aria: Update Paper Tags"
+				"title": "Qoka: Update Paper Tags"
 			},
 			{
 				"command": "aria.paperSearch.openUrl",
-				"title": "Aria: Open Paper URL"
+				"title": "Qoka: Open Paper URL"
 			},
 			{
 				"command": "aria.paperSearch.copyToClipboard",
-				"title": "Aria: Copy to Clipboard"
+				"title": "Qoka: Copy to Clipboard"
 			}
 		]
 	},

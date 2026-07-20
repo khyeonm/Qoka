@@ -238,7 +238,7 @@
 	background-color: var(--vscode-statusBarItem-offlineHoverBackground) !important;
 }
 
-/* --- Aria easy mode: taller bar; only a whitelist of entries is shown -------- */
+/* --- Qoka easy mode: taller bar; only a whitelist of entries is shown -------- */
 /* Height matches StatusbarPart's mode-aware minimumHeight/maximumHeight getter. */
 .monaco-workbench.aria-mode-easy .part.statusbar {
 	height: 34px;
@@ -252,7 +252,7 @@
 }
 
 /* ...then re-show only: the remote/SSH host indicator, the Easy/Advanced toggle,
-   and Aria's account / change-project / sign-out entries. Entry ids are DOM `id`
+   and Qoka's account / change-project / sign-out entries. Entry ids are DOM `id`
    attributes and contain dots, so match with attribute selectors, not `#id`. */
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="status.host"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.mode.easy"],

@@ -7,16 +7,16 @@ import * as vscode from 'vscode';
 
 /**
  * A small shared logger for the extension. Routes diagnostic output to a
- * dedicated VS Code Output channel ("Aria Skills") so the user can see
+ * dedicated VS Code Output channel ("Qoka Skills") so the user can see
  * exactly what we're sending to Claude and what comes back, without
  * digging through the Extension Host log.
  *
- * Open it from the menu: View → Output → "Aria Skills" in the dropdown.
+ * Open it from the menu: View → Output → "Qoka Skills" in the dropdown.
  */
 
 let channel: vscode.OutputChannel | undefined;
 
-export function initLogger(name = 'Aria Skills'): vscode.OutputChannel {
+export function initLogger(name = 'Qoka Skills'): vscode.OutputChannel {
 	if (!channel) {
 		channel = vscode.window.createOutputChannel(name);
 	}

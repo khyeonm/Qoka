@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Cross-module data models for Aria Autopipe. Mirrors autopipe-app's
+ * Cross-module data models for Qoka Autopipe. Mirrors autopipe-app's
  * `crates/common/src/models.rs` field-by-field so a stored config from the
- * Tauri app can theoretically round-trip through Aria without re-entry -
+ * Tauri app can theoretically round-trip through Qoka without re-entry -
  * we adopt the same JSON shape.
  */
 
@@ -29,7 +29,7 @@ export interface SshProfile {
 	port: number;
 	username: string;
 	auth: SshAuth;
-	/** Remote directory holding all Aria workspace state on this host. */
+	/** Remote directory holding all Qoka workspace state on this host. */
 	repo_path: string;
 }
 
@@ -41,7 +41,7 @@ export interface GitHubAuth {
 }
 
 /** The built-in local VM's synthetic profile id. When this is the active target,
- *  pipelines run on Aria's bundled QEMU VM ("Aria built-in", Mac/Win) instead of
+ *  pipelines run on Qoka's bundled QEMU VM ("Qoka built-in", Mac/Win) instead of
  *  a user SSH server. Its concrete SshProfile is produced at runtime by the
  *  VMManager (which owns the forwarded SSH port + key), not stored in config. */
 export const LOCAL_VM_ID = '__local_vm__';
@@ -102,7 +102,7 @@ export function defaultConfig(): AriaConfig {
 }
 
 /**
- * Workspace paths derived from the active SSH profile's `repo_path`. Aria
+ * Workspace paths derived from the active SSH profile's `repo_path`. Qoka
  * follows the same `{repo_path}/pipelines/`, `{repo_path}/pipelines_input/`
  * convention autopipe-app uses, so users coming from the Tauri app see the
  * same directory layout.

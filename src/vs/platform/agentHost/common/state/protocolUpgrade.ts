@@ -7,7 +7,7 @@ import type { UnsupportedProtocolVersionErrorData } from './protocol/errors.js';
 
 /**
  * Name of the JSON-RPC method that, when invoked on an agent host spawned
- * by the Aria CLI, asks the CLI to check for a server upgrade and
+ * by the Qoka CLI, asks the CLI to check for a server upgrade and
  * restart the running server if a newer build is available.
  *
  * Servers advertise this method through {@link UnsupportedProtocolVersionErrorMeta.vscodeUpgradeMethod}
@@ -53,7 +53,7 @@ export interface IVscodeUpgradeResult {
 
 /**
  * Optional `_meta` side-channel on the `UnsupportedProtocolVersion` error
- * data payload. Servers that are spawned by the Aria CLI populate this
+ * data payload. Servers that are spawned by the Qoka CLI populate this
  * to let the renderer offer a one-click upgrade flow; servers without a
  * managing CLI omit it.
  *
@@ -71,7 +71,7 @@ export interface UnsupportedProtocolVersionErrorMeta {
 
 /**
  * `UnsupportedProtocolVersionErrorData` augmented with the local `_meta`
- * extension used by Aria-hosted agent hosts.
+ * extension used by Qoka-hosted agent hosts.
  *
  * Kept out of the auto-generated `errors.ts` so the synced types stay
  * untouched. Read at runtime as a best-effort field — older servers

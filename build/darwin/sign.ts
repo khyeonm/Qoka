@@ -74,7 +74,7 @@ async function main(buildDir?: string): Promise<void> {
 	}
 
 	const appRoot = path.join(buildDir, `VSCode-darwin-${arch}`);
-	// nameShort ("Aria.app") - matches the bundle name from electron productAppName.
+	// nameShort ("Qoka.app") - matches the bundle name from electron productAppName.
 	const appName = product.nameShort + '.app';
 	const infoPlistPath = path.resolve(appRoot, appName, 'Contents', 'Info.plist');
 

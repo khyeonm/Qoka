@@ -191,7 +191,7 @@ const schema: IJSONSchema = {
 				},
 				promptOnClose: {
 					type: 'boolean',
-					description: nls.localize('JsonSchema.tasks.promptOnClose', 'Whether the user is prompted when Aria closes with a running task.'),
+					description: nls.localize('JsonSchema.tasks.promptOnClose', 'Whether the user is prompted when Qoka closes with a running task.'),
 					default: false
 				},
 				isBuildCommand: {
@@ -245,7 +245,7 @@ const schema: IJSONSchema = {
 				},
 				promptOnClose: {
 					type: 'boolean',
-					description: nls.localize('JsonSchema.promptOnClose', 'Whether the user is prompted when Aria closes with a running background task.'),
+					description: nls.localize('JsonSchema.promptOnClose', 'Whether the user is prompted when Qoka closes with a running background task.'),
 					default: false
 				},
 				echoCommand: {

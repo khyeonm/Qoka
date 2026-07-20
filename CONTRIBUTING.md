@@ -1,1 +1,1 @@
-# Contributing to Aria
+# Contributing to Qoka

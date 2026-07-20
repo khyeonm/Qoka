@@ -9,7 +9,7 @@ import * as https from 'https';
 import { URL } from 'url';
 
 /**
- * Client for the cross-project ("user") memory - mem0 on the Aria server, behind
+ * Client for the cross-project ("user") memory - mem0 on the Qoka server, behind
  * login. This is the counterpart to the local per-project wiki: where the wiki
  * stores project-scoped markdown on disk, this stores user-scoped facts
  * (preferences, working style, identity) in the server's pgvector via mem0, so
@@ -21,21 +21,21 @@ import { URL } from 'url';
  * only ever read/write their own memory. Sign-in is therefore required.
  *
  * Config (env):
- *   ARIA_MEMORY_SERVER_URL   base URL of the Aria server (default: aria.pnucolab.com)
- *   ARIA_MEMORY_INSECURE_TLS set to '0' to enforce strict TLS verification. The
+ *   ARIA_MEMORY_SERVER_URL   base URL of the Qoka server (default: qoka.org)
+ *   ARIA_MEMORY_INSECURE_TLS set to '1' to ACCEPT self-signed certs. The
  *                            lab server may use a self-signed cert (Caddy
- *                            `tls internal`), so self-signed is allowed by default.
+ *                            `tls internal`), but the real server has a CA cert so verification is strict by default.
  */
 
-const SERVER_URL = process.env.ARIA_MEMORY_SERVER_URL || 'https://aria.pnucolab.com';
+const SERVER_URL = process.env.ARIA_MEMORY_SERVER_URL || 'https://qoka.org';
 const AUTH_ID = 'aria';
-const ALLOW_SELF_SIGNED = process.env.ARIA_MEMORY_INSECURE_TLS !== '0';
+const ALLOW_SELF_SIGNED = process.env.ARIA_MEMORY_INSECURE_TLS === '1';
 
 /** The current user's JWT access token, or throw if not signed in. */
 async function authToken(): Promise<string> {
 	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
 	if (!session) {
-		throw new Error('Not signed in to Aria - cross-project memory requires sign-in.');
+		throw new Error('Not signed in to Qoka - cross-project memory requires sign-in.');
 	}
 	return session.accessToken;
 }
@@ -64,14 +64,14 @@ function postJson(path: string, body: unknown, token: string, timeoutMs = 20000)
 			res.on('end', () => {
 				const code = res.statusCode ?? 0;
 				if (code < 200 || code >= 300) {
-					reject(new Error(`Aria memory ${code}: ${data.slice(0, 300)}`));
+					reject(new Error(`Qoka memory ${code}: ${data.slice(0, 300)}`));
 					return;
 				}
 				try { resolve(JSON.parse(data || '{}')); } catch { resolve({ raw: data }); }
 			});
 		});
 		req.on('error', reject);
-		req.on('timeout', () => { req.destroy(new Error('Aria memory server timeout')); });
+		req.on('timeout', () => { req.destroy(new Error('Qoka memory server timeout')); });
 		req.write(payload);
 		req.end();
 	});

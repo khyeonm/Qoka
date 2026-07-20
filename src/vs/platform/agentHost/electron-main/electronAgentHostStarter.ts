@@ -70,7 +70,7 @@ export class ElectronAgentHostStarter extends Disposable implements IAgentHostSt
 		// The Claude agent is opt-in: enabled when the user points the SDK path
 		// setting at a locally-installed `@anthropic-ai/claude-agent-sdk` package,
 		// or when the env var is already set on the parent process (developer
-		// override). The SDK itself is intentionally not bundled with Aria.
+		// override). The SDK itself is intentionally not bundled with Qoka.
 		const claudeSdkPath = this._configurationService.getValue<string>(AgentHostClaudeAgentSdkPathSettingId)
 			|| process.env[AgentHostClaudeSdkPathEnvVar]
 			|| '';

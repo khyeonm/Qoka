@@ -156,24 +156,24 @@ async function main(buildDir?: string, outDir?: string): Promise<void> {
 	}
 
 	const appRoot = path.join(buildDir, `VSCode-darwin-${arch}`);
-	// nameShort ("Aria.app") - matches the bundle name set via electron config's
-	// productAppName. Keeps the file free of spaces/parens (nameLong is "Aria (beta)").
+	// nameShort ("Qoka.app") - matches the bundle name set via electron config's
+	// productAppName. Keeps the file free of spaces/parens (nameLong is "Qoka (beta)").
 	const appName = product.nameShort + '.app';
 	const appPath = path.join(appRoot, appName);
 	const dmgName = `${product.nameShort}-darwin-${arch}`;
 	const artifactPath = path.join(outDir, `${dmgName}.dmg`);
 	const backgroundPath = path.join(import.meta.dirname, `dmg-background-${quality}.tiff`);
 	const diskIconPath = path.join(root, 'resources', 'darwin', 'code.icns');
-	let title = 'Code OSS';
+	// Mounted-volume title. Driven by product.json so the DMG window shows the
+	// product name (upstream hardcoded "VS Code" here, which leaked the wrong
+	// brand into the mounted volume).
+	let title = product.nameLong || product.nameShort || 'Qoka';
 	switch (quality) {
-		case 'stable':
-			title = 'VS Code';
-			break;
 		case 'insider':
-			title = 'VS Code Insiders';
+			title = `${product.nameShort} Insiders`;
 			break;
 		case 'exploration':
-			title = 'VS Code Exploration';
+			title = `${product.nameShort} Exploration`;
 			break;
 	}
 

@@ -49,14 +49,14 @@ function getUpdateHoverContent(updateState: StateType): MarkdownString {
 	const hoverContent = new MarkdownString('', { isTrusted: true, supportThemeIcons: true });
 	switch (updateState) {
 		case StateType.AvailableForDownload:
-			hoverContent.appendMarkdown(localize('chat.modelPicker.downloadUpdateHover', "This model requires a newer version of Aria. [Download Update](command:update.downloadUpdate) to access it."));
+			hoverContent.appendMarkdown(localize('chat.modelPicker.downloadUpdateHover', "This model requires a newer version of Qoka. [Download Update](command:update.downloadUpdate) to access it."));
 			break;
 		case StateType.Downloaded:
 		case StateType.Ready:
-			hoverContent.appendMarkdown(localize('chat.modelPicker.restartUpdateHover', "This model requires a newer version of Aria. [Restart to Update](command:update.restartToUpdate) to access it."));
+			hoverContent.appendMarkdown(localize('chat.modelPicker.restartUpdateHover', "This model requires a newer version of Qoka. [Restart to Update](command:update.restartToUpdate) to access it."));
 			break;
 		default:
-			hoverContent.appendMarkdown(localize('chat.modelPicker.checkUpdateHover', "This model requires a newer version of Aria. [Update Aria](command:update.checkForUpdate) to access it."));
+			hoverContent.appendMarkdown(localize('chat.modelPicker.checkUpdateHover', "This model requires a newer version of Qoka. [Update Qoka](command:update.checkForUpdate) to access it."));
 			break;
 	}
 	return hoverContent;
@@ -783,7 +783,7 @@ function createUnavailableModelItem(
 	if (reason === 'upgrade') {
 		description = new MarkdownString(localize('chat.modelPicker.upgradeLink', "[Upgrade](command:workbench.action.chat.upgradePlan \" \")"), { isTrusted: true });
 	} else if (reason === 'update') {
-		description = localize('chat.modelPicker.updateDescription', "Update Aria");
+		description = localize('chat.modelPicker.updateDescription', "Update Qoka");
 	} else {
 		description = manageSettingsUrl
 			? new MarkdownString(localize('chat.modelPicker.adminLink', "[Contact your admin]({0})", manageSettingsUrl), { isTrusted: true })
@@ -1196,7 +1196,7 @@ export class ModelPickerWidget extends Disposable {
 			this._tokensButton.style.display = 'none';
 		}
 
-		// Aria
+		// Qoka
 		this._domNode.ariaLabel = localize('chat.modelPicker.ariaLabel', "Pick Model, {0}", fullLabel);
 	}
 

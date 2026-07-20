@@ -20,7 +20,7 @@ import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar
 import { IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
 import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 
-// The themed-scrollbar helper now lives in a shared module so every Aria
+// The themed-scrollbar helper now lives in a shared module so every Qoka
 // surface can use it. Imported for local use and re-exported for back-compat
 // with the panes that already import it from this file (autopipe, paper search).
 import { ensureAriaPaneScrollbarStyle } from '../../aria/browser/ariaScrollbar.js';
@@ -33,7 +33,7 @@ interface SkillRow {
 	type: 'default' | 'user';
 	envVars: { name: string; required: boolean }[];
 	autoApprove: boolean;
-	/** ISO timestamp recorded when Aria first installed (or last
+	/** ISO timestamp recorded when Qoka first installed (or last
 	 *  reinstalled) the skill. Surfaced inside Details. */
 	installedAt?: string;
 	/** Where the skill came from - GitHub URL for user skills, the

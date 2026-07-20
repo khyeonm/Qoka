@@ -9,7 +9,7 @@ import { URL } from 'url';
 import { ToolDefinition } from './tools';
 import { isJsonRpcRequest, jsonRpcSuccess, jsonRpcError, JsonRpcErrorCodes, JsonRpcRequest } from './jsonrpc';
 
-// Distinct from every other Aria MCP server's range so ports are deterministic
+// Distinct from every other Qoka MCP server's range so ports are deterministic
 // across launches (autopipe 3748-, paper-search 3760-, aria-memory 3766-,
 // roadmap 3780-, notes 3786-, paper 3790-). Overlapping ranges caused a boot
 // race where the persisted registration went stale and the chat couldn't connect.
@@ -22,7 +22,7 @@ interface SseSession {
 }
 
 /**
- * Aria Memory MCP server. Same dual-transport implementation as the other
+ * Qoka Memory MCP server. Same dual-transport implementation as the other
  * aria-* MCP servers so Claude Code (HTTP+SSE) and Codex (Streamable HTTP)
  * both work without per-client branches in the AI layer.
  *
@@ -71,7 +71,7 @@ export class AriaMemoryMcpServer {
 			}
 		}
 
-		throw new Error('Could not find a free port for the Aria Memory MCP server');
+		throw new Error('Could not find a free port for the Qoka Memory MCP server');
 	}
 
 	private tryListen(port: number): Promise<http.Server> {

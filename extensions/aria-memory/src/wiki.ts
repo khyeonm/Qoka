@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Per-project "LLM wiki" storage - the single-project half of Aria's memory
+ * Per-project "LLM wiki" storage - the single-project half of Qoka's memory
  * system. (The cross-project half is a mem0 store added later; see the
  * project plan.)
  *

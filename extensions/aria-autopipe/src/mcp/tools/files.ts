@@ -23,7 +23,7 @@ function requireProfile() {
 	const { config } = services();
 	const profile = config.activeProfile();
 	if (!profile) {
-		throw new Error('No active SSH profile. Configure one via Aria > Autopipe > SSH.');
+		throw new Error('No active SSH profile. Configure one via Qoka > Autopipe > SSH.');
 	}
 	return profile;
 }
@@ -441,7 +441,7 @@ export const FILE_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'upload_local_input',
-		description: "Upload input data from the USER'S LOCAL machine (the computer running Aria) into the run target's pipelines_input directory, so a pipeline can use it. Use this when the user's data is on their own computer - NOT a URL (use prepare_input for URLs) and NOT already on the server (use create_symlink for that). `local_path` is a file OR a directory on the user's machine: absolute, or relative to the open project folder. Files stream over SFTP, so large genomic files (BAM/CRAM/FASTQ) are fine - but WARN the user first that a large upload may take a while. Optional `subdir` groups the upload under pipelines_input/<subdir>. Returns the remote directory to pass as `input_dir` to dry_run / execute_pipeline.",
+		description: "Upload input data from the USER'S LOCAL machine (the computer running Qoka) into the run target's pipelines_input directory, so a pipeline can use it. Use this when the user's data is on their own computer - NOT a URL (use prepare_input for URLs) and NOT already on the server (use create_symlink for that). `local_path` is a file OR a directory on the user's machine: absolute, or relative to the open project folder. Files stream over SFTP, so large genomic files (BAM/CRAM/FASTQ) are fine - but WARN the user first that a large upload may take a while. Optional `subdir` groups the upload under pipelines_input/<subdir>. Returns the remote directory to pass as `input_dir` to dry_run / execute_pipeline.",
 		inputSchema: {
 			type: 'object',
 			properties: {

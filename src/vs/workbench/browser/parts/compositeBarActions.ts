@@ -233,7 +233,7 @@ export class CompositeBarActionViewItem extends BaseActionViewItem {
 		super.render(container);
 
 		this.container = container;
-		// Aria: expose the composite id on the DOM so a specific activity-bar item
+		// Qoka: expose the composite id on the DOM so a specific activity-bar item
 		// can be targeted by CSS (e.g. the Roadmap icon "provider installed" pulse).
 		if (this.action?.id) {
 			this.container.setAttribute('data-aria-composite-id', this.action.id);
@@ -273,7 +273,7 @@ export class CompositeBarActionViewItem extends BaseActionViewItem {
 			persistence: {
 				hideOnKeyDown: true,
 			},
-			// Aria easy mode: a larger, more noticeable rail hover bubble (styled in
+			// Qoka easy mode: a larger, more noticeable rail hover bubble (styled in
 			// activitybarpart.css). Non-devs rely on it to know what each icon is.
 			additionalClasses: this.configurationService.getValue('aria.mode') === 'easy' ? ['aria-easy-composite-hover'] : undefined,
 		}), { groupId: 'composite-bar-actions' }));

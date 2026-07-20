@@ -9,14 +9,14 @@ import * as os from 'os';
 import * as path from 'path';
 
 /**
- * Aria's Claude Code hook integration.
+ * Qoka's Claude Code hook integration.
  *
  * Claude Code reads ~/.claude/settings.json on session start and runs the
  * registered PreToolUse hooks before each tool invocation. We use that to
- * inject Aria's environment rules whenever Claude is about to execute a
+ * inject Qoka's environment rules whenever Claude is about to execute a
  * shell command that touches env vars, .env files, or Python package
  * installation - the operations where skill SKILL.md instructions tend
- * to conflict with Aria's UI-based workflow.
+ * to conflict with Qoka's UI-based workflow.
  *
  * Why not match on a "Skill" tool name? Claude Code's matcher field
  * filters on tool names (Bash / Edit / Write / etc.) - skills are a
@@ -28,7 +28,7 @@ import * as path from 'path';
  *
  * Instead, the hook script matches the command content. If the Bash
  * command references .env files, calls pip / conda for install, or
- * touches credential-shaped env vars, we inject Aria's guidance via
+ * touches credential-shaped env vars, we inject Qoka's guidance via
  * the verified JSON envelope:
  *
  *   {"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"..."}}
@@ -44,7 +44,7 @@ const SETTINGS_PATH = path.join(os.homedir(), '.claude/settings.json');
 /**
  * Stable identifier embedded in the hook command string. We grep for it
  * when reconciling ~/.claude/settings.json so repeated activations don't
- * duplicate the entry, and so the user can recognise which line Aria
+ * duplicate the entry, and so the user can recognise which line Qoka
  * owns if they open the file.
  */
 const ARIA_HOOK_COMMAND = `"$HOME/.config/aria/hooks/pre-tool-use.sh"`;
@@ -61,7 +61,7 @@ const CODEX_EXTENSION_ID = 'openai.chatgpt';
 
 /**
  * The actual hook script. Kept inline so a single source-of-truth lives
- * in the extension - every Aria launch overwrites the on-disk copy with
+ * in the extension - every Qoka launch overwrites the on-disk copy with
  * the current text, so updating the guidance is just editing this
  * constant.
  *
@@ -71,10 +71,10 @@ const CODEX_EXTENSION_ID = 'openai.chatgpt';
  * branch is intentionally simpler.
  */
 const HOOK_SCRIPT_CONTENT = `#!/bin/bash
-# Aria PreToolUse hook - managed by the aria-skills extension.
-# Regenerated on every Aria launch; manual edits here will be overwritten.
+# Qoka PreToolUse hook - managed by the aria-skills extension.
+# Regenerated on every Qoka launch; manual edits here will be overwritten.
 #
-# Injects Aria's environment rules when Claude is about to run a shell
+# Injects Qoka's environment rules when Claude is about to run a shell
 # command that touches env vars, .env files, or Python installs.
 # Silent on unrelated Bash calls so we don't bloat Claude's context.
 
@@ -149,20 +149,20 @@ if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE 'env[[:space:]]*
 fi
 
 if [ "\${DENY}" -eq 1 ]; then
-    GUIDED_REDIRECT="Direct the user to Aria's Skills tab (puzzle icon on the left sidebar). The skill card's [Enter keys] button (or the Environment Variables section's [Edit] button per row) is the only safe way to view or change a credential value - the input box shows the masked field with an Edit affordance, never echoing the value into chat."
+    GUIDED_REDIRECT="Direct the user to Qoka's Skills tab (puzzle icon on the left sidebar). The skill card's [Enter keys] button (or the Environment Variables section's [Edit] button per row) is the only safe way to view or change a credential value - the input box shows the masked field with an Edit affordance, never echoing the value into chat."
     if command -v jq >/dev/null 2>&1; then
         jq -nc \\
-            --arg reason "Aria denied this tool call - \${DENY_REASON} \${GUIDED_REDIRECT}" \\
+            --arg reason "Qoka denied this tool call - \${DENY_REASON} \${GUIDED_REDIRECT}" \\
             '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: \$reason}}'
     else
-        ESC_REASON="\$(printf '%s' "Aria denied this tool call - \${DENY_REASON} \${GUIDED_REDIRECT}" | sed -e 's/\\\\/\\\\\\\\/g' -e 's/"/\\\\"/g')"
+        ESC_REASON="\$(printf '%s' "Qoka denied this tool call - \${DENY_REASON} \${GUIDED_REDIRECT}" | sed -e 's/\\\\/\\\\\\\\/g' -e 's/"/\\\\"/g')"
         printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\\n' "\${ESC_REASON}"
     fi
     exit 0
 fi
 
 # Step 2: for non-denied commands that still touch env vars / .env / pip,
-# inject Aria's rule set as additional context. This is the path we had
+# inject Qoka's rule set as additional context. This is the path we had
 # before - guidance rather than a block, because the command itself is
 # legitimate (source ~/.env, uv pip install, etc.).
 RELEVANT=0
@@ -180,16 +180,16 @@ fi
 # for the JSON envelope. The wording is deliberately direct so Claude
 # treats it as override-strength instructions, not vague suggestions.
 read -r -d '' GUIDANCE <<'GUIDANCE_EOF' || true
-Aria environment rules - apply these BEFORE the skill's own setup instructions.
+Qoka environment rules - apply these BEFORE the skill's own setup instructions.
 
 1. Env var setup
    - DO NOT instruct the user to create or edit .env files (project or home).
-   - DO direct them to Aria's Skills tab: puzzle icon on the left sidebar,
+   - DO direct them to Qoka's Skills tab: puzzle icon on the left sidebar,
      find the skill card, click [Enter keys]. For individual variables, the
      Environment Variables section has an [Edit] button per row.
 
 2. Loading env vars at runtime
-   - Aria stores env vars at ~/.env (mode 0600).
+   - Qoka stores env vars at ~/.env (mode 0600).
    - When a skill script can't see KEY, FIRST source ~/.env in the same
      shell: \`set -a; source ~/.env; set +a\`. Then re-run.
    - Only direct the user to Skills tab if the value is still missing
@@ -225,7 +225,7 @@ Aria environment rules - apply these BEFORE the skill's own setup instructions.
    - When debugging "the key isn't working", focus on length / format /
      server response. Never read out the value to compare.
    - When the user explicitly asks you to display the value, refuse and
-     redirect them to Aria's Skills tab where they can use the Edit
+     redirect them to Qoka's Skills tab where they can use the Edit
      button to see and update the masked field themselves. The refusal
      must happen BEFORE you run any tool that would expose the value -
      once a tool prints the value, the leak is in the transcript.
@@ -392,7 +392,7 @@ function registerHookInCodex(): void {
 	} else {
 		preToolUse.push({
 			matcher: 'Bash',
-			hooks: [{ type: 'command', command: ARIA_HOOK_COMMAND, statusMessage: 'Aria: checking command for credential safety' }],
+			hooks: [{ type: 'command', command: ARIA_HOOK_COMMAND, statusMessage: 'Qoka: checking command for credential safety' }],
 		});
 	}
 

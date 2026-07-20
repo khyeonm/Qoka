@@ -68,7 +68,7 @@ configurationRegistry.registerConfiguration({
 			default: true,
 			scope: ConfigurationScope.APPLICATION,
 			title: localize('enableWindowsBackgroundUpdatesTitle', "Enable Background Updates"),
-			description: localize('enableWindowsBackgroundUpdates', "Enable to download and install new Aria versions in the background."),
+			description: localize('enableWindowsBackgroundUpdates', "Enable to download and install new Qoka versions in the background."),
 			included: isWindows && !isWeb
 		},
 		'update.showReleaseNotes': {

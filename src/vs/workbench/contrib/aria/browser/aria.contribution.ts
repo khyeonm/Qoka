@@ -42,15 +42,15 @@ workbenchRegistry.registerWorkbenchContribution(AriaModeStatusBarContribution, L
 workbenchRegistry.registerWorkbenchContribution(AriaAccountStatusContribution, LifecyclePhase.Restored);
 workbenchRegistry.registerWorkbenchContribution(AriaRailFlyoutContribution, LifecyclePhase.Restored);
 
-// Aria Start Page editor pane - kept registered for command-based
-// opening (e.g. View > Welcome To Aria) but the full-viewport
+// Qoka Start Page editor pane - kept registered for command-based
+// opening (e.g. View > Welcome To Qoka) but the full-viewport
 // ariaStartedOverlay contribution is now the primary launch surface,
 // so nothing auto-opens this editor any more.
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
 	EditorPaneDescriptor.create(
 		AriaStartPagePane,
 		AriaStartPagePane.ID,
-		localize('aria.startPage.label', "Aria Start Page")
+		localize('aria.startPage.label', "Qoka Start Page")
 	),
 	[new SyncDescriptor(AriaStartPageInput)]
 );
@@ -61,7 +61,7 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 	EditorPaneDescriptor.create(
 		AriaHelpEditorPane,
 		AriaHelpEditorPane.ID,
-		localize('aria.help.label', "Aria How-to")
+		localize('aria.help.label', "Qoka How-to")
 	),
 	[new SyncDescriptor(AriaHelpInput)]
 );

@@ -59,7 +59,7 @@ export function matchesAnyBranchProtectionPattern(branchName: string, patterns: 
  * The `git.branchProtection` setting is `resource`-scoped, so the value can
  * differ between workspace folders. Pass the session's working directory (or
  * project URI as a fallback) as `resource` so we read the setting in the
- * scope of the folder Aria actually has loaded rather than the host
+ * scope of the folder Qoka actually has loaded rather than the host
  * window's active workspace.
  */
 export function readBranchProtectionPatterns(configurationService: IConfigurationService, resource?: URI): readonly string[] {

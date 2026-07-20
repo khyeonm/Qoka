@@ -120,7 +120,7 @@ interface IPendingStatusbarEntry {
 class StatusbarPart extends Part implements IStatusbarEntryContainer {
 
 	static readonly HEIGHT = 22;
-	// Aria easy mode uses a taller status bar (thicker, more visible chrome).
+	// Qoka easy mode uses a taller status bar (thicker, more visible chrome).
 	static readonly EASY_HEIGHT = 34;
 
 	//#region IView
@@ -173,7 +173,7 @@ class StatusbarPart extends Part implements IStatusbarEntryContainer {
 		this.viewModel = this._register(new StatusbarViewModel(storageService));
 		this.onDidChangeEntryVisibility = this.viewModel.onDidChangeEntryVisibility;
 
-		// Aria: the status bar is taller in easy mode; re-signal our size to the
+		// Qoka: the status bar is taller in easy mode; re-signal our size to the
 		// workbench grid whenever the mode flips so it re-lays out live.
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('aria.mode')) {

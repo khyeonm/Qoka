@@ -15,7 +15,7 @@
  *
  * Provider selection follows the app-wide `aria.aiProvider` setting via
  * providerOrder()/resolveActiveProvider(); callers can also force a specific
- * provider. Gemini is intentionally not supported (Aria targets Claude Code +
+ * provider. Gemini is intentionally not supported (Qoka targets Claude Code +
  * Codex).
  */
 
@@ -63,21 +63,21 @@ function loginShellPathDirs(): string[] {
 	return cachedLoginPathDirs;
 }
 
-/** Aria's private home for tools it provisions itself when the machine lacks
+/** Qoka's private home for tools it provisions itself when the machine lacks
  *  them (portable Node, npm-installed CLIs). Both the installer and this
  *  resolver agree on these paths so a self-provisioned CLI is always found. */
 export const ARIA_HOME = path.join(HOME, '.aria');
 /** Portable Node root (nodeBootstrap downloads here). `bin/` on Unix; the
  *  executables sit at the root on Windows. */
 export const ARIA_NODE_DIR = path.join(ARIA_HOME, 'node');
-/** npm --prefix used for Aria-installed global CLIs. On Unix bins land in
+/** npm --prefix used for Qoka-installed global CLIs. On Unix bins land in
  *  `<prefix>/bin`; on Windows the `.cmd` shims sit at the prefix root. */
 export const ARIA_NPM_PREFIX = path.join(ARIA_HOME, 'npm');
 
-/** Put Aria's provisioned bins on THIS process's PATH so every extension in the
+/** Put Qoka's provisioned bins on THIS process's PATH so every extension in the
  *  shared extension host - not just aria-skills - can spawn the provider CLIs and
  *  the Node they need. Codex is an npm script whose `#!/usr/bin/env node` shebang
- *  needs `node`; a non-developer machine often has none, so we prepend Aria's
+ *  needs `node`; a non-developer machine often has none, so we prepend Qoka's
  *  portable Node (~/.aria/node/bin) plus ~/.local/bin (where claude/codex land).
  *  Idempotent - safe to call from multiple extensions' activate(). */
 export function ensureAriaBinsOnPath(): void {
@@ -86,7 +86,7 @@ export function ensureAriaBinsOnPath(): void {
 	if (nodeBin) {
 		wanted.push(nodeBin);
 	}
-	// Where `npm install -g` (Aria-managed prefix + the OS default) drops the
+	// Where `npm install -g` (Qoka-managed prefix + the OS default) drops the
 	// codex CLI. Without these the per-extension MCP resolvers' `codex --version`
 	// PATH probe fails on Windows (codex.cmd lives under ~/.aria/npm, not on PATH),
 	// so Codex MCP registration silently no-ops for every extension but autopipe.
@@ -105,7 +105,7 @@ export function ensureAriaBinsOnPath(): void {
 	}
 }
 
-/** Directory holding the portable `node`/`npm` binaries, or undefined when Aria
+/** Directory holding the portable `node`/`npm` binaries, or undefined when Qoka
  *  hasn't provisioned Node. Callers prepend this to PATH so npm-based CLIs (and
  *  their node shebang) resolve at run time. */
 export function ariaNodeBinDir(): string | undefined {
@@ -118,7 +118,7 @@ export function ariaNodeBinDir(): string | undefined {
 }
 
 /** Directories where a provider CLI may live, most-specific first. Covers the
- *  npm global prefixes (default + Aria's) and, on Unix, the usual bin dirs and
+ *  npm global prefixes (default + Qoka's) and, on Unix, the usual bin dirs and
  *  nvm - a GUI-launched Electron process often can't see these via PATH. */
 function providerDirs(): string[] {
 	if (isWin) {
@@ -126,7 +126,7 @@ function providerDirs(): string[] {
 		const localappdata = process.env.LOCALAPPDATA ?? path.join(HOME, 'AppData', 'Local');
 		return [
 			ARIA_NODE_DIR,                 // portable node's own dir (npm.cmd etc.)
-			ARIA_NPM_PREFIX,               // Aria-managed npm global (.cmd shims at root)
+			ARIA_NPM_PREFIX,               // Qoka-managed npm global (.cmd shims at root)
 			path.join(appdata, 'npm'),     // default npm global on Windows
 			path.join(HOME, '.local', 'bin'),          // Claude's Windows installer mirrors ~/.local/bin
 			path.join(localappdata, 'Programs', 'claude'), // alt Claude install location
@@ -208,7 +208,7 @@ export function isProviderInstalled(provider: HeadlessProvider): boolean {
 }
 
 /** The provider order implied by the app-wide `aria.aiProvider` setting.
- *  `auto` → Claude first (Aria's documented default), then Codex; an explicit
+ *  `auto` → Claude first (Qoka's documented default), then Codex; an explicit
  *  choice puts that provider first. This is the single place the setting is
  *  read for the background/headless path. */
 export function providerOrder(): HeadlessProvider[] {
@@ -248,7 +248,7 @@ export function headlessArgs(provider: HeadlessProvider): string[] {
  */
 export function runWithStdin(bin: string, args: string[], input: string, timeoutMs: number): Promise<string> {
 	return new Promise((resolve, reject) => {
-		// If Aria provisioned a portable Node, put it on PATH so an npm-installed
+		// If Qoka provisioned a portable Node, put it on PATH so an npm-installed
 		// CLI (e.g. codex) can find `node` for its shebang even when the machine
 		// has no system Node.
 		const nodeBin = ariaNodeBinDir();

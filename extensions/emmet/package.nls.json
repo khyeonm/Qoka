@@ -1,5 +1,5 @@
 {
-	"description": "Emmet support for Aria",
+	"description": "Emmet support for Qoka",
 	"command.wrapWithAbbreviation": "Wrap with Abbreviation",
 	"command.removeTag": "Remove Tag",
 	"command.updateTag": "Update Tag",

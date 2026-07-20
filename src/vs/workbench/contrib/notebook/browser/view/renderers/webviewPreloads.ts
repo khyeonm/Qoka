@@ -2469,7 +2469,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 				return;
 			}
 			const trustedHtml = ttPolicy?.createHTML(html) ?? html;
-			el.innerHTML = trustedHtml as string; // CodeQL [SM03712] The rendered content comes from Aria's tokenizer and is considered safe
+			el.innerHTML = trustedHtml as string; // CodeQL [SM03712] The rendered content comes from Qoka's tokenizer and is considered safe
 			const root = el.getRootNode();
 			if (root instanceof ShadowRoot) {
 				if (!root.adoptedStyleSheets.includes(tokenizationStyle)) {

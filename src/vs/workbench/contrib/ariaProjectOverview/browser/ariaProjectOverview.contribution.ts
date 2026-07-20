@@ -41,7 +41,7 @@ const OVERVIEW_CONTAINER_ID = 'workbench.view.ariaProjectOverview';
 
 // "checklist" codicon = a box/list with checkmarks, the closest built-in glyph to
 // the requested checkbox icon.
-const overviewIcon = registerIcon('aria-project-overview-view', Codicon.checklist, localize('aria.overview.iconLabel', "Aria Project Overview activity bar icon"));
+const overviewIcon = registerIcon('aria-project-overview-view', Codicon.checklist, localize('aria.overview.iconLabel', "Qoka Project Overview activity bar icon"));
 
 const overviewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({

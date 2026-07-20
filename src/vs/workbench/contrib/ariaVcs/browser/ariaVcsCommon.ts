@@ -53,13 +53,13 @@ export interface FileChange {
 }
 
 /**
- * Inline-injected stylesheet shared by both Aria VCS views. We use a single
+ * Inline-injected stylesheet shared by both Qoka VCS views. We use a single
  * `<style>` element keyed on `data-aria-vcs-styles` so the rules survive
  * view re-renders and are only injected once per workbench window.
  *
  * We took this route because the obvious `import './media/foo.css'` only
  * works when the build step is configured to bundle CSS - at the moment our
- * Aria-build step is not, and the symlinked dev workbench loads the .css as
+ * Qoka-build step is not, and the symlinked dev workbench loads the .css as
  * a JS module and errors out. Inline injection sidesteps the build path
  * entirely.
  */

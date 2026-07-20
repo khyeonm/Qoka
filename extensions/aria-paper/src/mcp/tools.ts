@@ -56,7 +56,7 @@ export function buildTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'get_writing_guide',
-			description: 'Read the manuscript-writing methodology Aria expects you to follow (structure, source-exclusivity, citation keys, prose rules). Call this before drafting.',
+			description: 'Read the manuscript-writing methodology Qoka expects you to follow (structure, source-exclusivity, citation keys, prose rules). Call this before drafting.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(WRITING_GUIDE),
 		},
@@ -276,7 +276,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'propose_manuscript_revision',
-			description: 'Propose a revised manuscript for the user to REVIEW before it is applied. Pass the FULL revised Markdown (keep unchanged sections/paragraphs verbatim so only your actual edits are highlighted). This does NOT overwrite manuscript.md - it stages the change; Aria opens a review tab where the user accepts/rejects each changed section or paragraph (added = yellow, removed = red). Use this for partial edits/revisions; use set_manuscript only for the initial full draft. After the user reviews, run export_paper and tell them the output path.',
+			description: 'Propose a revised manuscript for the user to REVIEW before it is applied. Pass the FULL revised Markdown (keep unchanged sections/paragraphs verbatim so only your actual edits are highlighted). This does NOT overwrite manuscript.md - it stages the change; Qoka opens a review tab where the user accepts/rejects each changed section or paragraph (added = yellow, removed = red). Use this for partial edits/revisions; use set_manuscript only for the initial full draft. After the user reviews, run export_paper and tell them the output path.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -293,7 +293,7 @@ export function buildTools(): ToolDefinition[] {
 				if (md === undefined) { return err('`markdown` is required.'); }
 				try {
 					setProposal(r.id, md);
-					return ok(`Staged a proposed revision for review. Aria is opening a review tab where the user accepts/rejects each change. Wait for the user to review; once they accept, run export_paper and tell them the output path.`);
+					return ok(`Staged a proposed revision for review. Qoka is opening a review tab where the user accepts/rejects each change. Wait for the user to review; once they accept, run export_paper and tell them the output path.`);
 				} catch (e) { return err(`propose_manuscript_revision failed: ${(e as Error).message}`); }
 			},
 		},

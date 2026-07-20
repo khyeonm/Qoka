@@ -6,7 +6,7 @@
 // Action and notification types for the sessions process protocol.
 // Re-exports from the auto-generated protocol layer with local aliases.
 //
-// Aria-specific additions:
+// Qoka-specific additions:
 //   - IToolCallStartAction extends protocol with `toolKind` and `language`
 //   - isRootAction / isSessionAction type guards
 //   - INotification alias for ProtocolNotification

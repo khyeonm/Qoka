@@ -83,17 +83,17 @@ export class AriaStartPagePane extends EditorPane {
 		switch (mode) {
 			case 'easy':
 				return {
-					title: localize('aria.startPage.headline.easy', "Aria - Easy Mode"),
+					title: localize('aria.startPage.headline.easy', "Qoka - Easy Mode"),
 					tagline: localize('aria.startPage.tagline.easy', "Simplified interface focused on research workflows."),
 				};
 			case 'advanced':
 				return {
-					title: localize('aria.startPage.headline.advanced', "Aria - Advanced Mode"),
+					title: localize('aria.startPage.headline.advanced', "Qoka - Advanced Mode"),
 					tagline: localize('aria.startPage.tagline.advanced', "Full IDE experience with every VS Code feature."),
 				};
 			default:
 				return {
-					title: localize('aria.startPage.headline.welcome', "Welcome to Aria"),
+					title: localize('aria.startPage.headline.welcome', "Welcome to Qoka"),
 					tagline: localize('aria.startPage.tagline.welcome', "Choose a mode below to get started."),
 				};
 		}

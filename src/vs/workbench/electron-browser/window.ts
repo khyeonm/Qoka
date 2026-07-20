@@ -730,10 +730,10 @@ export class NativeWindow extends BaseWindow {
 		if (this.environmentService.isBuilt && !this.environmentService.extensionDevelopmentLocationURI?.length) {
 			let installLocationUri: URI;
 			if (isMacintosh) {
-				// appRoot = /Applications/Aria - Insiders.app/Contents/Resources/app
+				// appRoot = /Applications/Qoka - Insiders.app/Contents/Resources/app
 				installLocationUri = dirname(dirname(dirname(URI.file(this.nativeEnvironmentService.appRoot))));
 			} else {
-				// appRoot = C:\Users\<name>\AppData\Local\Programs\Microsoft Aria Insiders\resources\app
+				// appRoot = C:\Users\<name>\AppData\Local\Programs\Microsoft Qoka Insiders\resources\app
 				// appRoot = /usr/share/code-insiders/resources/app
 				installLocationUri = dirname(dirname(URI.file(this.nativeEnvironmentService.appRoot)));
 			}

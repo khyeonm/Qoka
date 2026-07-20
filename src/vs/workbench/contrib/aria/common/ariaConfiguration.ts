@@ -17,13 +17,13 @@ export const AriaModeContextKey = new RawContextKey<AriaMode>('aria.mode', '');
 
 export const ARIA_AI_PROVIDER_SETTING = 'aria.aiProvider';
 
-/** Which AI assistant Aria's ✨/chat buttons prefer when several are installed. */
+/** Which AI assistant Qoka's ✨/chat buttons prefer when several are installed. */
 export type AriaAiProvider = 'auto' | 'claude' | 'codex';
 
-/** The concrete AI providers Aria supports (Gemini intentionally excluded). */
+/** The concrete AI providers Qoka supports (Gemini intentionally excluded). */
 export type AriaConcreteProvider = 'claude' | 'codex';
 
-/** All concrete providers in Aria's default (Claude-first) order - the single
+/** All concrete providers in Qoka's default (Claude-first) order - the single
  *  list every "iterate over both providers" site should reuse instead of
  *  re-writing `['claude', 'codex']`. */
 export const ARIA_ALL_PROVIDERS: readonly AriaConcreteProvider[] = ['claude', 'codex'];
@@ -45,20 +45,20 @@ export function ariaProviderOrder(configurationService: IConfigurationService): 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'aria',
 	order: 5,
-	title: localize('ariaConfigurationTitle', "Aria"),
+	title: localize('ariaConfigurationTitle', "Qoka"),
 	type: 'object',
 	properties: {
 		[ARIA_MODE_SETTING]: {
 			type: 'string',
 			enum: ['', 'easy', 'advanced'],
 			enumDescriptions: [
-				localize('aria.mode.unset', "Not yet selected - Aria will show the mode picker on next start."),
+				localize('aria.mode.unset', "Not yet selected - Qoka will show the mode picker on next start."),
 				localize('aria.mode.easy', "Simplified UI focused on research workflows."),
 				localize('aria.mode.advanced', "Full IDE with all VS Code features."),
 			],
 			default: '',
 			scope: ConfigurationScope.APPLICATION,
-			description: localize('aria.mode.description', "Aria interface mode."),
+			description: localize('aria.mode.description', "Qoka interface mode."),
 		},
 		[ARIA_AI_PROVIDER_SETTING]: {
 			type: 'string',
@@ -70,7 +70,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			],
 			default: 'auto',
 			scope: ConfigurationScope.APPLICATION,
-			description: localize('aria.aiProvider.description', "Which AI assistant Aria opens for its ✨ buttons when more than one is installed. Aria registers its tools with every installed assistant regardless of this setting."),
+			description: localize('aria.aiProvider.description', "Which AI assistant Qoka opens for its ✨ buttons when more than one is installed. Qoka registers its tools with every installed assistant regardless of this setting."),
 		}
 	}
 });

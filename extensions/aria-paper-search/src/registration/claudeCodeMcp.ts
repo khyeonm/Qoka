@@ -12,7 +12,7 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 const MCP_NAME = 'paper-library';
-// Older Aria builds may have registered under "aria-paper-library" or
+// Older Qoka builds may have registered under "aria-paper-library" or
 // similar; sweep both on startup so the user doesn't end up with stale
 // duplicates.
 const LEGACY_NAMES = ['aria-paper-library', 'paper-search'];
@@ -130,7 +130,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 
 	// Best-effort removal across all three scopes. `claude mcp add`
 	// defaults to "local" (per-project) - without the scope cleanup
-	// below, registrations land in whatever project the Aria process
+	// below, registrations land in whatever project the Qoka process
 	// was launched from, and Claude Code sessions opened in other
 	// directories can't see the MCP. We clear user/project/local so
 	// the next add lands without duplicates.

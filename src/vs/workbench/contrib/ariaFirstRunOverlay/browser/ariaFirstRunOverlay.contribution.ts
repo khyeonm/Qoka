@@ -12,7 +12,7 @@ import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/w
 import { markAriaSetupReady } from '../../aria/browser/ariaSetupReady.js';
 
 /**
- * Full-screen "Aria is setting up" overlay. We mount a fixed div at the
+ * Full-screen "Qoka is setting up" overlay. We mount a fixed div at the
  * top of <body> on workbench mount, blocking clicks and keyboard focus
  * underneath. The overlay stays up until every extension that opted into
  * tracking has reported completion - there is NO arbitrary safety
@@ -83,7 +83,7 @@ const PENDING_SUMMARIES_KEY = 'aria.startup.pendingSummaries';
  *  runs (extensions call beginTracking/markComplete and finish() still fires
  *  markAriaSetupReady()), but on every launch after the first the work happens
  *  silently in the background rather than behind the overlay. Persisted across
- *  restarts, so "first launch only" means the very first time Aria ever runs. */
+ *  restarts, so "first launch only" means the very first time Qoka ever runs. */
 const FIRST_RUN_SHOWN_KEY = 'aria.firstRun.shownEver';
 
 function firstRunAlreadyShown(): boolean {
@@ -103,7 +103,7 @@ function markFirstRunShown(): void {
 }
 
 /**
- * The setup trackers that ship with Aria's vendored extensions and ALWAYS
+ * The setup trackers that ship with Qoka's vendored extensions and ALWAYS
  * call `aria.startup.beginTracking` at activate time. We wait for every one
  * of them to `markComplete` before we even consider dispatching the
  * summary toast - independent of any millisecond timer - so the user
@@ -191,7 +191,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		});
 
 		// Show the overlay only when a workspace folder is open. The
-		// Started page (Aria Start Page editor) takes over the screen
+		// Started page (Qoka Start Page editor) takes over the screen
 		// when no folder is loaded, so we don't need a separate blocker
 		// then - the page itself absorbs user input while setup runs.
 		// When a folder *is* open, the user expects the workbench to be
@@ -207,10 +207,10 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			// with both the Started-window run and this window's run.
 			this.loadPendingSummaries();
 			// NOTE: the visual overlay is intentionally NOT shown. It overlapped the
-			// longer-lived "Preparing Aria…" overlay (ariaStartupChat) which already
+			// longer-lived "Preparing Qoka…" overlay (ariaStartupChat) which already
 			// covers the exact same setup window on every project open. We keep this
 			// contribution's TRACKER - it is the sole caller of markAriaSetupReady()
-			// (which "Preparing Aria…" awaits) and delivers the setup summary toast -
+			// (which "Preparing Qoka…" awaits) and delivers the setup summary toast -
 			// and only drop the redundant second screen. finish()/hide() no-op safely
 			// with no overlay shown.
 		}
@@ -387,7 +387,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// (the project window vscode.openFolder reloads into) picks it
 		// up via loadPendingSummaries() and dispatches the toast there.
 		if (!this.shouldShowOverlay()) {
-			// Overwrite - each Aria launch's run is the freshest view of
+			// Overwrite - each Qoka launch's run is the freshest view of
 			// what the user should see when they finally open a project.
 			this.savePendingSummaries(drained);
 			return;
@@ -450,7 +450,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		overlay.appendChild(spinner);
 
 		const title = document.createElement('div');
-		title.textContent = 'Setting up Aria';
+		title.textContent = 'Setting up Qoka';
 		title.style.fontSize = '20px';
 		title.style.fontWeight = '600';
 		title.style.marginBottom = '8px';

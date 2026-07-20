@@ -902,7 +902,7 @@ class SetBrowserUserAgentAction extends Action2 {
 		}
 		const quickInputService = accessor.get(IQuickInputService);
 		const value = await quickInputService.input({
-			prompt: localize('browser.userAgent.prompt', "User agent string (leave empty for Aria default)"),
+			prompt: localize('browser.userAgent.prompt', "User agent string (leave empty for Qoka default)"),
 			value: support.userAgent ?? '',
 		});
 		if (value === undefined) {

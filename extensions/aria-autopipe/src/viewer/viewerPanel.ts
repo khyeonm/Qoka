@@ -376,7 +376,7 @@ async function handleDataFetch(url: string): Promise<unknown> {
 	}
 	if (!active) {
 		return {
-			error: `No working data source for ${filename}. Plugin: ${entry.plugin.manifest.name}. Check the Aria DevTools console (Ctrl+Shift+I) for the probe commands and their stderr.`,
+			error: `No working data source for ${filename}. Plugin: ${entry.plugin.manifest.name}. Check the Qoka DevTools console (Ctrl+Shift+I) for the probe commands and their stderr.`,
 		};
 	}
 
@@ -610,7 +610,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 		// a blob URL internally).
 		`worker-src ${cspSource} blob:`,
 		// frame/object covers <iframe>/<embed>/<object>. The pdf-viewer
-		// plugin still emits <embed src="blob:..."> - Aria intercepts
+		// plugin still emits <embed src="blob:..."> - Qoka intercepts
 		// those before they actually try to load anything, but allowing
 		// blob: here keeps the DOM from spewing CSP warnings while the
 		// MutationObserver swaps them out.

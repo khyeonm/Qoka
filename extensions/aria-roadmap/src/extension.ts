@@ -21,7 +21,7 @@ let finalized = false;
 let canvasRevealed = false;
 
 /**
- * Aria Roadmap - extension entry.
+ * Qoka Roadmap - extension entry.
  *
  * Phase 1 scope:
  *  1. Boot the in-process RoadmapState.
@@ -31,7 +31,7 @@ let canvasRevealed = false;
  *     when it isn't already present.
  *
  * Each of steps 3 and 4 participates in the firstRunOverlay setup
- * tracking, so the user sees a single "Setting up Aria" surface during
+ * tracking, so the user sees a single "Setting up Qoka" surface during
  * the very first launch and a "Setup complete" toast lists what
  * actually changed.
  */
@@ -105,7 +105,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	notify();
 
 	// Detect which AI assistant the user installed - do NOT force-install one.
-	// Aria works with Claude Code or Codex; installing a specific one
+	// Qoka works with Claude Code or Codex; installing a specific one
 	// (previously Claude) would fight a user who intentionally chose another.
 	// The onboarding surface guides installation when none is present.
 	void (async () => {
@@ -154,7 +154,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	})();
 
 	// Sole registration entry point: the workbench chat-open coordinator calls
-	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// this (serialized across every Qoka MCP) so the concurrent `claude mcp add`
 	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
 	// newly registered something. Awaits the server start (rather than reading a
 	// port set by the IIFE) because the coordinator may call before the port is
@@ -182,7 +182,7 @@ export async function deactivate(): Promise<void> {
 	// matches our live port, so a reload-window cycle doesn't churn
 	// Claude Code's MCP config (which would otherwise force Claude Code
 	// to restart its MCP session every time the user reloads). A stale
-	// entry (port changed while Aria was closed) self-heals on the next
+	// entry (port changed while Qoka was closed) self-heals on the next
 	// launch because the port mismatch triggers a fresh registration.
 	if (mcpServer) {
 		await mcpServer.stop();

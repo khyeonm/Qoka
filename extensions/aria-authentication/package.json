@@ -1,7 +1,7 @@
 {
 	"name": "aria-authentication",
-	"displayName": "Aria Authentication",
-	"description": "ORCID / Google sign-in for Aria via the Aria backend. Registers an authentication provider (Accounts menu) and stores the JWT in SecretStorage.",
+	"displayName": "Qoka Authentication",
+	"description": "ORCID / Google sign-in for Qoka via the Qoka backend. Registers an authentication provider (Accounts menu) and stores the JWT in SecretStorage.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",
@@ -16,17 +16,17 @@
 		"authentication": [
 			{
 				"id": "aria",
-				"label": "Aria"
+				"label": "Qoka"
 			}
 		],
 		"commands": [
 			{
 				"command": "aria.auth.signIn",
-				"title": "Aria: Sign In"
+				"title": "Qoka: Sign In"
 			},
 			{
 				"command": "aria.auth.signOut",
-				"title": "Aria: Sign Out"
+				"title": "Qoka: Sign Out"
 			}
 		]
 	},

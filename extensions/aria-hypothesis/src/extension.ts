@@ -14,7 +14,7 @@ import { registerWithCodex } from './registration/codexMcp';
  *
  * The MCP exposes search_hypothesis (grep the corpus) and
  * get_hypothesis_fulltext (wider read). The actual corpus lives on the
- * Aria server; the tools call its JWT-protected /api/hypothesis endpoints
+ * Qoka server; the tools call its JWT-protected /api/hypothesis endpoints
  * (see client.ts), so the corpus is never shipped or touched locally.
  */
 
@@ -59,7 +59,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	void bootMcp();
 
 	// Sole registration entry point: the workbench chat-open coordinator calls
-	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// this (serialized across every Qoka MCP) so the concurrent `claude mcp add`
 	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
 	// newly registered something. Awaits the server start (rather than reading a
 	// port set by bootMcp) because the coordinator may call before the port is
@@ -115,7 +115,7 @@ async function bootMcp(): Promise<void> {
 export async function deactivate(): Promise<void> {
 	console.log('[aria-hypothesis] deactivate()');
 	// Deliberately DO NOT unregister from Claude / Codex on shutdown - the
-	// registration persists across runs (same pattern as the other Aria MCPs).
+	// registration persists across runs (same pattern as the other Qoka MCPs).
 	if (mcpServer) {
 		await mcpServer.stop();
 		mcpServer = undefined;

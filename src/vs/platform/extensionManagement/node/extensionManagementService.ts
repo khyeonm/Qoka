@@ -151,7 +151,7 @@ export class ExtensionManagementService extends AbstractExtensionManagementServi
 			const manifest = await getManifest(path.resolve(location.fsPath));
 			const extensionId = getGalleryExtensionId(manifest.publisher, manifest.name);
 			if (manifest.engines && manifest.engines.vscode && !isEngineValid(manifest.engines.vscode, this.productService.version, this.productService.date)) {
-				throw new Error(nls.localize('incompatible', "Unable to install extension '{0}' as it is not compatible with Aria '{1}'.", extensionId, this.productService.version));
+				throw new Error(nls.localize('incompatible', "Unable to install extension '{0}' as it is not compatible with Qoka '{1}'.", extensionId, this.productService.version));
 			}
 
 			const allowedToInstall = this.allowedExtensionsService.isAllowed({ id: extensionId, version: manifest.version, publisherDisplayName: undefined });
@@ -340,7 +340,7 @@ export class ExtensionManagementService extends AbstractExtensionManagementServi
 	private async downloadExtension(extension: IGalleryExtension, operation: InstallOperation, verifySignature: boolean, clientTargetPlatform?: TargetPlatform): Promise<{ readonly location: URI; readonly verificationStatus: ExtensionSignatureVerificationCode | undefined }> {
 		if (verifySignature) {
 			const value = this.configurationService.getValue(VerifyExtensionSignatureConfigKey);
-			// Aria disables extension signature verification (the workbench registers
+			// Qoka disables extension signature verification (the workbench registers
 			// this setting's default as `false`). That default lives on the browser
 			// side; this service runs in a utility process where the setting may be
 			// unregistered and `getValue` returns undefined — so fall back to `false`,
@@ -1107,7 +1107,7 @@ class InstallExtensionInProfileTask extends AbstractExtensionTask<ILocalExtensio
 					try {
 						await this.extensionsScanner.deleteExtension(existingExtension, 'existing');
 					} catch (e) {
-						throw new Error(nls.localize('restartCode', "Please restart Aria before reinstalling {0}.", this.manifest.displayName || this.manifest.name));
+						throw new Error(nls.localize('restartCode', "Please restart Qoka before reinstalling {0}.", this.manifest.displayName || this.manifest.name));
 					}
 				}
 			}
@@ -1119,7 +1119,7 @@ class InstallExtensionInProfileTask extends AbstractExtensionTask<ILocalExtensio
 				try {
 					await this.extensionsScanner.deleteExtension(existingWithSameVersion, 'existing');
 				} catch (e) {
-					throw new Error(nls.localize('restartCode', "Please restart Aria before reinstalling {0}.", this.manifest.displayName || this.manifest.name));
+					throw new Error(nls.localize('restartCode', "Please restart Qoka before reinstalling {0}.", this.manifest.displayName || this.manifest.name));
 				}
 			}
 

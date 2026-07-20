@@ -111,22 +111,22 @@ export class VcsService {
 		this.ensureGitignore(workspacePath);
 		// Make sure commits will succeed without any user setup. If the user
 		// already has user.name / user.email configured globally we keep
-		// using those - only fall back to an Aria-local identity when no
+		// using those - only fall back to an Qoka-local identity when no
 		// global config is found, so we don't override the user's real
 		// name on shared / multi-tool machines.
 		await this.ensureLocalIdentity(workspacePath);
 	}
 
-	/** Write (or top up) a project `.gitignore` so Aria's own working files never
-	 *  land in a snapshot. Idempotent - the Aria block is only appended once. */
+	/** Write (or top up) a project `.gitignore` so Qoka's own working files never
+	 *  land in a snapshot. Idempotent - the Qoka block is only appended once. */
 	private ensureGitignore(workspacePath: string): void {
-		const HEADER = '# --- Aria: assistant/app working files (kept out of snapshots) ---';
+		const HEADER = '# --- Qoka: assistant/app working files (kept out of snapshots) ---';
 		const block = [
 			HEADER,
 			'.claude/',        // Claude Code project/session config (MCP, settings)
 			'.codex/',         // Codex working dir
 			'.mcp.json',       // MCP server config - ports change every launch
-			'.aria/',          // Aria app state (roadmaps etc.) - managed by the app
+			'.aria/',          // Qoka app state (roadmaps etc.) - managed by the app
 			'node_modules/',
 			'.DS_Store',
 			'',
@@ -155,7 +155,7 @@ export class VcsService {
 			await git(['config', 'user.email', 'aria@localhost'], workspacePath).catch(() => { });
 		}
 		if (!(await hasGlobalIdentity('user.name'))) {
-			await git(['config', 'user.name', 'Aria User'], workspacePath).catch(() => { });
+			await git(['config', 'user.name', 'Qoka User'], workspacePath).catch(() => { });
 		}
 	}
 

@@ -7,7 +7,7 @@ import code, { commonOptions, extensionManagementOptions, troubleshootingOptions
 const codeInsidersCompletionSpec: Fig.Spec = {
 	...code,
 	name: 'code-insiders',
-	description: 'Aria Insiders',
+	description: 'Qoka Insiders',
 	options: [
 		...commonOptions,
 		...extensionManagementOptions('code-insiders'),

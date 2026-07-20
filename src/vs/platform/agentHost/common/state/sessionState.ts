@@ -7,7 +7,7 @@
 // See protocol.md for the full design rationale.
 //
 // Most types are imported from the auto-generated protocol layer
-// (synced from the agent-host-protocol repo). This file adds Aria-specific
+// (synced from the agent-host-protocol repo). This file adds Qoka-specific
 // helpers and re-exports.
 
 import { decodeBase64, encodeBase64, VSBuffer } from '../../../../base/common/buffer.js';
@@ -226,7 +226,7 @@ export function customizationId(uri: string, range?: TextRange): string {
 	return `${safeUri}#range=${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}`;
 }
 
-// ---- Aria-specific derived types -----------------------------------------
+// ---- Qoka-specific derived types -----------------------------------------
 
 /**
  * A tool call in a terminal state, stored in completed turns.
@@ -396,7 +396,7 @@ export type ComponentToState = {
 // ---- SessionMeta accessors -------------------------------------------------
 
 /**
- * Aria-side alias for the protocol's open `_meta` property bag on
+ * Qoka-side alias for the protocol's open `_meta` property bag on
  * {@link SessionState}. Keys SHOULD be namespaced (e.g. `git`, `vscode.foo`)
  * to avoid collisions; values MUST be JSON-serializable.
  */
@@ -405,7 +405,7 @@ export type SessionMeta = Record<string, unknown>;
 /**
  * Reserved key under {@link SessionMeta} for the well-known git-state
  * payload. Value at this key, when present, MUST be shaped like
- * {@link ISessionGitState}. This is a Aria-specific convention layered
+ * {@link ISessionGitState}. This is a Qoka-specific convention layered
  * on top of the protocol's generic `_meta` bag — the protocol itself does
  * not know about git state.
  */

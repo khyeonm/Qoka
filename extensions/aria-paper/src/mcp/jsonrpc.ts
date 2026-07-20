@@ -6,7 +6,7 @@
 /**
  * JSON-RPC 2.0 types covering the subset MCP uses over HTTP+SSE and
  * Streamable HTTP. Mirrors the helper shipped alongside aria-notes /
- * aria-autopipe so all of Aria's MCP servers behave consistently.
+ * aria-autopipe so all of Qoka's MCP servers behave consistently.
  */
 
 export interface JsonRpcRequest {

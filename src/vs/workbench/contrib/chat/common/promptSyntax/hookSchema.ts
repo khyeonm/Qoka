@@ -150,7 +150,7 @@ function buildHookProperties(target: Target, arraySchema: IJSONSchema): Record<s
 }
 
 /**
- * Hook properties for the Aria format.
+ * Hook properties for the Qoka format.
  */
 const vscodeHookProperties: Record<string, IJSONSchema> = buildHookProperties(Target.VSCode, hookArraySchema);
 
@@ -242,7 +242,7 @@ export const hookFileSchema: IJSONSchema = {
 		}
 	},
 	else: {
-		// Aria / PascalCase format
+		// Qoka / PascalCase format
 		properties: {
 			hooks: {
 				properties: vscodeHookProperties

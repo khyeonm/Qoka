@@ -1,7 +1,7 @@
 {
 	"name": "aria-methods-search",
-	"displayName": "Aria Methods Search",
-	"description": "Search a research hypothesis and get the experimental methods that tested similar hypotheses, ranked by cross-paper support. Exposes recommend_methods / search_hypotheses as MCP tools for Claude Code and Codex, backed by the logic-graph Neo4j on the Aria server. Built into Aria.",
+	"displayName": "Qoka Methods Search",
+	"description": "Search a research hypothesis and get the experimental methods that tested similar hypotheses, ranked by cross-paper support. Exposes recommend_methods / search_hypotheses as MCP tools for Claude Code and Codex, backed by the logic-graph Neo4j on the Qoka server. Built into Qoka.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",

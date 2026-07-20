@@ -135,7 +135,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		// review runs through that extension's chat (sendToChat), so "extension
 		// installed" is the accurate, reliably-detectable "can I review with this
 		// AI" signal - unlike login (Claude stores it in the macOS keychain) or a
-		// bare CLI probe. Aria installs each provider's CLI alongside its extension.
+		// bare CLI probe. Qoka installs each provider's CLI alongside its extension.
 		const claude = !!(await this.extensionService.getExtension('anthropic.claude-code'));
 		const codex = !!(await this.extensionService.getExtension('openai.chatgpt'));
 		const changed = claude !== this.claudeAvailable || codex !== this.codexAvailable;
@@ -626,11 +626,11 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	}
 
 	private reviewPrompt(execId: string, _title: string, reviewers: string[]): string {
-		return `Using the Aria peer reviewer, run an AI peer review for review run "${execId}". Follow the iterative-paper-defense skill: call get_review("${execId}"), then for each reviewer run it independently - you are the driver, so review with your own model directly and run any other reviewer's model headless via its CLI - and record each reviewer's Major/Minor concerns with record_review. Reviewers: ${reviewers.join(', ')}.`;
+		return `Using the Qoka peer reviewer, run an AI peer review for review run "${execId}". Follow the iterative-paper-defense skill: call get_review("${execId}"), then for each reviewer run it independently - you are the driver, so review with your own model directly and run any other reviewer's model headless via its CLI - and record each reviewer's Major/Minor concerns with record_review. Reviewers: ${reviewers.join(', ')}.`;
 	}
 
 	private revisePrompt(concernId: string, c: Concern): string {
-		return `Using the Aria peer reviewer, suggest revisions for concern "${concernId}" ("${c.title}") in review run "${this.execId}". Follow the iterative-paper-defense skill: call get_review("${this.execId}"), devise up to 3 alternative strategies (each an Argument / Edit footprint / Risk), and record them together in ONE record_revision call as the proposals array. Set documentKey to the document you are editing - "main" for the manuscript, or a supplementary key like "suppl-1".`;
+		return `Using the Qoka peer reviewer, suggest revisions for concern "${concernId}" ("${c.title}") in review run "${this.execId}". Follow the iterative-paper-defense skill: call get_review("${this.execId}"), devise up to 3 alternative strategies (each an Argument / Edit footprint / Risk), and record them together in ONE record_revision call as the proposals array. Set documentKey to the document you are editing - "main" for the manuscript, or a supplementary key like "suppl-1".`;
 	}
 
 	private async sendToChat(query: string): Promise<void> {

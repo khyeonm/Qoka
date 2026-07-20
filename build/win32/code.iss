@@ -8,10 +8,10 @@
 AppId={#AppId}
 AppName={#NameLong}
 AppVerName={#NameVersion}
-AppPublisher=Microsoft Corporation
-AppPublisherURL=https://code.visualstudio.com/
-AppSupportURL=https://code.visualstudio.com/
-AppUpdatesURL=https://code.visualstudio.com/
+AppPublisher=Qoka
+AppPublisherURL=https://github.com/khyeonm/Qoka
+AppSupportURL=https://github.com/khyeonm/Qoka
+AppUpdatesURL=https://github.com/khyeonm/Qoka
 DefaultGroupName={#NameLong}
 AllowNoIcons=yes
 OutputDir={#OutputDir}
@@ -52,7 +52,7 @@ DefaultDirName={pf}\{#DirName}
 #endif
 
 [Languages]
-; Aria's UI is English-only, so the installer ships English ONLY. Without this
+; Qoka's UI is English-only, so the installer ships English ONLY. Without this
 ; (the stock VS Code list includes Korean, Japanese, Chinese, …) Inno Setup
 ; auto-selects the OS-locale language and shows, e.g., a Korean wizard.
 Name: "english"; MessagesFile: "compiler:Default.isl,{#RepoDir}\build\win32\i18n\messages.en.isl" {#LocalizedLanguageFile}

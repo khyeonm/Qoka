@@ -13,7 +13,7 @@ const execAsync = promisify(exec);
 
 /** Name Claude Code lists this MCP under. Must match the `name` returned by
  *  the server's `initialize` response so the user sees one consistent label. */
-const MCP_NAME = 'aria-notes';
+const MCP_NAME = 'qoka-notes';
 
 export interface RegistrationResult {
 	ok: boolean;
@@ -24,7 +24,7 @@ export interface RegistrationResult {
 }
 
 /**
- * Shell-installed locations the Claude CLI lands in. The Aria launcher
+ * Shell-installed locations the Claude CLI lands in. The Qoka launcher
  * inherits a minimal PATH that often misses these; mirrors the candidate
  * list used by aria-autopipe so behaviour stays consistent - including
  * the nvm-managed node bins, which is how the Claude CLI is actually
@@ -84,7 +84,7 @@ async function readClaudeRegisteredPort(claude: string): Promise<number | null> 
 }
 
 /**
- * (Re-)register the Aria Roadmap MCP server with Claude Code. Mirrors the
+ * (Re-)register the Qoka Roadmap MCP server with Claude Code. Mirrors the
  * autopipe pattern: always best-effort removes any prior entry across all
  * three scopes, then adds the current live port at --scope user so the MCP
  * is reachable from every project Claude Code opens.

@@ -276,7 +276,7 @@ import './contrib/scm/browser/scm.contribution.js';
 import './contrib/scm/browser/quickDiff.contribution.js';
 import './contrib/scm/browser/scm.service.contribution.js';
 
-// Debug — UI removed in Aria. The IDebugService is registered as a null
+// Debug — UI removed in Qoka. The IDebugService is registered as a null
 // implementation so any extension that still imports `vscode.debug` can
 // activate without crashing; its calls just no-op. Same pattern that
 // `src/vs/sessions/sessions.common.main.ts` uses.
@@ -382,7 +382,7 @@ import './contrib/welcomeGettingStarted/browser/gettingStarted.contribution.js';
 import './contrib/welcomeAgentSessions/browser/agentSessionsWelcome.contribution.js';
 import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
 
-// Aria
+// Qoka
 import './contrib/aria/browser/aria.contribution.js';
 import './contrib/ariaProjectOverview/browser/ariaProjectOverview.contribution.js';
 import './contrib/ariaAutopipe/browser/ariaAutopipe.contribution.js';

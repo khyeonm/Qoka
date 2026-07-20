@@ -340,7 +340,7 @@ export async function createRunInTerminalToolData(
 			type: 'boolean',
 			const: allowToRunUnsandboxedCommands,
 			default: allowToRunUnsandboxedCommands,
-			description: 'Whether this tool invocation is allowed to run commands outside the terminal sandbox. This value is set by Aria based on chat.agent.sandbox.allowUnsandboxedCommands.'
+			description: 'Whether this tool invocation is allowed to run commands outside the terminal sandbox. This value is set by Qoka based on chat.agent.sandbox.allowUnsandboxedCommands.'
 		},
 		requestUnsandboxedExecution: {
 			type: 'boolean',
@@ -602,7 +602,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 	private readonly _backgroundNotifications = this._register(new DisposableMap<number>());
 
 	/**
-	 * Set when Aria is shutting down. Suppresses "terminal exited"
+	 * Set when Qoka is shutting down. Suppresses "terminal exited"
 	 * notifications that would otherwise be generated when background
 	 * terminals are disposed during shutdown and then persist as
 	 * undeliverable steering messages after restart.
@@ -765,7 +765,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 		}
 		// BackgroundDetachRewriter must come after SandboxRewriter so that nohup/Start-Process
 		// wraps the entire sandbox runtime, keeping both the sandbox and the child process alive
-		// through Aria shutdown.
+		// through Qoka shutdown.
 		this._commandLineRewriters.push(this._register(this._instantiationService.createInstance(CommandLineBackgroundDetachRewriter)));
 		// PreventHistoryRewriter must be last so the leading space is applied to the final
 		// command, including any sandbox wrapping.
@@ -2995,7 +2995,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 				disposeNotification();
 				return;
 			}
-			// During Aria shutdown, terminals are disposed as part of
+			// During Qoka shutdown, terminals are disposed as part of
 			// normal cleanup. Suppress notifications so they don't persist
 			// as undeliverable steering messages after restart (#314791).
 			if (this._isShuttingDown) {

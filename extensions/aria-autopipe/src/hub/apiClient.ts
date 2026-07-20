@@ -22,7 +22,7 @@ export interface HubPlugin {
 }
 
 /**
- * Minimal HTTP client for Autopipe Hub (hub.autopipe.org by default). Aria
+ * Minimal HTTP client for Autopipe Hub (hub.autopipe.org by default). Qoka
  * uses Node's built-in `fetch` (Node 18+) so this stays dependency-free.
  *
  * The endpoints mirror autopipe-app's `crates/common/src/api_client.rs`.

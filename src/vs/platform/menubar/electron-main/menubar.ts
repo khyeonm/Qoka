@@ -185,7 +185,7 @@ export class Menubar extends Disposable {
 		// the current state (e.g. "Restart to Update" instead of "Check for Updates...").
 		this._register(this.updateService.onStateChange(() => this.scheduleUpdateMenu()));
 
-		// Rebuild when the Aria mode toggles so the macOS Terminal menu appears
+		// Rebuild when the Qoka mode toggles so the macOS Terminal menu appears
 		// or disappears without needing a restart.
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('aria.mode')) {
@@ -500,7 +500,7 @@ export class Menubar extends Disposable {
 			return false; // We need to draw an empty menu to override the electron default
 		}
 
-		// Aria easy mode on macOS: the in-window menu bar is hidden via
+		// Qoka easy mode on macOS: the in-window menu bar is hidden via
 		// window.menuBarVisibility, but the native macOS app menu ignores that
 		// setting. Drop the Terminal menu specifically so easy-mode users don't
 		// reach a terminal from the OS menu. (Windows/Linux already hide the

@@ -36,7 +36,7 @@ export class TimelinePaneDescriptor implements IViewDescriptor {
 	readonly canToggleVisibility = true;
 	readonly hideByDefault = false;
 	readonly canMoveView = true;
-	// Hidden in Aria easy mode (dev tooling); shown normally in advanced.
+	// Hidden in Qoka easy mode (dev tooling); shown normally in advanced.
 	readonly when = ContextKeyExpr.and(TimelineHasProviderContext, ContextKeyExpr.notEquals('aria.mode', 'easy'));
 
 	focusCommand = { id: 'timeline.focus' };

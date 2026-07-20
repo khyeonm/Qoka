@@ -62,13 +62,13 @@ import { ConcreteProvider, PROVIDER_EXTENSION_ID, PROVIDER_LABEL, hasPickedAiPro
 	}
 })();
 
-/** Aria authentication provider id (see the aria-authentication extension). */
+/** Qoka authentication provider id (see the aria-authentication extension). */
 const AUTH_ID = 'aria';
 
 /** Friendly, generic lines cycled under the spinner while a sign-in step runs,
  *  so the wait doesn't feel dead. Not real status - just reassurance. */
 const LOADING_MESSAGES: readonly string[] = [
-	'Getting Aria ready…',
+	'Getting Qoka ready…',
 	'One moment…',
 	'Almost there…',
 ];
@@ -114,9 +114,9 @@ const RECENT_PICK_KEY = 'aria.started.recentPickAt';
 
 /** README dropped into a new project folder to explain the default layout.
  *  Plain, non-developer-friendly wording; no emojis. */
-const PROJECT_TEMPLATE_README = `# Aria project
+const PROJECT_TEMPLATE_README = `# Qoka project
 
-This folder was created by Aria. Here is what each folder is for:
+This folder was created by Qoka. Here is what each folder is for:
 
 - notes/       Your research notes.
 - references/  Papers you save or download to read (PDFs).
@@ -124,7 +124,7 @@ This folder was created by Aria. Here is what each folder is for:
 - downloads/   Other downloaded files.
 - paper/       Manuscripts you write in the Paper Writing tab.
 - reviews/     Results from the Peer Review tab.
-- .aria/       Aria's internal files (roadmap, project settings).
+- .aria/       Qoka's internal files (roadmap, project settings).
 
 You can rename or delete any folder you do not need.
 `;
@@ -161,7 +161,7 @@ function dumpTrail(): void {
 }
 
 /**
- * Aria's "Started" overlay - a full-viewport surface that locks the
+ * Qoka's "Started" overlay - a full-viewport surface that locks the
  * workbench until the user picks a project. Replaces the previous
  * editor-pane approach so the sidebar, menu bar, terminal, and editor
  * tabs underneath are all blocked from interaction.
@@ -171,7 +171,7 @@ function dumpTrail(): void {
  *    workspace). If a project is already open (restored from a previous
  *    session or launched from a CLI), the workbench is shown directly.
  *  - Setup (MCP registration, skill install, etc.) runs in the
- *    background while the overlay is up. The "Setting up Aria" loading
+ *    background while the overlay is up. The "Setting up Qoka" loading
  *    overlay (firstRunOverlay) is intentionally skipped here - the
  *    Started overlay is the user-facing surface during setup.
  *  - When the user picks Open Project / a recent project, VS Code
@@ -418,7 +418,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		void this.refreshAuth();
 	}
 
-	/** Read the current Aria session and re-render the overlay to match. */
+	/** Read the current Qoka session and re-render the overlay to match. */
 	private async refreshAuth(): Promise<void> {
 		try {
 			// activateImmediate=true wakes the aria-authentication extension so its
@@ -675,7 +675,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		parent.appendChild(title);
 
 		const subtitle = document.createElement('p');
-		subtitle.textContent = 'Aria works with Claude Code or Codex. Pick the one(s) you\'ll use - you can select both. You can change this later in Settings.';
+		subtitle.textContent = 'Qoka works with Claude Code or Codex. Pick the one(s) you\'ll use - you can select both. You can change this later in Settings.';
 		subtitle.style.fontSize = '14px';
 		subtitle.style.opacity = '0.7';
 		subtitle.style.margin = '0 0 28px 0';
@@ -769,7 +769,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		try {
 			await this.commandService.executeCommand('workbench.extensions.uninstallExtension', PROVIDER_EXTENSION_ID[p]);
 			this.aiChecked[p] = false;
-			this.notificationService.info(`${PROVIDER_LABEL[p]} uninstalled. Reload Aria to fully remove it.`);
+			this.notificationService.info(`${PROVIDER_LABEL[p]} uninstalled. Reload Qoka to fully remove it.`);
 		} catch (e) {
 			this.notificationService.error(`Could not uninstall ${PROVIDER_LABEL[p]}: ${(e as Error).message}`);
 		}
@@ -903,10 +903,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		const title = document.createElement('h1');
 		title.textContent = mode === 'easy'
-			? 'Aria - Easy Mode'
+			? 'Qoka - Easy Mode'
 			: mode === 'advanced'
-				? 'Aria - Advanced Mode'
-				: 'Welcome to Aria';
+				? 'Qoka - Advanced Mode'
+				: 'Welcome to Qoka';
 		title.style.fontSize = '32px';
 		title.style.fontWeight = '300';
 		title.style.margin = '0 0 8px 0';
@@ -1079,7 +1079,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		parent.style.minHeight = '70vh';
 
 		const title = document.createElement('h1');
-		title.textContent = 'Aria';
+		title.textContent = 'Qoka';
 		title.style.fontSize = '32px';
 		title.style.fontWeight = '300';
 		title.style.margin = '0 0 8px 0';
@@ -1130,7 +1130,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		}
 		// Show the provider (google / orcid) after the name - the session itself has
 		// no provider (scopes are []), so it comes from the extension via command.
-		const name = (s.account?.label || 'Aria user') + (this.ariaProvider ? ` (${this.ariaProvider})` : '');
+		const name = (s.account?.label || 'Qoka user') + (this.ariaProvider ? ` (${this.ariaProvider})` : '');
 
 		const banner = document.createElement('div');
 		banner.style.display = 'flex';
@@ -1424,7 +1424,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 	/**
 	 * Create the default project folder layout inside a freshly created New
-	 * Project folder. Folders that Aria features also create lazily (notes/,
+	 * Project folder. Folders that Qoka features also create lazily (notes/,
 	 * paper/, reviews/) are pre-created so the structure is visible from the
 	 * start; references/, data/, and downloads/ are new user-facing
 	 * conventions. All writes are best-effort and idempotent - a failure here

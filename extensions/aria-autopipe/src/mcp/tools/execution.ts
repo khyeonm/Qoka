@@ -27,7 +27,7 @@ function requireProfile() {
 	const { config } = services();
 	const profile = config.activeProfile();
 	if (!profile) {
-		throw new Error('No active SSH profile. Configure one via Aria > Autopipe > SSH.');
+		throw new Error('No active SSH profile. Configure one via Qoka > Autopipe > SSH.');
 	}
 	return profile;
 }

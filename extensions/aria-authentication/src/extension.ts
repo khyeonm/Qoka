@@ -7,10 +7,10 @@ import * as vscode from 'vscode';
 import { AriaAuthProvider } from './authProvider';
 
 /**
- * Aria Authentication - registers the `aria` authentication provider (visible in
+ * Qoka Authentication - registers the `aria` authentication provider (visible in
  * the Accounts menu, bottom-left) plus a status-bar presence: the signed-in
  * user's name + login provider, followed by a Sign out button. These sit
- * between the Aria mode toggle (priority 1000/999) and the Problems item
+ * between the Qoka mode toggle (priority 1000/999) and the Problems item
  * (priority 50), so priorities 200/199 place them just left of Problems.
  *
  * Sign-in uses a localhost loopback redirect (see AriaAuthProvider); no
@@ -31,7 +31,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.authentication.registerAuthenticationProvider(
 			'aria',
-			'Aria',
+			'Qoka',
 			provider,
 			{ supportsMultipleAccounts: false },
 		),
@@ -57,7 +57,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			}
 			// Return to the directory picker on the next sign-in: close the folder
 			// so the workbench reloads empty. The login gate then covers it, and
-			// after re-login the Aria "Started" overlay shows the picker again.
+			// after re-login the Qoka "Started" overlay shows the picker again.
 			// (Setup is NOT re-run - its completion flag persists.)
 			await vscode.commands.executeCommand('workbench.action.closeFolder');
 		}),

@@ -19,7 +19,7 @@ interface SseSession {
 }
 
 /**
- * Aria Roadmap MCP server. Same dual-transport implementation as
+ * Qoka Roadmap MCP server. Same dual-transport implementation as
  * aria-autopipe so Claude Code (HTTP+SSE) and Codex (Streamable HTTP) both
  * work without per-client branches in the AI layer.
  *
@@ -49,7 +49,7 @@ export class AriaRoadmapMcpServer {
 
 		// Try the default port first, then fall back through a small range,
 		// finally let the OS assign one. The default is offset from the
-		// autopipe / paper-search ports so Aria's three MCPs can coexist.
+		// autopipe / paper-search ports so Qoka's three MCPs can coexist.
 		const candidates = [DEFAULT_PORT, 3781, 3782, 3783, 3784, 3785, 0];
 
 		for (const candidate of candidates) {
@@ -69,7 +69,7 @@ export class AriaRoadmapMcpServer {
 			}
 		}
 
-		throw new Error('Could not find a free port for the Aria Roadmap MCP server');
+		throw new Error('Could not find a free port for the Qoka Roadmap MCP server');
 	}
 
 	private tryListen(port: number): Promise<http.Server> {

@@ -1,7 +1,7 @@
 {
 	"name": "aria-memory",
-	"displayName": "Aria Memory",
-	"description": "Long-term memory for Aria: a per-project LLM wiki (and, later, a cross-project mem0 store) that Claude Code can read and write via a local MCP server. Built into Aria.",
+	"displayName": "Qoka Memory",
+	"description": "Long-term memory for Qoka: a per-project LLM wiki (and, later, a cross-project mem0 store) that Claude Code can read and write via a local MCP server. Built into Qoka.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",

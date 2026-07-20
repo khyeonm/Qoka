@@ -910,7 +910,7 @@ const COPILOT_CLI_INSTALLED_PLUGINS_DIR = '.copilot/installed-plugins';
  * Discovers plugins installed by the Copilot CLI under
  * `~/.copilot/installed-plugins/<marketplace>/<plugin>/`. Each leaf directory
  * is treated as a plugin root, allowing CLI-installed plugins (both
- * marketplace and direct) to surface in Aria without a separate install.
+ * marketplace and direct) to surface in Qoka without a separate install.
  */
 export class CopilotCliAgentPluginDiscovery extends AbstractAgentPluginDiscovery {
 

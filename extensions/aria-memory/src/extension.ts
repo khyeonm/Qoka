@@ -44,7 +44,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
 }
 
 /**
- * Aria Memory - boots a local MCP server so Claude Code (and, later, Codex)
+ * Qoka Memory - boots a local MCP server so Claude Code (and, later, Codex)
  * can read and write this project's long-term memory: a per-project "LLM
  * wiki" of Markdown pages under `<workspace>/.aria/memory/wiki/`.
  *
@@ -91,7 +91,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	})();
 
 	// Sole registration entry point, called by the workbench chat-open
-	// coordinator. It calls every Aria MCP's reregister command one at a time, so
+	// coordinator. It calls every Qoka MCP's reregister command one at a time, so
 	// this is the only place that writes the provider CLI config - concurrent
 	// `claude mcp add` calls used to clobber each other's entries. Returns true if
 	// it newly registered something (drives one shared "open a new chat"). Awaits

@@ -251,7 +251,7 @@ export interface ICustomizationSyncProvider {
  * Service that manages the active customization harness and provides
  * per-type storage source filters based on the selected harness.
  *
- * The default (core) registration exposes a single "Aria" harness
+ * The default (core) registration exposes a single "Qoka" harness
  * that shows all storage sources. The sessions window overrides this
  * to provide CLI-scoped harnesses.
  */
@@ -318,7 +318,7 @@ export interface ICustomizationHarnessService {
 	/**
 	 * Returns the prompt and skill slash commands for the given session type.
 	 * Provider-backed harnesses contribute their own items directly; the default
-	 * Aria harness falls back to the core prompts service.
+	 * Qoka harness falls back to the core prompts service.
 	 *
 	 * @param sessionResource URI of the chat session whose customizations
 	 *   should be considered. Forwarded to the underlying
@@ -339,7 +339,7 @@ export interface ICustomizationHarnessService {
 
 	/**
 	 * Resolves a slash command to its full metadata, including the parsed prompt file for prompt commands.
-	 * Provider-backed harnesses resolve their own items directly; the default Aria harness falls back to the core prompts service.
+	 * Provider-backed harnesses resolve their own items directly; the default Qoka harness falls back to the core prompts service.
 	 *
 	 * @param sessionResource URI of the chat session whose customizations
 	 *   should be considered when looking up the slash command.
@@ -424,7 +424,7 @@ function buildAllSources(extras: readonly AICustomizationSource[]): readonly AIC
 }
 
 /**
- * Creates a "Aria" harness descriptor that shows all storage sources
+ * Creates a "Qoka" harness descriptor that shows all storage sources
  * with no user-root restrictions.
  */
 export function createVSCodeHarnessDescriptor(sources: readonly AICustomizationSource[]): IHarnessDescriptor {

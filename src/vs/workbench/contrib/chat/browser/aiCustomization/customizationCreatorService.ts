@@ -187,7 +187,7 @@ export function resolveWorkspaceTargetDirectory(workspaceService: IAICustomizati
 /**
  * Resolves the user-level directory for a new customization file.
  * Delegates to IPromptsService.getSourceFolders() which returns the appropriate
- * user root (Aria profile in core, ~/.copilot in sessions).
+ * user root (Qoka profile in core, ~/.copilot in sessions).
  */
 export async function resolveUserTargetDirectory(
 	promptsService: IPromptsService,

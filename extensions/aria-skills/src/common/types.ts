@@ -4,12 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Shared data types for Aria's Skills extension. Mirrors the SKILL.md
- * frontmatter shape plus Aria-specific manifest fields (category,
+ * Shared data types for Qoka's Skills extension. Mirrors the SKILL.md
+ * frontmatter shape plus Qoka-specific manifest fields (category,
  * permission, install metadata) that don't live in the upstream skill.
  */
 
-/** Whether a skill ships with Aria or was added by the user. */
+/** Whether a skill ships with Qoka or was added by the user. */
 export type SkillType = 'default' | 'user';
 
 /** A single environment variable a skill depends on. */
@@ -22,7 +22,7 @@ export interface EnvVarRequirement {
 	required: boolean;
 	/** A URL the user can visit to obtain the key, when known. */
 	obtainUrl?: string;
-	/** An HTTP endpoint Aria can ping to validate the key, when known. */
+	/** An HTTP endpoint Qoka can ping to validate the key, when known. */
 	validationEndpoint?: string;
 }
 
@@ -36,19 +36,19 @@ export interface SkillDependency {
 	reason?: string;
 }
 
-/** An installed skill - what Aria's manifest tracks per entry. */
+/** An installed skill - what Qoka's manifest tracks per entry. */
 export interface SkillInfo {
 	/** Stable identifier (matches the directory name in ~/.claude/skills/). */
 	name: string;
-	/** Aria-assigned category - used only for filtering in the Skills tab. */
+	/** Qoka-assigned category - used only for filtering in the Skills tab. */
 	category: string;
 	/** Short description for the Skills tab card. */
 	description: string;
 	/** Where the skill came from (GitHub URL or local path). */
 	source: string;
-	/** Whether the skill ships with Aria by default or was added later. */
+	/** Whether the skill ships with Qoka by default or was added later. */
 	type: SkillType;
-	/** ISO timestamp set when the skill was installed by Aria. */
+	/** ISO timestamp set when the skill was installed by Qoka. */
 	installedAt: string;
 	/** Latest installed version string, if known (currently from SKILL.md). */
 	version?: string;

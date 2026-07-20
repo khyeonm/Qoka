@@ -8,7 +8,7 @@
  * shelling out to `claude mcp add` / `codex mcp add` once per server (which was
  * ~100 sequential CLI process spawns and took tens of seconds).
  *
- * A SINGLE writer merges all Aria servers into each provider's config in ONE
+ * A SINGLE writer merges all Qoka servers into each provider's config in ONE
  * atomic write, so there is no read-modify-write race (the reason the CLI path had
  * to be serialised). The two providers use different files, so their writes run in
  * PARALLEL. We then verify (config read-back + one `mcp list` per provider) and,
@@ -18,7 +18,7 @@
  *   ~/.claude.json      ->  mcpServers[name] = { "type": "sse", "url": ".../sse" }
  *   ~/.codex/config.toml -> [mcp_servers.<name>]  url = ".../mcp"
  *
- * Only the Aria server names passed in are ever touched; every other MCP server,
+ * Only the Qoka server names passed in are ever touched; every other MCP server,
  * key, and comment in the user's config is preserved.
  */
 
@@ -186,7 +186,7 @@ async function cliAdd(provider: HeadlessProvider, name: string, port: number): P
  * Register every `server` with every chosen `provider`. Writes each provider's
  * config once (in parallel), verifies via read-back, and CLI-retries only the
  * stragglers. Returns whether everything registered - the caller ends the loader
- * regardless, so Aria stays usable even if some server could not connect.
+ * regardless, so Qoka stays usable even if some server could not connect.
  */
 export async function applyMcpConfig(providers: HeadlessProvider[], servers: McpServerInfo[]): Promise<ApplyResult> {
 	const wantClaude = providers.includes('claude');

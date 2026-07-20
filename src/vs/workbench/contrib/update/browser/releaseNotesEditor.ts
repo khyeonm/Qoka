@@ -623,10 +623,10 @@ export class ReleaseNotesManager extends Disposable {
  * ```
  *
  * Supported conditions:
- * - `IN_PRODUCT` - Content shown in Aria (both Stable and Insiders)
+ * - `IN_PRODUCT` - Content shown in Qoka (both Stable and Insiders)
  * - `WEB` - Content shown on the website only
- * - `STABLE` - Content shown in Aria Stable only
- * - `INSIDERS` - Content shown in Aria Insiders only
+ * - `STABLE` - Content shown in Qoka Stable only
+ * - `INSIDERS` - Content shown in Qoka Insiders only
  *
  * On the website, the entire block is a single HTML comment, so the
  * content is hidden by default. The website renderer would activate

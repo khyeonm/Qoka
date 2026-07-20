@@ -69,7 +69,7 @@ export class AgentFeedbackAttachmentWidget extends Disposable {
 			}
 		}
 
-		// Aria label
+		// Qoka label
 		this.element.ariaLabel = localize('chat.agentFeedback', "Attached agent feedback, {0}", this._attachment.name);
 
 		// Custom interactive hover

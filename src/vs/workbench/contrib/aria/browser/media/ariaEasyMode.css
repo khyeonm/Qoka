@@ -28,8 +28,8 @@
 	display: none;
 }
 
-/* Title bar: the left "Aria" brand is the title in easy mode - hide the long
-   center window title ("… - aria - Aria") so only "Aria" shows up top. */
+/* Title bar: the left "Qoka" brand is the title in easy mode - hide the long
+   center window title ("… - aria - Qoka") so only "Qoka" shows up top. */
 .monaco-workbench.aria-mode-easy .titlebar-center .window-title {
 	display: none;
 }

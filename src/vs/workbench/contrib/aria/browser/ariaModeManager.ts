@@ -388,7 +388,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		await this.setUserValue('window.menuBarVisibility', easy ? 'hidden' : undefined);
 		await this.setUserValue('workbench.layoutControl.enabled', easy ? false : undefined);
 		// The title-bar command center (the center "search" box + its nav arrows)
-		// is developer chrome - hide it in easy so only the "Aria" brand + title show.
+		// is developer chrome - hide it in easy so only the "Qoka" brand + title show.
 		await this.setUserValue('window.commandCenter', easy ? false : undefined);
 		// Dialogs default to the OS-native style, which the OS paints in ITS theme -
 		// on a dark desktop a confirm ("Delete this review?") shows up dark even though
@@ -418,10 +418,10 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 	}
 
 	/**
-	 * Aria's two modes drive the built-in Git extension's visibility:
+	 * Qoka's two modes drive the built-in Git extension's visibility:
 	 *  - Easy mode    → `git.enabled = false` so the Source Control view
 	 *                   and all git UI disappear. The on-disk `.git/` is
-	 *                   untouched; Aria's own Versions view is what the
+	 *                   untouched; Qoka's own Versions view is what the
 	 *                   user sees instead.
 	 *  - Advanced mode → `git.enabled = true` so Source Control / Git
 	 *                    commands behave exactly like upstream VS Code.

@@ -13,16 +13,16 @@ import {
 } from './types';
 
 /**
- * Aria's skills manifest lives at ~/.config/aria/skills-manifest.json and
- * is the source of truth for "which skills did Aria install and what does
+ * Qoka's skills manifest lives at ~/.config/aria/skills-manifest.json and
+ * is the source of truth for "which skills did Qoka install and what does
  * the user care about for each?". The skill scripts themselves live in
  * ~/.claude/skills/ (so Claude Code can discover them), but this file
- * adds Aria-specific metadata (category, autoApprove, install source,
+ * adds Qoka-specific metadata (category, autoApprove, install source,
  * env var requirements) that doesn't belong in the upstream skill.
  *
- * Keeping the manifest separate from ~/.claude/skills/ means an Aria
+ * Keeping the manifest separate from ~/.claude/skills/ means an Qoka
  * uninstall leaves the skills functional for any other Claude Code user
- * on the same machine; only the Aria-specific metadata is lost.
+ * on the same machine; only the Qoka-specific metadata is lost.
  */
 
 const MANIFEST_DIR = path.join(os.homedir(), '.config', 'aria');
@@ -40,7 +40,7 @@ function emptyManifest(): SkillsManifest {
 
 /**
  * Read the manifest from disk. Missing file or parse failure both return
- * the empty default - Aria can always rebuild the manifest by scanning
+ * the empty default - Qoka can always rebuild the manifest by scanning
  * ~/.claude/skills/, so falling back here is safer than throwing.
  */
 export function readManifest(): SkillsManifest {
@@ -140,7 +140,7 @@ export function addCategory(category: string): SkillsManifest {
 }
 
 /**
- * Drop any category that no installed skill references. Aria used to seed
+ * Drop any category that no installed skill references. Qoka used to seed
  * the manifest with a fixed list (Literature, Protein, …) - leftover
  * entries pollute the filter dropdown after we switched to user-driven
  * categories. Called on every activation so older manifests self-heal.

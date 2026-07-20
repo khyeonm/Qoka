@@ -137,7 +137,7 @@ export class ClientCapabilities {
 export interface ITypeScriptServiceClient {
 
 	/**
-	 * Convert a (Aria) resource to a path that TypeScript server understands.
+	 * Convert a (Qoka) resource to a path that TypeScript server understands.
 	 */
 	toTsFilePath(resource: vscode.Uri): string | undefined;
 

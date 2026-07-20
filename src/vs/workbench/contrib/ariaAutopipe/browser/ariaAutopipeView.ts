@@ -253,7 +253,7 @@ export class AriaAutopipeView extends ViewPane {
 		// detection), so a freshly installed AI assistant shows up from there.
 		const section = appendSection(root, 'Status');
 		// Always show every supported provider so the user knows which AI
-		// assistants Aria works with - even the ones they haven't installed.
+		// assistants Qoka works with - even the ones they haven't installed.
 		// Color and label change to reflect installed-and-active vs
 		// installed vs not installed.
 		const providers = status.providers ?? [];
@@ -334,7 +334,7 @@ export class AriaAutopipeView extends ViewPane {
 		}
 	}
 
-	/** The "Aria built-in" run target: a radio row whose subtitle shows live
+	/** The "Qoka built-in" run target: a radio row whose subtitle shows live
 	 *  status. Clicking it makes the built-in VM active and starts it; the gear
 	 *  edits its memory/CPU. (Windows/macOS only - hidden on Linux.) */
 	private renderBuiltInVmRow(section: HTMLElement, activeId: string | null): void {
@@ -361,7 +361,7 @@ export class AriaAutopipeView extends ViewPane {
 		const text = append(row, $('div'));
 		text.style.flex = '1';
 		const title = append(text, $('div'));
-		title.textContent = 'Aria built-in server';
+		title.textContent = 'Qoka built-in server';
 		title.style.fontSize = '12px';
 		// Subtitle carries the live status instead of a separate button: idle, or
 		// downloading / starting / running / error while it's the active target.

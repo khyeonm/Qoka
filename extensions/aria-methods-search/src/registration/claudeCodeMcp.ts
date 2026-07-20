@@ -117,7 +117,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 
 	// Best-effort removal across all three scopes. `claude mcp add` defaults to
 	// "local" (per-project); the scope cleanup below keeps registrations from
-	// leaking into whatever project Aria was launched from.
+	// leaking into whatever project Qoka was launched from.
 	for (const name of [MCP_NAME, ...LEGACY_NAMES]) {
 		for (const scope of ['user', 'project', 'local']) {
 			try {

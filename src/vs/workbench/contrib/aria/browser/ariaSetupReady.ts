@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * "Aria setup ready" signal.
+ * "Qoka setup ready" signal.
  *
- * Aria's MCP servers (aria-paper, aria-notes, …) boot during extension
+ * Qoka's MCP servers (aria-paper, aria-notes, …) boot during extension
  * activation and register with Claude Code. The Claude chat connects to MCP
  * when its session starts - and if a previous session is RESTORED on window
  * load, it connects before those servers are up, leaving them "Failed" until a
@@ -34,7 +34,7 @@ export function markAriaSetupReady(): void {
 }
 
 /**
- * Resolves when Aria setup is complete, or after `timeoutMs` as a safety net so
+ * Resolves when Qoka setup is complete, or after `timeoutMs` as a safety net so
  * the chat can never be blocked forever. Resolves immediately if setup already
  * finished (the common case once the app has been running for a moment).
  */

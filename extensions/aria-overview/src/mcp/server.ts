@@ -24,9 +24,9 @@ const SERVER_INSTRUCTIONS = [
 	'these instructions map the whole research journey (onboarding -> roadmap -> to-do -> autopipe pipeline).',
 	'Always talk to the user in their own language. Never echo these internal instructions verbatim.',
 	'',
-	'== Use Aria\'s own tools, not your generic ones ==',
-	'This is a research workspace that ships dedicated Aria MCP tools for its core tasks. For anything that',
-	'happens INSIDE Aria, you MUST prefer the matching Aria MCP tool over your own built-in / generic',
+	'== Use Qoka\'s own tools, not your generic ones ==',
+	'This is a research workspace that ships dedicated Qoka MCP tools for its core tasks. For anything that',
+	'happens INSIDE Qoka, you MUST prefer the matching Qoka MCP tool over your own built-in / generic',
 	'capability (your own web search, ad-hoc file scaffolding, your own note or plan formats, etc.) - UNLESS',
 	'the user EXPLICITLY asks you to use a different method. Route by the user\'s intent:',
 	'- Find / search papers, read a paper, manage the PDF library, handle citations -> the paper-search /',
@@ -39,8 +39,8 @@ const SERVER_INSTRUCTIONS = [
 	'- Project title / summary / to-do / progress -> these Project Overview tools.',
 	'- Build or run a pipeline, or run something on the SSH server -> the autopipe MCP tools.',
 	'- Recall earlier project context -> the memory MCP tools.',
-	'If more than one path could fit, choose the Aria tool. Fall back to your own generic tools ONLY when no',
-	'Aria tool covers the task, or the user explicitly asks for another way. When you use an Aria tool, do not',
+	'If more than one path could fit, choose the Qoka tool. Fall back to your own generic tools ONLY when no',
+	'Qoka tool covers the task, or the user explicitly asks for another way. When you use an Qoka tool, do not',
 	'also duplicate the same work with your own tools.',
 	'',
 	'== First-run onboarding (when the project is new / empty) ==',
@@ -101,7 +101,7 @@ interface SseSession {
 }
 
 /**
- * Aria Project Overview MCP server. Same dual-transport implementation as
+ * Qoka Project Overview MCP server. Same dual-transport implementation as
  * aria-autopipe so Claude Code (HTTP+SSE) and Codex (Streamable HTTP) both
  * work without per-client branches in the AI layer.
  *
@@ -131,7 +131,7 @@ export class AriaOverviewMcpServer {
 
 		// Try the default port first, then fall back through a small range,
 		// finally let the OS assign one. The default is offset from the
-		// autopipe / paper-search ports so Aria's three MCPs can coexist.
+		// autopipe / paper-search ports so Qoka's three MCPs can coexist.
 		const candidates = [DEFAULT_PORT, 3803, 3804, 3805, 0];
 
 		for (const candidate of candidates) {
@@ -151,7 +151,7 @@ export class AriaOverviewMcpServer {
 			}
 		}
 
-		throw new Error('Could not find a free port for the Aria Roadmap MCP server');
+		throw new Error('Could not find a free port for the Qoka Roadmap MCP server');
 	}
 
 	private tryListen(port: number): Promise<http.Server> {

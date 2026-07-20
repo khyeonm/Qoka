@@ -15,7 +15,7 @@ import { hostVmLimits } from '../../common/types';
 export const VM_TOOLS: ToolDefinition[] = [
 	{
 		name: 'start_built_in_server',
-		description: 'Start the Aria built-in server (local VM) when it is the selected run environment but is not running yet - e.g. when get_workspace_info reports it is not running. This begins downloading/booting it (about a minute or two). Call this instead of asking the user to press any button. After calling, tell the user it is starting, wait ~60-90 seconds, call get_workspace_info again, and once it reports a reachable endpoint, retry the pipeline step.',
+		description: 'Start the Qoka built-in server (local VM) when it is the selected run environment but is not running yet - e.g. when get_workspace_info reports it is not running. This begins downloading/booting it (about a minute or two). Call this instead of asking the user to press any button. After calling, tell the user it is starting, wait ~60-90 seconds, call get_workspace_info again, and once it reports a reachable endpoint, retry the pipeline step.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config } = services();
@@ -27,12 +27,12 @@ export const VM_TOOLS: ToolDefinition[] = [
 			} catch (e) {
 				return textResult(`Could not start the built-in server: ${e instanceof Error ? e.message : String(e)}`);
 			}
-			return textResult('Starting the Aria built-in server - it downloads/boots in the background (about a minute or two). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again; once it reports a reachable endpoint, retry the pipeline step.');
+			return textResult('Starting the Qoka built-in server - it downloads/boots in the background (about a minute or two). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again; once it reports a reachable endpoint, retry the pipeline step.');
 		},
 	},
 	{
 		name: 'get_vm_resources',
-		description: 'Read the built-in server (Aria built-in VM) resource allocation - memory (MB), CPU cores, disk (GB). Only relevant when the built-in server is the ACTIVE run environment (not an SSH server). Call this to check capacity before running a heavy pipeline, or when a run fails with an out-of-memory error.',
+		description: 'Read the built-in server (Qoka built-in VM) resource allocation - memory (MB), CPU cores, disk (GB). Only relevant when the built-in server is the ACTIVE run environment (not an SSH server). Call this to check capacity before running a heavy pipeline, or when a run fails with an out-of-memory error.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config } = services();
@@ -50,7 +50,7 @@ export const VM_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'set_vm_resources',
-		description: "Change the built-in server (Aria built-in VM) memory (memoryMB) and/or CPU cores (cpus). ONLY for the built-in server, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the built-in server restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the built-in server. The built-in server is HARD-CAPPED by this computer's physical RAM/CPU (this tool reports the cap when you hit it). If a run needs MORE than that maximum, do NOT keep bumping memoryMB and do NOT tell the user to use an SSH server - simply tell them the run ran out of memory on the built-in server.",
+		description: "Change the built-in server (Qoka built-in VM) memory (memoryMB) and/or CPU cores (cpus). ONLY for the built-in server, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the built-in server restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the built-in server. The built-in server is HARD-CAPPED by this computer's physical RAM/CPU (this tool reports the cap when you hit it). If a run needs MORE than that maximum, do NOT keep bumping memoryMB and do NOT tell the user to use an SSH server - simply tell them the run ran out of memory on the built-in server.",
 		inputSchema: {
 			type: 'object',
 			properties: {

@@ -40,7 +40,7 @@ export interface InstalledPlugin {
 	dir: string;
 }
 
-/** The 13 viewer plugins Aria treats as default. Fetched from Hub on first
+/** The 13 viewer plugins Qoka treats as default. Fetched from Hub on first
  *  run so the user has every common file type covered out of the box.
  *  Names match the Hub registry entries verbatim. */
 export const DEFAULT_PLUGIN_NAMES = [
@@ -253,7 +253,7 @@ function githubTarballUrl(treeUrl: string): string {
 	}
 	const [, owner, repo, ref] = m;
 	// `refs/tags/<tag>` works for tag refs; for branch refs we'd want
-	// `refs/heads/<branch>`. Aria's plugins use semver tags exclusively,
+	// `refs/heads/<branch>`. Qoka's plugins use semver tags exclusively,
 	// so we hard-code the tags variant.
 	return `https://codeload.github.com/${owner}/${repo}/tar.gz/refs/tags/${ref}`;
 }

@@ -272,7 +272,7 @@ export class TypeScriptServerSpawner {
 		if (
 			apiVersion.gte(API.v544)
 			&& configUseVsCodeWatcher
-			&& !isYarnPnp // Disable for yarn pnp as it currently breaks with the Aria watcher
+			&& !isYarnPnp // Disable for yarn pnp as it currently breaks with the Qoka watcher
 		) {
 			args.push('--canUseWatchEvents');
 		} else {

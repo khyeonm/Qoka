@@ -9,7 +9,7 @@ import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 
 /**
  * Thin wrapper around {@link CopilotSession} that exposes each SDK event as a
- * proper Aria `Event<T>`. All subscriptions and the underlying SDK session
+ * proper Qoka `Event<T>`. All subscriptions and the underlying SDK session
  * are cleaned up on dispose.
  */
 export class CopilotSessionWrapper extends Disposable {

@@ -290,7 +290,7 @@ export async function createTerminalEnvironment(
 			}
 		}
 
-		// Sanitize the environment, removing any undesirable Aria and Electron environment
+		// Sanitize the environment, removing any undesirable Qoka and Electron environment
 		// variables
 		sanitizeProcessEnvironment(env, 'VSCODE_IPC_HOOK_CLI');
 

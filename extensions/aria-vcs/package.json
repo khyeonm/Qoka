@@ -1,7 +1,7 @@
 {
 	"name": "aria-vcs",
-	"displayName": "Aria Versions",
-	"description": "Mercurial-style snapshot version control for Aria Easy mode.",
+	"displayName": "Qoka Versions",
+	"description": "Mercurial-style snapshot version control for Qoka Easy mode.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",
@@ -16,35 +16,35 @@
 		"commands": [
 			{
 				"command": "aria.vcs.saveSnapshot",
-				"title": "Aria: Save Snapshot"
+				"title": "Qoka: Save Snapshot"
 			},
 			{
 				"command": "aria.vcs.getRecent",
-				"title": "Aria: Get Recent Snapshots"
+				"title": "Qoka: Get Recent Snapshots"
 			},
 			{
 				"command": "aria.vcs.restoreSnapshot",
-				"title": "Aria: Restore Snapshot"
+				"title": "Qoka: Restore Snapshot"
 			},
 			{
 				"command": "aria.vcs.getStatus",
-				"title": "Aria: Get Status"
+				"title": "Qoka: Get Status"
 			},
 			{
 				"command": "aria.vcs.getChanges",
-				"title": "Aria: Get Unsaved Changes"
+				"title": "Qoka: Get Unsaved Changes"
 			},
 			{
 				"command": "aria.vcs.openDiff",
-				"title": "Aria: Open Diff for File"
+				"title": "Qoka: Open Diff for File"
 			},
 			{
 				"command": "aria.vcs.getSnapshotChanges",
-				"title": "Aria: Get Files Changed in Snapshot"
+				"title": "Qoka: Get Files Changed in Snapshot"
 			},
 			{
 				"command": "aria.vcs.openSnapshotDiff",
-				"title": "Aria: Open Diff for File in Snapshot"
+				"title": "Qoka: Open Diff for File in Snapshot"
 			}
 		]
 	},

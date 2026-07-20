@@ -487,16 +487,16 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 			this.installMenubar();
 		}
 
-		// Aria easy-mode branding — shown only in easy mode (via the
+		// Qoka easy-mode branding — shown only in easy mode (via the
 		// `.aria-mode-easy` root class in CSS). Placed in the CENTER of the title
 		// bar (not the left) so it never overlaps the macOS traffic-light window
 		// controls. In easy mode the center window title is hidden, so the brand
 		// sits centered on its own.
 		if (!this.isAuxiliary) {
 			const brand = prepend(this.centerContent, $('.aria-titlebar-brand'));
-			// The mark is drawn from the embedded Aria logo via CSS background-image.
+			// The mark is drawn from the embedded Qoka logo via CSS background-image.
 			append(brand, $('.aria-titlebar-brand-mark'));
-			append(brand, $('.aria-titlebar-brand-name')).textContent = 'Aria';
+			append(brand, $('.aria-titlebar-brand-name')).textContent = 'Qoka (beta)';
 		}
 
 		// Title

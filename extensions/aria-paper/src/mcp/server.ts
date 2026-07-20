@@ -18,8 +18,8 @@ interface SseSession {
 }
 
 /**
- * Aria Paper MCP server. Same dual-transport (HTTP+SSE / Streamable HTTP)
- * implementation as Aria's other MCP servers so Claude Code and Codex both
+ * Qoka Paper MCP server. Same dual-transport (HTTP+SSE / Streamable HTTP)
+ * implementation as Qoka's other MCP servers so Claude Code and Codex both
  * work without per-client branches. Owns no state - every tool call is
  * dispatched into the tool table the caller provided.
  */
@@ -45,7 +45,7 @@ export class AriaPaperMcpServer {
 		}
 
 		// Default port is offset from autopipe / paper-search / aria-notes so
-		// Aria's MCP servers can coexist; fall back through a small range, then
+		// Qoka's MCP servers can coexist; fall back through a small range, then
 		// let the OS assign one.
 		const candidates = [DEFAULT_PORT, 3791, 3792, 3793, 0];
 
@@ -66,7 +66,7 @@ export class AriaPaperMcpServer {
 			}
 		}
 
-		throw new Error('Could not find a free port for the Aria Paper MCP server');
+		throw new Error('Could not find a free port for the Qoka Paper MCP server');
 	}
 
 	private tryListen(port: number): Promise<http.Server> {

@@ -462,8 +462,8 @@ export class ApiCommandArgument<V, O = V> {
 
 	static readonly CallHierarchyItem = new ApiCommandArgument('item', 'A call hierarchy item', v => v instanceof extHostTypes.CallHierarchyItem, extHostTypeConverter.CallHierarchyItem.from);
 	static readonly TypeHierarchyItem = new ApiCommandArgument('item', 'A type hierarchy item', v => v instanceof extHostTypes.TypeHierarchyItem, extHostTypeConverter.TypeHierarchyItem.from);
-	static readonly TestItem = new ApiCommandArgument('testItem', 'A Aria TestItem', v => v instanceof TestItemImpl, extHostTypeConverter.TestItem.from);
-	static readonly TestProfile = new ApiCommandArgument('testProfile', 'A Aria test profile', v => v instanceof extHostTypes.TestRunProfileBase, extHostTypeConverter.TestRunProfile.from);
+	static readonly TestItem = new ApiCommandArgument('testItem', 'A Qoka TestItem', v => v instanceof TestItemImpl, extHostTypeConverter.TestItem.from);
+	static readonly TestProfile = new ApiCommandArgument('testProfile', 'A Qoka test profile', v => v instanceof extHostTypes.TestRunProfileBase, extHostTypeConverter.TestRunProfile.from);
 
 	constructor(
 		readonly name: string,

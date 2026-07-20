@@ -52,7 +52,7 @@ This doc lives next to the code (`IAgentHostOTelService` in [node/otel/agentHost
 - **Pass-through mode** (default when only `otlpEndpoint` is configured): the SDK is constructed with the user's exporter settings unmodified and exports directly. The agent host does not intercept span data.
 - **DB mode** (`COPILOT_OTEL_DB_SPAN_EXPORTER_ENABLED=true`): `AgentHostOTelService` starts a `LocalOtlpHttpReceiver` on `127.0.0.1` with an ephemeral port, then constructs the SDK pointing at that loopback URL. For each batch the receiver decodes the OTLP-JSON body and inserts spans into `OTelSqliteStore` (`onSpans`). If an external `otlpEndpoint` is also configured, the receiver fans the **raw** OTLP body out to an `OtlpHttpForwarder` (`onForward`) so the user's collector keeps receiving traces alongside the local DB.
 
-## Aria Settings
+## Qoka Settings
 
 Open **Settings** (`Ctrl+,`) and search for `agentHost otel`:
 
@@ -80,7 +80,7 @@ The workbench-side starter translates the settings above into the following env 
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | (inherited) | `grpc` selects gRPC; any other value uses HTTP. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | (inherited) | Auth headers (e.g., `Authorization=Bearer …`). |
 
-> **Activation timing.** Env vars are bound at agent host **spawn time**. Changing a setting while the agent host is already running has no effect until the host respawns — restart Aria or reload the window if you change these settings mid-session.
+> **Activation timing.** Env vars are bound at agent host **spawn time**. Changing a setting while the agent host is already running has no effect until the host respawns — restart Qoka or reload the window if you change these settings mid-session.
 
 ## Local SQLite Span Store
 
@@ -160,4 +160,4 @@ This matches the path-handling rules of the official OpenTelemetry SDKs and ensu
 
 ## Spawn-Time Env Binding
 
-The agent host inherits its env vars at fork time. `IAgentHostOTelService` reads `process.env` once in its constructor and caches the resolved config. Changing a `chat.agentHost.otel.*` setting at runtime therefore has **no effect** on the currently-running agent host — the host must respawn (reload window / restart Aria) to pick up the new value. This is the same model used by the rest of the agent host service surface.
+The agent host inherits its env vars at fork time. `IAgentHostOTelService` reads `process.env` once in its constructor and caches the resolved config. Changing a `chat.agentHost.otel.*` setting at runtime therefore has **no effect** on the currently-running agent host — the host must respawn (reload window / restart Qoka) to pick up the new value. This is the same model used by the rest of the agent host service surface.

@@ -1,4 +1,4 @@
-# Builds the PORTABLE QEMU that Aria's built-in Run environment downloads at
+# Builds the PORTABLE QEMU that Qoka's built-in Run environment downloads at
 # runtime (extensions/aria-autopipe/src/vm/provisioner.ts). Users install nothing:
 # qemu runs in-place from the app-data folder. Artifacts are attached to the
 # `vm-assets-v1` release with names the provisioner expects:
@@ -165,7 +165,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create vm-assets-v1 --title "VM assets" \
-            --notes "Portable QEMU + base image for Aria's built-in run environment." 2>/dev/null || true
+            --notes "Portable QEMU + base image for Qoka's built-in run environment." 2>/dev/null || true
           gh release upload vm-assets-v1 "qemu-${{ matrix.plat }}-${{ matrix.arch }}.tar.gz" --clobber
 
   # macOS-only fast path: Apple Virtualization.framework (VZ) via vfkit. QEMU's
@@ -194,10 +194,10 @@ jobs:
           # notarized with BOTH the com.apple.security.virtualization AND
           # com.apple.vm.networking entitlements. An ad-hoc re-sign would strip
           # the networking entitlement and break vmnet/gvproxy. vfkit's own
-          # entitlements govern vfkit regardless of Aria being unsigned. tar drops
+          # entitlements govern vfkit regardless of Qoka being unsigned. tar drops
           # the quarantine xattr, so the extracted binary runs without Gatekeeper.
           codesign -dv --entitlements - out/bin/vfkit || true
           tar -czf vfkit-darwin.tar.gz -C out .
           gh release create vm-assets-v1 --title "VM assets" \
-            --notes "Portable QEMU + base image for Aria's built-in run environment." 2>/dev/null || true
+            --notes "Portable QEMU + base image for Qoka's built-in run environment." 2>/dev/null || true
           gh release upload vm-assets-v1 vfkit-darwin.tar.gz --clobber

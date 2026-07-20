@@ -461,7 +461,7 @@ export class SCMInputWidget {
 			triggerValidation();
 		}));
 
-		// Aria label & placeholder text
+		// Qoka label & placeholder text
 		const accessibilityVerbosityConfig = observableConfigValue(
 			AccessibilityVerbositySettingId.SourceControl, true, this.configurationService);
 

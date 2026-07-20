@@ -2578,16 +2578,16 @@ For more information about output formatting flags, see 'gh help formatting'`,
 			subcommands: [
 				{
 					name: "code",
-					description: "Open a codespace in Aria",
+					description: "Open a codespace in Qoka",
 					options: [
 						codespaceOption,
 						{
 							name: "--insiders",
-							description: "Use the insiders version of Aria",
+							description: "Use the insiders version of Qoka",
 						},
 						{
 							name: ["-w", "--web"],
-							description: "Use the web version of Aria",
+							description: "Use the web version of Qoka",
 						},
 					],
 				},

@@ -76,10 +76,10 @@ async function readCodexRegisteredPort(codex: string): Promise<number | null> {
 }
 
 /**
- * (Re-)register Aria's MCP server with the Codex CLI so Codex advertises
+ * (Re-)register Qoka's MCP server with the Codex CLI so Codex advertises
  * Autopipe's tools in every new conversation. Mirrors the Claude Code
  * registration flow: clear any stale entry first (the port can change
- * between Aria runs), then `codex mcp add ... --url <url>` for the
+ * between Qoka runs), then `codex mcp add ... --url <url>` for the
  * streamable-HTTP transport, then verify with `codex mcp list`.
  *
  * Codex CLI syntax (v0.125+):
@@ -103,7 +103,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 	console.log(`[aria-autopipe] Codex CLI resolved to: ${codex}`);
 
 	// Codex uses the Streamable HTTP transport (MCP protocol 2025-03-26+),
-	// not HTTP+SSE. Aria's MCP server exposes that on /mcp, separate from
+	// not HTTP+SSE. Qoka's MCP server exposes that on /mcp, separate from
 	// the /sse endpoint Claude Code uses.
 	const url = `http://127.0.0.1:${port}/mcp`;
 	const q = quoteArg(codex);
@@ -134,7 +134,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 
 	const addCmd = `${q} mcp add ${MCP_NAME} --url ${quoteArg(url)}`;
 	console.log(`[aria-autopipe] running: ${addCmd}`);
-	// Aria's many extensions run `codex mcp add` concurrently, all writing the one
+	// Qoka's many extensions run `codex mcp add` concurrently, all writing the one
 	// ~/.codex/config.toml. On Windows they collide on the file lock and fail with
 	// "failed to persist config ... (os error 5 / access denied)". Retry a few
 	// times with jittered backoff so contending writers each succeed in turn.
@@ -176,7 +176,7 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 	return { ok: true, changed: true, message: `Registered ${MCP_NAME} -> ${url}` };
 }
 
-/** Remove Aria's MCP registration from Codex during deactivate(). */
+/** Remove Qoka's MCP registration from Codex during deactivate(). */
 export async function unregisterFromCodex(): Promise<void> {
 	const codex = await resolveCodexBinary();
 	if (!codex) {

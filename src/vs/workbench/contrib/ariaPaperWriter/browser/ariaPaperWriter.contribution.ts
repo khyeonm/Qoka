@@ -121,7 +121,7 @@ CommandsRegistry.registerCommand('aria.paperWriter.delete', async (accessor, res
 
 const PAPER_WRITER_CONTAINER_ID = 'workbench.view.ariaPaperWriter';
 
-const paperWriterIcon = registerIcon('aria-paper-writer-view', Codicon.edit, localize('aria.paperWriter.iconLabel', "Aria Paper Writer activity bar icon"));
+const paperWriterIcon = registerIcon('aria-paper-writer-view', Codicon.edit, localize('aria.paperWriter.iconLabel', "Qoka Paper Writer activity bar icon"));
 
 const paperWriterContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({
@@ -138,7 +138,7 @@ const paperWriterView: IViewDescriptor = {
 	name: localize2('aria.paperWriter.viewName', "Paper Writing"),
 	containerIcon: paperWriterIcon,
 	ctorDescriptor: new SyncDescriptor(AriaPaperWriterView),
-	// Pinned like the other Aria views; a togglable single view with no `when`
+	// Pinned like the other Qoka views; a togglable single view with no `when`
 	// gets hidden by the merge-single-view logic.
 	canToggleVisibility: false,
 	canMoveView: false,

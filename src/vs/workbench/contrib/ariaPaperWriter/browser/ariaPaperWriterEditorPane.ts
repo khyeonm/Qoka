@@ -446,7 +446,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	}
 
 	private summarizePrompt(): string {
-		return `Using the Aria paper writer, summarize the newly added figures/sources for the paper "${this.meta!.id}". Read get_paper (or list_assets), then for each figure or source whose summary is empty, read the file at its path (view images, read data/PDF/code files) and save a concise 3-4 sentence description with set_asset_summary.`;
+		return `Using the Qoka paper writer, summarize the newly added figures/sources for the paper "${this.meta!.id}". Read get_paper (or list_assets), then for each figure or source whose summary is empty, read the file at its path (view images, read data/PDF/code files) and save a concise 3-4 sentence description with set_asset_summary.`;
 	}
 
 	private renderLibraryPicker(root: HTMLElement): void {
@@ -745,10 +745,10 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	}
 
 	private focusPrompt(): string {
-		return `Using the Aria paper writer, develop the research focus for the paper "${this.meta!.id}". First read get_writing_guide (Focus stage) and get_paper, then ask me ONE question at a time (grounded in the citations) to develop the focus; when ready, save it with set_focus.${this.langClause()}`;
+		return `Using the Qoka paper writer, develop the research focus for the paper "${this.meta!.id}". First read get_writing_guide (Focus stage) and get_paper, then ask me ONE question at a time (grounded in the citations) to develop the focus; when ready, save it with set_focus.${this.langClause()}`;
 	}
 	private outlinePrompt(): string {
-		return `Using the Aria paper writer, generate the outline for the paper "${this.meta!.id}". Read get_writing_guide (Outline stage) and get_paper, then call set_outline with sections whose wordCounts sum to the target length, each with keyPoints and the citekeys that support them.${this.langClause()}`;
+		return `Using the Qoka paper writer, generate the outline for the paper "${this.meta!.id}". Read get_writing_guide (Outline stage) and get_paper, then call set_outline with sections whose wordCounts sum to the target length, each with keyPoints and the citekeys that support them.${this.langClause()}`;
 	}
 	/** True when the working copy diverged from the frozen original (user edits
 	 *  exist that a full re-write would discard). */
@@ -774,10 +774,10 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 
 	private draftPrompt(force: boolean): string {
 		const forceClause = force ? ' I have confirmed replacing my edited version - call set_manuscript with force=true.' : '';
-		return `Using the Aria paper writer, write a COMPLETELY NEW full draft from scratch for the paper "${this.meta!.id}". Read get_writing_guide (Write stage) and get_paper for the focus, outline, citations, and my sources - but base the prose ONLY on those. Do NOT reuse the current manuscript text or any pendingRevision; this is a fresh re-write that fully replaces them. Write section by section and save with set_manuscript.${forceClause}${this.langClause()}`;
+		return `Using the Qoka paper writer, write a COMPLETELY NEW full draft from scratch for the paper "${this.meta!.id}". Read get_writing_guide (Write stage) and get_paper for the focus, outline, citations, and my sources - but base the prose ONLY on those. Do NOT reuse the current manuscript text or any pendingRevision; this is a fresh re-write that fully replaces them. Write section by section and save with set_manuscript.${forceClause}${this.langClause()}`;
 	}
 	private revisePrompt(): string {
-		return `Using the Aria paper writer, I want to revise PART of the manuscript for the paper "${this.meta!.id}". Read get_writing_guide (Revise stage) and get_paper, ask me what to change, then make only those edits (keeping everything else verbatim) and call propose_manuscript_revision so I can review the highlighted changes before they apply.${this.langClause()}`;
+		return `Using the Qoka paper writer, I want to revise PART of the manuscript for the paper "${this.meta!.id}". Read get_writing_guide (Revise stage) and get_paper, ask me what to change, then make only those edits (keeping everything else verbatim) and call propose_manuscript_revision so I can review the highlighted changes before they apply.${this.langClause()}`;
 	}
 
 	// --- Small UI helpers ---------------------------------------------------

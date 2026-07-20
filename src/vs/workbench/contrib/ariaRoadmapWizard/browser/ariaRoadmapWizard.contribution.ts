@@ -48,7 +48,7 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 );
 
 /**
- * Aria Roadmap Wizard contribution.
+ * Qoka Roadmap Wizard contribution.
  *
  * Owns the entry-point command `aria.roadmap.openWizard` (called by Started's
  * "New Project" card) and the state-change sink `aria.roadmap.workbench.onStateChange`

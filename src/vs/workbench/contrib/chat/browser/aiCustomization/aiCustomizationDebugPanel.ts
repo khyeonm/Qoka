@@ -44,7 +44,7 @@ export async function generateCustomizationDebugReport(
 	const lines: string[] = [];
 
 	lines.push(`== Customization Debug: ${section} (${promptType}) ==`);
-	lines.push(`Window: ${workspaceService.isSessionsWindow ? 'Sessions' : 'Core Aria'}`);
+	lines.push(`Window: ${workspaceService.isSessionsWindow ? 'Sessions' : 'Core Qoka'}`);
 	lines.push(`Active root: ${workspaceService.getActiveProjectRoot()?.fsPath ?? '(none)'}`);
 	lines.push(`Sections: [${workspaceService.managementSections.join(', ')}]`);
 	lines.push(`Filter sources: [${filter.sources.join(', ')}]`);

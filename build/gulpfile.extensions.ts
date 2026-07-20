@@ -51,7 +51,7 @@ function onExtensionCompilationEnd(): void {
 // 	ignore: ['**/out/**', '**/node_modules/**']
 // });
 const compilations = [
-	// Aria's own extensions — built from src/ -> out/ like any other extension,
+	// Qoka's own extensions — built from src/ -> out/ like any other extension,
 	// so the standard watch-extensions / compile-extensions tasks keep them in
 	// sync. Without these entries gulp never compiles them and their out/ goes
 	// stale, silently shipping old code.

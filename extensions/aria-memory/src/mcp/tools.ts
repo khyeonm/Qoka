@@ -30,7 +30,7 @@ function asStringArray(v: unknown): string[] | undefined {
 
 /**
  * Project-memory tools backed by the per-project wiki (`wiki.ts`). These are
- * the READ/WRITE surface the agent uses for the single-project half of Aria's
+ * the READ/WRITE surface the agent uses for the single-project half of Qoka's
  * memory system.
  *
  * Cross-project ("user"/assistant) memory is served by a separate mem0 store

@@ -15,7 +15,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 /**
  * Login guard for folder windows.
  *
- * Sign-in lives in the Aria "Started" overlay, which is shown for an EMPTY
+ * Sign-in lives in the Qoka "Started" overlay, which is shown for an EMPTY
  * workbench and presents login → account banner → project picker as one surface.
  * That overlay only exists when no folder is open, so this guard covers the
  * other case:

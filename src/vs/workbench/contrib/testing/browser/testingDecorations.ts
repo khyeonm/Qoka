@@ -104,7 +104,7 @@ class CachedDecorations {
 		this.runByIdKey.set(key, d);
 	}
 
-	/** Finds an extension by Aria event ID */
+	/** Finds an extension by Qoka event ID */
 	public getById(decorationId: string) {
 		for (const d of this.runByIdKey.values()) {
 			if (d.id === decorationId) {

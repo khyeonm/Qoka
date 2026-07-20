@@ -134,7 +134,7 @@ CommandsRegistry.registerCommand('aria.notes.delete', async (accessor, resource?
 
 const NOTES_CONTAINER_ID = 'workbench.view.ariaNotes';
 
-const notesIcon = registerIcon('aria-notes-view', Codicon.note, localize('aria.notes.iconLabel', "Aria Notes activity bar icon"));
+const notesIcon = registerIcon('aria-notes-view', Codicon.note, localize('aria.notes.iconLabel', "Qoka Notes activity bar icon"));
 
 const notesContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({

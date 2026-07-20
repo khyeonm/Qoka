@@ -120,7 +120,7 @@ export class ClaudeSdkPipeline extends Disposable {
 
 	/**
 	 * A freshly-bound session occasionally connects to an in-process MCP server
-	 * (Aria's paper / memory / … servers) a beat before that server's HTTP
+	 * (Qoka's paper / memory / … servers) a beat before that server's HTTP
 	 * endpoint is listening — or while a registration is migrating to a new port
 	 * — leaving it `failed` until a manual `/mcp` reconnect. This retries
 	 * `reconnectMcpServer` for any failed server a few times. Fire-and-forget and

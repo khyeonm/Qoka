@@ -6,7 +6,7 @@
 /**
  * JSON-RPC 2.0 types covering the subset MCP uses over HTTP+SSE and
  * Streamable HTTP. Mirrors the helper shipped alongside aria-notes so the
- * Aria MCP servers behave consistently when Claude Code (or Codex) talks to
+ * Qoka MCP servers behave consistently when Claude Code (or Codex) talks to
  * either.
  */
 

@@ -42,7 +42,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
 }
 
 /**
- * Aria Project Overview - boots a local MCP server so the AI assistant can read
+ * Qoka Project Overview - boots a local MCP server so the AI assistant can read
  * the project's title / summary / To-do list and, when a task looks finished,
  * propose completions (which surface as Accept/Reject badges in the Project
  * Overview tab). Tools write <workspace>/.aria/overview.json directly; the tab
@@ -77,7 +77,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	})();
 
 	// Sole registration entry point: the workbench chat-open coordinator calls
-	// this (serialized across every Aria MCP) so the concurrent `claude mcp add`
+	// this (serialized across every Qoka MCP) so the concurrent `claude mcp add`
 	// writes that used to clobber ~/.claude.json can't happen. Returns true if it
 	// newly registered something. Awaits the server start (rather than reading a
 	// port set by the IIFE) because the coordinator may call before the port is

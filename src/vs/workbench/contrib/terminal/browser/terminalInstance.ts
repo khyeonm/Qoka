@@ -2756,7 +2756,7 @@ export class TerminalLabelComputer extends Disposable {
 			shellCommand: commandDetection?.executingCommand && commandDetection.executingCommandConfidence === 'high' && promptInputModel
 				? promptInputModel.value + nonTaskSpinner
 				: undefined,
-			// Shell prompt input does not require high confidence as it's largely for Aria developers
+			// Shell prompt input does not require high confidence as it's largely for Qoka developers
 			shellPromptInput: commandDetection?.executingCommand && promptInputModel
 				? promptInputModel.getCombinedString(true) + nonTaskSpinner
 				: promptInputModel?.getCombinedString(true),

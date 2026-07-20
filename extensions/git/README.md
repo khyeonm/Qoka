@@ -1,10 +1,10 @@
-# Git integration for Aria
+# Git integration for Qoka
 
-**Notice:** This extension is bundled with Aria. It can be disabled but not uninstalled.
+**Notice:** This extension is bundled with Qoka. It can be disabled but not uninstalled.
 
 ## Features
 
-See [Git support in Aria](https://code.visualstudio.com/docs/editor/versioncontrol#_git-support) to learn about the features of this extension.
+See [Git support in Qoka](https://code.visualstudio.com/docs/editor/versioncontrol#_git-support) to learn about the features of this extension.
 
 ## API
 

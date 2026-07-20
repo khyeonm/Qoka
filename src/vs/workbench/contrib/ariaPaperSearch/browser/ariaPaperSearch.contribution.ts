@@ -24,7 +24,7 @@ const ARIA_PAPER_SEARCH_CONTAINER_ID = 'workbench.view.ariaPaperSearch';
 const paperSearchIcon = registerIcon(
 	'aria-paper-search-view',
 	Codicon.search,
-	localize('aria.paperSearch.iconLabel', "Aria Paper Library activity bar icon"),
+	localize('aria.paperSearch.iconLabel', "Qoka Paper Library activity bar icon"),
 );
 
 // A small stylized "book + magnifier" puzzle for the activity bar.

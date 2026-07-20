@@ -117,7 +117,7 @@ suite('KeybindingLabels', () => {
 		assertUSLabel(OperatingSystem.Macintosh, KeyCode.DownArrow, '↓');
 	});
 
-	test('Aria label', () => {
+	test('Qoka label', () => {
 		function assertAriaLabel(OS: OperatingSystem, keybinding: number, expected: string): void {
 			const usResolvedKeybinding = createUSLayoutResolvedKeybinding(keybinding, OS)!;
 			assert.strictEqual(usResolvedKeybinding.getAriaLabel(), expected);

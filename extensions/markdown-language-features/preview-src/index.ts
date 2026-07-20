@@ -57,7 +57,7 @@ if (typeof originalState.scrollProgress !== 'undefined'
 	state.scrollProgress = undefined;
 }
 
-// Make sure to sync Aria state here
+// Make sure to sync Qoka state here
 vscode.setState(state);
 
 const messaging = createPosterForVsCode(vscode, settings);
@@ -110,7 +110,7 @@ onceDocumentLoaded(() => {
 			scrollDisabledCount = 1;
 			if (scrollDisabledTimer) { clearTimeout(scrollDisabledTimer); }
 			scrollDisabledTimer = window.setTimeout(() => { scrollDisabledCount = 0; }, 200);
-			// Always set scroll of at least 1 to prevent Aria's webview code from auto scrolling us
+			// Always set scroll of at least 1 to prevent Qoka's webview code from auto scrolling us
 			const scrollToY = Math.max(1, scrollProgress * document.body.clientHeight);
 			window.scrollTo(0, scrollToY);
 		});
@@ -675,7 +675,7 @@ document.addEventListener('click', event => {
 				}
 			}
 
-			// If original link doesn't look like a url, delegate back to Aria to resolve
+			// If original link doesn't look like a url, delegate back to Qoka to resolve
 			if (hrefText && !/^[a-z\-]+:/i.test(hrefText)) {
 				messaging.postMessage('openLink', { href: hrefText });
 				event.preventDefault();

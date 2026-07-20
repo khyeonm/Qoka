@@ -353,14 +353,14 @@ export const platformSessionSchema = createSchema({
 export const AgentHostTelemetryLevelConfigKey = 'telemetryLevel';
 
 /**
- * Root config key forwarded from the renderer when Aria's
+ * Root config key forwarded from the renderer when Qoka's
  * `chat.sessionSync.enabled` setting changes. Controls the `remote` flag
  * passed to the copilot-sdk `CopilotClientOptions`.
  */
 export const AgentHostSessionSyncEnabledConfigKey = 'sessionSyncEnabled';
 
 /**
- * The Aria setting ID for session sync. Defined here so the platform
+ * The Qoka setting ID for session sync. Defined here so the platform
  * layer (renderer-side forwarding) can reference it without importing from
  * `workbench/contrib/chat`.
  */

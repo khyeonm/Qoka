@@ -307,7 +307,7 @@ export function subject(value: string): string {
 
 function normalizePath(path: string): string {
 	// Windows & Mac are currently being handled
-	// as case insensitive file systems in Aria.
+	// as case insensitive file systems in Qoka.
 	if (isWindows || isMacintosh) {
 		path = path.toLowerCase();
 	}

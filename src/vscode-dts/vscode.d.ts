@@ -10739,7 +10739,7 @@ declare module 'vscode' {
 	export namespace env {
 
 		/**
-		 * The application name of the editor, like 'Aria'.
+		 * The application name of the editor, like 'Qoka'.
 		 */
 		export const appName: string;
 

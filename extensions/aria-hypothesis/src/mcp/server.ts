@@ -18,13 +18,13 @@ interface SseSession {
 }
 
 /**
- * Aria hypothesis-search MCP server. Mirrors the other Aria MCP servers'
+ * Qoka hypothesis-search MCP server. Mirrors the other Qoka MCP servers'
  * HTTP+SSE / Streamable HTTP dual-transport design - Claude Code uses the
  * older SSE protocol (/sse), Codex uses the newer Streamable HTTP (/mcp) -
  * so the search_hypothesis tools work in both clients.
  *
  * Single-user, localhost-only. Distinct port range (3770-3773) from the
- * other Aria MCP servers so they can coexist:
+ * other Qoka MCP servers so they can coexist:
  *   autopipe 3748-3753 | paper-search 3760-3765 | memory 3766-3769
  *   hypothesis 3770-3773 | roadmap 3780-3785 | notes 3786-3789 | paper 3790-3793
  */

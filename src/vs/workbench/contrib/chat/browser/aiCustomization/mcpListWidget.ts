@@ -880,7 +880,7 @@ export class McpListWidget extends Disposable {
 				icon: extensionIcon,
 				count: extensionServers.length,
 				isFirst,
-				description: localize('extensionGroupDescription', "MCP servers contributed by installed Aria extensions."),
+				description: localize('extensionGroupDescription', "MCP servers contributed by installed Qoka extensions."),
 				collapsed,
 			});
 			if (!collapsed) {
@@ -907,7 +907,7 @@ export class McpListWidget extends Disposable {
 				icon: builtinIcon,
 				count: otherBuiltinServers.length,
 				isFirst,
-				description: localize('builtInGroupDescription', "MCP servers built into Aria. These are available automatically."),
+				description: localize('builtInGroupDescription', "MCP servers built into Qoka. These are available automatically."),
 				collapsed,
 			});
 			if (!collapsed) {

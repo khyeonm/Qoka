@@ -229,7 +229,7 @@ export const enum StorageScope {
 
 	/**
 	 * The stored data will be scoped to all workspaces across all profiles
-	 * and shared across Aria and Sessions app.
+	 * and shared across Qoka and Sessions app.
 	 */
 	APPLICATION_SHARED = -2,
 

@@ -7,7 +7,7 @@
 	<!-- The CSP must list the sha256 of this file's inline `<script
 	     type="module">` block. The original VS Code 1.123 hash
 	     (q+WTr+fBXpLLE3…) no longer matches because the script content
-	     drifted somewhere in Aria's branding/build pipeline; we add the
+	     drifted somewhere in Qoka's branding/build pipeline; we add the
 	     recomputed sha256 (jEIALMBg…) alongside it so both the original
 	     and the current variant are accepted. Without this, every
 	     extension webview (including Claude Code's chat) renders blank
@@ -226,7 +226,7 @@
 
 						return () => {
 							if (acquired && !${allowMultipleAPIAcquire}) {
-								throw new Error('An instance of the Aria API has already been acquired');
+								throw new Error('An instance of the Qoka API has already been acquired');
 							}
 							acquired = true;
 							return Object.freeze({
@@ -265,7 +265,7 @@
 				.then(async registration => {
 					if (navigator.serviceWorker.controller) {
 						// A previous SW is already controlling. Force an update
-						// check so we don't serve stale resources after a Aria
+						// check so we don't serve stale resources after a Qoka
 						// update. register() resolves before the update check
 						// completes, so we must call update() explicitly to wait
 						// for the download + byte-comparison to finish.
@@ -597,7 +597,7 @@
 		 */
 		const handleInnerKeydown = (e) => {
 			// If the keypress would trigger a browser event, such as copy or paste,
-			// make sure we block the browser from dispatching it. Instead Aria
+			// make sure we block the browser from dispatching it. Instead Qoka
 			// handles these events and will dispatch a copy/paste back to the webview
 			// if needed
 			if (isUndoRedo(e) || isPrint(e) || isFindEvent(e) || isSaveEvent(e)) {

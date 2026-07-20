@@ -87,8 +87,8 @@ suite('AgentSessionsAccessibilityProvider', () => {
 		const ariaLabel = accessibilityProvider.getAriaLabel(session);
 
 		assert.ok(ariaLabel);
-		assert.ok(ariaLabel.includes('Test Session Title'), 'Aria label should include the session title');
-		assert.ok(ariaLabel.includes('Agent'), 'Aria label should include the provider label');
+		assert.ok(ariaLabel.includes('Test Session Title'), 'Qoka label should include the session title');
+		assert.ok(ariaLabel.includes('Agent'), 'Qoka label should include the provider label');
 	});
 
 	test('getAriaLabel returns singular label for section with 1 session', () => {
@@ -96,9 +96,9 @@ suite('AgentSessionsAccessibilityProvider', () => {
 		const ariaLabel = accessibilityProvider.getAriaLabel(section);
 
 		assert.ok(ariaLabel);
-		assert.ok(ariaLabel.includes('sessions section'), 'Aria label should indicate it is a section');
-		assert.ok(ariaLabel.includes('1 session'), 'Aria label should include session count');
-		assert.ok(!ariaLabel.includes('1 sessions'), 'Aria label should use singular form');
+		assert.ok(ariaLabel.includes('sessions section'), 'Qoka label should indicate it is a section');
+		assert.ok(ariaLabel.includes('1 session'), 'Qoka label should include session count');
+		assert.ok(!ariaLabel.includes('1 sessions'), 'Qoka label should use singular form');
 	});
 
 	test('getAriaLabel returns plural label for section with multiple sessions', () => {
@@ -106,7 +106,7 @@ suite('AgentSessionsAccessibilityProvider', () => {
 		const ariaLabel = accessibilityProvider.getAriaLabel(section);
 
 		assert.ok(ariaLabel);
-		assert.ok(ariaLabel.includes('sessions section'), 'Aria label should indicate it is a section');
-		assert.ok(ariaLabel.includes('2 sessions'), 'Aria label should include session count with plural form');
+		assert.ok(ariaLabel.includes('sessions section'), 'Qoka label should indicate it is a section');
+		assert.ok(ariaLabel.includes('2 sessions'), 'Qoka label should include session count with plural form');
 	});
 });

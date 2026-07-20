@@ -112,7 +112,7 @@ export const loopbackTemplate = `
 
 <body>
 	<a class="branding" href="https://code.visualstudio.com/">
-		Aria
+		Qoka
 	</a>
 	<div class="message-container">
 		<div class="message">

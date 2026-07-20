@@ -29,7 +29,7 @@ const ARIA_SKILLS_CONTAINER_ID = 'workbench.view.ariaSkills';
 const skillsIcon = registerIcon(
 	'aria-skills-view',
 	Codicon.extensions,
-	localize('aria.skills.iconLabel', "Aria Skills activity bar icon")
+	localize('aria.skills.iconLabel', "Qoka Skills activity bar icon")
 );
 
 // Lucide-style puzzle piece - the user-approved icon from the earlier
@@ -73,7 +73,7 @@ registerThemingParticipant((_theme, collector) => {
 });
 
 // Order 4 places Skills directly below Autopipe (order 3) in the activity
-// bar. We want both Aria features to sit together so the user perceives
+// bar. We want both Qoka features to sit together so the user perceives
 // them as a related cluster.
 const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
 	.registerViewContainer({

@@ -18,13 +18,13 @@ interface SseSession {
 }
 
 /**
- * Aria methods-search MCP server. Mirrors the paper-library / autopipe MCP
+ * Qoka methods-search MCP server. Mirrors the paper-library / autopipe MCP
  * servers' HTTP+SSE / Streamable HTTP dual-transport design - Claude Code uses
  * the older SSE protocol (/sse), Codex the newer Streamable HTTP (/mcp) - so
  * the methods-search tools work in both clients from the same port.
  *
  * Single-user, localhost-only. Distinct port range (3794-3799) so it can
- * coexist with the other Aria MCP servers when all extensions are active.
+ * coexist with the other Qoka MCP servers when all extensions are active.
  */
 export class AriaMethodsSearchMcpServer {
 

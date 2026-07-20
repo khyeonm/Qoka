@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-/** One paper as stored in the user's Aria paper library. */
+/** One paper as stored in the user's Qoka paper library. */
 export interface PaperLibraryEntry {
 	/** Stable identifier - DOI when available, otherwise a hash of URL/title. */
 	id: string;

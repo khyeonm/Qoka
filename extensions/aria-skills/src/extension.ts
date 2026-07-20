@@ -30,7 +30,7 @@ const PROVIDER_EXT_ID: Record<'claude' | 'codex', string> = {
 	codex: 'openai.chatgpt',
 };
 
-/** Let the user change which AI(s) Aria uses at any time. Sets the `aria.aiProvider`
+/** Let the user change which AI(s) Qoka uses at any time. Sets the `aria.aiProvider`
  *  setting, installs each chosen provider's CLI (which registers its MCP), then
  *  opens the Marketplace for any provider whose extension is still missing - CLI
  *  and MCP first so the extension sees the MCP the moment it activates. */
@@ -43,7 +43,7 @@ async function chooseAiProviders(): Promise<void> {
 	];
 	const picked = await vscode.window.showQuickPick(items, {
 		canPickMany: true,
-		title: 'Choose the AI(s) Aria should use',
+		title: 'Choose the AI(s) Qoka should use',
 		placeHolder: 'Select one or both, then install/sign in to each',
 	});
 	if (!picked || picked.length === 0) {
@@ -78,9 +78,9 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Bring up the Output channel first so any setup-time errors land
 	// somewhere the user can find them.
 	initLogger();
-	log('Aria Skills extension activated.');
+	log('Qoka Skills extension activated.');
 
-	// Put Aria's Node + ~/.local/bin on the shared extension-host PATH so every
+	// Put Qoka's Node + ~/.local/bin on the shared extension-host PATH so every
 	// extension (autopipe, paper, …) can run the codex CLI - an npm script that
 	// needs `node` - even when the machine has no system Node.
 	ensureAriaBinsOnPath();
@@ -88,11 +88,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Touch ~/.env on startup so "Open ~/.env" always opens something.
 	ensureEnvFile();
 
-	// Register the Aria PreToolUse hook with Claude Code. The hook
-	// injects Aria's environment rules whenever Claude is about to run
+	// Register the Qoka PreToolUse hook with Claude Code. The hook
+	// injects Qoka's environment rules whenever Claude is about to run
 	// a shell command that touches .env files, pip/conda installs, or
 	// credential env vars - so skill SKILL.md instructions to "create a
-	// .env file" get overridden in favour of Aria's Skills tab.
+	// .env file" get overridden in favour of Qoka's Skills tab.
 	ensureAriaHook();
 
 	// Refresh app-bundled default skills whose SKILL.md changed in this build
@@ -130,7 +130,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		// and background features are CLI-backed). No-ops if already installed.
 		vscode.commands.registerCommand('aria.provider.installCli', (provider: unknown) => installProviderCli(provider)),
 
-		// Fast MCP registration: the startup coordinator collects every Aria MCP
+		// Fast MCP registration: the startup coordinator collects every Qoka MCP
 		// server's { name, port } and calls this ONCE. We write both provider config
 		// files directly (parallel, single writer - no CLI-add race), verify, and
 		// CLI-retry only stragglers. Replaces ~100 sequential `mcp add` spawns.
@@ -144,7 +144,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			return applyMcpConfig(providers, servers);
 		}),
 
-		// Change which AI(s) Aria uses, at any time (not just onboarding). Order:
+		// Change which AI(s) Qoka uses, at any time (not just onboarding). Order:
 		// set the setting, install each chosen provider's CLI + register its MCP,
 		// THEN open the Marketplace for any missing extension - so the CLI/MCP are
 		// ready before the extension activates (no empty /mcp on first open).
@@ -175,7 +175,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		// user clicks the "Configure keys" button on a skill card. Loops
 		// through that skill's declared env vars and writes whatever the
 		// user types straight to ~/.env via the env service - keys never
-		// leave Aria's TS code (no Claude prompt, no log line).
+		// leave Qoka's TS code (no Claude prompt, no log line).
 		vscode.commands.registerCommand('aria.skills.configureKeys', (skillName: unknown) => {
 			if (typeof skillName !== 'string') {
 				return;
@@ -599,7 +599,7 @@ async function showStartupSummaryToast(raw: unknown): Promise<void> {
 		.map(e => `${e.changed ? '✓' : '○'} ${e.summary}`)
 		.join('\n');
 	await vscode.window.showInformationMessage(
-		'Aria startup summary',
+		'Qoka startup summary',
 		{ modal: true, detail },
 		'OK',
 	);

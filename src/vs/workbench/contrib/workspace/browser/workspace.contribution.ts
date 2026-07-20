@@ -56,7 +56,7 @@ const BANNER_RESTRICTED_MODE_DISMISSED_KEY = 'workbench.banner.restrictedMode.di
 
 /**
  * Returns a trust note string for the sessions window explaining that trusting
- * a folder/workspace also persists trust to the parent Aria install.
+ * a folder/workspace also persists trust to the parent Qoka install.
  * Returns `undefined` when not running in the sessions window.
  */
 function getSessionsWindowTrustNote(environmentService: IWorkbenchEnvironmentService, productService: IProductService, isWorkspace: boolean): string | undefined {
@@ -798,14 +798,14 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration)
 		properties: {
 			[WORKSPACE_TRUST_ENABLED]: {
 				type: 'boolean',
-				// Aria default: OFF. Every project folder is the researcher's own, so
+				// Qoka default: OFF. Every project folder is the researcher's own, so
 				// the trust prompt is pure friction - and worse, an untrusted new
-				// folder opens in RESTRICTED MODE where Aria's own extensions don't
+				// folder opens in RESTRICTED MODE where Qoka's own extensions don't
 				// activate, so MCP servers never start and first-run setup hangs
-				// ("Setting up Aria" never finishes). Disabling trust makes every
+				// ("Setting up Qoka" never finishes). Disabling trust makes every
 				// folder trusted, so extensions activate immediately on open.
 				default: false,
-				description: localize('workspace.trust.description', "Controls whether or not Workspace Trust is enabled within Aria."),
+				description: localize('workspace.trust.description', "Controls whether or not Workspace Trust is enabled within Qoka."),
 				tags: [WORKSPACE_TRUST_SETTING_TAG],
 				scope: ConfigurationScope.APPLICATION,
 			},
@@ -851,7 +851,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration)
 			[WORKSPACE_TRUST_EMPTY_WINDOW]: {
 				type: 'boolean',
 				default: true,
-				markdownDescription: localize('workspace.trust.emptyWindow.description', "Controls whether or not the empty window is trusted by default within Aria. When used with `#{0}#`, you can enable the full functionality of Aria without prompting in an empty window.", WORKSPACE_TRUST_UNTRUSTED_FILES),
+				markdownDescription: localize('workspace.trust.emptyWindow.description', "Controls whether or not the empty window is trusted by default within Qoka. When used with `#{0}#`, you can enable the full functionality of Qoka without prompting in an empty window.", WORKSPACE_TRUST_UNTRUSTED_FILES),
 				tags: [WORKSPACE_TRUST_SETTING_TAG],
 				scope: ConfigurationScope.APPLICATION
 			}

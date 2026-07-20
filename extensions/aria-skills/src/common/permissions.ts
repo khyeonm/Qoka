@@ -8,13 +8,13 @@ import * as os from 'os';
 import * as path from 'path';
 
 /**
- * Manage Claude Code's user-level settings file. Aria writes the
+ * Manage Claude Code's user-level settings file. Qoka writes the
  * per-skill auto-approve preferences into ~/.claude/settings.json so
  * the user doesn't get a permission prompt every time Claude wants to
  * invoke a skill they've already vetted from the Skills tab.
  *
  * The file format is JSON; we preserve unknown top-level keys verbatim
- * so editing the Aria toggle doesn't clobber settings Claude Code (or
+ * so editing the Qoka toggle doesn't clobber settings Claude Code (or
  * the user) put there for unrelated reasons.
  */
 
@@ -87,14 +87,14 @@ export function setSkillAutoApprove(skillName: string, desired: boolean): void {
 }
 
 /** Read the current state from Claude's settings file (not from the
- *  Aria manifest, which can drift). */
+ *  Qoka manifest, which can drift). */
 export function isSkillAutoApproved(skillName: string): boolean {
 	const settings = readSettings();
 	return (settings.permissions?.allow ?? []).includes(skillPermissionToken(skillName));
 }
 
 /**
- * Push the Aria manifest's per-skill auto-approve flags into the
+ * Push the Qoka manifest's per-skill auto-approve flags into the
  * Claude settings file in one shot. Used when we install a batch of
  * skills (first-run wizard) so the settings file is consistent without
  * a flurry of individual writes.

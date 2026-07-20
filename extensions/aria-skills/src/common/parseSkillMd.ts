@@ -88,7 +88,7 @@ function extractDescription(frontmatter: string, content: string): string | unde
 }
 
 function inferCategoryFromText(_content: string): string | undefined {
-	// Category is now fully user-driven - Aria no longer guesses one from
+	// Category is now fully user-driven - Qoka no longer guesses one from
 	// keyword matches. Skill install leaves category blank; the user types
 	// whatever they want in the sidebar's Details pane.
 	return undefined;

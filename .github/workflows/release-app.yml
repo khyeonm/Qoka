@@ -1,4 +1,4 @@
-# Builds the Aria desktop app and attaches installers to a GitHub Release when a
+# Builds the Qoka desktop app and attaches installers to a GitHub Release when a
 # version tag is pushed (e.g. `git tag v1.2.3 && git push origin v1.2.3`).
 # Structure follows autopipe-org/autopipe's release.yml (tag trigger + version
 # gate + OS matrix + release upload), but the build is VS Code's own gulp tasks.
@@ -6,7 +6,7 @@
 # Uses NO third-party actions (repo policy is `local_only`): the repo is cloned
 # by hand, Node comes straight from nodejs.org, and releases are managed with the
 # preinstalled `gh` CLI.
-#   macOS  → Aria.app in a .dmg  (build/darwin/create-dmg.ts, UNSIGNED)
+#   macOS  → Qoka.app in a .dmg  (build/darwin/create-dmg.ts, UNSIGNED)
 #   Windows→ per-user AriaSetup .exe (Inno Setup, UNSIGNED)
 # QEMU + the VM image ship separately (vm-assets.yml / vm-image.yml).
 #
@@ -18,10 +18,10 @@ name: Release (app)
 on:
   workflow_dispatch:
   push:
-    # Aria release tags carry Aria's OWN version (aria-v0.1.0), independent of
+    # Qoka release tags carry Qoka's OWN version (aria-v0.1.0), independent of
     # package.json's version, which stays at the forked VS Code API version
     # (1.x) for extension compatibility.
-    tags: ['aria-v*']
+    tags: ['qoka-v*']
 
 permissions:
   contents: write
@@ -35,20 +35,20 @@ jobs:
     steps:
       - name: Clone at tag
         run: git clone --depth 1 --branch "${GITHUB_REF_NAME}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
-      - name: Tag must match Aria version; API version must stay 1.x
+      - name: Tag must match Qoka version; API version must stay 1.x
         run: |
-          TAG="${GITHUB_REF_NAME#aria-v}"
+          TAG="${GITHUB_REF_NAME#qoka-v}"
           ARIA=$(jq -r '.ariaVersion' product.json)
           PKG=$(jq -r '.version' package.json)
           if [ "$TAG" != "$ARIA" ]; then
-            echo "::error::Tag aria-v$TAG does not match product.json ariaVersion=$ARIA. Bump product.json ariaVersion (or retag) before releasing."
+            echo "::error::Tag qoka-v$TAG does not match product.json ariaVersion=$ARIA. Bump product.json ariaVersion (or retag) before releasing."
             exit 1
           fi
           case "$PKG" in
             1.*) : ;;
-            *) echo "::error::package.json version must stay 1.x for extension compatibility (got $PKG). Do NOT set it to the Aria version."; exit 1 ;;
+            *) echo "::error::package.json version must stay 1.x for extension compatibility (got $PKG). Do NOT set it to the Qoka version."; exit 1 ;;
           esac
-          echo "Version OK: Aria $TAG (vscode API $PKG)"
+          echo "Version OK: Qoka $TAG (vscode API $PKG)"
 
   build:
     needs: [verify-version]
@@ -163,7 +163,7 @@ jobs:
           # child processes crash the Windows build with 0xC0000409.
           "VSCODE_POSTINSTALL_CONCURRENCY=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # Use `npm install`, not `npm ci`: some Aria extensions (aria-autopipe,
+      # Use `npm install`, not `npm ci`: some Qoka extensions (aria-autopipe,
       # aria-vcs) ship without a committed package-lock.json, and the root
       # postinstall runs the same command in every workspace dir — `npm ci`
       # aborts there, `npm install` does not. Matches the local dev build.
@@ -177,7 +177,7 @@ jobs:
           ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
           npm install
 
-      # Build every bundled Aria extension so its compiled output ships in the
+      # Build every bundled Qoka extension so its compiled output ships in the
       # app. The gulp packaging only COPIES existing output (fromLocalNormal via
       # vsce.listFiles) — it never compiles TypeScript — so a fresh CI clone
       # otherwise ships these with no out/extension.js and they fail to activate.
@@ -185,7 +185,7 @@ jobs:
       # transpiled to out/ via gulp (swc, no type-check) — the same path the dev
       # build uses; a plain `tsc -p ./` instead conflicts because both
       # @types/vscode and src/vscode-dts/vscode.d.ts declare the global API.
-      - name: Build Aria extensions
+      - name: Build Qoka extensions
         shell: bash
         run: |
           set -e
@@ -253,7 +253,7 @@ jobs:
           mkdir -p artifacts
           # Universal fallback first, so Linux always ships something even if the
           # .deb step has trouble.
-          tar -czf "artifacts/Aria-linux-${{ matrix.arch }}.tar.gz" \
+          tar -czf "artifacts/Qoka-linux-${{ matrix.arch }}.tar.gz" \
             -C "$PWD/.." "VSCode-linux-${{ matrix.arch }}"
           # .deb for Debian/Ubuntu (double-click / `apt install ./x.deb`). Run
           # prepare THEN build as SEPARATE gulp invocations: a single combined run
@@ -270,6 +270,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
-          VER="${GITHUB_REF_NAME#aria-v}"
-          gh release create "${GITHUB_REF_NAME}" --title "Aria ${VER}" --notes "Aria ${VER}" 2>/dev/null || true
+          VER="${GITHUB_REF_NAME#qoka-v}"
+          gh release create "${GITHUB_REF_NAME}" --title "Qoka ${VER}" --notes "Qoka ${VER}" 2>/dev/null || true
           for f in artifacts/*; do gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; done

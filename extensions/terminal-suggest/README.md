@@ -1,6 +1,6 @@
 # Terminal Suggestions
 
-**Notice:** This extension is bundled with Aria. It can be disabled but not uninstalled. To enable the completions from this extension, set `terminal.integrated.suggest.enabled` to `true`.
+**Notice:** This extension is bundled with Qoka. It can be disabled but not uninstalled. To enable the completions from this extension, set `terminal.integrated.suggest.enabled` to `true`.
 
 ## Features
 

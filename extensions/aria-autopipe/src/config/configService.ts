@@ -17,7 +17,7 @@ const STATE_KEY = 'aria.autopipe.config';
 const DISK_CONFIG_PATH = path.join(os.homedir(), '.aria-autopipe-config.json');
 
 /**
- * Persists Aria Autopipe configuration in the extension's globalState. The
+ * Persists Qoka Autopipe configuration in the extension's globalState. The
  * shape matches autopipe-app's `AppConfig` so a JSON dump from one can be
  * fed to the other for migrations later.
  *

@@ -16,7 +16,7 @@ function requireProfile() {
 	const { config } = services();
 	const profile = config.activeProfile();
 	if (!profile) {
-		throw new Error('No active SSH profile. Configure one via Aria → Autopipe → SSH.');
+		throw new Error('No active SSH profile. Configure one via Qoka → Autopipe → SSH.');
 	}
 	return profile;
 }
@@ -108,7 +108,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'show_results',
-		description: 'Open the in-app Results Viewer panel (a built-in Aria panel, NOT a web browser - never tell the user to open a browser or a 127.0.0.1 URL) for inspecting result files. Pass a DIRECTORY path to view all files in it, or a single FILE path to view only that file. File formats are handled by viewer plugins (auto-routed by file extension): defaults include images, PDF, text, CSV, FASTA/FASTQ, BAM/BED/GFF/CRAM/VCF/BCF, and HDF5 (h5ad).',
+		description: 'Open the in-app Results Viewer panel (a built-in Qoka panel, NOT a web browser - never tell the user to open a browser or a 127.0.0.1 URL) for inspecting result files. Pass a DIRECTORY path to view all files in it, or a single FILE path to view only that file. File formats are handled by viewer plugins (auto-routed by file extension): defaults include images, PDF, text, CSV, FASTA/FASTQ, BAM/BED/GFF/CRAM/VCF/BCF, and HDF5 (h5ad).',
 		inputSchema: {
 			type: 'object',
 			properties: {

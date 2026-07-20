@@ -254,10 +254,10 @@ export abstract class BaseServiceConfigurationProvider implements ServiceConfigu
 	private readUseVsCodeWatcher(configuration: vscode.WorkspaceConfiguration): boolean {
 		const watcherExcludes = configuration.get<Record<string, boolean>>('files.watcherExclude') ?? {};
 		if (
-			watcherExcludes['**/node_modules/*/**'] === true || // Aria default prior to 1.94.x
+			watcherExcludes['**/node_modules/*/**'] === true || // Qoka default prior to 1.94.x
 			watcherExcludes['**/node_modules/**'] === true ||
 			watcherExcludes['**/node_modules'] === true ||
-			watcherExcludes['**'] === true	 					// Aria Watching is entirely disabled
+			watcherExcludes['**'] === true	 					// Qoka Watching is entirely disabled
 		) {
 			return false;
 		}

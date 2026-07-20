@@ -10,12 +10,12 @@ import { candidateClaudePaths } from '../detection/claudeCodeDetector';
 const execAsync = promisify(exec);
 
 // `autopipe` is the same name the standalone autopipe-app Tauri build
-// registers under. Aria now replaces it - the user is expected to shut down
-// autopipe-app and rely on Aria alone, so we adopt the original name so
+// registers under. Qoka now replaces it - the user is expected to shut down
+// autopipe-app and rely on Qoka alone, so we adopt the original name so
 // existing Claude Code conversations / saved prompts referring to
 // "autopipe" tools continue to work without any user-side rename.
 const MCP_NAME = 'autopipe';
-// Older Aria builds registered as `aria-autopipe`. Remove that entry too
+// Older Qoka builds registered as `aria-autopipe`. Remove that entry too
 // when we start up so the user isn't left with a stale duplicate.
 const LEGACY_MCP_NAME = 'aria-autopipe';
 
@@ -70,9 +70,9 @@ async function readClaudeRegisteredPort(claude: string): Promise<number | null> 
 }
 
 /**
- * (Re-)register Aria's MCP server with Claude Code so the CLI advertises
+ * (Re-)register Qoka's MCP server with Claude Code so the CLI advertises
  * Autopipe's tools in every new conversation. Always removes the existing
- * `aria-autopipe` entry first - the port can change between Aria runs when
+ * `aria-autopipe` entry first - the port can change between Qoka runs when
  * autopipe-app holds 3748, so re-running the same `claude mcp add` would
  * fail with "already exists". Removing first makes the operation idempotent.
  */
@@ -118,7 +118,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 
 	// `--scope user` writes to the per-user config so autopipe is
 	// reachable from every project Claude Code opens - not just the
-	// directory Aria happened to launch from.
+	// directory Qoka happened to launch from.
 	const addCmd = `${q} mcp add --scope user ${MCP_NAME} ${quoteArg(url)} --transport sse`;
 	console.log(`[aria-autopipe] running: ${addCmd}`);
 	try {
@@ -153,9 +153,9 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 }
 
 /**
- * Remove Aria's MCP registration. Called from `deactivate()` so the user's
+ * Remove Qoka's MCP registration. Called from `deactivate()` so the user's
  * Claude Code state doesn't keep a stale entry pointing at a port the next
- * Aria session may not own.
+ * Qoka session may not own.
  */
 export async function unregisterFromClaudeCode(): Promise<void> {
 	const claude = await resolveClaudeBinary();

@@ -20,7 +20,7 @@ function requireProfile() {
 	const { config } = services();
 	const profile = config.activeProfile();
 	if (!profile) {
-		throw new Error('No active SSH profile. Configure one via Aria → Autopipe → SSH.');
+		throw new Error('No active SSH profile. Configure one via Qoka → Autopipe → SSH.');
 	}
 	return profile;
 }
@@ -207,7 +207,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				if (cloneCode !== 0) {
 					let msg: string;
 					if (/could not read Username|Authentication failed|terminal prompts disabled/.test(cloneOutput)) {
-						msg = "Repository may be private. Connect GitHub in the Aria Autopipe panel's GitHub section and retry.";
+						msg = "Repository may be private. Connect GitHub in the Qoka Autopipe panel's GitHub section and retry.";
 					} else if (/Repository not found|not found|does not exist/.test(cloneOutput)) {
 						msg = 'Repository not found on GitHub. Verify the pipeline ID.';
 					} else if (cloneOutput.includes('Could not resolve host')) {

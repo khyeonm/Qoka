@@ -29,7 +29,7 @@ const ARIA_AUTOPIPE_CONTAINER_ID = 'workbench.view.ariaAutopipe';
 const autopipeIcon = registerIcon(
 	'aria-autopipe-view',
 	Codicon.symbolEvent,
-	localize('aria.autopipe.iconLabel', "Aria Autopipe activity bar icon")
+	localize('aria.autopipe.iconLabel', "Qoka Autopipe activity bar icon")
 );
 
 // Activity bar glyph. The user-supplied artwork is a 64×64 PNG with the
