@@ -74,9 +74,9 @@ export const RUN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'run_code',
 		description:
-			'Run a short, self-contained script (bash | python | node) on the Qoka built-in server and return its stdout/stderr. For QUICK one-off tasks - e.g. "run this scanpy analysis". '
+			'Run a short, self-contained script (bash | python | node) on the ACTIVE Qoka connection - the built-in server OR the SSH server selected in the Connections tab (the SAME target autopipe uses) - and return its stdout/stderr. The result states which target it actually ran on. Do NOT run the code in your own terminal/shell. Before running, call get_workspace_info (autopipe MCP) to see which connection (built-in server or SSH) the code will run on, and tell the user where it will run. For QUICK one-off tasks - e.g. "run this scanpy analysis". '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
-			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. '
+			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (autopipe MCP) for that instead. '
 			+ 'Files the code writes are saved under the project `analysis/<run-id>/` folder (mounted locally on Windows/WSL, copied back elsewhere). '
@@ -173,7 +173,8 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				}
 
 				const lines: string[] = [];
-				lines.push(`Ran ${language} on the built-in server (exit ${r.exitCode}).`);
+				const targetLabel = isBuiltIn ? 'the built-in server' : `the SSH server ${ep.username}@${ep.host}:${ep.port}`;
+					lines.push(`Ran ${language} on ${targetLabel} (exit ${r.exitCode}).`);
 				lines.push('');
 				lines.push('stdout:');
 				lines.push(r.stdout.trim() ? cap(r.stdout, STDOUT_CAP) : '(empty)');
@@ -199,9 +200,13 @@ export const RUN_TOOLS: ToolDefinition[] = [
 
 /** Server-level guidance for the qoka-run MCP, surfaced to the model at `initialize`. */
 export const RUN_MCP_INSTRUCTIONS = [
-	'This server ("qoka-run") runs short, self-contained code on the Qoka built-in server for quick, one-off tasks.',
+	'This server ("qoka-run") runs short, self-contained code for quick, one-off tasks.',
 	'',
-	'Routing: when the user asks to run code and it is unclear whether they want a quick one-off or a reproducible multi-step pipeline, ASK first: "즉시 실행할까요, 아니면 autopipe 파이프라인으로 만들까요?" (Run it now, or build an autopipe pipeline?).',
+	'WHERE it runs: run_code executes on the ACTIVE Qoka connection - the built-in server OR the SSH server the user selected in the Connections tab - the SAME target autopipe pipelines use. They are NOT separate servers: whichever connection is active runs BOTH quick code (run_code) AND autopipe pipelines. So run_code CAN run on an SSH server, and autopipe CAN run on the built-in server. The run_code result states which target it actually used - relay that to the user so they know where it ran.',
+	'',
+	'NEVER run the user\'s code in your own terminal/shell. To run/execute code (실행/돌려) you MUST call a Qoka MCP tool: run_code (this server) for a quick one-off script, or the autopipe MCP for a reproducible multi-step pipeline. Falling back to the local terminal is WRONG - it bypasses the Qoka run environment.',
+	'',
+	'Routing: if it is unclear which the user wants, ASK: "간단한 코드를 바로 돌릴까요, 아니면 autopipe 파이프라인으로 만들까요?" (Run a quick script now, or build an autopipe pipeline?). Or decide yourself which fits - but never fall back to the terminal.',
 	'- Quick / one-off  -> use this server\'s run_code.',
 	'- Multi-step / reproducible / needs inputs & outputs tracked -> use the autopipe MCP instead.',
 	'If the user already made the intent clear (e.g. "just run this quickly"), do NOT ask - run it.',

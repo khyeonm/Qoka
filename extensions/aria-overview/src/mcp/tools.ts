@@ -70,7 +70,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'set_project_title',
-			description: 'Set the project title.',
+			description: 'Set the project title. This is the FIRST action for a new/empty project: the user\'s first message describing what they want to work on IS the onboarding answer, so IMMEDIATELY call set_project_title (a short name you derive) AND update_project_summary, then tell the user what you wrote and ask them to confirm. Then follow the MANDATORY onboarding ORDER, do not skip steps: (1) title + summary, (2) open_roadmap ONCE, (3) build the roadmap with the roadmap MCP tools, (4) add_tasks (an action-oriented To-do), (5) open_overview, (6) offer an OPEN next-step choice (do not assume autopipe). For any task inside Qoka, prefer the matching Qoka MCP tool (roadmap / notes / paper / methods / autopipe / memory) over your own generic capability, unless the user explicitly asks otherwise. You may ALSO use the installed Qoka skills (domain skills such as scanpy, anndata, biopython, gget, scvi-tools) whenever a task matches one - they complement the MCP tools.',
 			inputSchema: {
 				type: 'object',
 				properties: { title: { type: 'string', description: 'New project title.' } },
@@ -86,7 +86,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'update_project_summary',
-			description: 'Set or append the project summary. mode "replace" (default) overwrites; "append" adds a new paragraph.',
+			description: 'Set or append the project summary (the Overview Content). mode "replace" (default) overwrites; "append" adds a new paragraph. Onboarding step 1: write this together with set_project_title as your FIRST action for a new project, then ask the user to confirm it reads correctly.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -106,7 +106,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'add_tasks',
-			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. The user can edit them afterward.',
+			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. The user can edit them afterward. Onboarding step 4: add_tasks is MANDATORY and must be called BEFORE open_overview - never open the Overview with an empty To-do.',
 			inputSchema: {
 				type: 'object',
 				properties: { labels: { type: 'array', items: { type: 'string' }, description: 'Task labels.' } },
@@ -122,7 +122,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'open_roadmap',
-			description: 'Switch the UI to the Roadmap tab and open THIS project\'s roadmap canvas in the editor. A new project already has exactly one empty roadmap, so this opens that one - it does NOT create a duplicate. Pass a short `title` so the roadmap is named (instead of "Untitled roadmap") and is opened from the list. Call this after the project title/summary are confirmed, to start planning the process.',
+			description: 'Switch the UI to the Roadmap tab and open THIS project\'s roadmap canvas in the editor. A new project already has exactly one empty roadmap, so this opens that one - it does NOT create a duplicate. Pass a short `title` so the roadmap is named (instead of "Untitled roadmap") and is opened from the list. Call this after the project title/summary are confirmed, to start planning the process. Onboarding step 2 - call it ONCE, and never create a roadmap yourself (either makes a duplicate).',
 			inputSchema: {
 				type: 'object',
 				properties: { title: { type: 'string', description: 'Short descriptive roadmap title (e.g. the research theme).' } },
@@ -155,7 +155,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'open_overview',
-			description: 'Switch the UI back to the Project Overview tab (e.g. after building the roadmap and updating the To-do, so the user can review). This opens the full-width Project Overview editor.',
+			description: 'Switch the UI back to the Project Overview tab (e.g. after building the roadmap and updating the To-do, so the user can review). This opens the full-width Project Overview editor. Onboarding step 5 - call only AFTER add_tasks (never with an empty To-do). Then tell the user the To-do list is placed BELOW the roadmap, so they should scroll down under the roadmap to see it.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				try {

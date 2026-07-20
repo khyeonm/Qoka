@@ -60,6 +60,9 @@ export class AriaConnectionsView extends ViewPane {
 	private viewBody: HTMLElement | undefined;
 	private sshFormOpen = false;
 	private sshDraft: SshFormDraft = { ...EMPTY_DRAFT };
+	/** When set, the inline edit form for that SSH profile id is open below its row. */
+	private editingId: string | undefined;
+	private editDraft: SshFormDraft = { ...EMPTY_DRAFT };
 	/** Live status of the built-in VM (from aria.autopipe.vm.status). */
 	private vmStatus: { status: string; error?: string; progress?: { message: string; pct?: number } } | undefined;
 
@@ -142,6 +145,7 @@ export class AriaConnectionsView extends ViewPane {
 		const section = appendSectionWithAction(root, 'Servers', this.sshFormOpen ? 'x' : '+', () => {
 			this.sshFormOpen = !this.sshFormOpen;
 			this.sshDraft = { ...EMPTY_DRAFT };
+			this.editingId = undefined; // opening the add form closes any open edit form
 			void this.refresh();
 		});
 
@@ -185,12 +189,38 @@ export class AriaConnectionsView extends ViewPane {
 			sub.textContent = `${p.username}@${p.host}:${p.port}`;
 			Object.assign(sub.style, { fontSize: '10.5px', opacity: '0.6' });
 
+			// Edit (pencil) - left of the trash. Opens an inline edit form (like the
+			// + add form) below this row, pre-filled with the server's fields.
+			const edit = append(row, $('span.codicon.codicon-edit')) as HTMLElement;
+			edit.title = 'Edit this server';
+			Object.assign(edit.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
+			edit.onclick = async (e) => {
+				e.stopPropagation();
+				if (this.editingId === p.id) { this.editingId = undefined; void this.refresh(); return; }
+				const full = await this.commandService.executeCommand<{ name: string; host: string; port: number; username: string; repoPath: string } | null>('aria.autopipe.ssh.getProfile', p.id);
+				this.editingId = p.id;
+				this.sshFormOpen = false;
+				this.editDraft = {
+					name: full?.name ?? p.name,
+					host: full?.host ?? p.host,
+					port: String(full?.port ?? p.port),
+					username: full?.username ?? p.username,
+					password: '',
+					repoPath: full?.repoPath ?? '',
+				};
+				void this.refresh();
+			};
+
 			const trash = append(row, $('span.codicon.codicon-trash')) as HTMLElement;
 			trash.title = 'Remove this server';
 			Object.assign(trash.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
 			trash.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.ssh.remove', p.id).then(() => this.refresh()); };
 
 			row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.ssh.setActiveById', p.id).then(() => this.refresh()); };
+
+			if (this.editingId === p.id) {
+				this.renderEditForm(section, p.id);
+			}
 		}
 
 		if (this.sshFormOpen) {
@@ -307,6 +337,60 @@ export class AriaConnectionsView extends ViewPane {
 		}
 		this.sshFormOpen = false;
 		this.sshDraft = { ...EMPTY_DRAFT };
+		void this.refresh();
+	}
+
+	/** Inline edit form for an existing SSH server (like the add form). Pre-filled
+	 *  from getProfile; password left blank keeps the current one. */
+	private renderEditForm(parent: HTMLElement, id: string): void {
+		const form = append(parent, $('div'));
+		form.style.marginTop = '8px';
+		form.style.marginBottom = '8px';
+		form.style.marginLeft = '20px';
+		form.style.borderLeft = '2px solid var(--vscode-focusBorder, #4098ff)';
+		form.style.paddingLeft = '10px';
+
+		labelInput(form, 'Name', this.editDraft.name, 'e.g. lab server', (v) => { this.editDraft.name = v; });
+		labelInput(form, 'Host', this.editDraft.host, 'server.example.com', (v) => { this.editDraft.host = v; });
+		labelInput(form, 'Port', this.editDraft.port, '22', (v) => { this.editDraft.port = v; });
+		labelInput(form, 'Username', this.editDraft.username, 'remote login', (v) => { this.editDraft.username = v; });
+		const pw = labelInput(form, 'Password (leave blank to keep current)', this.editDraft.password, '••••••••', (v) => { this.editDraft.password = v; });
+		pw.type = 'password';
+		labelInput(form, 'Remote workspace directory', this.editDraft.repoPath, '/home/you/aria', (v) => { this.editDraft.repoPath = v; });
+
+		const buttons = append(form, $('div'));
+		buttons.style.marginTop = '10px';
+		const save = append(buttons, $('button')) as HTMLButtonElement;
+		save.textContent = 'Save changes';
+		stylePrimaryButton(save);
+		save.onclick = () => void this.saveEdit(id);
+		const cancel = append(buttons, $('button')) as HTMLButtonElement;
+		cancel.textContent = 'Cancel';
+		styleSecondaryButton(cancel);
+		cancel.onclick = () => { this.editingId = undefined; void this.refresh(); };
+	}
+
+	private async saveEdit(id: string): Promise<void> {
+		const d = this.editDraft;
+		if (!d.name || !d.host || !d.username || !d.repoPath) {
+			void this.commandService.executeCommand('workbench.action.showErrorMessage', 'Fill in name, host, username, and remote workspace directory.');
+			return;
+		}
+		const port = Number(d.port);
+		if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+			void this.commandService.executeCommand('workbench.action.showErrorMessage', 'Port must be 1–65535.');
+			return;
+		}
+		try {
+			await this.commandService.executeCommand('aria.autopipe.ssh.saveFromDraft', {
+				id, name: d.name, host: d.host, port,
+				username: d.username, auth: 'password', password: d.password || undefined,
+				repoPath: d.repoPath,
+			});
+		} catch {
+			return;
+		}
+		this.editingId = undefined;
 		void this.refresh();
 	}
 }

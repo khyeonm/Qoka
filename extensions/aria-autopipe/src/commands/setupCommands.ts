@@ -105,6 +105,7 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 		}),
 
 		vscode.commands.registerCommand('aria.autopipe.ssh.saveFromDraft', async (draft: {
+			id?: string;
 			name: string;
 			host: string;
 			port: number;
@@ -125,12 +126,19 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 			if (draft.auth === 'key') {
 				auth = { type: 'key', key_path: draft.keyPath };
 			} else if (draft.auth === 'password') {
-				auth = { type: 'password', password: draft.password };
+				// On EDIT (id present) with a blank password, keep the existing one so
+				// the user is not forced to retype it.
+				let pw = draft.password;
+				if (!pw && draft.id) {
+					const existing = services().config.get().ssh_profiles.find(p => p.id === draft.id);
+					pw = existing?.auth.type === 'password' ? existing.auth.password : undefined;
+				}
+				auth = { type: 'password', password: pw };
 			} else {
 				auth = { type: 'agent' };
 			}
 			const profile: SshProfile = {
-				id: crypto.randomUUID(),
+				id: draft.id || crypto.randomUUID(),
 				name: draft.name,
 				host: draft.host,
 				port: draft.port,
@@ -144,6 +152,13 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 				await services().config.setActiveProfile(profile.id);
 			}
 			vscode.window.showInformationMessage(`Saved SSH profile "${draft.name}".`);
+		}),
+
+		// Editable fields for the Connections edit form. Password intentionally
+		// omitted - the form keeps the existing one when left blank (saveFromDraft).
+		vscode.commands.registerCommand('aria.autopipe.ssh.getProfile', (id: string) => {
+			const p = services().config.get().ssh_profiles.find(x => x.id === id);
+			return p ? { id: p.id, name: p.name, host: p.host, port: p.port, username: p.username, repoPath: p.repo_path } : null;
 		}),
 
 		vscode.commands.registerCommand('aria.autopipe.ssh.remove', async (id?: string) => {

@@ -16,7 +16,7 @@ import {
 export const WORKSPACE_TOOLS: ToolDefinition[] = [
 	{
 		name: 'get_workspace_info',
-		description: 'Get the configured workspace paths on the remote SSH server. Call this first to understand where pipelines and outputs are stored.',
+		description: 'Get the workspace paths and the ACTIVE run connection (built-in server or SSH). Call this first to understand where pipelines and outputs are stored. ROUTING - when the user wants to RUN or EXECUTE code, you MUST use a Qoka MCP tool and NEVER your own terminal/shell: a quick one-off script (bash/python) -> run_code on the qoka-run MCP; a reproducible multi-step pipeline -> execute_pipeline on this autopipe MCP. If it is unclear which they want, ASK. Both run on whatever connection is active (built-in OR SSH). For other tasks, prefer the matching Qoka MCP tool or installed Qoka skill over your generic capabilities.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config } = services();
