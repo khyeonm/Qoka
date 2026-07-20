@@ -106,6 +106,14 @@ Name: "{autodesktop}\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Tasks: 
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Tasks: quicklaunchicon; AppUserModelID: "{#AppUserId}"; Check: ShouldUpdateShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}.lnk'))
 
 [Run]
+; Install WSL2 (Ubuntu) for Qoka's built-in Run environment. Only offered when
+; WSL is missing (Check: WslNotInstalled). PrivilegesRequired=lowest means this
+; installer is NOT elevated, so we self-elevate via PowerShell's Start-Process
+; -Verb RunAs (triggers UAC). A 32-bit installer reaches the real wsl.exe through
+; the Sysnative alias; a 64-bit one falls back to System32. `wsl --install`
+; enables the feature, installs the Ubuntu distro, and requests a reboot; the
+; user creates their Linux account at Ubuntu's first run after rebooting.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){$w=$env:windir+'\System32\wsl.exe'}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu' -Verb RunAs"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended, needs a reboot)"; Flags: postinstall waituntilterminated runhidden skipifsilent; Check: WslNotInstalled
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WizardNotSilent
 
@@ -1298,6 +1306,27 @@ Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\
 Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#ApplicationName}.exe"; ValueType: none; ValueName: "Path"; Flags: deletevalue
 
 [Code]
+// Qoka's built-in Run environment uses WSL2 (Ubuntu) on Windows. Offer to install
+// it on the finish page when it isn't already present. `wsl.exe` lives in the
+// real System32; a 32-bit installer sees it through the SysWOW64 redirector, so
+// disable redirection before probing. Returns True when WSL is NOT installed
+// (so the finish-page item + its elevated install command only show then).
+function WslNotInstalled(): Boolean;
+var
+  ResultCode: Integer;
+  OldRedir: Boolean;
+begin
+  OldRedir := EnableFsRedirection(False);
+  try
+    if not Exec(ExpandConstant('{sys}\wsl.exe'), '--status', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Result := True
+    else
+      Result := ResultCode <> 0;
+  finally
+    EnableFsRedirection(OldRedir);
+  end;
+end;
+
 function IsBackgroundUpdate(): Boolean;
 begin
   Result := ExpandConstant('{param:update|false}') <> 'false';

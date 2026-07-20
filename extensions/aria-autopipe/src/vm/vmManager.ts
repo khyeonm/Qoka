@@ -15,6 +15,7 @@ import { LOCAL_VM_ID, SshProfile, hostVmLimits } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
+import { wslAvailable, listDistros, pickDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript } from './wsl';
 
 const execFileAsync = promisify(execFile);
 
@@ -155,13 +156,64 @@ export class VMManager {
 			this._progress = { message: message ?? this._progress?.message ?? '', pct };
 			this._onProgress.fire(this._progress);
 		};
-		// Apple Silicon → vfkit (qemu's HVF asserts on M4). Intel Macs keep qemu+HVF
-		// (the SME assertion is ARM-only, and HVF is fast there), same as Win/Linux.
-		if (process.platform === 'darwin' && process.arch === 'arm64') {
+		// Windows → WSL2 (Ubuntu distro with sshd + docker), replacing the QEMU
+		// path. Apple Silicon → vfkit (qemu's HVF asserts on M4). Intel Macs and
+		// Linux keep qemu+HVF/KVM.
+		if (process.platform === 'win32') {
+			await this.startWsl(progress);
+		} else if (process.platform === 'darwin' && process.arch === 'arm64') {
 			await this.startVfkit(progress);
 		} else {
 			await this.startQemu(progress);
 		}
+	}
+
+	/** Windows boot path: provision a WSL2 Ubuntu distro (openssh-server + docker)
+	 *  and expose it as the built-in run target via a synthetic SshProfile. No
+	 *  QEMU, no REH/resolver - WSL2 localhost forwarding makes the distro's sshd
+	 *  reachable at 127.0.0.1:<port>, and the whole autopipe stack keeps talking
+	 *  to it as an ordinary SSH host.
+	 *
+	 *  The WSL feature + Ubuntu distro are installed by the Qoka installer
+	 *  (`wsl --install -d Ubuntu`); the user creates the UNIX account at Ubuntu's
+	 *  first run. Everything below (docker + sshd + tools) is done automatically
+	 *  and is idempotent, so it converges on repeated launches. */
+	private async startWsl(progress: ProgressFn): Promise<void> {
+		if (!await wslAvailable()) {
+			throw new Error('WSL is not installed. Reinstall Qoka (which installs WSL) or run "wsl --install" in an admin terminal, then reboot.');
+		}
+
+		const distro = pickDistro(await listDistros());
+		if (!distro) {
+			throw new Error('No WSL Linux distribution was found. Install Ubuntu with "wsl --install -d Ubuntu", reboot, and create your account, then try again.');
+		}
+
+		// Ubuntu's first-run account step sets a non-root default user. Until the
+		// user has completed it, the default user is root - open the distro so they
+		// can create the account, then ask them to retry.
+		const user = await defaultUser(distro);
+		if (!user || user === 'root') {
+			await launchDistroTerminal(distro);
+			throw new Error(`Finish setting up ${distro}: a terminal was opened - create your Linux username and password, then click "Set up now" again.`);
+		}
+
+		this.set('booting');
+		progress('Setting up the WSL run environment (docker, tools)…');
+
+		const key = await this.ensureKey();
+		const pub = fs.readFileSync(key + '.pub', 'utf8').trim();
+		const port = await this.freePort();
+		const repo = `/home/${user}/aria`;
+
+		const out = await runAsRoot(distro, provisionScript(user, port, pub, repo));
+		if (!out.includes('QOKA_PROVISION_OK')) {
+			throw new Error('Failed to set up docker/sshd inside WSL. See the Qoka output for details.');
+		}
+
+		const sshProfile = this.profileFor('127.0.0.1', port, user, key, repo);
+		await this.waitForSsh(sshProfile);
+		this.config.setLocalVmEndpoint(sshProfile);
+		this.set('ready');
 	}
 
 	/** Windows/Linux boot path: portable QEMU with WHPX/KVM and a TCG fallback. */
