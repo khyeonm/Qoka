@@ -253,7 +253,7 @@ export class AriaPaperMcpServer {
 				const negotiated = SUPPORTED.includes(requested) ? requested : '2024-11-05';
 				return {
 					protocolVersion: negotiated,
-					serverInfo: { name: 'aria-paper', version: '0.0.1' },
+					serverInfo: { name: 'qoka-paper', version: '0.0.1' },
 					capabilities: { tools: {} },
 					...(this.instructions ? { instructions: this.instructions } : {}),
 				};

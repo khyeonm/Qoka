@@ -338,7 +338,7 @@ export class AriaOverviewMcpServer {
 				const negotiated = SUPPORTED.includes(requested) ? requested : '2024-11-05';
 				return {
 					protocolVersion: negotiated,
-					serverInfo: { name: 'aria-overview', version: '0.0.1' },
+					serverInfo: { name: 'qoka-overview', version: '0.0.1' },
 					capabilities: { tools: {} },
 					instructions: SERVER_INSTRUCTIONS,
 				};

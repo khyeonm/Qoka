@@ -8,7 +8,6 @@ import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
@@ -21,8 +20,6 @@ import { IEditorOpenContext } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { asWebviewUri, webviewGenericCspSource } from '../../webview/common/webview.js';
-import { IWebviewElement, IWebviewService } from '../../webview/browser/webview.js';
 import { AriaProjectOverviewEditorInput } from './ariaProjectOverviewEditorInput.js';
 import { computeRoadmapLayout, layoutBounds, COLUMN_WIDTH, NODE_LINE_HEIGHT, NODE_LABEL_PAD_X } from '../../ariaRoadmapWizard/browser/roadmapCanvasLayout.js';
 
@@ -41,7 +38,10 @@ interface PendingCompletion {
 interface OverviewData {
 	version: number;
 	title: string;
-	/** BlockNote blocks for the Notion-style Content editor. */
+	/** BlockNote blocks - the on-disk shape the aria-overview MCP tools read
+	 *  (blocksToText) and write (markdownToBlocks). We edit it as plain Markdown
+	 *  in a lightweight textarea and convert at the load/save edges, so the stored
+	 *  format - and everything that consumes it - is unchanged. */
 	content: unknown[];
 	tasks: OverviewTask[];
 	pendingCompletions: PendingCompletion[];
@@ -56,21 +56,142 @@ interface RoadmapNode {
 
 const SCHEMA_VERSION = 1;
 
-// Reuse the BlockNote editor bundle that aria-notes ships (media/notesEditor.js).
-const MEDIA_ROOT = FileAccess.asFileUri('vs/workbench/contrib/ariaNotes/browser/media');
-
 function emptyOverview(): OverviewData {
 	return { version: SCHEMA_VERSION, title: '', content: [], tasks: [], pendingCompletions: [] };
+}
+
+// --- Markdown <-> BlockNote blocks -----------------------------------------
+// The Content is persisted as BlockNote blocks so the aria-overview MCP tools
+// keep working unchanged (they read via blocksToText, write via markdownToBlocks
+// in overview.ts). The editor here is a plain Markdown textarea - far lighter
+// than the 1.7MB BlockNote webview it replaces - so we convert blocks<->Markdown
+// only at load/save. These helpers MUST emit the same block shapes as the
+// extension's converter (paragraph / heading / bulletListItem / numberedListItem
+// with bold/italic/code inline styles); anything richer degrades to plain text.
+
+interface InlineStyles { bold?: true; italic?: true; code?: true }
+
+/** Parse inline **bold**, *italic* / _italic_, `code` into styled text runs. */
+function parseInline(text: string): unknown[] {
+	const out: unknown[] = [];
+	const push = (t: string, styles: InlineStyles) => { if (t) { out.push({ type: 'text', text: t, styles }); } };
+	const re = /\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_|`([^`]+)`/g;
+	let last = 0;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(text)) !== null) {
+		if (m.index > last) { push(text.slice(last, m.index), {}); }
+		if (m[1] !== undefined) { push(m[1], { bold: true }); }
+		else if (m[2] !== undefined) { push(m[2], { italic: true }); }
+		else if (m[3] !== undefined) { push(m[3], { italic: true }); }
+		else if (m[4] !== undefined) { push(m[4], { code: true }); }
+		last = re.lastIndex;
+	}
+	if (last < text.length) { push(text.slice(last), {}); }
+	return out;
+}
+
+/** Convert a Markdown string into BlockNote blocks. Never throws. */
+function markdownToBlocks(markdown: string): unknown[] {
+	const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+	const blocks: unknown[] = [];
+	let para: string[] = [];
+	const flush = () => {
+		if (para.length) {
+			const text = para.join(' ').trim();
+			if (text) { blocks.push({ type: 'paragraph', content: parseInline(text) }); }
+			para = [];
+		}
+	};
+	for (const raw of lines) {
+		const line = raw.trim();
+		if (!line) { flush(); continue; }
+		const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+		if (heading) {
+			flush();
+			blocks.push({ type: 'heading', props: { level: Math.min(heading[1].length, 3) }, content: parseInline(heading[2].trim()) });
+			continue;
+		}
+		const bullet = /^[-*+]\s+(.*)$/.exec(line);
+		if (bullet) {
+			flush();
+			blocks.push({ type: 'bulletListItem', content: parseInline(bullet[1].trim()) });
+			continue;
+		}
+		const numbered = /^\d+\.\s+(.*)$/.exec(line);
+		if (numbered) {
+			flush();
+			blocks.push({ type: 'numberedListItem', content: parseInline(numbered[1].trim()) });
+			continue;
+		}
+		para.push(line);
+	}
+	flush();
+	return blocks;
+}
+
+/** Render a block's inline runs back to Markdown (inverse of parseInline). */
+function inlineToMarkdown(content: unknown): string {
+	if (!Array.isArray(content)) { return ''; }
+	let out = '';
+	for (const run of content) {
+		const r = run as { text?: string; styles?: InlineStyles };
+		let t = typeof r.text === 'string' ? r.text : '';
+		if (!t) { continue; }
+		const s = r.styles ?? {};
+		if (s.code) { t = '`' + t + '`'; }
+		if (s.italic) { t = '*' + t + '*'; }
+		if (s.bold) { t = '**' + t + '**'; }
+		out += t;
+	}
+	return out;
+}
+
+/** Render a single block (and its children) to one or more Markdown lines. */
+function blockToMarkdown(b: unknown): string {
+	const block = b as { type?: string; props?: { level?: number }; content?: unknown; children?: unknown[] };
+	const text = inlineToMarkdown(block.content);
+	let head: string;
+	switch (block.type) {
+		case 'heading': {
+			const level = Math.min(Math.max(block.props?.level ?? 1, 1), 6);
+			head = '#'.repeat(level) + ' ' + text;
+			break;
+		}
+		case 'bulletListItem': head = '- ' + text; break;
+		case 'numberedListItem': head = '1. ' + text; break;
+		default: head = text; break;
+	}
+	if (Array.isArray(block.children) && block.children.length) {
+		return head + '\n' + block.children.map(blockToMarkdown).join('\n');
+	}
+	return head;
+}
+
+/** Convert stored BlockNote blocks into editable Markdown. Adjacent list items
+ *  stay tight; everything else is blank-line separated so markdownToBlocks
+ *  round-trips paragraphs without merging them. */
+function blocksToMarkdown(blocks: unknown[]): string {
+	const arr = blocks as { type?: string }[];
+	const isList = (t?: string) => t === 'bulletListItem' || t === 'numberedListItem';
+	let out = '';
+	for (let i = 0; i < arr.length; i++) {
+		const md = blockToMarkdown(arr[i]);
+		if (i === 0) { out = md; continue; }
+		const sep = isList(arr[i - 1]?.type) && isList(arr[i]?.type) ? '\n' : '\n\n';
+		out += sep + md;
+	}
+	return out;
 }
 
 /**
  * Project Overview editor pane. Opens full-width across the editor area (unlike
  * the other tabs which show a narrow list + editor): an editable Title, a
- * Notion-style Content editor (BlockNote in a webview, reusing the aria-notes
- * bundle), and two fixed sections below - the Roadmap (static picture of the
- * project's active roadmap) and the To-do checklist (with AI-proposed completions
- * to Accept / Reject). Reads/writes <folder>/.aria/overview.json; a watcher
- * refreshes on external (MCP) changes to the overview or the roadmap.
+ * lightweight Markdown Content editor (a plain textarea - it replaces the heavy
+ * BlockNote webview so the tab loads instantly, notably on Windows), and two
+ * fixed sections below - the Roadmap (static picture of the project's active
+ * roadmap) and the To-do checklist (with AI-proposed completions to Accept /
+ * Reject). Reads/writes <folder>/.aria/overview.json; a watcher refreshes on
+ * external (MCP) changes to the overview or the roadmap.
  */
 export class AriaProjectOverviewEditorPane extends EditorPane {
 
@@ -82,16 +203,10 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 
 	private container: HTMLElement | undefined;
 	private titleInput: HTMLInputElement | undefined;
+	private contentTextarea: HTMLTextAreaElement | undefined;
 	private startCardEl: HTMLElement | undefined;
 	private sectionsEl: HTMLElement | undefined;
-	private webviewHost: HTMLElement | undefined;
-	private webview: IWebviewElement | undefined;
-	private readonly webviewStore = this._register(new DisposableStore());
 	private readonly watcherStore = this._register(new DisposableStore());
-	private webviewReady = false;
-	/** JSON of the content we last pushed to / received from the webview, so an
-	 *  external reload doesn't clobber the user's live edit (echo suppression). */
-	private lastContentJson = '[]';
 	private lastSelfWriteAt = 0;
 	private readonly saveScheduler = this._register(new RunOnceScheduler(() => void this.persist(), 500));
 
@@ -101,7 +216,6 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		@IThemeService themeService: IThemeService,
 		@IStorageService storageService: IStorageService,
 		@IFileService private readonly fileService: IFileService,
-		@IWebviewService private readonly webviewService: IWebviewService,
 		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super(AriaProjectOverviewEditorPane.ID, group, telemetryService, themeService, storageService);
@@ -112,8 +226,6 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	protected createEditor(parent: HTMLElement): void {
 		const root = document.createElement('div');
 		Object.assign(root.style, {
-			// `position: relative` so the divider-drag capture overlay (which sits over
-			// the content webview) can be absolutely positioned to fill the pane.
 			width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative',
 			color: 'var(--vscode-foreground)', fontSize: '13px', boxSizing: 'border-box', overflow: 'hidden',
 			background: 'var(--vscode-editor-background, #1e1e1e)',
@@ -141,15 +253,28 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 			background: 'transparent', color: 'var(--vscode-foreground)', fontSize: '28px', fontWeight: '700',
 			padding: '16px 20px 8px 20px', fontFamily: 'inherit',
 		});
-		title.onchange = () => { this.data.title = title.value; this.saveScheduler.schedule(); };
+		title.onchange = () => { this.data.title = title.value; this.updateStartCard(); this.saveScheduler.schedule(); };
 		this.titleInput = title;
 
-		// Content (BlockNote webview) - the flexible middle region.
-		const host = append(root, $('div'));
-		Object.assign(host.style, { flex: '1 1 auto', minHeight: '160px', position: 'relative' });
-		this.webviewHost = host;
+		// Content (lightweight Markdown textarea) - the flexible middle region.
+		const textarea = append(root, $('textarea')) as HTMLTextAreaElement;
+		textarea.placeholder = 'Write the project overview in Markdown...';
+		textarea.spellcheck = false;
+		Object.assign(textarea.style, {
+			flex: '1 1 auto', minHeight: '160px', width: '100%', boxSizing: 'border-box',
+			border: 'none', outline: 'none', resize: 'none',
+			background: 'transparent', color: 'var(--vscode-foreground)',
+			fontSize: '14px', lineHeight: '1.6', padding: '4px 20px 12px 20px',
+			fontFamily: 'var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)',
+		});
+		textarea.oninput = () => {
+			this.data.content = markdownToBlocks(textarea.value);
+			this.updateStartCard();
+			this.saveScheduler.schedule();
+		};
+		this.contentTextarea = textarea;
 
-		// Draggable divider between the Content webview (above) and the Roadmap+To-do
+		// Draggable divider between the Content (above) and the Roadmap+To-do
 		// sections (below). Dragging it up/down resizes the two areas.
 		const divider = append(root, $('div'));
 		Object.assign(divider.style, {
@@ -162,8 +287,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 			width: '40px', height: '3px', borderRadius: '2px', background: 'rgba(127,127,127,0.4)',
 		});
 
-		// Fixed sections below: Roadmap + To-do (own scroll so the webview above
-		// keeps a stable position - webviews don't scroll inside a scrolling parent).
+		// Fixed sections below: Roadmap + To-do (own scroll).
 		const sections = append(root, $('div'));
 		Object.assign(sections.style, {
 			flex: '0 0 auto', maxHeight: '45%', overflowY: 'auto', overflowX: 'hidden',
@@ -178,11 +302,9 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	}
 
 	/**
-	 * Make the divider drag to resize the Content webview vs the sections below.
-	 * The Content region is a webview (iframe) that swallows mousemove events, so
-	 * during a drag we cover the whole pane with a transparent overlay to keep the
-	 * pointer stream flowing to us - otherwise the drag sticks the moment the
-	 * cursor passes over the webview.
+	 * Make the divider drag to resize the Content area vs the sections below.
+	 * A transparent overlay covers the pane during the drag so text selection in
+	 * the textarea doesn't hijack the pointer stream mid-drag.
 	 */
 	private wireDividerDrag(root: HTMLElement, divider: HTMLElement, sections: HTMLElement): void {
 		divider.addEventListener('mousedown', (e: MouseEvent) => {
@@ -221,7 +343,6 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		}
 		this.folderResource = input.folderResource;
 		this.setupWatcher();
-		this.mountWebview();
 		await this.reload();
 	}
 
@@ -326,56 +447,25 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		} catch { /* best-effort */ }
 	}
 
-	// --- content webview ---------------------------------------------------
+	// --- content + guidance ------------------------------------------------
 
-	private mountWebview(): void {
-		this.webviewStore.clear();
-		this.webview = undefined;
-		this.webviewReady = false;
-		if (!this.webviewHost) { return; }
-		const webview = this.webviewStore.add(this.webviewService.createWebviewElement({
-			title: undefined,
-			options: {},
-			contentOptions: { allowScripts: true, localResourceRoots: [MEDIA_ROOT] },
-			extension: undefined,
-		}));
-		this.webview = webview;
-		webview.mountTo(this.webviewHost, this.window);
-		webview.setHtml(this.html());
-		this.webviewStore.add(webview.onMessage(e => this.onWebviewMessage(e.message)));
+	/** Show the "introduce your project" guidance only while it's still empty. */
+	private updateStartCard(): void {
+		if (!this.startCardEl) { return; }
+		const empty = !this.data.title.trim() && this.data.content.length === 0;
+		this.startCardEl.style.display = empty ? 'flex' : 'none';
 	}
 
-	private onWebviewMessage(message: unknown): void {
-		const msg = message as { type?: string; blocks?: unknown[] } | undefined;
-		if (!msg) { return; }
-		if (msg.type === 'ready') {
-			this.webviewReady = true;
-			void this.webview?.postMessage({ type: 'load', blocks: this.data.content, editable: true });
-			this.lastContentJson = JSON.stringify(this.data.content);
-		} else if (msg.type === 'save' && Array.isArray(msg.blocks)) {
-			this.data.content = msg.blocks;
-			this.lastContentJson = JSON.stringify(msg.blocks);
-			this.saveScheduler.schedule();
-		}
-	}
-
-	/** Push freshly-loaded data into the persistent UI without rebuilding the
-	 *  webview (which would flicker / lose focus). */
+	/** Push freshly-loaded data into the UI. We skip fields the user is actively
+	 *  editing so an external (MCP) refresh never clobbers a live edit. */
 	private applyData(): void {
 		if (this.titleInput && document.activeElement !== this.titleInput) {
 			this.titleInput.value = this.data.title;
 		}
-		// Show the "introduce your project" guidance only while it's still empty.
-		if (this.startCardEl) {
-			const empty = !this.data.title.trim() && this.data.content.length === 0;
-			this.startCardEl.style.display = empty ? 'flex' : 'none';
+		if (this.contentTextarea && document.activeElement !== this.contentTextarea) {
+			this.contentTextarea.value = blocksToMarkdown(this.data.content);
 		}
-		// Only push content to the webview if it changed externally (not our echo).
-		const incoming = JSON.stringify(this.data.content);
-		if (this.webviewReady && incoming !== this.lastContentJson) {
-			void this.webview?.postMessage({ type: 'load', blocks: this.data.content, editable: true });
-			this.lastContentJson = incoming;
-		}
+		this.updateStartCard();
 		this.renderSections();
 	}
 
@@ -611,62 +701,16 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		return b;
 	}
 
-	private html(): string {
-		const csp = webviewGenericCspSource;
-		const jsUri = asWebviewUri(URI.joinPath(MEDIA_ROOT, 'notesEditor.js')).toString(true);
-		const cssUri = asWebviewUri(URI.joinPath(MEDIA_ROOT, 'notesEditor.css')).toString(true);
-		return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https: data: blob:; media-src ${csp} https: blob: data:; font-src ${csp} data:; style-src ${csp} 'unsafe-inline'; style-src-elem ${csp} 'unsafe-inline'; script-src ${csp} 'unsafe-eval'; script-src-elem ${csp};">
-<link rel="stylesheet" href="${cssUri}">
-<style>html,body,#root{height:100%;margin:0;padding:0;background:var(--vscode-editor-background);}</style>
-</head>
-<body>
-<div id="root"></div>
-<script src="${jsUri}"></script>
-</body>
-</html>`;
-	}
-
 	override clearInput(): void {
 		this.saveScheduler.cancel();
-		this.webviewStore.clear();
 		this.watcherStore.clear();
-		this.webview = undefined;
-		this.webviewReady = false;
 		this.folderResource = undefined;
 		super.clearInput();
 	}
 
-	protected override setEditorVisible(visible: boolean): void {
-		super.setEditorVisible(visible);
-		// The Content editor is an IWebviewElement, whose iframe content is DESTROYED
-		// whenever the pane's DOM is reparented (editor group move / layout change).
-		// setInput (which mounts the webview) does NOT re-run on a reparent, so the
-		// Content area would stay blank until the tab was reopened - re-initialize it
-		// here instead; the ready->load handshake re-pushes the current content.
-		//
-		// No fresh-mount guard is needed - and adding one is actively WRONG: the
-		// workbench order is setVisible(true) -> layout() -> setInput(), so on a first
-		// open this runs BEFORE mountWebview() and `this.webview` is still undefined.
-		// Hiding runs clearInput() first (which disposes the webview and nulls it), so
-		// a plain hide/show also lands here with no webview. `this.webview` is only set
-		// on re-show of an already-mounted pane - exactly the reparent case we want.
-		if (!visible || !this.webview) { return; }
-		// reinitializeAfterDismount() tears down the message port BEFORE re-mounting to
-		// element.parentElement, so on a detached host it throws and leaves the webview
-		// permanently wedged (dead port, every postMessage queued forever). Only call it
-		// while the host is actually in the DOM.
-		if (!this.webviewHost?.isConnected) { return; }
-		this.webviewReady = false;
-		try { this.webview.reinitializeAfterDismount(); } catch { /* host detached mid-call */ }
-	}
-
 	override focus(): void {
 		super.focus();
-		this.webview?.focus();
+		this.contentTextarea?.focus();
 	}
 
 	override layout(dimension: Dimension): void {

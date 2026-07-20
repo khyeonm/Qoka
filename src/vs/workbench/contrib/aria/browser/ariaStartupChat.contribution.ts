@@ -174,6 +174,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  per-server CLI path (which is kept as the fallback). */
 	private readonly _mcpInfoCommands = [
 		'aria.autopipe.mcpInfo',
+		'aria.qokarun.mcpInfo',
 		'aria.paper.mcpInfo',
 		'aria.paperSearch.mcpInfo',
 		'aria.memory.mcpInfo',

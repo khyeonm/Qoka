@@ -256,7 +256,7 @@ export class AriaRoadmapMcpServer {
 				const negotiated = SUPPORTED.includes(requested) ? requested : '2024-11-05';
 				return {
 					protocolVersion: negotiated,
-					serverInfo: { name: 'aria-roadmap', version: '0.0.1' },
+					serverInfo: { name: 'qoka-roadmap', version: '0.0.1' },
 					capabilities: { tools: {} },
 					// Primes the model with the roadmap brainstorming method the
 					// moment Claude Code connects - so every new project gets the

@@ -255,7 +255,7 @@ export class AriaNotesMcpServer {
 				const negotiated = SUPPORTED.includes(requested) ? requested : '2024-11-05';
 				return {
 					protocolVersion: negotiated,
-					serverInfo: { name: 'aria-notes', version: '0.0.1' },
+					serverInfo: { name: 'qoka-notes', version: '0.0.1' },
 					capabilities: { tools: {} },
 				};
 			}

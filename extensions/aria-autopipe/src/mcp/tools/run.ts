@@ -76,6 +76,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 		description:
 			'Run a short, self-contained script (bash | python | node) on the Qoka built-in server and return its stdout/stderr. For QUICK one-off tasks - e.g. "run this scanpy analysis". '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
+			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (autopipe MCP) for that instead. '
 			+ 'Files the code writes are saved under the project `analysis/<run-id>/` folder (mounted locally on Windows/WSL, copied back elsewhere). '
 			+ 'stdout is returned here (truncated if very large). Large results or images/plots are NOT shown in chat - tell the user to open them from `analysis/<run-id>/` in the Explorer.',
@@ -199,7 +200,21 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'- Multi-step / reproducible / needs inputs & outputs tracked -> use the autopipe MCP instead.',
 	'If the user already made the intent clear (e.g. "just run this quickly"), do NOT ask - run it.',
 	'',
-	'Python packages: run_code runs Python through uv, so you do NOT pre-install anything or manage a venv. Just pass the needed packages in `dependencies` (e.g. ["scanpy"]) and they install automatically before the code runs. So "run this with scanpy" works directly. The first run that installs packages can take a while - tell the user it is setting up.',
+	'Installing packages/tools - always pick the RIGHT manager, and install the manager itself first if it is missing:',
+	'',
+	'1) PYTHON packages -> ALWAYS uv. Never pip-install into the system Python. run_code already runs Python through uv, so just pass the packages in `dependencies` (e.g. ["scanpy"]) or put a PEP 723 `# /// script` block in the code - they install automatically. So "run this with scanpy" works directly.',
+	'',
+	'2) NON-Python tools (conda/bioconda CLIs and libraries - samtools, bwa, bcftools, R, etc.) -> ALWAYS micromamba. Use a bash run_code call. If micromamba is not installed, install it first in the script (user-local, no root):',
+	'     mkdir -p "$HOME/.local/bin"',
+	'     command -v micromamba >/dev/null 2>&1 || curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C "$HOME/.local" bin/micromamba',
+	'     export MAMBA_ROOT_PREFIX="$HOME/.micromamba"',
+	'     eval "$(micromamba shell hook -s bash)"',
+	'   then create/use an env and run the tool, e.g.:',
+	'     micromamba create -y -n run -c conda-forge -c bioconda samtools',
+	'     micromamba run -n run samtools --version',
+	'   ($HOME/.local/bin is already on PATH for run_code.)',
+	'',
+	'Do NOT mix the two (no pip for Python, no uv for non-Python tools). The FIRST run that installs a manager or packages can take a while - tell the user it is setting up, and raise timeout_s (up to 900) for large conda/bioconda environments.',
 	'',
 	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder. stdout is returned in chat. If a result is large or an image/plot, it is NOT in chat - tell the user to open it from analysis/<run-id>/ in the Explorer.',
 ].join('\n');

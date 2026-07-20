@@ -233,6 +233,17 @@ export function activate(context: vscode.ExtensionContext): void {
 		}),
 	);
 
+	// qoka-run's { name, port } for the startup coordinator's batch config write.
+	// Reported separately from autopipe because it is a SECOND server on its own
+	// port (it shares this process + the VMManager, but registers independently).
+	context.subscriptions.push(
+		vscode.commands.registerCommand('aria.qokarun.mcpInfo', async () => {
+			try { await runStartPromise; } catch { return null; }
+			const port = runServer?.currentPort;
+			return typeof port === 'number' ? { name: 'qoka-run', port } : null;
+		}),
+	);
+
 	context.subscriptions.push(
 		vscode.commands.registerCommand('aria.autopipe.reregisterMcp', async () => {
 			// refreshAiRegistrations reads mcpServer.currentPort, which the server
