@@ -113,7 +113,9 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; the Sysnative alias; a 64-bit one falls back to System32. `wsl --install`
 ; enables the feature, installs the Ubuntu distro, and requests a reboot; the
 ; user creates their Linux account at Ubuntu's first run after rebooting.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){$w=$env:windir+'\System32\wsl.exe'}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu' -Verb RunAs"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended, needs a reboot)"; Flags: postinstall waituntilterminated runhidden skipifsilent; Check: WslNotInstalled
+; NB: the PowerShell if-body braces MUST be doubled ({{ }}) - Inno Setup treats a
+; single {...} as a constant reference and fails to compile otherwise.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu' -Verb RunAs"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended, needs a reboot)"; Flags: postinstall waituntilterminated runhidden skipifsilent; Check: WslNotInstalled
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WizardNotSilent
 

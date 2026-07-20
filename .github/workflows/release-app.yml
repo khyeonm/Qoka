@@ -57,7 +57,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, plat: darwin, arch: arm64, nodearch: arm64 }
+          # WSL BRANCH ONLY: Windows-only builds while iterating on the WSL
+          # runtime. RESTORE the macOS (and other) entries before merging this
+          # branch to main / doing a full cross-platform release.
+          # - { os: macos-14, plat: darwin, arch: arm64, nodearch: arm64 }
           - { os: windows-latest, plat: win32, arch: x64, nodearch: x64 }
           # TEMPORARY: only macOS arm64 + Windows are built for now, to test on
           # both machines. RESTORE the two entries below before a full
