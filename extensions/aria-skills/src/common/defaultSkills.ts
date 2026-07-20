@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { EnvVarRequirement } from './types';
+
 /**
  * The set of skills Qoka installs on first run. Keeping the list here
  * (instead of in a config file) makes it visible in code review and
@@ -11,6 +13,16 @@
  * Adding a new default skill is a single line: append to DEFAULT_SKILLS.
  * The first-run wizard will pick it up automatically the next time it
  * runs on a fresh install.
+ *
+ * Every K-Dense skill below is app-bundled (`bundledPath` + a folder under
+ * `extensions/aria-skills/skills/<name>/`) and carries pre-registered
+ * metadata (`description` + `envVars`). That lets the first-run wizard
+ * register them WITHOUT any network clone or AI-CLI analysis - it just
+ * copies the folder and writes the manifest from the curated fields here.
+ * The upstream source for the K-Dense set is
+ * https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/<name>;
+ * refresh a bundled copy from there (and re-verify its `envVars`) when the
+ * skill changes.
  */
 export interface DefaultSkillSpec {
 	/** Folder name used under ~/.claude/skills/. Also the manifest key. */
@@ -31,63 +43,94 @@ export interface DefaultSkillSpec {
 	 *  every skill sourced from the K-Dense scientific-agent-skills repo). Omit to
 	 *  render the skill at the top level of the Default Skills section. */
 	group?: string;
+	/** Pre-registered environment variables, transcribed from the bundled
+	 *  SKILL.md's author declaration (frontmatter `metadata.openclaw.envVars`
+	 *  or the SKILL.md's own key table). When defined - EVEN as an empty array -
+	 *  the first-run wizard registers the skill from this list DIRECTLY and skips
+	 *  the AI-CLI analysis entirely (fast, offline, deterministic). Leave
+	 *  undefined to fall back to analyzeSkillMd at install time. */
+	envVars?: EnvVarRequirement[];
 }
 
 export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 	{
 		name: 'paper-lookup',
-		url: 'https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/paper-lookup',
+		bundledPath: 'skills/paper-lookup',
 		category: 'Literature',
-		description: 'Look up academic papers across multiple sources for the Paper Search tab.',
+		description: 'Look up academic papers across 10 sources (PubMed, arXiv, OpenAlex, Crossref…) for the Paper Search tab.',
 		group: 'K-Dense',
+		// All four keys are OPTIONAL - search works without any of them; they only
+		// raise rate limits or unlock one source's full text (SKILL.md key table).
+		envVars: [
+			{ name: 'NCBI_API_KEY', required: false, description: 'NCBI API key - raises the PubMed/PMC rate limit from 3 to 10 requests/second.', obtainUrl: 'https://www.ncbi.nlm.nih.gov/account/settings/' },
+			{ name: 'CORE_API_KEY', required: false, description: 'CORE API key - needed for CORE full-text retrieval.', obtainUrl: 'https://core.ac.uk/services/api' },
+			{ name: 'S2_API_KEY', required: false, description: 'Semantic Scholar API key - avoids shared-pool 429 rate-limit errors.', obtainUrl: 'https://www.semanticscholar.org/product/api#api-key-form' },
+			{ name: 'OPENALEX_API_KEY', required: false, description: 'OpenAlex API key - recommended for reliable access.', obtainUrl: 'https://openalex.org/settings/api' },
+		],
 	},
 	{
 		name: 'iterative-paper-defense',
 		bundledPath: 'skills/iterative-paper-defense',
 		category: 'Writing',
 		description: 'AI peer review with iterative, non-fabricating defensive revision of a manuscript, for the Peer Review tab.',
+		// Qoka-native skill (not K-Dense). Needs no keys - pre-registered empty so
+		// first-run skips the CLI here too.
+		envVars: [],
 	},
 	{
 		name: 'scanpy',
-		url: 'https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/scanpy',
+		bundledPath: 'skills/scanpy',
 		category: 'Bioinformatics',
-		description: 'Single-cell analysis with Scanpy: preprocessing, clustering, UMAP, and visualization.',
+		description: 'Single-cell RNA-seq analysis with Scanpy: QC, normalization, PCA/UMAP, clustering, and visualization.',
 		group: 'K-Dense',
+		envVars: [],
 	},
 	{
 		name: 'anndata',
-		url: 'https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/anndata',
+		bundledPath: 'skills/anndata',
 		category: 'Bioinformatics',
-		description: 'Work with AnnData objects, the standard container for single-cell and omics data.',
+		description: 'Work with AnnData (.h5ad) objects, the standard scverse container for single-cell and omics data.',
 		group: 'K-Dense',
+		envVars: [],
 	},
 	{
 		name: 'scvi-tools',
-		url: 'https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/scvi-tools',
+		bundledPath: 'skills/scvi-tools',
 		category: 'Bioinformatics',
-		description: 'Probabilistic single-cell analysis with scvi-tools (deep generative models).',
+		description: 'Probabilistic single-cell analysis with scvi-tools: batch correction, DE with uncertainty, multimodal integration.',
 		group: 'K-Dense',
+		envVars: [],
 	},
 	{
 		name: 'bioservices',
-		url: 'https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/bioservices',
+		bundledPath: 'skills/bioservices',
 		category: 'Bioinformatics',
 		description: 'Unified access to 40+ bioinformatics databases (UniProt, KEGG, ChEMBL, Reactome) with cross-database ID mapping.',
 		group: 'K-Dense',
+		// NCBI BLAST identifies callers by email - optional, everything else works without it.
+		envVars: [
+			{ name: 'NCBI_EMAIL', required: false, description: 'Email for NCBI service identification.' },
+		],
 	},
 	{
 		name: 'gget',
-		url: 'https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/gget',
+		bundledPath: 'skills/gget',
 		category: 'Bioinformatics',
 		description: 'Fast queries to 20+ genomic databases: gene info, BLAST, PDB/AlphaFold structures, expression, and disease associations.',
 		group: 'K-Dense',
+		envVars: [],
 	},
 	{
 		name: 'biopython',
-		url: 'https://github.com/K-Dense-AI/scientific-agent-skills/tree/main/skills/biopython',
+		bundledPath: 'skills/biopython',
 		category: 'Bioinformatics',
 		description: 'Molecular biology toolkit for sequence handling, file parsing, NCBI/Entrez access, structures, and phylogenetics.',
 		group: 'K-Dense',
+		// Both optional - only the Bio.Entrez (NCBI) examples read them.
+		envVars: [
+			{ name: 'NCBI_EMAIL', required: false, description: 'Email for NCBI Entrez identification (required by NCBI policy for Entrez calls).' },
+			{ name: 'NCBI_API_KEY', required: false, description: 'NCBI API key to raise Entrez rate limits.' },
+		],
 	},
 ];
 

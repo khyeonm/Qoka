@@ -12,7 +12,7 @@ import { discoverSkillsInRepo, fetchSkillMd, fetchSkillMdAtPath } from '../commo
 import { analyzeSkillMd } from '../common/claudeAnalyzer';
 import { cloneFromGithub, installFromLocal, resolveBundledPath } from '../common/skillsManager';
 import { log } from '../common/logger';
-import { SkillInfo } from '../common/types';
+import { EnvVarRequirement, SkillDependency, SkillInfo } from '../common/types';
 
 /**
  * Wizard A - runs once on a fresh install (or any time a default skill
@@ -142,19 +142,35 @@ async function installOneDefault(spec: DefaultSkillSpec): Promise<void> {
 	// extension root.
 	if (spec.bundledPath) {
 		const srcDir = resolveBundledPath(spec.bundledPath);
-		const skillMd = fs.readFileSync(path.join(srcDir, 'SKILL.md'), 'utf8');
-		const analysis = await analyzeSkillMd(skillMd);
 		const dest = installFromLocal(srcDir, spec.name);
+
+		// Pre-registered skills (spec.envVars defined) register straight from the
+		// curated metadata here - no AI-CLI analysis, no SKILL.md re-parse. That's
+		// what makes first-run registration instant and offline. Only fall back to
+		// analyzeSkillMd for a bundled skill that has NOT been pre-registered.
+		let category = spec.category;
+		let description = spec.description;
+		let envVars: EnvVarRequirement[] = spec.envVars ?? [];
+		let dependencies: SkillDependency[] = [];
+		if (spec.envVars === undefined) {
+			const skillMd = fs.readFileSync(path.join(srcDir, 'SKILL.md'), 'utf8');
+			const analysis = await analyzeSkillMd(skillMd);
+			category = analysis.category ?? spec.category;
+			description = analysis.description ?? spec.description;
+			envVars = analysis.envVars;
+			dependencies = analysis.dependencies;
+		}
+
 		const skill: SkillInfo = {
 			name: spec.name,
-			category: analysis.category ?? spec.category,
-			description: analysis.description ?? spec.description,
+			category,
+			description,
 			source: `bundled:${spec.bundledPath}`,
 			type: 'default',
 			group: spec.group,
 			installedAt: new Date().toISOString(),
-			envVars: analysis.envVars,
-			dependencies: analysis.dependencies,
+			envVars,
+			dependencies,
 			autoApprove: false,
 			path: dest,
 		};
