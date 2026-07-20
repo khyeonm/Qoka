@@ -7,11 +7,16 @@
 	<!-- The CSP must list the sha256 of this file's inline `<script
 	     type="module">` block. The original VS Code 1.123 hash
 	     (q+WTr+fBXpLLE3…) no longer matches because the script content
-	     drifted somewhere in Qoka's branding/build pipeline; we add the
+	     drifted somewhere in Aria's branding/build pipeline; we add the
 	     recomputed sha256 (jEIALMBg…) alongside it so both the original
 	     and the current variant are accepted. Without this, every
 	     extension webview (including Claude Code's chat) renders blank
-	     because the bootstrap script is CSP-blocked. -->
+	     because the bootstrap script is CSP-blocked.
+
+	     DO NOT edit anything inside the inline script block below, including
+	     its comments and string literals: any byte change invalidates the
+	     hashes above and blanks every webview. Branding sweeps must skip
+	     that block, which is why it still says "Aria" inside. -->
 	<meta http-equiv="Content-Security-Policy"
 		content="default-src 'none'; script-src 'sha256-q+WTr+fBXpLLE3++yWNaxT6BTWQtsKscoeIlynBRk4E=' 'sha256-jEIALMBgNpfGSB0QssqKdoQAmS/VUaX5HyMORuWH/ew=' 'self'; frame-src 'self'; style-src 'unsafe-inline';">
 
@@ -226,7 +231,7 @@
 
 						return () => {
 							if (acquired && !${allowMultipleAPIAcquire}) {
-								throw new Error('An instance of the Qoka API has already been acquired');
+								throw new Error('An instance of the Aria API has already been acquired');
 							}
 							acquired = true;
 							return Object.freeze({
@@ -265,7 +270,7 @@
 				.then(async registration => {
 					if (navigator.serviceWorker.controller) {
 						// A previous SW is already controlling. Force an update
-						// check so we don't serve stale resources after a Qoka
+						// check so we don't serve stale resources after a Aria
 						// update. register() resolves before the update check
 						// completes, so we must call update() explicitly to wait
 						// for the download + byte-comparison to finish.
@@ -597,7 +602,7 @@
 		 */
 		const handleInnerKeydown = (e) => {
 			// If the keypress would trigger a browser event, such as copy or paste,
-			// make sure we block the browser from dispatching it. Instead Qoka
+			// make sure we block the browser from dispatching it. Instead Aria
 			// handles these events and will dispatch a copy/paste back to the webview
 			// if needed
 			if (isUndoRedo(e) || isPrint(e) || isFindEvent(e) || isSaveEvent(e)) {
