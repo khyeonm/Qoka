@@ -48,6 +48,10 @@ export interface SkillInfo {
 	source: string;
 	/** Whether the skill ships with Qoka by default or was added later. */
 	type: SkillType;
+	/** Optional grouping label for default skills (e.g. 'K-Dense'). Default
+	 *  skills sharing a group render under one collapsible sub-section in the
+	 *  Skills tab. Undefined for user skills and ungrouped defaults. */
+	group?: string;
 	/** ISO timestamp set when the skill was installed by Qoka. */
 	installedAt: string;
 	/** Latest installed version string, if known (currently from SKILL.md). */

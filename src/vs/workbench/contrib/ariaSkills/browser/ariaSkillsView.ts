@@ -26,11 +26,19 @@ import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../a
 import { ensureAriaPaneScrollbarStyle } from '../../aria/browser/ariaScrollbar.js';
 export { ensureAriaPaneScrollbarStyle };
 
+/** Default-skill group labels that get their own nested collapsible sub-section
+ *  under Default Skills, in display order. A default skill opts in via its
+ *  `group` field (set in the aria-skills extension's DEFAULT_SKILLS). */
+const DEFAULT_SKILL_GROUPS = ['K-Dense'] as const;
+
 interface SkillRow {
 	name: string;
 	category: string;
 	description: string;
 	type: 'default' | 'user';
+	/** Optional grouping label for default skills (e.g. 'K-Dense'). Defaults
+	 *  sharing a group render under one collapsible sub-section. */
+	group?: string;
 	envVars: { name: string; required: boolean }[];
 	autoApprove: boolean;
 	/** ISO timestamp recorded when Qoka first installed (or last
@@ -75,6 +83,11 @@ interface SectionRefs {
 	countEl: HTMLElement;
 	cardsContainer: HTMLElement;
 	emptyEl: HTMLElement;
+	/** Section body (holds cardsContainer + emptyEl). Nested group sub-sections
+	 *  are appended here so they survive clearNode(cardsContainer). */
+	body: HTMLElement;
+	/** The whole section wrapper - lets callers hide an empty nested group. */
+	section: HTMLElement;
 }
 
 /**
@@ -101,6 +114,8 @@ export class AriaSkillsView extends ViewPane {
 	private categorySelect: HTMLSelectElement | undefined;
 	private defaultsRefs: SectionRefs | undefined;
 	private usersRefs: SectionRefs | undefined;
+	/** Nested sub-section refs, one per DEFAULT_SKILL_GROUPS entry. */
+	private groupRefs: Map<string, SectionRefs> = new Map();
 	private envCountEl: HTMLElement | undefined;
 	private envListContainer: HTMLElement | undefined;
 	private envEmptyEl: HTMLElement | undefined;
@@ -204,6 +219,16 @@ export class AriaSkillsView extends ViewPane {
 		this.defaultsRefs = this.renderCollapsibleSection(
 			root, 'Default Skills', 'No default skills installed yet.',
 		);
+		// Grouped default skills (e.g. every K-Dense skill) render as nested
+		// collapsible sub-sections INSIDE the Default Skills section body (NOT its
+		// cardsContainer, which applySectionState wipes), so a long provider bundle
+		// stays folded away instead of flooding the top level.
+		this.groupRefs = new Map();
+		for (const group of DEFAULT_SKILL_GROUPS) {
+			this.groupRefs.set(group, this.renderCollapsibleSection(
+				this.defaultsRefs.body, `${group} Skills`, '', /* nested */ true,
+			));
+		}
 		this.usersRefs = this.renderCollapsibleSection(
 			root, 'My Skills', 'No skills added yet. Click "+ Add Skill" above to add one from GitHub.',
 		);
@@ -362,7 +387,28 @@ export class AriaSkillsView extends ViewPane {
 		const state = this.latestState;
 		const defaults = state ? this.filterSkills(state.defaults) : [];
 		const users = state ? this.filterSkills(state.users) : [];
-		this.applySectionState(this.defaultsRefs, defaults);
+
+		// Split defaults: skills whose `group` matches a known nested group go into
+		// that sub-section; everything else stays at the top level of Default Skills.
+		const ungrouped = defaults.filter(s => !s.group || !this.groupRefs.has(s.group));
+		this.applySectionState(this.defaultsRefs, ungrouped);
+		if (this.defaultsRefs) {
+			// Parent count reflects ALL defaults (ungrouped + grouped), and the body
+			// must stay usable even with no top-level cards (nested groups live there).
+			this.defaultsRefs.countEl.textContent = `(${defaults.length})`;
+			if (defaults.length > 0) {
+				this.defaultsRefs.emptyEl.style.display = 'none';
+			}
+		}
+		for (const group of DEFAULT_SKILL_GROUPS) {
+			const refs = this.groupRefs.get(group);
+			if (!refs) { continue; }
+			const rows = defaults.filter(s => s.group === group);
+			this.applySectionState(refs, rows);
+			// Hide the whole nested section when it has no matching skills.
+			refs.section.style.display = rows.length > 0 ? 'block' : 'none';
+		}
+
 		this.applySectionState(this.usersRefs, users);
 	}
 
@@ -821,9 +867,16 @@ export class AriaSkillsView extends ViewPane {
 		root: HTMLElement,
 		label: string,
 		emptyText: string,
+		nested = false,
 	): SectionRefs {
 		const section = append(root, $('div'));
-		section.style.marginBottom = '16px';
+		section.style.marginBottom = nested ? '8px' : '16px';
+		// Nested groups (e.g. K-Dense Skills) sit indented inside their parent
+		// section, start collapsed, and use a lighter header so the hierarchy reads.
+		if (nested) {
+			section.style.marginLeft = '14px';
+			section.style.marginTop = '6px';
+		}
 
 		const header = append(section, $('div'));
 		header.style.display = 'flex';
@@ -832,11 +885,15 @@ export class AriaSkillsView extends ViewPane {
 		header.style.cursor = 'pointer';
 		header.style.userSelect = 'none';
 		header.style.padding = '4px 0';
-		header.style.fontWeight = '600';
+		header.style.fontWeight = nested ? '500' : '600';
+		if (nested) {
+			header.style.opacity = '0.85';
+			header.style.fontSize = '12px';
+		}
 
 		const chevron = append(header, $('span'));
 		chevron.style.fontSize = '10px';
-		chevron.textContent = '▾';
+		chevron.textContent = nested ? '▸' : '▾';
 
 		const labelEl = append(header, $('span'));
 		labelEl.textContent = label;
@@ -847,7 +904,7 @@ export class AriaSkillsView extends ViewPane {
 		countEl.textContent = '(0)';
 
 		const body = append(section, $('div'));
-		body.style.display = 'block';
+		body.style.display = nested ? 'none' : 'block';
 		body.style.marginTop = '4px';
 
 		const cardsContainer = append(body, $('div'));
@@ -865,7 +922,7 @@ export class AriaSkillsView extends ViewPane {
 			chevron.textContent = collapsed ? '▾' : '▸';
 		};
 
-		return { countEl, cardsContainer, emptyEl: empty };
+		return { countEl, cardsContainer, emptyEl: empty, body, section };
 	}
 
 	private styleInput(el: HTMLInputElement | HTMLSelectElement): void {

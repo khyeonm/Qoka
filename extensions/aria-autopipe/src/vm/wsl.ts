@@ -83,13 +83,27 @@ export function pickDistro(distros: string[]): string | undefined {
 }
 
 /** The distro's default login user (set by Ubuntu's first-run account step).
- *  Returns 'root' when the OOBE account has not been created yet. */
+ *  Returns 'root' when the OOBE account has not been created yet.
+ *
+ *  Retries: the very first `wsl` call after the app launches often hits a still
+ *  cold distro (WSL hasn't spun the lightweight VM up yet) and fails; a few
+ *  spaced retries let it come up instead of surfacing a scary start error. */
 export async function defaultUser(distro: string): Promise<string> {
-	const { stdout } = await execFileAsync(
-		wslExePath(), ['-d', distro, '--', 'sh', '-c', 'id -un'],
-		{ windowsHide: true, env: WSL_ENV, timeout: 15_000 },
-	);
-	return stripNuls(stdout).trim();
+	let lastErr: unknown;
+	for (let attempt = 0; attempt < 6; attempt++) {
+		try {
+			const { stdout } = await execFileAsync(
+				wslExePath(), ['-d', distro, '--', 'sh', '-c', 'id -un'],
+				{ windowsHide: true, env: WSL_ENV, timeout: 25_000 },
+			);
+			const user = stripNuls(stdout).trim();
+			if (user) { return user; }
+		} catch (e) {
+			lastErr = e;
+		}
+		await new Promise(r => setTimeout(r, 2500));
+	}
+	throw lastErr instanceof Error ? lastErr : new Error('Could not read the WSL default user.');
 }
 
 /** Run a script inside the distro as root (no sudo password needed). */
@@ -113,15 +127,16 @@ export async function launchDistroTerminal(distro: string): Promise<void> {
 }
 
 /**
- * The idempotent provisioning script. Installs openssh-server + docker if
- * missing, injects Qoka's SSH public key for `user`, points sshd at `port`, and
- * (re)starts sshd + dockerd without systemd (`service ...`), so it works on a
- * stock WSL2 distro with no `[boot] systemd=true`. Prints QOKA_PROVISION_OK on
- * success. `repoDir` is created and owned by the user.
+ * One-shot, idempotent provisioning. Installs openssh-server + docker when
+ * missing, injects Qoka's SSH public key for `user`, creates the repo dir, and
+ * generates host keys so sshd can start. It deliberately does NOT start any
+ * service or edit sshd_config's Port - the keeper (see keeperScript) runs sshd
+ * in the foreground on a command-line `-p <port>`, so a distro the user might
+ * also run their own sshd in is left untouched. Prints QOKA_PROVISION_OK.
  */
-export function provisionScript(user: string, port: number, pubKey: string, repoDir: string): string {
-	// user/port are trusted (whoami / freePort); pubKey is our own ssh-keygen
-	// output (single line, no quotes). Still keep the pubKey in single quotes.
+export function provisionScript(user: string, pubKey: string, repoDir: string): string {
+	// user is trusted (whoami); pubKey is our own ssh-keygen output (single line,
+	// no quotes). Still keep the pubKey in single quotes.
 	const u = user;
 	return [
 		'set -e',
@@ -131,7 +146,7 @@ export function provisionScript(user: string, port: number, pubKey: string, repo
 		// Decide by the REAL artifact, not `command -v`: on a box with Docker
 		// Desktop the injected `docker` CLI makes `command -v docker` succeed while
 		// openssh-server is still absent, so a `command -v sshd` heuristic wrongly
-		// skips the install and the later sed on /etc/ssh/sshd_config fails.
+		// skips the install and sshd can never start.
 		'if [ ! -f /etc/ssh/sshd_config ]; then apt_update_once; apt-get install -y openssh-server; fi',
 		// Install the native docker engine only when NO docker CLI works, leaving a
 		// Docker Desktop WSL integration untouched.
@@ -144,15 +159,29 @@ export function provisionScript(user: string, port: number, pubKey: string, repo
 		`chown '${u}':'${u}' '/home/${u}/.ssh/authorized_keys'`,
 		`chmod 600 '/home/${u}/.ssh/authorized_keys'`,
 		`install -d -o '${u}' -g '${u}' '${repoDir}'`,
-		// sshd: fixed port + host keys + run dir. Rewrite any existing Port line,
-		// then ensure one is present. sshd_config is guaranteed present by now.
-		`sed -i 's/^#\\?Port .*/Port ${port}/' /etc/ssh/sshd_config`,
-		`grep -q '^Port ${port}$' /etc/ssh/sshd_config || echo 'Port ${port}' >> /etc/ssh/sshd_config`,
+		// Host keys + run dir so the keeper's foreground sshd can start.
 		'ssh-keygen -A',
 		'mkdir -p /run/sshd',
-		'service ssh restart >/dev/null 2>&1 || /usr/sbin/sshd',
-		// Start a native dockerd only; Docker Desktop manages its own daemon.
-		'if command -v dockerd >/dev/null 2>&1; then service docker start >/dev/null 2>&1 || (dockerd >/tmp/qoka-dockerd.log 2>&1 &); fi',
 		'echo QOKA_PROVISION_OK',
+	].join('\n');
+}
+
+/**
+ * The long-lived "keeper" run inside the distro. WSL has no systemd on a stock
+ * distro, so it tears the distro (and any backgrounded daemon) down once the
+ * launching session exits. The built-in server therefore holds a session open:
+ * bring dockerd up in the background, then exec sshd in the FOREGROUND (-D) on
+ * our port. The wsl.exe child stays alive for as long as Qoka keeps it, holding
+ * both the distro and sshd up; it is managed exactly like the QEMU process
+ * (VMManager.proc) and torn down on stop(). Uses `-p <port>` instead of editing
+ * sshd_config so a user's own sshd config in the same distro is never touched.
+ */
+export function keeperScript(port: number): string {
+	return [
+		'mkdir -p /run/sshd',
+		// Native docker engine only; Docker Desktop manages its own daemon.
+		'service docker start >/dev/null 2>&1 || (command -v dockerd >/dev/null 2>&1 && nohup dockerd >/tmp/qoka-dockerd.log 2>&1 &)',
+		// Foreground sshd keeps the distro alive; -e logs to stderr (captured).
+		`exec /usr/sbin/sshd -D -e -p ${port}`,
 	].join('\n');
 }

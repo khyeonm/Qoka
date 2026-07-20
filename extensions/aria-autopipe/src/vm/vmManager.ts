@@ -15,7 +15,7 @@ import { LOCAL_VM_ID, SshProfile, hostVmLimits } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
-import { wslAvailable, listDistros, pickDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript } from './wsl';
+import { wslAvailable, listDistros, pickDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath } from './wsl';
 
 const execFileAsync = promisify(execFile);
 
@@ -205,15 +205,46 @@ export class VMManager {
 		const port = await this.freePort();
 		const repo = `/home/${user}/aria`;
 
-		const out = await runAsRoot(distro, provisionScript(user, port, pub, repo));
+		// 1) One-shot provisioning (idempotent): install docker + openssh-server,
+		//    inject the key, generate host keys. No services started here - WSL
+		//    would tear them down when this session exits.
+		const out = await runAsRoot(distro, provisionScript(user, pub, repo));
 		if (!out.includes('QOKA_PROVISION_OK')) {
 			throw new Error('Failed to set up docker/sshd inside WSL. See the Qoka output for details.');
 		}
 
+		// 2) Keeper: a foreground sshd (-D) held open as a managed child. WSL has no
+		//    systemd on a stock distro, so backgrounded daemons die when their
+		//    launching session ends; keeping this wsl.exe alive holds the distro +
+		//    sshd (and the dockerd it starts) up for the life of the app. Mirrors the
+		//    QEMU proc lifecycle - stop()/dispose() kill it.
+		const errLog = fs.openSync(path.join(this.dir, 'wsl-keeper.log'), 'w');
+		const proc = spawn(
+			wslExePath(),
+			['-d', distro, '-u', 'root', '--', 'bash', '-c', keeperScript(port)],
+			{ stdio: ['ignore', 'ignore', errLog], windowsHide: true },
+		);
+		this.proc = proc;
+		proc.on('exit', (code) => {
+			try { fs.closeSync(errLog); } catch { /* already closed */ }
+			// Ignore a stale exit after a restart replaced this process.
+			if (this.proc !== proc) { return; }
+			if (this._status === 'ready') {
+				this.set('error', `The WSL run environment exited unexpectedly (code ${code}; see wsl-keeper.log).`);
+				this.config.setLocalVmEndpoint(null);
+			}
+		});
+
 		const sshProfile = this.profileFor('127.0.0.1', port, user, key, repo);
-		await this.waitForSsh(sshProfile);
-		this.config.setLocalVmEndpoint(sshProfile);
-		this.set('ready');
+		try {
+			await this.waitForSsh(sshProfile);
+			this.config.setLocalVmEndpoint(sshProfile);
+			this.set('ready');
+		} catch (err) {
+			try { this.proc?.kill('SIGKILL'); } catch { /* ignore */ }
+			this.proc = undefined;
+			throw err instanceof Error ? err : new Error(String(err));
+		}
 	}
 
 	/** Windows/Linux boot path: portable QEMU with WHPX/KVM and a TCG fallback. */
