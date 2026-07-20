@@ -8,7 +8,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-	citationsPath, exportDir, getMeta, manuscriptPath,
+	citationsPath, exportDir, getMeta, manuscriptPath, withTitleHeading,
 } from './papers';
 import { ensurePandoc } from './download';
 
@@ -55,14 +55,32 @@ export interface ExportResult {
  * bibliography in the chosen style - in-text citations and the reference list
  * are produced together (numeric styles numbered in order of appearance).
  */
-export async function exportPaper(id: string, format: ExportFormat): Promise<ExportResult> {
+export async function exportPaper(id: string, format: ExportFormat, markdown?: string): Promise<ExportResult> {
 	const meta = getMeta(id);
 	if (!meta) { throw new Error(`No paper "${id}".`); }
 	const manuscript = manuscriptPath(id);
 	const bib = citationsPath(id);
 	const outDir = exportDir(id);
 	if (!manuscript || !bib || !outDir) { throw new Error('No workspace folder is open.'); }
-	if (!fs.existsSync(manuscript)) { throw new Error('Manuscript not found - nothing to export.'); }
+
+	// Resolve the Markdown to convert. Prefer an explicit `markdown` argument so a
+	// docx/latex/md can be produced even when the manuscript has NOT been saved to
+	// disk yet; otherwise fall back to the saved manuscript.md. When an override is
+	// given and nothing is saved, persist it so the paper isn't left empty and
+	// later reads/exports work - but we do NOT overwrite an existing saved draft,
+	// to avoid clobbering user edits or the frozen baseline.
+	let source: string;
+	if (typeof markdown === 'string' && markdown.trim()) {
+		source = withTitleHeading(markdown, meta.title);
+		if (!fs.existsSync(manuscript)) {
+			fs.mkdirSync(path.dirname(manuscript), { recursive: true });
+			fs.writeFileSync(manuscript, source, 'utf8');
+		}
+	} else if (fs.existsSync(manuscript)) {
+		source = fs.readFileSync(manuscript, 'utf8');
+	} else {
+		throw new Error('Manuscript not found - pass `markdown` to export_paper, or save it first with set_manuscript.');
+	}
 
 	fs.mkdirSync(outDir, { recursive: true });
 	const outputPath = path.join(outDir, `paper.${EXT[format]}`);
@@ -74,26 +92,23 @@ export async function exportPaper(id: string, format: ExportFormat): Promise<Exp
 
 	// citeproc appends the bibliography at the end of the document. To give it a
 	// heading at the same level as the body sections (##), append a "References"
-	// header so the rendered bibliography sits under it. Done on a temp copy so
-	// manuscript.md stays clean; only when there are citations and the manuscript
-	// doesn't already carry such a heading.
-	let inputPath = manuscript;
-	let tempInput: string | undefined;
-	if (hasBib) {
-		const md = fs.readFileSync(manuscript, 'utf8');
-		if (!/^##\s+(references|참고문헌)\b/im.test(md)) {
-			const refTitle = meta.format.language === 'ko' ? '참고문헌' : 'References';
-			tempInput = path.join(outDir, '.manuscript.export.md');
-			fs.writeFileSync(tempInput, md.replace(/\s*$/, '') + `\n\n## ${refTitle}\n`, 'utf8');
-			inputPath = tempInput;
-		}
+	// header so the rendered bibliography sits under it. We always render from a
+	// temp copy so this works whether or not the manuscript is saved to disk, and
+	// keeps manuscript.md clean; only add the heading when there are citations and
+	// the source doesn't already carry such a heading.
+	let body = source;
+	if (hasBib && !/^##\s+(references|참고문헌)\b/im.test(body)) {
+		const refTitle = meta.format.language === 'ko' ? '참고문헌' : 'References';
+		body = body.replace(/\s*$/, '') + `\n\n## ${refTitle}\n`;
 	}
+	const tempInput = path.join(outDir, '.manuscript.export.md');
+	fs.writeFileSync(tempInput, body, 'utf8');
 
-	const args = [inputPath, '--citeproc'];
+	const args = [tempInput, '--citeproc'];
 	if (csl) { args.push('--csl', csl); }
 	if (hasBib) { args.push('--bibliography', bib); }
 	// Resolve relative image paths (figures/fig1.png) - relative to the paper dir
-	// even though the input may be a temp file inside export/.
+	// even though the input is a temp file inside export/.
 	args.push('--resource-path', path.dirname(manuscript));
 	// The title is carried as the manuscript's leading `# {title}` H1 (kept in
 	// sync from meta.title), so we do NOT also pass --metadata title - that would
@@ -111,7 +126,7 @@ export async function exportPaper(id: string, format: ExportFormat): Promise<Exp
 		}
 		throw new Error(`pandoc export failed: ${(err.stderr || err.message || String(e)).toString().slice(0, 500)}`);
 	} finally {
-		if (tempInput) { try { fs.unlinkSync(tempInput); } catch { /* ignore */ } }
+		try { fs.unlinkSync(tempInput); } catch { /* ignore */ }
 	}
 
 	return { outputPath, format, style, pandoc };

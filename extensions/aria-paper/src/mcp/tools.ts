@@ -379,12 +379,13 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'export_paper',
-			description: 'Export the manuscript to a file via pandoc + citeproc. format = markdown | docx | latex. In-text citations and the bibliography are rendered in the paper\'s citation style. (PDF is added later.) Returns the output path.',
+			description: 'Convert / export the manuscript to a file via the BUNDLED pandoc + citeproc. format = markdown | docx | latex. THIS tool is the ONLY correct way to produce a .docx / .tex / .md of the paper - do NOT convert it yourself and NEVER run pandoc (or any converter) in your own terminal/shell: the user has no pandoc installed, Qoka bundles its own, and a terminal attempt silently fails. This works for docx exactly as it does for markdown/latex - the bundled pandoc converts the manuscript Markdown to any of the three. By default it converts the SAVED manuscript.md; to convert text that is NOT saved yet, pass it as `markdown` and it is used directly (and saved as the manuscript if none exists) - so docx export never requires you to save first. In-text citations and the bibliography are rendered in the paper\'s citation style. (PDF is added later.) Returns the output path.',
 			inputSchema: {
 				type: 'object',
 				properties: {
 					paper: { type: 'string', description: 'Paper id or title.' },
 					format: { type: 'string', description: 'markdown | docx | latex' },
+					markdown: { type: 'string', description: 'Optional. The manuscript Markdown to convert. Provide this to export/convert (e.g. to docx) even when the manuscript has NOT been saved yet: it is used as the conversion source, and saved as the manuscript when none exists. Omit to convert the already-saved manuscript.' },
 				},
 				required: ['paper', 'format'],
 				additionalProperties: false,
@@ -397,7 +398,7 @@ export function buildTools(): ToolDefinition[] {
 					return err('`format` must be markdown, docx, or latex.');
 				}
 				try {
-					const res = await exportPaper(r.id, fmt);
+					const res = await exportPaper(r.id, fmt, asString(a.markdown));
 					return ok(`Exported ${fmt} -> ${res.outputPath} (style: ${res.style}).`);
 				} catch (e) { return err(`export_paper failed: ${(e as Error).message}`); }
 			},

@@ -358,6 +358,20 @@ export function removeSkillFromProviders(name: string): void {
  * copy, and re-mirror it to the provider dirs. Skips skills not installed yet
  * (the first-run wizard handles those). Best-effort per skill.
  */
+/** Compare two env-var REQUIREMENT lists (order-insensitive, by name/required/
+ *  description/obtainUrl). Used to decide whether an installed skill's manifest
+ *  needs its env-var requirements refreshed from the curated defaults. */
+function envVarsChanged(
+	a: { name: string; required?: boolean; description?: string; obtainUrl?: string }[],
+	b: { name: string; required?: boolean; description?: string; obtainUrl?: string }[],
+): boolean {
+	const norm = (arr: typeof a): string =>
+		JSON.stringify([...arr]
+			.sort((x, y) => x.name.localeCompare(y.name))
+			.map(v => ({ name: v.name, required: !!v.required, description: v.description ?? '', obtainUrl: v.obtainUrl ?? '' })));
+	return norm(a) !== norm(b);
+}
+
 export function resyncBundledSkills(): void {
 	for (const spec of DEFAULT_SKILLS) {
 		if (!spec.bundledPath) {
@@ -374,6 +388,18 @@ export function resyncBundledSkills(): void {
 			if (fs.readFileSync(srcMd, 'utf8') !== fs.readFileSync(destMd, 'utf8')) {
 				installFromLocal(srcDir, spec.name);
 				mirrorSkillToProviders(spec.name);
+			}
+			// Keep the installed manifest's env-var REQUIREMENTS in sync with the
+			// curated spec.envVars. A skill installed before the curated keys existed
+			// (or via SKILL.md analysis) can carry fewer/older entries - e.g.
+			// paper-lookup showing 2 keys instead of 4 - so refresh them here. Only
+			// the requirement metadata changes; the user's actual VALUES live in
+			// ~/.env and are untouched.
+			if (spec.envVars) {
+				const installed = listManaged().find(s => s.name === spec.name);
+				if (installed && envVarsChanged(installed.envVars ?? [], spec.envVars)) {
+					updateSkill(spec.name, { envVars: spec.envVars });
+				}
 			}
 		} catch {
 			// best-effort - a stale copy is harmless; the skill still works.
