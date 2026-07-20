@@ -57,9 +57,9 @@ export interface RegistrationResult {
  * when it isn't registered / can't be read. Lets us skip a redundant
  * remove+add when the existing entry already points at our live server.
  */
-async function readClaudeRegisteredPort(claude: string): Promise<number | null> {
+async function readClaudeRegisteredPort(claude: string, name: string): Promise<number | null> {
 	try {
-		const out = await execAsync(`${quoteArg(claude)} mcp get ${MCP_NAME}`, { timeout: 10000 });
+		const out = await execAsync(`${quoteArg(claude)} mcp get ${name}`, { timeout: 10000 });
 		const m = out.stdout.match(/127\.0\.0\.1:(\d+)/);
 		return m ? parseInt(m[1], 10) : null;
 	} catch {
@@ -76,8 +76,8 @@ async function readClaudeRegisteredPort(claude: string): Promise<number | null> 
  * autopipe-app holds 3748, so re-running the same `claude mcp add` would
  * fail with "already exists". Removing first makes the operation idempotent.
  */
-export async function registerWithClaudeCode(port: number): Promise<RegistrationResult> {
-	console.log(`[aria-autopipe] registerWithClaudeCode(port=${port}) starting`);
+export async function registerWithClaudeCode(port: number, name: string = MCP_NAME): Promise<RegistrationResult> {
+	console.log(`[aria-autopipe] registerWithClaudeCode(name=${name}, port=${port}) starting`);
 	const claude = await resolveClaudeBinary();
 	if (!claude) {
 		console.error('[aria-autopipe] Claude CLI not found in PATH or candidate locations');
@@ -92,9 +92,9 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	// live port. The port is the discriminator: an entry on a *different* port
 	// is stale (a previous run, or the standalone autopipe-app holding 3748),
 	// and one on *this* port already targets the server we just started.
-	const existingPort = await readClaudeRegisteredPort(claude);
+	const existingPort = await readClaudeRegisteredPort(claude, name);
 	if (existingPort === port) {
-		console.log(`[aria-autopipe] Claude Code already registered on port ${port}; skipping re-registration`);
+		console.log(`[aria-autopipe] Claude Code already registered "${name}" on port ${port}; skipping re-registration`);
 		return { ok: true, changed: false, message: `Already registered -> ${url}` };
 	}
 
@@ -103,23 +103,26 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	// registration to a single workspace and made autopipe invisible
 	// everywhere else. We clear out any straggler entries in user/project
 	// scope too so the next add lands clean.
-	for (const name of [MCP_NAME, LEGACY_MCP_NAME]) {
+	// Remove the legacy `aria-autopipe` entry only for the autopipe server; a
+	// second server (e.g. qoka-run) clears just its own name.
+	const rmNames = name === MCP_NAME ? [MCP_NAME, LEGACY_MCP_NAME] : [name];
+	for (const rmName of rmNames) {
 		for (const scope of ['user', 'project', 'local']) {
 			try {
-				const out = await execAsync(`${q} mcp remove ${name} --scope ${scope}`, { timeout: 10000 });
-				console.log(`[aria-autopipe] removed prior MCP entry "${name}" (--scope ${scope}):`, out.stdout.trim());
+				const out = await execAsync(`${q} mcp remove ${rmName} --scope ${scope}`, { timeout: 10000 });
+				console.log(`[aria-autopipe] removed prior MCP entry "${rmName}" (--scope ${scope}):`, out.stdout.trim());
 			} catch (err) {
 				// "No MCP server found" is the expected outcome on a clean
 				// machine; only worth a debug log.
-				console.log(`[aria-autopipe] no prior MCP entry "${name}" --scope ${scope}:`, (err as Error).message);
+				console.log(`[aria-autopipe] no prior MCP entry "${rmName}" --scope ${scope}:`, (err as Error).message);
 			}
 		}
 	}
 
-	// `--scope user` writes to the per-user config so autopipe is
+	// `--scope user` writes to the per-user config so the server is
 	// reachable from every project Claude Code opens - not just the
 	// directory Qoka happened to launch from.
-	const addCmd = `${q} mcp add --scope user ${MCP_NAME} ${quoteArg(url)} --transport sse`;
+	const addCmd = `${q} mcp add --scope user ${name} ${quoteArg(url)} --transport sse`;
 	console.log(`[aria-autopipe] running: ${addCmd}`);
 	try {
 		const out = await execAsync(addCmd, { timeout: 10000 });
@@ -138,18 +141,18 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	try {
 		const listOut = await execAsync(`${q} mcp list`, { timeout: 10000 });
 		console.log(`[aria-autopipe] claude mcp list:\n${listOut.stdout.trim()}`);
-		if (!listOut.stdout.includes(MCP_NAME)) {
+		if (!listOut.stdout.includes(name)) {
 			return {
 				ok: false,
 				changed: true,
-				message: `Registered with no error but "${MCP_NAME}" missing from \`claude mcp list\`. Output: ${listOut.stdout.trim().slice(0, 300)}`,
+				message: `Registered with no error but "${name}" missing from \`claude mcp list\`. Output: ${listOut.stdout.trim().slice(0, 300)}`,
 			};
 		}
 	} catch (err) {
 		console.warn(`[aria-autopipe] claude mcp list verification failed:`, err);
 	}
 
-	return { ok: true, changed: true, message: `Registered ${MCP_NAME} -> ${url}` };
+	return { ok: true, changed: true, message: `Registered ${name} -> ${url}` };
 }
 
 /**

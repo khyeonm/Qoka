@@ -8,6 +8,10 @@ import { SshService } from '../ssh/sshService';
 import { HubApiClient } from '../hub/apiClient';
 import { GitHubAuthService } from '../github/oauthService';
 import { PluginService } from '../plugins/pluginService';
+// Type-only: VMManager pulls in vscode + the whole vm/ tree at runtime; importing
+// only its type keeps this shared container free of that dependency graph (and
+// avoids a require() cycle, since vm code reaches back here via `services()`).
+import type { VMManager } from '../vm/vmManager';
 
 /**
  * Single shared container so tool handlers don't have to pass services
@@ -25,6 +29,8 @@ export interface AriaServices {
 	hub: HubApiClient;
 	github: GitHubAuthService;
 	plugins: PluginService;
+	/** The built-in server (WSL/QEMU) manager, so tools can boot it on demand. */
+	vm: VMManager;
 }
 
 let _services: AriaServices | undefined;

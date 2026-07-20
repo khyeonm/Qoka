@@ -54,13 +54,17 @@ export interface RegistrationResult {
  * `codex mcp list` for the autopipe entry (excluding the legacy name) and pull
  * the 127.0.0.1 port from it or the couple of lines that follow.
  */
-async function readCodexRegisteredPort(codex: string): Promise<number | null> {
+async function readCodexRegisteredPort(codex: string, name: string): Promise<number | null> {
 	try {
 		const out = await execAsync(`${quoteArg(codex)} mcp list`, { timeout: 10000 });
 		const lines = out.stdout.split('\n');
+		const wanted = name.toLowerCase();
 		for (let i = 0; i < lines.length; i++) {
-			const t = lines[i].trim();
-			if (/(^|[^a-z-])autopipe([^a-z-]|$)/i.test(t) && !/aria-autopipe/i.test(t)) {
+			const t = lines[i].trim().toLowerCase();
+			// Match the wanted name; for the base `autopipe` entry, don't confuse it
+			// with the legacy `aria-autopipe`.
+			const hit = t.includes(wanted) && (name !== MCP_NAME || !t.includes('aria-autopipe'));
+			if (hit) {
 				for (let j = i; j < Math.min(i + 3, lines.length); j++) {
 					const m = lines[j].match(/127\.0\.0\.1:(\d+)/);
 					if (m) {
@@ -87,8 +91,8 @@ async function readCodexRegisteredPort(codex: string): Promise<number | null> {
  *   codex mcp remove <NAME>
  *   codex mcp list
  */
-export async function registerWithCodex(port: number): Promise<RegistrationResult> {
-	console.log(`[aria-autopipe] registerWithCodex(port=${port}) starting`);
+export async function registerWithCodex(port: number, name: string = MCP_NAME): Promise<RegistrationResult> {
+	console.log(`[aria-autopipe] registerWithCodex(name=${name}, port=${port}) starting`);
 	const codex = await resolveCodexBinary();
 	if (!codex) {
 		console.error('[aria-autopipe] Codex CLI not found in PATH or candidate locations');
@@ -111,28 +115,29 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 	// Skip the rewrite (and the "reload the window" nudge) when Codex already
 	// points at our live port. A different port means a stale entry from a
 	// previous run; this port means it already targets the server we started.
-	const existingPort = await readCodexRegisteredPort(codex);
+	const existingPort = await readCodexRegisteredPort(codex, name);
 	if (existingPort === port) {
-		console.log(`[aria-autopipe] Codex already registered on port ${port}; skipping re-registration`);
+		console.log(`[aria-autopipe] Codex already registered "${name}" on port ${port}; skipping re-registration`);
 		return { ok: true, changed: false, message: `Already registered -> ${url}` };
 	}
 
-	// Best-effort removal of prior entries - including the legacy name -
-	// so the next add lands clean. Codex doesn't expose per-scope MCP
-	// configs (one user-level config.toml), so a single remove per name
-	// is enough.
-	for (const name of [MCP_NAME, LEGACY_MCP_NAME]) {
+	// Best-effort removal of prior entries - including the legacy name for the
+	// autopipe server - so the next add lands clean. Codex doesn't expose
+	// per-scope MCP configs (one user-level config.toml), so a single remove per
+	// name is enough.
+	const rmNames = name === MCP_NAME ? [MCP_NAME, LEGACY_MCP_NAME] : [name];
+	for (const rmName of rmNames) {
 		try {
-			const out = await execAsync(`${q} mcp remove ${name}`, { timeout: 10000 });
-			console.log(`[aria-autopipe] removed prior Codex MCP entry "${name}":`, out.stdout.trim());
+			const out = await execAsync(`${q} mcp remove ${rmName}`, { timeout: 10000 });
+			console.log(`[aria-autopipe] removed prior Codex MCP entry "${rmName}":`, out.stdout.trim());
 		} catch (err) {
 			// Codex returns non-zero when the entry doesn't exist - expected
 			// on first run.
-			console.log(`[aria-autopipe] no prior Codex MCP entry "${name}":`, (err as Error).message);
+			console.log(`[aria-autopipe] no prior Codex MCP entry "${rmName}":`, (err as Error).message);
 		}
 	}
 
-	const addCmd = `${q} mcp add ${MCP_NAME} --url ${quoteArg(url)}`;
+	const addCmd = `${q} mcp add ${name} --url ${quoteArg(url)}`;
 	console.log(`[aria-autopipe] running: ${addCmd}`);
 	// Qoka's many extensions run `codex mcp add` concurrently, all writing the one
 	// ~/.codex/config.toml. On Windows they collide on the file lock and fail with
@@ -162,18 +167,18 @@ export async function registerWithCodex(port: number): Promise<RegistrationResul
 	try {
 		const listOut = await execAsync(`${q} mcp list`, { timeout: 10000 });
 		console.log(`[aria-autopipe] codex mcp list:\n${listOut.stdout.trim()}`);
-		if (!listOut.stdout.includes(MCP_NAME)) {
+		if (!listOut.stdout.includes(name)) {
 			return {
 				ok: false,
 				changed: true,
-				message: `Registered with no error but "${MCP_NAME}" missing from \`codex mcp list\`. Output: ${listOut.stdout.trim().slice(0, 300)}`,
+				message: `Registered with no error but "${name}" missing from \`codex mcp list\`. Output: ${listOut.stdout.trim().slice(0, 300)}`,
 			};
 		}
 	} catch (err) {
 		console.warn('[aria-autopipe] codex mcp list verification failed:', err);
 	}
 
-	return { ok: true, changed: true, message: `Registered ${MCP_NAME} -> ${url}` };
+	return { ok: true, changed: true, message: `Registered ${name} -> ${url}` };
 }
 
 /** Remove Qoka's MCP registration from Codex during deactivate(). */

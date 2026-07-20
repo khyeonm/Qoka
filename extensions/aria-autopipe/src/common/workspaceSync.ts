@@ -67,6 +67,63 @@ export function ensureLocalDir(dir: string): void {
 	fs.mkdirSync(dir, { recursive: true });
 }
 
+/** Local `analysis/` dir (quick run_code outputs), or undefined with no folder. */
+export function localAnalysisDir(): string | undefined {
+	const folder = workspaceFolderPath();
+	return folder ? path.join(folder, 'analysis') : undefined;
+}
+
+/**
+ * True when the run target's workspace lives on a WSL Windows mount
+ * (`/mnt/<drive>/…`) - i.e. the guest writes straight to the user's local disk.
+ * In that "mounted" mode the SFTP save/mirror steps are redundant (and would
+ * copy a file onto itself over SFTP), so callers skip them.
+ */
+export function isMountedRepo(profile: SshProfile): boolean {
+	return /^\/mnt\/[a-z]\//i.test(profile.repo_path);
+}
+
+/**
+ * Create Qoka's local project scaffold on first launch:
+ *   <workspaceFolder>/autopipe/{pipelines,pipelines_input,pipelines_output}/
+ *   <workspaceFolder>/analysis/
+ * so the mounted run environment has the dirs it writes into and the Explorer
+ * shows them. Each gets a `.gitkeep` so the empty tree survives git. Idempotent;
+ * no-ops without an open folder.
+ */
+export function ensureWorkspaceScaffold(root?: string): void {
+	const folder = root ?? workspaceFolderPath();
+	if (!folder) { return; }
+	const base = path.join(folder, 'autopipe');
+	const dirs = [
+		path.join(base, 'pipelines'),
+		path.join(base, 'pipelines_input'),
+		path.join(base, 'pipelines_output'),
+		path.join(folder, 'analysis'),
+	];
+	for (const d of dirs) {
+		try {
+			fs.mkdirSync(d, { recursive: true });
+			const keep = path.join(d, '.gitkeep');
+			if (!fs.existsSync(keep)) { fs.writeFileSync(keep, ''); }
+		} catch { /* best-effort */ }
+	}
+	try {
+		const readme = path.join(folder, 'analysis', 'README.md');
+		if (!fs.existsSync(readme)) { fs.writeFileSync(readme, ANALYSIS_README, 'utf8'); }
+	} catch { /* best-effort */ }
+}
+
+const ANALYSIS_README = [
+	'# analysis',
+	'',
+	'Results from quick one-off code runs (the **qoka-run** `run_code` tool) land',
+	'here, one folder per run: `analysis/<run-id>/`. Output files too large to show',
+	'in chat - big tables, images/plots - are written here; open them from the',
+	'Explorer.',
+	'',
+].join('\n');
+
 /** Human-readable byte size, e.g. `1.4 GB`. */
 export function humanSize(bytes: number): string {
 	if (!Number.isFinite(bytes) || bytes < 0) {
@@ -217,6 +274,16 @@ async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDi
 	};
 }
 
+/**
+ * Public wrapper over the internal SFTP directory copy: stream every file under
+ * an arbitrary `remoteDir` on the target into `localDir`, preserving the tree.
+ * Used by qoka-run to pull a non-mounted built-in server's analysis outputs into
+ * the project (the mounted WSL path needs no copy).
+ */
+export async function copyRemoteDirToLocal(profile: SshProfile, remoteDir: string, localDir: string): Promise<CopySummary> {
+	return copyRemoteDirSftp(profile, remoteDir, localDir);
+}
+
 /** Strip autopipe-app's `autopipe-<name>` image prefix to recover the pipeline name. */
 export function pipelineNameFromImage(imageName: string): string {
 	return imageName.startsWith('autopipe-') ? imageName.slice('autopipe-'.length) : imageName;
@@ -241,6 +308,9 @@ export async function savePipelineCodeToProject(profile: SshProfile, pipelineNam
 		}
 		if (!pipelineName) {
 			return { ok: false, message: 'No pipeline name resolved - skipped saving pipeline code.' };
+		}
+		if (isMountedRepo(profile)) {
+			return { ok: true, message: `Pipeline code '${pipelineName}' is already in the project (mounted run environment - written directly, no copy needed).` };
 		}
 		const { ssh } = services();
 		const paths = workspacePathsFor(profile);
@@ -285,6 +355,7 @@ export function mirrorPipelineFileLocally(profile: SshProfile, remotePath: strin
 	try {
 		const local = localAutopipePaths();
 		if (!local) { return; }
+		if (isMountedRepo(profile)) { return; } // guest already wrote to the mounted local dir
 		const pipelinesDir = workspacePathsFor(profile).pipelines_dir.replace(/\/+$/, '');
 		if (remotePath !== pipelinesDir && !remotePath.startsWith(pipelinesDir + '/')) { return; }
 		const rel = remoteRelative(pipelinesDir, remotePath);
@@ -399,6 +470,16 @@ export async function saveResultsToProject(
 	if (!local) {
 		steps.push({ ok: false, message: 'No workspace folder is open - nothing was saved. Ask the user to open a project folder first.' });
 		return { ok: false, steps, outputsCopied: 0, outputsFailed: 0, outputErrors: [] };
+	}
+
+	// Mounted run environment: pipeline code + outputs already live in the project
+	// (the guest wrote straight to <workspaceFolder>/autopipe via /mnt), so there is
+	// nothing to copy - and an SFTP copy here would read and write the same file.
+	// Report success and point at where they already are.
+	if (isMountedRepo(profile)) {
+		const localOutputDir = path.join(local.output, runName);
+		steps.push({ ok: true, message: 'Mounted run environment - pipeline code and outputs are already saved in the project (no copy needed).' });
+		return { ok: true, steps, outputsCopied: 0, outputsFailed: 0, outputErrors: [], localOutputDir };
 	}
 
 	// 1) Pipeline code (always).

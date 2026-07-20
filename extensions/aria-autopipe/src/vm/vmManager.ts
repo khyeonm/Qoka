@@ -16,6 +16,8 @@ import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
 import { wslAvailable, listDistros, pickDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath } from './wsl';
+import { windowsToWsl } from '../common/dockerEnv';
+import { ensureWorkspaceScaffold } from '../common/workspaceSync';
 
 const execFileAsync = promisify(execFile);
 
@@ -203,7 +205,19 @@ export class VMManager {
 		const key = await this.ensureKey();
 		const pub = fs.readFileSync(key + '.pub', 'utf8').trim();
 		const port = await this.freePort();
-		const repo = `/home/${user}/aria`;
+		// Point the built-in server's workspace at the open PROJECT's autopipe/ dir,
+		// seen through WSL's Windows mount (/mnt/<drive>/…). The guest then reads and
+		// writes pipeline code + outputs DIRECTLY on the user's local disk - no SFTP
+		// copy, no mirroring, and VS Code sees changes live. Falls back to a guest
+		// home dir when no folder is open (results then need an explicit save).
+		const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		let repo: string;
+		if (wsRoot) {
+			ensureWorkspaceScaffold(wsRoot);
+			repo = windowsToWsl(path.join(wsRoot, 'autopipe'));
+		} else {
+			repo = `/home/${user}/aria`;
+		}
 
 		// 1) One-shot provisioning (idempotent): install docker + openssh-server,
 		//    inject the key, generate host keys. No services started here - WSL

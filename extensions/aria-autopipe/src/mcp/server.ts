@@ -6,10 +6,9 @@
 import * as http from 'http';
 import * as crypto from 'crypto';
 import { URL } from 'url';
-import { ALL_TOOLS, findTool } from './tools';
+import { ToolDefinition } from './tools';
 import { isJsonRpcRequest, jsonRpcSuccess, jsonRpcError, JsonRpcErrorCodes, JsonRpcRequest } from './jsonrpc';
 
-const DEFAULT_PORT = 3748;
 const HOST = '127.0.0.1';
 
 interface SseSession {
@@ -42,11 +41,26 @@ interface SseSession {
  * Notifications (`notifications/initialized`, etc.) are accepted silently -
  * MCP uses them to signal lifecycle but no client work is required here.
  */
-export class AriaAutopipeMcpServer {
+export interface McpServerOptions {
+	/** serverInfo.name + the name the AI client registers/shows. */
+	name: string;
+	/** Tools this server exposes. */
+	tools: ToolDefinition[];
+	/** Preferred listen port; falls back through the next few on EADDRINUSE. */
+	defaultPort: number;
+	/** Optional server-level guidance surfaced to the model at `initialize`. */
+	instructions?: string;
+}
+
+export class QokaMcpServer {
 
 	private httpServer: http.Server | undefined;
 	private readonly sessions = new Map<string, SseSession>();
-	private port = DEFAULT_PORT;
+	private port: number;
+
+	constructor(private readonly opts: McpServerOptions) {
+		this.port = opts.defaultPort;
+	}
 
 	get listening(): boolean {
 		return !!this.httpServer && this.httpServer.listening;
@@ -64,7 +78,8 @@ export class AriaAutopipeMcpServer {
 		// Try the default port first, then fall back through a small range.
 		// 3748 is autopipe-app's port - when the user has the Tauri app open
 		// at the same time we'd otherwise crash with EADDRINUSE.
-		const candidates = [DEFAULT_PORT, 3749, 3750, 3751, 3752, 3753, 0 /* OS-assigned */];
+		const base = this.opts.defaultPort;
+		const candidates = [base, base + 1, base + 2, base + 3, base + 4, base + 5, 0 /* OS-assigned */];
 
 		for (const candidate of candidates) {
 			try {
@@ -147,7 +162,7 @@ export class AriaAutopipeMcpServer {
 			req.on('close', () => clearInterval(heartbeat));
 		} else if (req.method === 'GET' && url.pathname === '/') {
 			res.writeHead(200, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ server: 'aria-autopipe', toolCount: ALL_TOOLS.length }));
+			res.end(JSON.stringify({ server: this.opts.name, toolCount: this.opts.tools.length }));
 		} else {
 			res.writeHead(404);
 			res.end();
@@ -321,15 +336,16 @@ export class AriaAutopipeMcpServer {
 					// Matches the `claude mcp add` registration name so the
 					// two strings the user sees ("autopipe MCP" / "autopipe
 					// tools") are consistent.
-					serverInfo: { name: 'autopipe', version: '0.0.1' },
+					serverInfo: { name: this.opts.name, version: '0.0.1' },
 					capabilities: { tools: {} },
+					...(this.opts.instructions ? { instructions: this.opts.instructions } : {}),
 				};
 			}
 			case 'notifications/initialized':
 				return null;
 			case 'tools/list':
 				return {
-					tools: ALL_TOOLS.map(t => ({
+					tools: this.opts.tools.map(t => ({
 						name: t.name,
 						description: t.description,
 						inputSchema: t.inputSchema,
@@ -337,7 +353,7 @@ export class AriaAutopipeMcpServer {
 				};
 			case 'tools/call': {
 				const params = (req.params as { name?: string; arguments?: Record<string, unknown> }) ?? {};
-				const tool = params.name ? findTool(params.name) : undefined;
+				const tool = params.name ? this.opts.tools.find(t => t.name === params.name) : undefined;
 				if (!tool) {
 					throw new Error(`unknown tool: ${params.name}`);
 				}

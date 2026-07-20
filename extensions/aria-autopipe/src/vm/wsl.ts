@@ -158,7 +158,21 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		`printf '%s\\n' '${pubKey}' > '/home/${u}/.ssh/authorized_keys'`,
 		`chown '${u}':'${u}' '/home/${u}/.ssh/authorized_keys'`,
 		`chmod 600 '/home/${u}/.ssh/authorized_keys'`,
-		`install -d -o '${u}' -g '${u}' '${repoDir}'`,
+		// mkdir + best-effort chown, NOT `install -d -o -g`: when repoDir is a
+		// Windows mount (/mnt/<drive>/…, the built-in server's project workspace),
+		// chown is unsupported on drvfs and would abort provisioning under `set -e`.
+		// The dir is pre-created on the Windows side and is already user-owned via
+		// the drvfs uid mapping, so a failed chown is harmless.
+		`mkdir -p '${repoDir}'`,
+		`chown '${u}':'${u}' '${repoDir}' 2>/dev/null || true`,
+		// uv: the Python runtime + dependency manager qoka-run's run_code uses to
+		// execute code (so `scanpy` etc. resolve automatically). Install it once,
+		// system-wide to /usr/local/bin (on every user's PATH, so the SSH user finds
+		// it). Best-effort (|| true): a uv install failure must NOT block the built-in
+		// server, which autopipe uses without uv. UV_NO_MODIFY_PATH stops the
+		// installer editing shell profiles (the dir is already on PATH).
+		'if ! command -v curl >/dev/null 2>&1; then apt_update_once; apt-get install -y curl; fi',
+		'if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh || true; fi',
 		// Host keys + run dir so the keeper's foreground sshd can start.
 		'ssh-keygen -A',
 		'mkdir -p /run/sshd',

@@ -125,6 +125,13 @@ export class ConfigService {
 		return this.current.ssh_profiles.find(p => p.id === id) ?? null;
 	}
 
+	/** The built-in local VM's live endpoint regardless of whether it is the
+	 *  active run target. The qoka-run MCP always executes on the built-in
+	 *  server, so it needs the endpoint even when a remote SSH host is active. */
+	localVmProfile(): SshProfile | null {
+		return this.localVmEndpoint;
+	}
+
 	async addOrUpdateProfile(profile: SshProfile): Promise<AriaConfig> {
 		const existing = this.current.ssh_profiles.findIndex(p => p.id === profile.id);
 		const isNew = existing < 0;

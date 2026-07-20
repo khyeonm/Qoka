@@ -5,7 +5,9 @@
 
 import * as vscode from 'vscode';
 import { detectAiProviders } from './detection/claudeCodeDetector';
-import { AriaAutopipeMcpServer } from './mcp/server';
+import { QokaMcpServer } from './mcp/server';
+import { ALL_TOOLS } from './mcp/tools';
+import { RUN_TOOLS, RUN_MCP_INSTRUCTIONS } from './mcp/tools/run';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 import { ConfigService } from './config/configService';
@@ -19,13 +21,20 @@ import { PluginService, DEFAULT_PLUGIN_NAMES } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
 
-let mcpServer: AriaAutopipeMcpServer | undefined;
+let mcpServer: QokaMcpServer | undefined;
+// Second MCP server ("qoka-run"): quick one-off code execution on the same
+// built-in server. Started + registered alongside autopipe.
+let runServer: QokaMcpServer | undefined;
 interface ClientRegistration {
 	ok: boolean;
 	message: string;
 	port: number | null;
 }
 let lastRegistration: { claude: ClientRegistration; codex: ClientRegistration } = {
+	claude: { ok: false, message: 'not attempted', port: null },
+	codex: { ok: false, message: 'not attempted', port: null },
+};
+let lastRunRegistration: { claude: ClientRegistration; codex: ClientRegistration } = {
 	claude: { ok: false, message: 'not attempted', port: null },
 	codex: { ok: false, message: 'not attempted', port: null },
 };
@@ -41,20 +50,23 @@ export function activate(context: vscode.ExtensionContext): void {
 	// config / ssh / hub / github without each of them tracking the
 	// dependency graph individually.
 	const config = new ConfigService(context);
+
+	// Built-in server ("Qoka built-in" Run environment): a WSL2 distro (Windows)
+	// or bundled QEMU/vfkit guest (Mac/Linux), exposed to the rest of autopipe as
+	// a synthetic SSH profile. Created before the shared container so tool handlers
+	// (including qoka-run's run_code) can boot it on demand via `services().vm`.
+	const vm = new VMManager(context, config);
+	context.subscriptions.push({ dispose: () => vm.dispose() });
+
 	const services = {
 		config,
 		ssh: new SshService(),
 		hub: new HubApiClient(config.get().registry_url),
 		github: new GitHubAuthService(),
 		plugins: new PluginService(),
+		vm,
 	};
 	setServices(services);
-
-	// Built-in local VM ("Qoka built-in" Run environment). Runs pipelines on a
-	// bundled QEMU Linux guest (Mac/Win) or a dev SSH stand-in (Linux), exposed
-	// to the rest of autopipe as a synthetic SSH profile.
-	const vm = new VMManager(context, config);
-	context.subscriptions.push({ dispose: () => vm.dispose() });
 
 	// First run: default the built-in VM as the active target so the user has a
 	// working environment without configuring a server. Only on Mac/Win, or on
@@ -152,7 +164,13 @@ export function activate(context: vscode.ExtensionContext): void {
 		}),
 	);
 
-	mcpServer = new AriaAutopipeMcpServer();
+	mcpServer = new QokaMcpServer({ name: 'autopipe', tools: ALL_TOOLS, defaultPort: 3748 });
+	// Second MCP: "qoka-run" - quick one-off code execution (run_code) on the SAME
+	// built-in server (shared via VMManager). Registered under its own name/port so
+	// the AI lists it as a separate server. Port range starts at 3760 to stay clear
+	// of autopipe's 3748 fallback band.
+	runServer = new QokaMcpServer({ name: 'qoka-run', tools: RUN_TOOLS, defaultPort: 3760, instructions: RUN_MCP_INSTRUCTIONS });
+	context.subscriptions.push({ dispose: () => { void runServer?.stop(); } });
 
 	// Boot the MCP server only. Registration with the AI clients is NOT done
 	// here: `claude mcp add` is a read-modify-write of ~/.claude.json with no
@@ -170,6 +188,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	// window; the real error is reported where the IIFE awaits below.
 	const startPromise = mcpServer.start();
 	startPromise.catch(() => { /* handled below */ });
+
+	// Start the qoka-run server too. Its registration happens inside
+	// refreshAiRegistrations (keyed off runServer.currentPort), same as autopipe.
+	const runStartPromise = runServer.start();
+	runStartPromise.catch((err) => console.error('[aria-autopipe] qoka-run MCP start failed:', err));
 
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-autopipe-mcp');
@@ -462,6 +485,23 @@ async function refreshAiRegistrations(): Promise<{ changed: boolean; registered:
 					if (r.changed) {
 						await maybeOfferCodexReload();
 					}
+				}
+			}
+
+			// qoka-run: the second MCP (quick code execution). Register it under its
+			// own name/port so the AI lists it separately from autopipe. Only once it
+			// has a live port (it starts concurrently with autopipe at activate()).
+			const runPort = runServer?.currentPort;
+			if (runPort) {
+				if (!lastRunRegistration.claude.ok) {
+					const r = await registerWithClaudeCode(runPort, 'qoka-run');
+					lastRunRegistration.claude = { ...r, port: runPort };
+					if (r.ok) { newlyConnected.push('Claude Code (qoka-run)'); }
+				}
+				if (!lastRunRegistration.codex.ok) {
+					const r = await registerWithCodex(runPort, 'qoka-run');
+					lastRunRegistration.codex = { ...r, port: runPort };
+					if (r.ok) { newlyConnected.push('Codex (qoka-run)'); }
 				}
 			}
 
