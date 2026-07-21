@@ -43,6 +43,30 @@ export const ALL_TOOLS: ToolDefinition[] = [
 
 ];
 
+/**
+ * Server-level guidance for the autopipe MCP, injected at `initialize`. The
+ * autopipe server previously had NO instructions, so a model connected to it
+ * (e.g. Codex) got no routing rule and would "check the environment" by running
+ * commands in its OWN terminal. This mirrors the qoka-run guidance so EITHER
+ * server enforces the same hard rule: run/check code through Qoka tools, never
+ * the local shell.
+ */
+export const AUTOPIPE_MCP_INSTRUCTIONS = [
+	'This server ("autopipe") builds and runs reproducible pipelines and exposes the shared run environment (built-in server or SSH).',
+	'',
+	'HARD RULE - HOW TO RUN OR CHECK CODE (this overrides your defaults):',
+	'ANY request to run/execute code, OR to check the run environment / whether a package or tool is installed (실행, 돌려, run, execute, "is X installed", "환경 확인") MUST go through a Qoka MCP tool. NEVER use your own terminal / shell / bash / python for it.',
+	'Do NOT run commands like `python -c ...`, `pip show`, `pip list`, `which`, `conda list`, `Rscript -e ...` in your OWN shell to "see what is installed" - that inspects YOUR machine, NOT the Qoka run environment where the user\'s code actually runs, so the answer is wrong and misleading.',
+	'The correct sequence, EVERY time:',
+	'  1) Call get_workspace_info FIRST - it reports the ACTIVE run connection (built-in server or SSH) and whether it is reachable.',
+	'     - If it says the connection is not reachable / not running, call start_server, then call get_workspace_info again.',
+	'  2) Then run on THAT connection:',
+	'     - a QUICK one-off (a version/"is anndata installed" check, a short script, a single analysis) -> run_code on the qoka-run MCP. To check whether a package is installed, run a tiny script THERE (e.g. python that imports it) - never check your own machine.',
+	'     - a LONG / multi-step / reproducible pipeline -> execute_pipeline on this server.',
+	'FALLBACK: if you ever run something in your own terminal and it errors or looks wrong, STOP - that was the wrong tool. Call get_workspace_info to find the run environment, then redo it with run_code / execute_pipeline.',
+	'When a Qoka skill (anndata, scanpy, …) matches the task, follow the skill - but still EXECUTE everything through run_code / execute_pipeline on the run connection, never locally.',
+].join('\n');
+
 export function findTool(name: string): ToolDefinition | undefined {
 	return ALL_TOOLS.find(t => t.name === name);
 }

@@ -32,6 +32,24 @@ export async function ensureBuiltinServer(): Promise<SshProfile> {
 	return ep;
 }
 
+/** True when the endpoint actually answers over SSH right now. A cheap live
+ *  probe (short timeout) used both before running code and by the Connections
+ *  view's green/red indicator. */
+export async function isReachable(profile: SshProfile, timeoutMs = 4000): Promise<boolean> {
+	const { ssh } = services();
+	return ssh.canConnect(profile, timeoutMs);
+}
+
+/** Restart the built-in server (stop then start) and return its fresh endpoint.
+ *  Used to self-heal a registered-but-refusing endpoint (e.g. a WSL keeper /
+ *  sshd that WSL tore down when the distro went idle). */
+export async function restartBuiltinServer(): Promise<SshProfile> {
+	const { vm } = services();
+	await vm.stop();
+	await vm.start();
+	return ensureBuiltinServer();
+}
+
 /** Convenience: ensure the built-in server is up, then run one command on it. */
 export async function builtinExec(command: string, opts?: RunOptions): Promise<SshResult> {
 	const { ssh } = services();
@@ -49,11 +67,27 @@ export async function builtinExec(command: string, opts?: RunOptions): Promise<S
 export async function resolveRunTarget(): Promise<{ profile: SshProfile; isBuiltIn: boolean }> {
 	const { config } = services();
 	if (config.isLocalVmActive()) {
-		return { profile: await ensureBuiltinServer(), isBuiltIn: true };
+		let ep = await ensureBuiltinServer();
+		// Verify it actually ANSWERS before handing it out. A registered endpoint
+		// can still refuse connections - e.g. the WSL keeper/sshd died when the
+		// distro went idle, or a vfkit guest powered down. Restart once to self-heal
+		// rather than failing the run with a confusing "connection refused".
+		if (!await isReachable(ep)) {
+			ep = await restartBuiltinServer();
+			if (!await isReachable(ep)) {
+				throw new Error('The built-in server is not reachable (it was restarted but still refused the connection). Open the Connections tab to check its status.');
+			}
+		}
+		return { profile: ep, isBuiltIn: true };
 	}
 	const profile = config.activeProfile();
 	if (!profile) {
 		throw new Error('No active connection. Open the Connections tab and select the built-in server or an SSH server.');
+	}
+	// An SSH host we don't manage: probe so a dead/refused connection surfaces
+	// immediately with a clear message instead of a cryptic mid-run failure.
+	if (!await isReachable(profile, 6000)) {
+		throw new Error(`The selected SSH server ${profile.username}@${profile.host}:${profile.port} is not reachable. Check the Connections tab and your network, then try again.`);
 	}
 	return { profile, isBuiltIn: false };
 }

@@ -171,6 +171,12 @@ if printf '%s' "\${COMMAND}" | grep -qE '(pip|conda|mamba)[[:space:]]+install'; 
 if printf '%s' "\${COMMAND}" | grep -qE 'python[[:space:]]+-m[[:space:]]+pip'; then RELEVANT=1; fi
 if printf '%s' "\${COMMAND}" | grep -qE 'load_dotenv|os\\.environ|os\\.getenv'; then RELEVANT=1; fi
 if printf '%s' "\${COMMAND}" | grep -qE 'export[[:space:]]+[A-Z][A-Z0-9_]+_(KEY|TOKEN|SECRET|ID|PASSWORD)='; then RELEVANT=1; fi
+# Code execution / environment checks in Codex's OWN shell inspect the WRONG
+# environment - flag them so the guidance below redirects to Qoka's run_code.
+if printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_])(python3?|Rscript|node)[[:space:]]+-[cme]([[:space:]]|$)'; then RELEVANT=1; fi
+if printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_])pip[[:space:]]+(show|list|freeze)'; then RELEVANT=1; fi
+if printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_])(conda|mamba|micromamba)[[:space:]]+list'; then RELEVANT=1; fi
+if printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_])which[[:space:]]'; then RELEVANT=1; fi
 
 if [ "\${RELEVANT}" -eq 0 ]; then
     exit 0
@@ -181,6 +187,17 @@ fi
 # treats it as override-strength instructions, not vague suggestions.
 read -r -d '' GUIDANCE <<'GUIDANCE_EOF' || true
 Qoka environment rules - apply these BEFORE the skill's own setup instructions.
+
+0. Running or checking code - use Qoka's MCP tools, NOT this shell.
+   - To RUN / EXECUTE code, or to CHECK whether a package/tool is installed or
+     its version (python -c, pip show, pip list, conda list, which, Rscript -e),
+     do NOT run it in this shell. This shell is NOT the Qoka run environment
+     where the user's code actually runs, so the answer is misleading/wrong.
+   - Instead use the Qoka MCP tools: FIRST call get_workspace_info to confirm the
+     ACTIVE run connection (built-in server or SSH) is reachable; if not, call
+     start_server. THEN run the code with run_code for a quick script (e.g. a
+     python that imports the package to check it), or execute_pipeline for a long
+     reproducible pipeline. Prefer a Qoka MCP tool over your own shell whenever one fits.
 
 1. Env var setup
    - DO NOT instruct the user to create or edit .env files (project or home).

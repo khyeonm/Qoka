@@ -187,7 +187,10 @@ export class VMManager {
 
 		const distro = pickDistro(await listDistros());
 		if (!distro) {
-			throw new Error('No WSL Linux distribution was found. Install Ubuntu with "wsl --install -d Ubuntu", reboot, and create your account, then try again.');
+			// The WSL engine is present (wslAvailable passed) but no distribution is
+			// registered - `wsl --version` still succeeds in this state, which
+			// confuses users. Be explicit that a distro must be installed.
+			throw new Error('WSL is installed but no Linux distribution was found (run "wsl -l -v" to confirm it is empty). Install one and create an account: run "wsl --install -d Ubuntu", then open Ubuntu once to set a username and password, and try again.');
 		}
 
 		// Ubuntu's first-run account step sets a non-root default user. Until the

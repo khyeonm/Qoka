@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import { detectAiProviders } from './detection/claudeCodeDetector';
 import { QokaMcpServer } from './mcp/server';
-import { ALL_TOOLS } from './mcp/tools';
+import { ALL_TOOLS, AUTOPIPE_MCP_INSTRUCTIONS } from './mcp/tools';
 import { RUN_TOOLS, RUN_MCP_INSTRUCTIONS } from './mcp/tools/run';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
@@ -164,7 +164,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		}),
 	);
 
-	mcpServer = new QokaMcpServer({ name: 'autopipe', tools: ALL_TOOLS, defaultPort: 3748 });
+	mcpServer = new QokaMcpServer({ name: 'autopipe', tools: ALL_TOOLS, defaultPort: 3748, instructions: AUTOPIPE_MCP_INSTRUCTIONS });
 	// Second MCP: "qoka-run" - quick one-off code execution (run_code) on the SAME
 	// built-in server (shared via VMManager). Registered under its own name/port so
 	// the AI lists it as a separate server. Port range starts at 3760 to stay clear
@@ -254,6 +254,36 @@ export function activate(context: vscode.ExtensionContext): void {
 	);
 
 	context.subscriptions.push(
+		// Live reachability of the ACTIVE run connection - the SINGLE source of truth
+		// shared by the Connections view (green/red dot) and get_workspace_info, so
+		// the UI, the actual connection, and what the chat reports always agree.
+		vscode.commands.registerCommand('aria.autopipe.connection.probe', async () => {
+			if (config.isLocalVmActive()) {
+				const ep = config.localVmProfile();
+				if (!ep) { return { kind: 'builtin' as const, connected: false }; }
+				return { kind: 'builtin' as const, connected: await services.ssh.canConnect(ep, 4000) };
+			}
+			const p = config.activeProfile();
+			if (!p) { return { kind: 'none' as const, connected: false }; }
+			return { kind: 'ssh' as const, connected: await services.ssh.canConnect(p, 5000) };
+		}),
+		// Re-establish the ACTIVE connection: restart the built-in server, or (for an
+		// SSH host we don't manage) just re-probe it. Returns the fresh reachability.
+		vscode.commands.registerCommand('aria.autopipe.connection.restart', async () => {
+			if (config.isLocalVmActive()) {
+				try {
+					await vm.stop();
+					await vm.start();
+					const ep = config.localVmProfile();
+					return { kind: 'builtin' as const, connected: !!ep && await services.ssh.canConnect(ep, 4000) };
+				} catch (e) {
+					return { kind: 'builtin' as const, connected: false, error: e instanceof Error ? e.message : String(e) };
+				}
+			}
+			const p = config.activeProfile();
+			if (!p) { return { kind: 'none' as const, connected: false }; }
+			return { kind: 'ssh' as const, connected: await services.ssh.canConnect(p, 5000) };
+		}),
 		vscode.commands.registerCommand('aria.autopipe.getStatus', async (silent?: boolean) => {
 			const detection = await detectAiProviders();
 			const cfg = config.get();

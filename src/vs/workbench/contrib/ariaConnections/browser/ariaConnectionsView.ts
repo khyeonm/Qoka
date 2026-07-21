@@ -65,6 +65,10 @@ export class AriaConnectionsView extends ViewPane {
 	private editDraft: SshFormDraft = { ...EMPTY_DRAFT };
 	/** Live status of the built-in VM (from aria.autopipe.vm.status). */
 	private vmStatus: { status: string; error?: string; progress?: { message: string; pct?: number } } | undefined;
+	/** Live reachability of the ACTIVE connection (from aria.autopipe.connection.probe).
+	 *  The SAME signal get_workspace_info uses, so the dot, the real connection, and
+	 *  what the chat says all agree. */
+	private activeProbe: { kind: 'builtin' | 'ssh' | 'none'; connected: boolean } | undefined;
 
 	constructor(
 		options: IViewPaneOptions,
@@ -123,16 +127,21 @@ export class AriaConnectionsView extends ViewPane {
 		} catch {
 			this.vmStatus = undefined;
 		}
-		// While the built-in server is downloading/booting, poll fast for progress;
-		// poll slower whenever it's the active target but not yet ready, so a start
-		// kicked off elsewhere (e.g. the assistant calling start_built_in_server)
-		// flips the row to "Running" on its own. Stops once ready / not the target.
+		// Live-probe the ACTIVE connection so the dot reflects REAL reachability
+		// (not just which target is selected). Same command get_workspace_info uses.
+		try {
+			this.activeProbe = await this.commandService.executeCommand('aria.autopipe.connection.probe');
+		} catch {
+			this.activeProbe = undefined;
+		}
+		// Heartbeat: keep the green/red dot live by re-probing on a timer - fast while
+		// the built-in server is still coming up, slower once settled. Pause the timer
+		// while a form is open so a re-render never wipes what the user is typing.
 		const vmSt = this.vmStatus?.status;
-		const vmIsActiveTarget = (status.sshActiveProfileId ?? null) === LOCAL_VM_ID;
-		if (vmSt === 'provisioning' || vmSt === 'booting') {
-			setTimeout(() => { void this.refresh(); }, 2000);
-		} else if (vmIsActiveTarget && vmSt !== 'ready') {
-			setTimeout(() => { void this.refresh(); }, 4000);
+		const anyFormOpen = this.sshFormOpen || !!this.editingId;
+		if (!anyFormOpen) {
+			const delay = (vmSt === 'provisioning' || vmSt === 'booting') ? 2000 : 8000;
+			setTimeout(() => { void this.refresh(); }, delay);
 		}
 
 		clearNode(root);
@@ -170,14 +179,16 @@ export class AriaConnectionsView extends ViewPane {
 			const row = append(section, $('div'));
 			Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', cursor: 'pointer' });
 
+			// Real connection state: green only when this IS the active target AND it
+			// actually answered the live probe; red when active but unreachable; no
+			// color when it isn't the selected target.
+			const sshReachable = isActive && this.activeProbe?.kind === 'ssh' && this.activeProbe.connected;
 			const dot = append(row, $('span'));
 			Object.assign(dot.style, {
 				width: '12px', height: '12px', borderRadius: '50%', flexShrink: '0', boxSizing: 'border-box',
 				border: '1px solid',
-				// Green circle when this SSH server is the active (connected) target;
-				// no color otherwise.
-				borderColor: isActive ? 'var(--vscode-charts-green, #4caf50)' : 'var(--vscode-descriptionForeground)',
-				background: isActive ? 'var(--vscode-charts-green, #4caf50)' : 'transparent',
+				borderColor: !isActive ? 'var(--vscode-descriptionForeground)' : (sshReachable ? 'var(--vscode-charts-green, #4caf50)' : 'var(--vscode-charts-red, #f14c4c)'),
+				background: !isActive ? 'transparent' : (sshReachable ? 'var(--vscode-charts-green, #4caf50)' : 'var(--vscode-charts-red, #f14c4c)'),
 			});
 
 			const text = append(row, $('div'));
@@ -241,15 +252,16 @@ export class AriaConnectionsView extends ViewPane {
 		const row = append(section, $('div'));
 		Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', cursor: 'pointer' });
 
+		// Real connection state, not just "selected": green when active AND the live
+		// probe answered; red when active but unreachable (still booting, or ready
+		// yet not responding); no color when an SSH server is the active target.
+		const builtinReachable = isActive && this.activeProbe?.kind === 'builtin' && this.activeProbe.connected;
 		const dot = append(row, $('span'));
 		Object.assign(dot.style, {
 			width: '12px', height: '12px', borderRadius: '50%', flexShrink: '0', boxSizing: 'border-box',
 			border: '1px solid',
-			// Status light: green when the built-in server is active AND ready (usable),
-			// red when active but not yet usable, and NO color when an SSH server is the
-			// active target instead (the built-in isn't the one in use).
-			borderColor: isActive ? (st === 'ready' ? 'var(--vscode-charts-green, #4caf50)' : 'var(--vscode-charts-red, #f14c4c)') : 'var(--vscode-descriptionForeground)',
-			background: isActive ? (st === 'ready' ? 'var(--vscode-charts-green, #4caf50)' : 'var(--vscode-charts-red, #f14c4c)') : 'transparent',
+			borderColor: !isActive ? 'var(--vscode-descriptionForeground)' : (builtinReachable ? 'var(--vscode-charts-green, #4caf50)' : 'var(--vscode-charts-red, #f14c4c)'),
+			background: !isActive ? 'transparent' : (builtinReachable ? 'var(--vscode-charts-green, #4caf50)' : 'var(--vscode-charts-red, #f14c4c)'),
 		});
 
 		const text = append(row, $('div'));
@@ -258,7 +270,9 @@ export class AriaConnectionsView extends ViewPane {
 		title.textContent = 'Qoka built-in server';
 		title.style.fontSize = '12px';
 		const sub = append(text, $('div'));
-		let subText = 'Runs on this computer - no server needed';
+		// When it isn't the selected target, say so plainly ("Not in use") rather than
+		// implying it's ready.
+		let subText = 'Not in use';
 		if (isActive) {
 			if (st === 'provisioning') {
 				subText = this.vmStatus?.progress?.pct != null ? `Downloading ${this.vmStatus.progress.pct}%…` : 'Preparing…';
@@ -267,7 +281,9 @@ export class AriaConnectionsView extends ViewPane {
 			} else if (st === 'error') {
 				subText = 'Not running';
 			} else if (st === 'ready') {
-				subText = 'Running on this computer';
+				subText = builtinReachable ? 'Running on this computer' : 'Not responding - click to restart';
+			} else {
+				subText = 'Not running';
 			}
 		}
 		sub.textContent = subText;
@@ -278,7 +294,12 @@ export class AriaConnectionsView extends ViewPane {
 		Object.assign(gear.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
 		gear.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.vm.editResources').then(() => this.refresh()); };
 
-		row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh()); };
+		// Click an INACTIVE row to select + start it; click the ACTIVE row to
+		// restart it (so "Not responding" is one click from recovery).
+		row.onclick = () => {
+			const cmd = isActive ? 'aria.autopipe.connection.restart' : 'aria.autopipe.vm.setup';
+			void this.commandService.executeCommand(cmd).then(() => this.refresh());
+		};
 	}
 
 	private renderSshForm(parent: HTMLElement): void {

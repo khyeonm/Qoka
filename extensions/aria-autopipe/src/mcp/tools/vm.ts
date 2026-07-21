@@ -3,31 +3,85 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as vscode from 'vscode';
 import { ToolDefinition, textResult } from './types';
 import { services } from '../../common/services';
 import { hostVmLimits } from '../../common/types';
+import { ensureBuiltinServer, isReachable, restartBuiltinServer } from '../../runtime/builtinServer';
 
 // Built-in server (local QEMU VM) resource tools. These ONLY apply when the
 // active run environment is the built-in VM - an SSH server's resources are the
 // remote machine's and aren't ours to change.
 
+/**
+ * Message for when the built-in server can't start / stay reachable. On Windows
+ * the built-in server IS a WSL2 distro, so the most common cause is a missing
+ * distribution (the WSL engine can be present - `wsl --version` works - while no
+ * Ubuntu is installed). Surface a concrete check-and-install path there.
+ */
+function builtinFailureGuidance(reason: string): string {
+	const base = `The built-in server could not be started (${reason}).`;
+	if (process.platform === 'win32') {
+		return [
+			base,
+			'',
+			'On Windows the built-in server runs on WSL. Ask the user to check, in PowerShell:',
+			'  - `wsl --version`  (the WSL engine - note: this succeeds even with NO Linux distribution installed)',
+			'  - `wsl -l -v`      (the installed distributions)',
+			'If `wsl -l -v` is EMPTY, there is no Linux distribution yet - install one and create an account:',
+			'  `wsl --install -d Ubuntu`   then open Ubuntu once to set a username/password.',
+			'After a distribution is installed and an account created, call start_server again.',
+		].join('\n');
+	}
+	return `${base} Tell the user, wait ~60-90 seconds, then call start_server again; if it keeps failing, ask them to restart the app.`;
+}
+
 export const VM_TOOLS: ToolDefinition[] = [
 	{
-		name: 'start_built_in_server',
-		description: 'Start the Qoka built-in server (local VM) when it is the selected run environment but is not running yet - e.g. when get_workspace_info reports it is not running. This begins downloading/booting it (about a minute or two). Call this instead of asking the user to press any button. After calling, tell the user it is starting, wait ~60-90 seconds, call get_workspace_info again, and once it reports a reachable endpoint, retry the pipeline step.',
+		name: 'start_server',
+		description: '(Re)start and VERIFY the ACTIVE run connection - the built-in server OR the SSH server selected in the Connections tab. Call this whenever code cannot run because the connection is not ready: the built-in server is not running, an SSH server is unreachable, or a run just failed with a connection/refused error. For the built-in server it boots or restarts it and confirms it actually answers over SSH; for an SSH server it re-tests the connection and reports the endpoint. If the built-in server repeatedly fails to start on Windows, it tells you to check that WSL AND a Linux distribution (Ubuntu) are installed. Call this instead of asking the user to press a button. After it reports the connection is up, retry the run.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
-			const { config } = services();
+			const { config, ssh } = services();
+
+			// SSH server is the active target: don't touch the built-in server -
+			// just re-test the connection (ssh2 opens a fresh connection each call,
+			// so a probe IS the reconnect) and report the endpoint.
 			if (!config.isLocalVmActive()) {
-				return textResult('The built-in server is not the selected run environment (an SSH server is active), so there is nothing to start here.');
+				const profile = config.activeProfile();
+				if (!profile) {
+					return textResult('No run connection is selected. Open the Connections tab and choose the built-in server or an SSH server, then try again.');
+				}
+				const ep = `${profile.username}@${profile.host}:${profile.port}`;
+				try {
+					const ok = await ssh.canConnect(profile, 8000);
+					return textResult(ok
+						? `The SSH server ${ep} is connected and reachable. Retry the run.`
+						: `The SSH server ${ep} is NOT reachable. Ask the user to check that the server is on, the host/port/username are correct, credentials are valid, and the network/VPN is up - then try again.`);
+				} catch (e) {
+					return textResult(`Could not reach the SSH server ${ep}: ${e instanceof Error ? e.message : String(e)}. Check host/port/credentials and the network, then retry.`);
+				}
 			}
+
+			// Built-in server is the active target: ensure it is up, and if it does
+			// not actually answer, restart it once before giving up.
 			try {
-				await vscode.commands.executeCommand('aria.autopipe.vm.setup');
+				let ok = false;
+				try {
+					const ep = await ensureBuiltinServer();
+					ok = await isReachable(ep);
+					if (!ok) {
+						const ep2 = await restartBuiltinServer();
+						ok = await isReachable(ep2);
+					}
+				} catch (startErr) {
+					return textResult(builtinFailureGuidance(startErr instanceof Error ? startErr.message : String(startErr)));
+				}
+				return ok
+					? textResult('The built-in server is running and reachable. Retry the run.')
+					: textResult(builtinFailureGuidance('it started but is still refusing the connection'));
 			} catch (e) {
-				return textResult(`Could not start the built-in server: ${e instanceof Error ? e.message : String(e)}`);
+				return textResult(builtinFailureGuidance(e instanceof Error ? e.message : String(e)));
 			}
-			return textResult('Starting the Qoka built-in server - it downloads/boots in the background (about a minute or two). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again; once it reports a reachable endpoint, retry the pipeline step.');
 		},
 	},
 	{
