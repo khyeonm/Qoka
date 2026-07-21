@@ -88,20 +88,52 @@ function cap(s: string, n: number): string {
 	return s.length <= n ? s : s.slice(0, n) + `\n…[truncated ${s.length - n} more chars - see the run folder]`;
 }
 
-// Unique-per-call id. A counter breaks ties when two calls land in the same
-// second (new Date() only has second/ms granularity and can collide).
+// Fallback name, used only when the caller gave no usable label. A counter
+// breaks ties when two calls land in the same second (new Date() only has
+// second/ms granularity and can collide).
 let seq = 0;
-function newRunId(): string {
+function timestampId(): string {
 	seq = (seq + 1) % 100000;
 	const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '');
 	return `${ts}-${String(seq).padStart(5, '0')}`;
+}
+
+/** Kebab-case slug of the caller's label. Deliberately restricted to [a-z0-9-]:
+ *  the name becomes BOTH a Windows path segment and a directory inside a remote
+ *  shell command, so anything else risks quoting or path trouble. */
+function slugify(label: string): string {
+	return label
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 48)
+		.replace(/-+$/g, '');
+}
+
+/**
+ * Folder name for this run: the caller's label in kebab-case, so analysis/ reads
+ * as a list of what was actually done instead of a wall of timestamps. A name
+ * that is already taken gets -2, -3, … so re-running the same analysis never
+ * mixes its outputs into the previous run's folder. Falls back to a timestamp
+ * when there is no usable label (e.g. it slugged away to nothing).
+ */
+function runDirName(label: string | undefined, analysisDir: string | undefined): string {
+	const slug = slugify(label ?? '');
+	if (!slug) { return timestampId(); }
+	if (!analysisDir) { return slug; }
+	let name = slug;
+	let n = 2;
+	while (n < 1000 && fs.existsSync(path.join(analysisDir, name))) {
+		name = `${slug}-${n++}`;
+	}
+	return name;
 }
 
 export const RUN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'run_code',
 		description:
-			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Connections tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. '
+			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Connections tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work (analysis/rna-velocity-umap/) instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
@@ -113,6 +145,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 			type: 'object',
 			properties: {
 				language: { type: 'string', description: 'Interpreter to run the code with. Python runs via uv.', enum: ['bash', 'python', 'node'] },
+					label: { type: 'string', description: 'REQUIRED in practice: a SHORT kebab-case summary of what this run does, used as the result folder name (e.g. "rna-velocity-umap", "scanpy-qc", "check-scanpy-version"). Summarise the USER\'s request in 2-5 English words; lowercase letters, digits and hyphens only. This keeps analysis/ readable instead of a wall of timestamps. If the name is already taken it gets -2, -3, … automatically, so never add a date, time or counter yourself. Omitting this falls back to an ugly timestamp folder.' },
 				code: { type: 'string', description: 'The full script source to run. It executes with its working directory set to the run folder, so relative output paths land in analysis/<run-id>/.' },
 				dependencies: { type: 'array', description: 'Python packages to install for this run (e.g. ["scanpy", "leidenalg"]). Installed automatically via uv before the code runs. Python only; ignored for bash/node. Alternatively put a PEP 723 `# /// script` block in the code itself.', items: { type: 'string' } },
 				timeout_s: { type: 'integer', description: 'Max seconds to allow the script to run (default 300, max 900). SET THIS TO 900 whenever the run may install anything: the FIRST Python run downloads the interpreter plus every requested package, and a scientific stack (scanpy, anndata, scvi-tools, a conda/bioconda env) routinely needs more than the 300s default. Exceeding it kills the run mid-install and looks to the user like the code failed. Later runs reuse the cache and are fast, so this costs nothing when it is not needed.' },
@@ -141,14 +174,20 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const { ssh } = services();
 				const spec = LANGS[language];
 				const file = spec.file;
-				const id = newRunId();
+				// Name the run folder after what the user actually asked for. Needs
+				// wsRoot first: the name is de-duplicated against the project's existing
+				// analysis/ folders so a repeat run never lands in the previous one.
+				const wsRoot = workspaceFolderPath();
+				const id = runDirName(
+					typeof args.label === 'string' ? args.label : undefined,
+					wsRoot ? path.join(wsRoot, 'analysis') : undefined,
+				);
 
 				// Decide where the run dir lives. On Windows the built-in server is WSL,
 				// so write straight into analysis/<id>/ through the /mnt mount (outputs
 				// are then already local). Elsewhere - Mac/Linux built-in VM, or ANY
 				// remote SSH host, neither of which can see the local /mnt path - the
 				// run dir lives on the server and is SFTP-copied back below.
-				const wsRoot = workspaceFolderPath();
 				const mounted = isBuiltIn && process.platform === 'win32' && !!wsRoot;
 				// Shell EXPRESSION for the run dir, evaluated by the remote shell. The
 				// non-mounted form must stay unquoted-$HOME so the shell expands it:
@@ -160,7 +199,18 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					localDir = path.join(wsRoot, 'analysis', id);
 					fs.mkdirSync(localDir, { recursive: true });
 					runDirExpr = `'${windowsToWsl(localDir)}'`;
+				} else if (!isBuiltIn) {
+					// A user-provided SSH server: stay INSIDE the workspace directory the
+					// user configured for that connection (repo_path). Writing to $HOME
+					// would scatter run files outside the path they chose, which is theirs
+					// to control. Same `{repo_path}/<kind>` layout as pipelines/ and
+					// pipelines_output/. A leading `~` becomes $HOME so the shell still
+					// expands it inside the double quotes.
+					const repo = (ep.repo_path ?? '').trim().replace(/\/+$/, '').replace(/^~(?=\/|$)/, '$HOME');
+					runDirExpr = repo ? `"${repo}/analysis/${id}"` : `"$HOME/qoka-analysis/${id}"`;
 				} else {
+					// Built-in VM (Mac/Linux): a scratch guest whose results are copied
+					// back into the project, so its own home is fine.
 					runDirExpr = `"$HOME/qoka-analysis/${id}"`;
 				}
 
