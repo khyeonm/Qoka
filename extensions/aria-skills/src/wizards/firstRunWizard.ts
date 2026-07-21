@@ -38,7 +38,14 @@ export async function runFirstRunWizardIfNeeded(): Promise<void> {
 	// the default skills so the user sees their presence acknowledged.
 	// We avoid listing individual skill names so the row stays stable
 	// as the default set grows.
-	await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-skills-firstrun');
+	// BEST-EFFORT: this is cosmetic (one row in the startup toast). It used to be
+	// awaited unguarded, so on a fresh profile where the workbench hasn't
+	// registered aria.startup.* yet the rejection aborted the ENTIRE wizard before
+	// a single skill was installed - silently, because the caller does
+	// `void runFirstRunWizardIfNeeded()`. Never let it block the install.
+	try {
+		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-skills-firstrun');
+	} catch { /* startup overlay not up yet - install the defaults anyway */ }
 
 	let summary = 'Default skills - already configured';
 	let changed = false;
@@ -86,12 +93,17 @@ export async function runFirstRunWizardIfNeeded(): Promise<void> {
 		}
 		// else: missing was empty → leaves the "already configured" default
 
-		await vscode.commands.executeCommand(
-			'aria.startup.markComplete',
-			'aria-skills-firstrun',
-			summary,
-			changed,
-		);
+		// Best-effort for the same reason as beginTracking above: a missing
+		// startup-tracking command must not turn a successful install into a
+		// thrown finally block.
+		try {
+			await vscode.commands.executeCommand(
+				'aria.startup.markComplete',
+				'aria-skills-firstrun',
+				summary,
+				changed,
+			);
+		} catch { /* startup overlay not up - nothing to report to */ }
 	}
 
 	// If anything actually changed on disk, ping the Skills sidebar so

@@ -43,6 +43,11 @@ const EMPTY_DRAFT: SshFormDraft = {
  *  workbench→extension import). */
 const LOCAL_VM_ID = '__local_vm__';
 
+/** How many times to re-probe a connection that isn't answering before giving up
+ *  and leaving the row red. Keeps a dead host from being re-authenticated
+ *  forever, which some servers treat as abuse. */
+const MAX_PROBE_RETRIES = 3;
+
 /**
  * Connections panel. The single place to choose WHERE the AI runs code: the
  * built-in server (WSL/VM) or a user-added SSH server. Both autopipe pipelines
@@ -69,6 +74,11 @@ export class AriaConnectionsView extends ViewPane {
 	 *  The SAME signal get_workspace_info uses, so the dot, the real connection, and
 	 *  what the chat says all agree. */
 	private activeProbe: { kind: 'builtin' | 'ssh' | 'none'; connected: boolean } | undefined;
+	/** Attempts spent on the CURRENT disconnected target; reset when it connects,
+	 *  when the target changes, when the view reopens, or when the user clicks a row. */
+	private probeRetries = 0;
+	/** Active target id from the last refresh, to detect a switch. */
+	private lastActiveId: string | null | undefined;
 
 	constructor(
 		options: IViewPaneOptions,
@@ -100,6 +110,9 @@ export class AriaConnectionsView extends ViewPane {
 		root.style.overflowX = 'hidden';
 		root.style.wordBreak = 'break-word';
 		this.viewBody = root;
+		// Opening the view is an explicit user action: allow a fresh round of probes
+		// even if we had given up on a dead connection earlier.
+		this.probeRetries = 0;
 		void this.refresh();
 	}
 
@@ -127,6 +140,12 @@ export class AriaConnectionsView extends ViewPane {
 		} catch {
 			this.vmStatus = undefined;
 		}
+		// Switching to a different target starts a fresh round of attempts.
+		const activeIdNow = status.sshActiveProfileId ?? null;
+		if (activeIdNow !== this.lastActiveId) {
+			this.lastActiveId = activeIdNow;
+			this.probeRetries = 0;
+		}
 		// Live-probe the ACTIVE connection so the dot reflects REAL reachability
 		// (not just which target is selected). Same command get_workspace_info uses.
 		try {
@@ -137,11 +156,29 @@ export class AriaConnectionsView extends ViewPane {
 		// Heartbeat: keep the green/red dot live by re-probing on a timer - fast while
 		// the built-in server is still coming up, slower once settled. Pause the timer
 		// while a form is open so a re-render never wipes what the user is typing.
+		// Probing costs a full SSH auth, and a single run already opens several
+		// connections in seconds - a steady heartbeat on top of that can trip a
+		// server's connection/auth limits mid-run. So: once CONNECTED, stop probing
+		// entirely (the dot stays green). While DISCONNECTED, retry a few times and
+		// then give up, leaving the row red until the user acts. Re-opening the view,
+		// switching target, or clicking a row starts a fresh round of attempts.
 		const vmSt = this.vmStatus?.status;
 		const anyFormOpen = this.sshFormOpen || !!this.editingId;
+		const connected = !!this.activeProbe?.connected;
+		if (connected) {
+			this.probeRetries = 0;
+		}
 		if (!anyFormOpen) {
-			const delay = (vmSt === 'provisioning' || vmSt === 'booting') ? 2000 : 8000;
-			setTimeout(() => { void this.refresh(); }, delay);
+			if (vmSt === 'provisioning' || vmSt === 'booting') {
+				// The built-in server is still coming up: keep showing boot progress.
+				// This is a local VM, so polling it is cheap and does not count as a
+				// connection retry.
+				setTimeout(() => { void this.refresh(); }, 2000);
+			} else if (!connected && this.probeRetries < MAX_PROBE_RETRIES) {
+				this.probeRetries++;
+				setTimeout(() => { void this.refresh(); }, 5000);
+			}
+			// connected -> no timer at all: stop re-authenticating.
 		}
 
 		clearNode(root);
@@ -227,7 +264,10 @@ export class AriaConnectionsView extends ViewPane {
 			Object.assign(trash.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
 			trash.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.ssh.remove', p.id).then(() => this.refresh()); };
 
-			row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.ssh.setActiveById', p.id).then(() => this.refresh()); };
+			row.onclick = () => {
+				this.probeRetries = 0;
+				void this.commandService.executeCommand('aria.autopipe.ssh.setActiveById', p.id).then(() => this.refresh());
+			};
 
 			if (this.editingId === p.id) {
 				this.renderEditForm(section, p.id);
@@ -297,6 +337,7 @@ export class AriaConnectionsView extends ViewPane {
 		// Click an INACTIVE row to select + start it; click the ACTIVE row to
 		// restart it (so "Not responding" is one click from recovery).
 		row.onclick = () => {
+			this.probeRetries = 0;
 			const cmd = isActive ? 'aria.autopipe.connection.restart' : 'aria.autopipe.vm.setup';
 			void this.commandService.executeCommand(cmd).then(() => this.refresh());
 		};
@@ -364,12 +405,13 @@ export class AriaConnectionsView extends ViewPane {
 	/** Inline edit form for an existing SSH server (like the add form). Pre-filled
 	 *  from getProfile; password left blank keeps the current one. */
 	private renderEditForm(parent: HTMLElement, id: string): void {
+		// Same full-width layout as the Add form (a top separator, no indent) so the
+		// two look identical - the old left-rail indent pushed every field right.
 		const form = append(parent, $('div'));
-		form.style.marginTop = '8px';
+		form.style.marginTop = '10px';
 		form.style.marginBottom = '8px';
-		form.style.marginLeft = '20px';
-		form.style.borderLeft = '2px solid var(--vscode-focusBorder, #4098ff)';
-		form.style.paddingLeft = '10px';
+		form.style.borderTop = '1px solid var(--vscode-widget-border, transparent)';
+		form.style.paddingTop = '10px';
 
 		labelInput(form, 'Name', this.editDraft.name, 'e.g. lab server', (v) => { this.editDraft.name = v; });
 		labelInput(form, 'Host', this.editDraft.host, 'server.example.com', (v) => { this.editDraft.host = v; });

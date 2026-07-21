@@ -32,12 +32,32 @@ export async function ensureBuiltinServer(): Promise<SshProfile> {
 	return ep;
 }
 
+/** Recent SUCCESSFUL probes, keyed by endpoint. Every probe is a full SSH
+ *  auth, and a single run_code already opens several connections in seconds
+ *  (mkdir + write + run + ls + one per copied file). Re-authenticating again
+ *  right before the run pushed some servers over their connection/auth limits,
+ *  which surfaces as "All configured authentication methods failed" mid-run.
+ *  Only successes are cached, so a real outage is never masked. */
+const probeCache = new Map<string, number>();
+const PROBE_TTL_MS = 15_000;
+
 /** True when the endpoint actually answers over SSH right now. A cheap live
  *  probe (short timeout) used both before running code and by the Connections
- *  view's green/red indicator. */
+ *  view's green/red indicator. Reuses a successful probe for PROBE_TTL_MS. */
 export async function isReachable(profile: SshProfile, timeoutMs = 4000): Promise<boolean> {
+	const key = `${profile.username}@${profile.host}:${profile.port}`;
+	const lastOk = probeCache.get(key);
+	if (lastOk !== undefined && Date.now() - lastOk < PROBE_TTL_MS) {
+		return true;
+	}
 	const { ssh } = services();
-	return ssh.canConnect(profile, timeoutMs);
+	const ok = await ssh.canConnect(profile, timeoutMs);
+	if (ok) {
+		probeCache.set(key, Date.now());
+	} else {
+		probeCache.delete(key);
+	}
+	return ok;
 }
 
 /** Restart the built-in server (stop then start) and return its fresh endpoint.

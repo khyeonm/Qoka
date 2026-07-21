@@ -602,6 +602,9 @@ export function reconcileWithDisk(): SkillInfo[] {
 		try {
 			names = fs.readdirSync(dir, { withFileTypes: true })
 				.filter(e => e.isDirectory())
+				// Skip dot-directories: those are the provider's own internals
+				// (e.g. ~/.codex/skills/.system), not user-facing skills.
+				.filter(e => !e.name.startsWith('.'))
 				.map(e => e.name);
 		} catch { /* ignore unreadable dir */ }
 		for (const name of names) {
