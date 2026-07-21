@@ -116,8 +116,25 @@ fi
 #   - env | grep ... without a redacting sed pipe.
 DENY=0
 DENY_REASON=""
+CODE_ROUTE=0
 
-if printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])(cat|less|more|head|tail|view|bat)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^|;&]*\\.env([^a-zA-Z0-9_]|$)'; then
+# Step 0: running or CHECKING code in Codex's own shell inspects the WRONG
+# environment (not the Qoka run env), so hard-deny it and redirect to run_code.
+if printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])(python3?|Rscript|node)([[:space:]]+-[cme]|[[:space:]]+[^[:space:]]*\\.(py|R|r|js))'; then DENY=1; CODE_ROUTE=1; fi
+if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])pip3?[[:space:]]+(install|show|list|freeze|uninstall)'; then DENY=1; CODE_ROUTE=1; fi
+if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])(conda|mamba|micromamba)[[:space:]]+(install|list|run|create|remove|search)'; then DENY=1; CODE_ROUTE=1; fi
+if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])uv[[:space:]]+(pip|run|add)'; then DENY=1; CODE_ROUTE=1; fi
+if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])(which|jupyter)[[:space:]]'; then DENY=1; CODE_ROUTE=1; fi
+if [ "\${CODE_ROUTE}" -eq 1 ]; then
+    DENY_REASON="Running or checking code in this shell is blocked - this shell is NOT the Qoka run environment where the user code runs, so the result would be wrong. Use the Qoka MCP tools instead: call get_workspace_info to confirm the active run connection (call start_server if it is not reachable), then run_code for a quick script (e.g. a python that imports a package to check it) or execute_pipeline for a long reproducible pipeline. Do NOT retry this command in the shell."
+fi
+
+# Existing credential-leak denials (only when a code-route deny did not fire).
+if [ "\${DENY}" -eq 0 ]; then
+  true
+fi
+
+if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])(cat|less|more|head|tail|view|bat)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^|;&]*\\.env([^a-zA-Z0-9_]|$)'; then
     DENY=1
     DENY_REASON="Reading the contents of an .env file (cat/less/head/tail/etc.) would surface credential values into the transcript."
 fi
@@ -149,7 +166,11 @@ if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE 'env[[:space:]]*
 fi
 
 if [ "\${DENY}" -eq 1 ]; then
-    GUIDED_REDIRECT="Direct the user to Qoka's Skills tab (puzzle icon on the left sidebar). The skill card's [Enter keys] button (or the Environment Variables section's [Edit] button per row) is the only safe way to view or change a credential value - the input box shows the masked field with an Edit affordance, never echoing the value into chat."
+    if [ "\${CODE_ROUTE}" -eq 1 ]; then
+        GUIDED_REDIRECT=""
+    else
+        GUIDED_REDIRECT="Direct the user to Qoka's Skills tab (puzzle icon on the left sidebar). The skill card's [Enter keys] button (or the Environment Variables section's [Edit] button per row) is the only safe way to view or change a credential value - the input box shows the masked field with an Edit affordance, never echoing the value into chat."
+    fi
     if command -v jq >/dev/null 2>&1; then
         jq -nc \\
             --arg reason "Qoka denied this tool call - \${DENY_REASON} \${GUIDED_REDIRECT}" \\

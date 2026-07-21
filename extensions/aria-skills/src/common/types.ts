@@ -52,6 +52,10 @@ export interface SkillInfo {
 	 *  skills sharing a group render under one collapsible sub-section in the
 	 *  Skills tab. Undefined for user skills and ungrouped defaults. */
 	group?: string;
+	/** Hidden skills are installed + mirrored to providers like any other, but
+	 *  NEVER shown in the Skills tab. Used for internal helper skills such as the
+	 *  Qoka tool-routing guide the AI reads to prefer Qoka MCP tools. */
+	hidden?: boolean;
 	/** ISO timestamp set when the skill was installed by Qoka. */
 	installedAt: string;
 	/** Latest installed version string, if known (currently from SKILL.md). */

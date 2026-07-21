@@ -50,9 +50,26 @@ export interface DefaultSkillSpec {
 	 *  the AI-CLI analysis entirely (fast, offline, deterministic). Leave
 	 *  undefined to fall back to analyzeSkillMd at install time. */
 	envVars?: EnvVarRequirement[];
+	/** Hidden skills install + mirror to providers like any other, but never
+	 *  appear in the Skills tab. Used for the internal Qoka tool-routing guide. */
+	hidden?: boolean;
 }
 
 export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
+	// DISABLED ON PURPOSE - do not delete. The hidden `using-qoka` routing skill
+	// (skills/using-qoka/SKILL.md) duplicates what Codex now gets from
+	// ~/.codex/AGENTS.md and Claude gets from the overview MCP's server
+	// instructions. Running both at once makes it impossible to tell WHICH channel
+	// is actually steering the model, so the skill stays off while we verify that
+	// AGENTS.md alone works for Codex. Re-enable by uncommenting if it does not.
+	// {
+	// 	name: 'using-qoka',
+	// 	bundledPath: 'skills/using-qoka',
+	// 	category: 'Qoka',
+	// 	description: 'Internal Qoka tool-routing guide - directs the AI to use Qoka MCP tools for research tasks.',
+	// 	hidden: true,
+	// 	envVars: [],
+	// },
 	{
 		name: 'paper-lookup',
 		bundledPath: 'skills/paper-lookup',

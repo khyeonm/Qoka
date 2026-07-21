@@ -381,8 +381,28 @@ export function resyncBundledSkills(): void {
 			const srcDir = resolveBundledPath(spec.bundledPath);
 			const srcMd = path.join(srcDir, 'SKILL.md');
 			const destMd = path.join(skillPath(spec.name), 'SKILL.md');
-			// Not installed yet → leave it for the first-run wizard.
+			// Not installed yet.
 			if (!fs.existsSync(srcMd) || !fs.existsSync(destMd)) {
+				// Hidden internal skills (e.g. the using-qoka tool-routing guide) never
+				// appear in the first-run wizard and carry no keys, so install them
+				// silently HERE - otherwise EXISTING profiles (already past first-run)
+				// would never receive them. Fresh installs still get them via the wizard.
+				if (spec.hidden && fs.existsSync(srcMd) && !fs.existsSync(destMd)) {
+					const dest = installFromLocal(srcDir, spec.name);
+					recordSkill({
+						name: spec.name,
+						category: spec.category,
+						description: spec.description,
+						source: `bundled:${spec.bundledPath}`,
+						type: 'default',
+						installedAt: new Date().toISOString(),
+						envVars: spec.envVars ?? [],
+						dependencies: [],
+						autoApprove: false,
+						path: dest,
+						hidden: true,
+					});
+				}
 				continue;
 			}
 			if (fs.readFileSync(srcMd, 'utf8') !== fs.readFileSync(destMd, 'utf8')) {
@@ -517,18 +537,80 @@ export function cleanupEnvDescriptions(): void {
  * that exist on disk but aren't in the manifest - those were likely
  * installed by another tool and Qoka shouldn't claim them.
  */
+/** Every skill directory the Skills tab should reflect: Qoka's canonical
+ *  ~/.claude/skills/ PLUS each provider's dir (~/.codex/skills/) that exists on
+ *  disk. A skill counts as present if its folder is in ANY of them. */
+function allSkillScanDirs(): string[] {
+	return [SKILLS_DIR, ...PROVIDER_SKILL_ROOTS.map(p => p.dir)]
+		.filter(d => { try { return fs.existsSync(d); } catch { return false; } });
+}
+
+/** True when a skill folder exists in ANY provider dir (not just ~/.claude). */
+function isInstalledOnAnyDisk(name: string): boolean {
+	return allSkillScanDirs().some(d => {
+		try { return fs.existsSync(path.join(d, name)); } catch { return false; }
+	});
+}
+
+/** Build a display-only SkillInfo for a skill folder found on disk but NOT in the
+ *  manifest - e.g. added directly to ~/.codex/skills/ outside Qoka. Metadata is
+ *  read from its SKILL.md. Not persisted or mirrored; purely so the Skills tab
+ *  reflects skills present in either provider's dir. */
+function adoptDiskSkill(name: string, dir: string): SkillInfo {
+	let description: string | undefined;
+	let category: string | undefined;
+	let envVars: SkillInfo['envVars'] = [];
+	try {
+		const parsed = parseSkillMd(fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8'));
+		description = parsed.description;
+		category = parsed.category;
+		envVars = parsed.envVars ?? [];
+	} catch { /* missing/unreadable SKILL.md - use defaults */ }
+	// Keep internal hidden defaults (e.g. the using-qoka router) hidden even when
+	// adopted straight from disk, so they never leak into the Skills tab.
+	const hidden = DEFAULT_SKILLS.find(d => d.name === name)?.hidden;
+	return {
+		name,
+		category: category || 'Imported',
+		description: description || 'Skill found on disk (added outside Qoka).',
+		source: dir,
+		type: 'user',
+		installedAt: new Date().toISOString(),
+		envVars,
+		dependencies: [],
+		autoApprove: false,
+		path: dir,
+		hidden,
+	};
+}
+
 export function reconcileWithDisk(): SkillInfo[] {
-	const managed = listManaged();
-	const orphaned: string[] = [];
-	for (const skill of managed) {
-		if (!isInstalledOnDisk(skill.name)) {
-			orphaned.push(skill.name);
+	// Drop manifest entries whose folder is gone from EVERY provider dir.
+	for (const skill of listManaged()) {
+		if (!isInstalledOnAnyDisk(skill.name)) {
+			removeSkillFromManifest(skill.name);
 		}
 	}
-	for (const name of orphaned) {
-		removeSkillFromManifest(name);
+	const kept = listManaged();
+	const known = new Set(kept.map(s => s.name));
+	// Adopt disk-only folders across ~/.claude/skills/ + provider dirs, deduped by
+	// name so a skill present in BOTH is shown once. Lets a Codex-only user (or a
+	// skill added straight into ~/.codex/skills/) still appear in the Skills tab.
+	const adopted: SkillInfo[] = [];
+	for (const dir of allSkillScanDirs()) {
+		let names: string[] = [];
+		try {
+			names = fs.readdirSync(dir, { withFileTypes: true })
+				.filter(e => e.isDirectory())
+				.map(e => e.name);
+		} catch { /* ignore unreadable dir */ }
+		for (const name of names) {
+			if (known.has(name)) { continue; }
+			known.add(name);
+			adopted.push(adoptDiskSkill(name, path.join(dir, name)));
+		}
 	}
-	return listManaged();
+	return [...kept, ...adopted];
 }
 
 /** Add or replace a skill record in the manifest. Convenience re-export. */

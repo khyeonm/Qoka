@@ -12,6 +12,7 @@ import { initLogger, log, showLogger } from './common/logger';
 import { setSkillAutoApprove } from './common/permissions';
 import { ensureEnvFile } from './common/envManager';
 import { ensureAriaHook } from './common/ariaHooks';
+import { ensureCodexAgentsMd } from './common/codexAgents';
 import { syncSkillsToProviders, resyncBundledSkills, cleanupEnvDescriptions } from './common/skillsManager';
 import { reconcileCategories } from './common/skillManifest';
 import { installProviderCli } from './installProviderCli';
@@ -95,6 +96,12 @@ export function activate(context: vscode.ExtensionContext): void {
 	// .env file" get overridden in favour of Qoka's Skills tab.
 	ensureAriaHook();
 
+	// Codex reads ~/.codex/AGENTS.md as BASE instructions every session, so that -
+	// not the MCP instructions field (Codex ignores it) and not a skill body (only
+	// loads on a keyword match) - is where Qoka's "prefer our MCP tools" routing
+	// has to live to be guaranteed. Refreshed on launch; only our marked block.
+	ensureCodexAgentsMd();
+
 	// Refresh app-bundled default skills whose SKILL.md changed in this build
 	// (e.g. iterative-paper-defense gaining the Codex reviewer) so an existing
 	// profile picks up the update without a re-install.
@@ -107,7 +114,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	let providerSyncTimer: NodeJS.Timeout | undefined;
 	context.subscriptions.push(vscode.extensions.onDidChange(() => {
 		if (providerSyncTimer) { clearTimeout(providerSyncTimer); }
-		providerSyncTimer = setTimeout(() => { syncSkillsToProviders(); ensureAriaHook(); }, 800);
+		providerSyncTimer = setTimeout(() => { syncSkillsToProviders(); ensureAriaHook(); ensureCodexAgentsMd(); }, 800);
 	}));
 
 	setSkillsServices(buildDefaultServices());
@@ -317,8 +324,11 @@ async function getState(): Promise<AriaSkillsState> {
 		};
 	};
 
-	const defaults = allSkills.filter(s => s.type === 'default').map(decorate);
-	const users = allSkills.filter(s => s.type === 'user').map(decorate);
+	// Hidden skills (e.g. the internal Qoka tool-routing guide) are installed and
+	// mirrored to providers like any other, but never surface in the Skills tab.
+	const visible = allSkills.filter(s => !s.hidden);
+	const defaults = visible.filter(s => s.type === 'default').map(decorate);
+	const users = visible.filter(s => s.type === 'user').map(decorate);
 	const categories = svc.manifest.readManifest().categories;
 
 	// Union of env vars across all installed skills. Each var lists which

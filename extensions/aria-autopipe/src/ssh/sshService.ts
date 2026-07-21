@@ -164,6 +164,16 @@ export class SshService {
 			});
 			conn.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
 
+			// keyboard-interactive fallback for password auth (PAM-only servers
+			// that don't offer the `password` method). Answer every prompt with
+			// the profile password, mirroring the OpenSSH client's behaviour.
+			if (profile.auth.type === 'password' && profile.auth.password) {
+				const kbPw = profile.auth.password;
+				conn.on('keyboard-interactive', (_name, _instructions, _lang, prompts, respond) => {
+					respond(prompts.map(() => kbPw));
+				});
+			}
+
 			try {
 				conn.connect(cfg);
 			} catch (e) {
@@ -214,6 +224,16 @@ export class SshService {
 				});
 			});
 			conn.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
+
+			// keyboard-interactive fallback for password auth (PAM-only servers
+			// that don't offer the `password` method). Answer every prompt with
+			// the profile password, mirroring the OpenSSH client's behaviour.
+			if (profile.auth.type === 'password' && profile.auth.password) {
+				const kbPw = profile.auth.password;
+				conn.on('keyboard-interactive', (_name, _instructions, _lang, prompts, respond) => {
+					respond(prompts.map(() => kbPw));
+				});
+			}
 
 			try {
 				conn.connect(cfg);
@@ -274,6 +294,16 @@ export class SshService {
 			});
 			conn.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
 
+			// keyboard-interactive fallback for password auth (PAM-only servers
+			// that don't offer the `password` method). Answer every prompt with
+			// the profile password, mirroring the OpenSSH client's behaviour.
+			if (profile.auth.type === 'password' && profile.auth.password) {
+				const kbPw = profile.auth.password;
+				conn.on('keyboard-interactive', (_name, _instructions, _lang, prompts, respond) => {
+					respond(prompts.map(() => kbPw));
+				});
+			}
+
 			try {
 				conn.connect(cfg);
 			} catch (e) {
@@ -297,6 +327,13 @@ function connectConfig(profile: SshProfile, timeoutMs?: number): ConnectConfig {
 		case 'password':
 			if (!profile.auth.password) { throw new Error('Password auth selected but no password supplied.'); }
 			cfg.password = profile.auth.password;
+			// Also allow keyboard-interactive: many PAM-based sshd only offer
+			// `keyboard-interactive`, not the `password` method, so a correct
+			// password still fails with "All configured authentication methods
+			// failed". The OpenSSH client falls back automatically; ssh2 needs
+			// tryKeyboard + a handler (added in execRaw) that replies with the
+			// same password.
+			cfg.tryKeyboard = true;
 			break;
 		case 'key':
 			if (!profile.auth.key_path) { throw new Error('Key auth selected but no key file supplied.'); }
