@@ -56,7 +56,7 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 	{
 		name: 'list_run_outputs',
 		description:
-			"List a completed run's output files with sizes (recursive), so you can show the user what is available and ASK which files to save into their project. "
+			"List a completed run's output files with sizes (recursive), on the SERVER. Note that check_status already copies a finished run's outputs into the project automatically (everything under the auto-copy size limit), so you normally do NOT need this to get results to the user - use it when a file was skipped for being too large, when a copy failed, or when the user asks what else is there. "
 			+ 'Paths returned are relative to the run output directory - pass the ones the user picks to save_results_to_project as `files`. '
 			+ 'Large files (hundreds of MB or GB, e.g. BAM/CRAM/FASTQ) should be flagged to the user with a warning that copying may take a while before you copy them.',
 		inputSchema: {
@@ -103,7 +103,7 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 	{
 		name: 'save_results_to_project',
 		description:
-			"Durably SAVE a completed run into the user's open project folder (<workspaceFolder>/autopipe/). Use this after a run finishes and the user has chosen what to keep - the built-in VM's disk is scratch and can be wiped, so this is how results survive. "
+			"Durably SAVE a completed run into the user's open project folder (<workspaceFolder>/autopipe/). Results under the auto-copy size limit are ALREADY saved automatically when check_status sees the run finish, so use this for the exceptions: a file left behind for being too large, a copy that failed, or a re-save the user asks for. Never use it (or read_file + write_file) to hand-copy results that were already saved. "
 			+ 'ALWAYS: (1) copies the pipeline CODE, and (2) writes an input MANIFEST (file list + sizes, NOT the input bytes). '
 			+ 'OUTPUT files are copied only when you pass `files` (relative paths from list_run_outputs); omit `files` to save just code + manifest. '
 			+ 'Recommended flow: call list_run_outputs first, ASK the user which files to save, then call this. Do NOT ask about pipeline code - it is always saved. '

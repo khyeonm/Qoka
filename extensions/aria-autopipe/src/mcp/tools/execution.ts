@@ -15,7 +15,7 @@ import {
 	resolveSymlinkTargets,
 	findPipelineDir,
 } from '../../common/dockerEnv';
-import { autoSavePipelineCodeOnCompletion } from '../../common/workspaceSync';
+import { autoSavePipelineCodeOnCompletion, autoSaveRunOutputsOnCompletion, AUTO_SAVE_MAX_FILE_BYTES, humanSize } from '../../common/workspaceSync';
 
 /**
  * Docker / Snakemake execution tools - faithful ports of build_image,
@@ -520,11 +520,33 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 							} catch { /* never fail check_status over a save */ }
 						}
 
+						// ...and the RESULTS. A remote SSH run used to leave everything on
+						// the server until someone asked to save, which meant the AI ended
+						// up reading files over SSH and re-writing them locally by hand.
+						// Copy them back here instead, capped so a multi-GB output does not
+						// get pulled onto the user's laptop unasked.
+						let autoSave: Awaited<ReturnType<typeof autoSaveRunOutputsOnCompletion>> | undefined;
+						if (exitCode === '0') {
+							autoSave = await autoSaveRunOutputsOnCompletion(profile, runName);
+						}
+
 						await ssh.run(profile, `docker rm '${shellEscape(containerName)}' 2>/dev/null`);
 
-						const saveHint = exitCode === '0'
-							? `\n\nThe results are in autopipe/pipelines_output/${runName}/. Built-in run environment: ALREADY there (the environment writes directly via the local mount) - tell the user to open that folder in the Explorer, no save needed. Remote SSH server: ASK whether to save; if yes, call list_run_outputs for '${runName}' then save_results_to_project (it warns before large copies), then tell the user to open autopipe/pipelines_output/${runName}/.`
-							: '';
+						// Report what the automatic save actually did, so the AI never has
+						// to guess (or hand-copy files) to get results in front of the user.
+						let saveHint = '';
+						if (exitCode === '0' && autoSave) {
+							const where = `autopipe/pipelines_output/${runName}/`;
+							const parts = [`\n\nResults were saved into the project automatically: ${autoSave.message}`];
+							parts.push(`Tell the user to open ${where} in the Explorer. Do NOT read the files off the server and write them again yourself - they are already local.`);
+							if (autoSave.skipped.length) {
+								parts.push(`Left on the server (over the ${humanSize(AUTO_SAVE_MAX_FILE_BYTES)} auto-copy limit): ${autoSave.skipped.join(', ')}. Mention these and only fetch one with save_results_to_project if the user asks.`);
+							}
+							if (autoSave.failed > 0 || !autoSave.ok) {
+								parts.push(`Some files could NOT be copied back (${autoSave.errors.slice(0, 3).join('; ')}). Tell the user, and offer to retry with list_run_outputs + save_results_to_project.`);
+							}
+							saveHint = parts.join(' ');
+						}
 						return textResult(
 							`Status: ${terminationReason}\nContainer: ${containerName} (removed after inspection)\nOutput: ${outputDir}\nFinished at: ${finishedAt}\nLog (${logPath}):\n${logOutput}${saveHint}`,
 						);

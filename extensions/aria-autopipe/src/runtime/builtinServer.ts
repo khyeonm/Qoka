@@ -41,6 +41,15 @@ export async function ensureBuiltinServer(): Promise<SshProfile> {
 const probeCache = new Map<string, number>();
 const PROBE_TTL_MS = 15_000;
 
+/** The most recent probe result WITHOUT opening a connection. Lets a status
+ *  reporter (get_workspace_info) say what it knows for free instead of paying
+ *  another SSH login. `undefined` means "not checked recently". */
+export function lastKnownReachable(profile: SshProfile): boolean | undefined {
+	const key = `${profile.username}@${profile.host}:${profile.port}`;
+	const lastOk = probeCache.get(key);
+	return lastOk !== undefined && Date.now() - lastOk < PROBE_TTL_MS ? true : undefined;
+}
+
 /** True when the endpoint actually answers over SSH right now. A cheap live
  *  probe (short timeout) used both before running code and by the Connections
  *  view's green/red indicator. Reuses a successful probe for PROBE_TTL_MS. */
@@ -104,10 +113,11 @@ export async function resolveRunTarget(): Promise<{ profile: SshProfile; isBuilt
 	if (!profile) {
 		throw new Error('No active connection. Open the Connections tab and select the built-in server or an SSH server.');
 	}
-	// An SSH host we don't manage: probe so a dead/refused connection surfaces
-	// immediately with a clear message instead of a cryptic mid-run failure.
-	if (!await isReachable(profile, 6000)) {
-		throw new Error(`The selected SSH server ${profile.username}@${profile.host}:${profile.port} is not reachable. Check the Connections tab and your network, then try again.`);
-	}
+	// Deliberately NO probe for a user's own SSH host. Probing costs a full extra
+	// login, and a run already opens several in a row - servers that rate-limit
+	// rapid logins then refuse them mid-run ("All configured authentication
+	// methods failed") even though the credentials are fine. The run itself
+	// reports a connection problem clearly enough, so the probe bought nothing.
+	// The built-in server above is localhost and self-heals, so it keeps its probe.
 	return { profile, isBuiltIn: false };
 }

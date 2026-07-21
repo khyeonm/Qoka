@@ -65,6 +65,8 @@ export const AUTOPIPE_MCP_INSTRUCTIONS = [
 	'     - a LONG / multi-step / reproducible pipeline -> execute_pipeline on this server.',
 	'FALLBACK: if you ever run something in your own terminal and it errors or looks wrong, STOP - that was the wrong tool. Call get_workspace_info to find the run environment, then redo it with run_code / execute_pipeline.',
 	'When a Qoka skill (anndata, scanpy, …) matches the task, follow the skill - but still EXECUTE everything through run_code / execute_pipeline on the run connection, never locally.',
+	'',
+	'RESULTS COME BACK BY THEMSELVES: when check_status sees a pipeline finish cleanly, its outputs are copied into the project at autopipe/pipelines_output/<run>/ on the user\'s LOCAL disk automatically - including runs on a remote SSH server. run_code does the same into analysis/<run-id>/. So never chain read_file (server) + write_file (local) to "bring results back", and do not ask the user for permission to save what is already saved. Just tell them the folder to open in the Explorer, and read from the LOCAL path if you need the contents. The only files still on the server are ones the tool explicitly reported as skipped for being over the auto-copy size limit, or as failed - handle those with list_run_outputs + save_results_to_project.',
 ].join('\n');
 
 export function findTool(name: string): ToolDefinition | undefined {

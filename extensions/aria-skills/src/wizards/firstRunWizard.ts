@@ -112,7 +112,11 @@ export async function runFirstRunWizardIfNeeded(): Promise<void> {
 	// isn't mounted yet, and the view's own refresh-on-open will fill
 	// in when the user navigates to it.
 	if (installedCount > 0) {
-		void vscode.commands.executeCommand('aria.skills.requestRefresh');
+		// Best-effort, and swallow the rejection: the Skills view may not be
+		// mounted yet, in which case the command does not exist and an unguarded
+		// `void` leaves an "unhandled rejection" in the console. The view fills
+		// itself in on open anyway.
+		void vscode.commands.executeCommand('aria.skills.requestRefresh').then(undefined, () => { /* view not mounted */ });
 	}
 
 	// We deliberately drop the old success/failure toasts here - the

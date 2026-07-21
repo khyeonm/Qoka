@@ -255,7 +255,37 @@ export class SshService {
 	}
 
 	/** Core: open a connection, run one command, collect raw output, disconnect. */
-	private execRaw(profile: SshProfile, command: string, opts: RunOptions): Promise<{ stdout: Buffer; stderr: string; exitCode: number }> {
+	/**
+	 * Run one command, retrying ONLY when the failure happened before the session
+	 * was established (connect/handshake/auth). A single run_code opens several
+	 * short-lived connections back to back, and servers that rate-limit or lock out
+	 * rapid logins start refusing them - the symptom is "All configured
+	 * authentication methods failed" on the 2nd+ connection while a lone probe still
+	 * succeeds. Retrying a pre-ready failure is safe: the command never ran, so
+	 * nothing can execute twice. Anything that fails AFTER the session is up is
+	 * surfaced immediately.
+	 */
+	private async execRaw(profile: SshProfile, command: string, opts: RunOptions): Promise<{ stdout: Buffer; stderr: string; exitCode: number }> {
+		const MAX_ATTEMPTS = 3;
+		let lastErr: Error | undefined;
+		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+			try {
+				return await this.execOnce(profile, command, opts);
+			} catch (e) {
+				const err = e instanceof Error ? e : new Error(String(e));
+				lastErr = err;
+				const preReady = (err as Error & { preReady?: boolean }).preReady === true;
+				if (!preReady || attempt === MAX_ATTEMPTS) {
+					throw err;
+				}
+				// Back off a little so a rate limiter has time to relax.
+				await new Promise(r => setTimeout(r, 500 * attempt));
+			}
+		}
+		throw lastErr ?? new Error('ssh exec failed');
+	}
+
+	private execOnce(profile: SshProfile, command: string, opts: RunOptions): Promise<{ stdout: Buffer; stderr: string; exitCode: number }> {
 		return new Promise((resolve, reject) => {
 			let cfg: ConnectConfig;
 			try {
@@ -280,7 +310,9 @@ export class SshService {
 				timer = setTimeout(() => finish(new Error(`ssh command timed out after ${opts.timeoutMs}ms`)), opts.timeoutMs);
 			}
 
+			let readyReached = false;
 			conn.on('ready', () => {
+				readyReached = true;
 				conn.exec(command, (err, stream) => {
 					if (err) { finish(err); return; }
 					const out: Buffer[] = [];
@@ -292,7 +324,14 @@ export class SshService {
 					if (opts.stdin !== undefined) { stream.end(opts.stdin); }
 				});
 			});
-			conn.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
+			conn.on('error', (err) => {
+				const e = err instanceof Error ? err : new Error(String(err));
+				// Tag connect/handshake/auth failures so execRaw can safely retry them.
+				if (!readyReached) {
+					(e as Error & { preReady?: boolean }).preReady = true;
+				}
+				finish(e);
+			});
 
 			// keyboard-interactive fallback for password auth (PAM-only servers
 			// that don't offer the `password` method). Answer every prompt with

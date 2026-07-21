@@ -6,6 +6,7 @@
 import { ToolDefinition, textResult } from './types';
 import { services } from '../../common/services';
 import { workspacePathsFor } from '../../common/types';
+import { lastKnownReachable } from '../../runtime/builtinServer';
 import {
 	SNAKEFILE_TEMPLATE, DOCKERFILE_TEMPLATE, CONFIG_YAML_TEMPLATE,
 	RO_CRATE_METADATA_TEMPLATE, GENERATION_GUIDE,
@@ -19,7 +20,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 		description: 'Get the workspace paths and the ACTIVE run connection (built-in server or SSH). Call this FIRST - before writing OR running any code - to confirm where code runs and where pipelines and outputs are stored. ROUTING - when the user wants to WRITE, RUN, or EXECUTE code, you MUST use a Qoka MCP tool and NEVER your own terminal / bash / shell tool: a QUICK one-off script (version check, short bash/python) -> run_code on the qoka-run MCP; a LONG / multi-step / reproducible pipeline -> execute_pipeline on this autopipe MCP. These two are the ONLY correct ways to run code - the terminal is never one of them. If it is unclear which they want, ASK. Both run on whatever connection is active (built-in OR SSH). For other tasks, prefer the matching Qoka MCP tool or installed Qoka skill over your generic capabilities.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
-			const { config, ssh } = services();
+			const { config } = services();
 			const cfg = config.get();
 			const profile = config.activeProfile();
 			// Surfacing what the handler actually saw makes it easy to
@@ -62,9 +63,11 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 			}
 
 			const paths = workspacePathsFor(profile);
-			// Live reachability - the SAME probe the Connections view's green/red
-			// dot uses, so the chat never claims "connected" while the UI shows red.
-			const reachable = await ssh.canConnect(profile, 4000).catch(() => false);
+			// Report what the last probe found WITHOUT opening a connection. This used
+			// to call canConnect, but the AI is told to call get_workspace_info before
+			// every run, so that was one extra SSH login per run - enough to push a
+			// server that limits rapid logins into refusing the run itself.
+			const reachable = lastKnownReachable(profile);
 			// GitHub is "connected" iff we have a token. The login field is
 			// best-effort metadata from /user - it can be missing if the API
 			// call failed at OAuth time, but the token is still good for
@@ -74,7 +77,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				: 'GitHub: Not connected - open the Autopipe tab in the activity bar, find the GitHub section, and click "Connect to GitHub" to log in.';
 			return textResult([
 				`SSH: ${profile.username}@${profile.host}:${profile.port}`,
-				`Connection: ${reachable ? 'reachable (connected)' : 'NOT reachable right now - call start_server to (re)connect, then retry'}`,
+				`Connection: ${reachable ? 'reachable (checked moments ago)' : 'not verified just now - just run; if it cannot connect the run will say so, and start_server can re-establish it'}`,
 				config.isLocalVmActive()
 					? `Run environment: Qoka built-in server (local VM) - memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`
 					: 'Run environment: user-provided SSH server.',

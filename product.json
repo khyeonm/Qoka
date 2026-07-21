@@ -2,7 +2,7 @@
 	"nameShort": "Qoka",
 	"nameLong": "Qoka (beta)",
 	"applicationName": "qoka",
-	"ariaVersion": "0.3.5",
+	"ariaVersion": "0.3.6",
 	"trustedExtensionAuthAccess": {
 		"aria": [
 			"aria.aria-memory",

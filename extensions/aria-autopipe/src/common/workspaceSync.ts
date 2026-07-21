@@ -237,7 +237,15 @@ export interface CopySummary {
 	copied: number;
 	failed: number;
 	errors: string[];
+	/** Files intentionally left on the server because they exceed `maxFileBytes`. */
+	skipped: string[];
 	localDir?: string;
+}
+
+export interface CopyOptions {
+	/** Skip (do not download) any single file larger than this. Guards against
+	 *  silently pulling a multi-GB genomic output onto the user's laptop. */
+	maxFileBytes?: number;
 }
 
 /**
@@ -245,17 +253,23 @@ export interface CopySummary {
  * the relative tree. Best-effort per file: one failure does not abort the
  * rest, and the summary reports both counts.
  */
-async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDir: string): Promise<CopySummary> {
+async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDir: string, opts?: CopyOptions): Promise<CopySummary> {
 	const { ssh } = services();
 	const entries = await listRemoteFilesWithSizes(profile, remoteDir);
 	ensureLocalDir(localDir);
 	if (entries.length === 0) {
-		return { ok: true, message: `No files found under ${remoteDir}.`, copied: 0, failed: 0, errors: [], localDir };
+		return { ok: true, message: `No files found under ${remoteDir}.`, copied: 0, failed: 0, errors: [], skipped: [], localDir };
 	}
 	let copied = 0;
 	const errors: string[] = [];
+	const skipped: string[] = [];
+	const limit = opts?.maxFileBytes;
 	for (const entry of entries) {
 		const rel = remoteRelative(remoteDir, entry.path);
+		if (limit !== undefined && entry.sizeBytes > limit) {
+			skipped.push(`${rel} (${humanSize(entry.sizeBytes)})`);
+			continue;
+		}
 		const localFile = localJoin(localDir, rel);
 		try {
 			await ssh.downloadFileSftp(profile, entry.path, localFile);
@@ -266,10 +280,12 @@ async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDi
 	}
 	return {
 		ok: errors.length === 0,
-		message: `Copied ${copied}/${entries.length} file(s) into ${localDir}.`,
+		message: `Copied ${copied}/${entries.length} file(s) into ${localDir}.`
+			+ (skipped.length ? ` Skipped ${skipped.length} file(s) over the size limit.` : ''),
 		copied,
 		failed: errors.length,
 		errors,
+		skipped,
 		localDir,
 	};
 }
@@ -280,8 +296,8 @@ async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDi
  * Used by qoka-run to pull a non-mounted built-in server's analysis outputs into
  * the project (the mounted WSL path needs no copy).
  */
-export async function copyRemoteDirToLocal(profile: SshProfile, remoteDir: string, localDir: string): Promise<CopySummary> {
-	return copyRemoteDirSftp(profile, remoteDir, localDir);
+export async function copyRemoteDirToLocal(profile: SshProfile, remoteDir: string, localDir: string, opts?: CopyOptions): Promise<CopySummary> {
+	return copyRemoteDirSftp(profile, remoteDir, localDir, opts);
 }
 
 /** Strip autopipe-app's `autopipe-<name>` image prefix to recover the pipeline name. */
@@ -436,6 +452,34 @@ export async function listRunOutputs(profile: SshProfile, runName: string): Prom
 		return { ok: true, message: `Found ${files.length} output file(s) for run '${runName}'.`, outputDir, files };
 	} catch (err) {
 		return { ok: false, message: `Could not list outputs for '${runName}': ${(err as Error).message}`, outputDir, files: [] };
+	}
+}
+
+/** Largest single output file auto-copied when a pipeline finishes. Pipelines
+ *  routinely produce multi-GB files (BAM, raw matrices); those stay on the
+ *  server and the user can pull one deliberately with save_results_to_project. */
+export const AUTO_SAVE_MAX_FILE_BYTES = 512 * 1024 * 1024;
+
+/**
+ * Copy a completed run's outputs into `<workspaceFolder>/autopipe/pipelines_output/<run>/`
+ * automatically, so results are on the user's disk the moment the pipeline
+ * finishes instead of waiting for someone to ask. No-ops (successfully) for a
+ * mounted run environment, where the guest already wrote into the project.
+ * Files over AUTO_SAVE_MAX_FILE_BYTES are left behind and reported. Never throws.
+ */
+export async function autoSaveRunOutputsOnCompletion(profile: SshProfile, runName: string): Promise<CopySummary> {
+	try {
+		const local = localAutopipePaths();
+		if (!local) {
+			return { ok: false, message: 'No workspace folder is open - results could not be saved locally.', copied: 0, failed: 0, errors: [], skipped: [] };
+		}
+		const localOutputDir = path.join(local.output, runName);
+		if (isMountedRepo(profile)) {
+			return { ok: true, message: 'Mounted run environment - outputs are already in the project (no copy needed).', copied: 0, failed: 0, errors: [], skipped: [], localDir: localOutputDir };
+		}
+		return await copyRemoteDirSftp(profile, resolveOutputDir(profile, runName), localOutputDir, { maxFileBytes: AUTO_SAVE_MAX_FILE_BYTES });
+	} catch (err) {
+		return { ok: false, message: `Automatic save failed: ${(err as Error).message}`, copied: 0, failed: 1, errors: [(err as Error).message], skipped: [] };
 	}
 }
 

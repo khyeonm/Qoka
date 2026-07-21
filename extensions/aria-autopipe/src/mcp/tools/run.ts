@@ -10,6 +10,7 @@ import { services } from '../../common/services';
 import { resolveRunTarget } from '../../runtime/builtinServer';
 import { windowsToWsl } from '../../common/dockerEnv';
 import { workspaceFolderPath, copyRemoteDirToLocal } from '../../common/workspaceSync';
+import { humanSize } from '../../common/workspaceSync';
 
 /**
  * qoka-run MCP: run a short, self-contained script on the Qoka built-in server
@@ -17,11 +18,13 @@ import { workspaceFolderPath, copyRemoteDirToLocal } from '../../common/workspac
  * one-off tasks. Distinct from autopipe, which builds reproducible multi-step
  * pipelines.
  *
- * Results land in the project's `analysis/<run-id>/` folder. On Windows the
- * built-in server is WSL, so the run dir IS the project's analysis dir seen
- * through the /mnt mount - the code writes straight to local disk, no copy.
- * On Mac/Linux (QEMU/vfkit built-in) there is no host mount, so the run dir
- * lives in the guest and is SFTP-copied into analysis/<run-id>/ afterwards.
+ * Results ALWAYS land in the project's `analysis/<run-id>/` folder, whichever
+ * target ran them. On Windows the built-in server is WSL, so the run dir IS the
+ * project's analysis dir seen through the /mnt mount - the code writes straight
+ * to local disk, no copy. Everywhere else (Mac/Linux built-in VM, and ANY remote
+ * SSH server) the run dir lives on the server and is SFTP-copied back into
+ * analysis/<run-id>/ before this tool returns, so the AI never has to read the
+ * files over SSH and re-write them locally by hand.
  */
 
 type Lang = 'bash' | 'python' | 'node';
@@ -54,6 +57,29 @@ function injectPep723(code: string, deps: string[]): string {
 	return ['# /// script', `# dependencies = [${arr}]`, '# ///', '', code].join('\n');
 }
 
+// Markers delimiting the metadata the run script appends after the user's stdout,
+// so one connection can report both the output and where it actually ran.
+const META_MARK = '<<<QOKA-RUN-META>>>';
+const FILES_MARK = '<<<QOKA-RUN-FILES>>>';
+
+/** Largest single result file copied back automatically. Bigger outputs (BAMs,
+ *  raw matrices) stay on the server rather than silently filling a laptop. */
+const MAX_COPY_BYTES = 512 * 1024 * 1024;
+
+/** Split the run script's trailing metadata block off the user's stdout. */
+function splitMeta(raw: string): { stdout: string; runDir?: string; files: string[] } {
+	const at = raw.lastIndexOf(META_MARK);
+	if (at < 0) {
+		return { stdout: raw, files: [] };
+	}
+	const stdout = raw.slice(0, at).replace(/\n$/, '');
+	const rest = raw.slice(at + META_MARK.length).split('\n').map(l => l.trim()).filter(Boolean);
+	const filesAt = rest.indexOf(FILES_MARK);
+	const runDir = filesAt === 0 ? undefined : rest[0];
+	const files = filesAt >= 0 ? rest.slice(filesAt + 1) : [];
+	return { stdout, runDir, files };
+}
+
 const STDOUT_CAP = 12000;
 const STDERR_CAP = 4000;
 
@@ -79,7 +105,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (autopipe MCP) for that instead. '
-			+ 'Files the code writes are saved under the project `analysis/<run-id>/` folder (mounted locally on Windows/WSL, copied back elsewhere). '
+			+ 'Files the code writes are saved AUTOMATICALLY under the project `analysis/<run-id>/` folder on the user\'s own disk - written directly on Windows/WSL, SFTP-copied back for a VM or a remote SSH server. The result says where. Never read those files back off the server and re-write them locally yourself; they are already there. '
 			+ 'stdout is returned here (truncated if very large). Large results or images/plots are NOT shown in chat - tell the user to open them from `analysis/<run-id>/` in the Explorer.',
 		inputSchema: {
 			type: 'object',
@@ -92,6 +118,8 @@ export const RUN_TOOLS: ToolDefinition[] = [
 			required: ['language', 'code'],
 		},
 		handler: async (args) => {
+			// Named outside the try so a connection failure can say WHERE it failed.
+			let target = 'the active connection';
 			try {
 				const language = String(args.language ?? '') as Lang;
 				if (!LANGS[language]) {
@@ -107,6 +135,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// Run on the ACTIVE connection (built-in server or an SSH server),
 				// chosen in the Connections tab - shared with autopipe.
 				const { profile: ep, isBuiltIn } = await resolveRunTarget();
+				target = isBuiltIn ? 'the built-in server' : `the SSH server ${ep.username}@${ep.host}:${ep.port}`;
 				const { ssh } = services();
 				const spec = LANGS[language];
 				const file = spec.file;
@@ -114,70 +143,86 @@ export const RUN_TOOLS: ToolDefinition[] = [
 
 				// Decide where the run dir lives. On Windows the built-in server is WSL,
 				// so write straight into analysis/<id>/ through the /mnt mount (outputs
-				// are then already local). Elsewhere use a guest dir + SFTP copy after.
-				// Mount (write straight to the local analysis dir) only when the target
-				// is the BUILT-IN server on Windows/WSL. A remote SSH host can't see the
-				// local /mnt path, so it takes the guest-dir + SFTP-copy branch below.
+				// are then already local). Elsewhere - Mac/Linux built-in VM, or ANY
+				// remote SSH host, neither of which can see the local /mnt path - the
+				// run dir lives on the server and is SFTP-copied back below.
 				const wsRoot = workspaceFolderPath();
 				const mounted = isBuiltIn && process.platform === 'win32' && !!wsRoot;
-				let runDirGuest: string;
+				// Shell EXPRESSION for the run dir, evaluated by the remote shell. The
+				// non-mounted form must stay unquoted-$HOME so the shell expands it:
+				// quoting it (or handing the literal to SFTP) creates a directory
+				// actually named `$HOME` and the copy-back then finds nothing.
+				let runDirExpr: string;
 				let localDir: string | undefined;
 				if (mounted && wsRoot) {
 					localDir = path.join(wsRoot, 'analysis', id);
 					fs.mkdirSync(localDir, { recursive: true });
-					runDirGuest = windowsToWsl(localDir);
+					runDirExpr = `'${windowsToWsl(localDir)}'`;
 				} else {
-					runDirGuest = `$HOME/qoka-analysis/${id}`;
-					await ssh.run(ep, `mkdir -p '${runDirGuest}'`);
+					runDirExpr = `"$HOME/qoka-analysis/${id}"`;
 				}
 
 				// Python: inject the requested deps as PEP 723 metadata so `uv run`
 				// installs them. Other languages run the source as-is.
 				const source = language === 'python' ? injectPep723(code, deps) : code;
-				await ssh.writeFile(ep, `${runDirGuest}/${file}`, source);
-				// Build the exec: put uv/user-local bins on PATH (non-login SSH exec has
-				// a bare PATH), self-heal uv for python, then run in the run dir.
+				const encoded = Buffer.from(source, 'utf8').toString('base64');
 				const ensure = language === 'python' ? `${ENSURE_UV}; ` : '';
-				const r = await ssh.run(
-					ep,
-					`export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"; ${ensure}cd '${runDirGuest}' && ${spec.run(file)}`,
-					{ timeoutMs },
-				);
-
-				// Persist stdout/stderr as files in the run dir too (useful for large output).
-				if (mounted && localDir) {
-					try { fs.writeFileSync(path.join(localDir, 'stdout.log'), r.stdout); } catch { /* best-effort */ }
-					try { fs.writeFileSync(path.join(localDir, 'stderr.log'), r.stderr); } catch { /* best-effort */ }
-				} else {
-					try { await ssh.writeFile(ep, `${runDirGuest}/stdout.log`, r.stdout); } catch { /* best-effort */ }
-					try { await ssh.writeFile(ep, `${runDirGuest}/stderr.log`, r.stderr); } catch { /* best-effort */ }
+				// ONE login for the whole run: mkdir + write the script + execute +
+				// report the resolved dir and the files produced. This used to be four
+				// separate connections, and servers that rate-limit rapid logins started
+				// refusing them partway through ("All configured authentication methods
+				// failed"). It also gets us the ABSOLUTE run dir ($HOME expanded by the
+				// remote shell), which the SFTP copy-back needs.
+				const script = [
+					'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
+					`mkdir -p ${runDirExpr} && cd ${runDirExpr} || exit 97`,
+					`echo '${encoded}' | base64 -d > '${file}'`,
+					`${ensure}${spec.run(file)} > stdout.log 2> stderr.log`,
+					'__rc=$?',
+					'cat stdout.log',
+					'cat stderr.log >&2',
+					// Trailing metadata block, stripped from stdout before display.
+					`printf '\\n%s\\n' '${META_MARK}'`,
+					'pwd',
+					`printf '%s\\n' '${FILES_MARK}'`,
+					"ls -1p 2>/dev/null | grep -v '/$'",
+					'exit $__rc',
+				].join('\n');
+				const r = await ssh.run(ep, script, { timeoutMs });
+				if (r.exitCode === 97) {
+					return errorResult(`run_code could not create its run directory on ${target}: ${r.stderr.trim() || 'mkdir failed'}. Check the account has a writable home directory there.`);
 				}
+				const { stdout, runDir: resolvedDir, files: produced } = splitMeta(r.stdout);
 
-				// List the files the run produced (regular files) for the summary.
-				let produced: string[] = [];
-				try {
-					const ls = await ssh.run(ep, `cd '${runDirGuest}' && ls -1p 2>/dev/null | grep -v '/$' || true`);
-					produced = ls.stdout.split('\n').map(s => s.trim()).filter(Boolean);
-				} catch { /* best-effort */ }
-
-				// Non-mounted built-in: copy the run dir into the project analysis/<id>/.
+				// Copy results back so they are on the user's disk WITHOUT the AI having
+				// to read each file over SSH and re-write it locally.
 				let savedTo: string | undefined;
+				let copyNote: string | undefined;
+				let skipped: string[] = [];
 				if (mounted && localDir) {
 					savedTo = localDir;
-				} else if (wsRoot) {
+				} else if (wsRoot && resolvedDir) {
 					const dest = path.join(wsRoot, 'analysis', id);
 					try {
-						await copyRemoteDirToLocal(ep, runDirGuest, dest);
+						const summary = await copyRemoteDirToLocal(ep, resolvedDir, dest, { maxFileBytes: MAX_COPY_BYTES });
 						savedTo = dest;
-					} catch { /* best-effort - the files still exist in the guest run dir */ }
+						skipped = summary.skipped;
+						if (summary.failed > 0) {
+							copyNote = `${summary.failed} file(s) could not be copied back: ${summary.errors.slice(0, 3).join('; ')}. They are still on the server at ${resolvedDir}.`;
+						}
+					} catch (e) {
+						// Never silent: if the auto-save failed the AI must say so rather
+						// than leaving the user believing the results are local.
+						copyNote = `Automatic copy of the results into the project FAILED (${(e as Error).message}). The files are still on the server at ${resolvedDir}. Tell the user, and offer to retry - do NOT quietly read and re-write the files yourself.`;
+					}
 				}
 
 				const lines: string[] = [];
 				const targetLabel = isBuiltIn ? 'the built-in server' : `the SSH server ${ep.username}@${ep.host}:${ep.port}`;
-					lines.push(`Ran ${language} on ${targetLabel} (exit ${r.exitCode}).`);
+				lines.push(`Ran ${language} on ${targetLabel} (exit ${r.exitCode}).`);
 				lines.push('');
 				lines.push('stdout:');
-				lines.push(r.stdout.trim() ? cap(r.stdout, STDOUT_CAP) : '(empty)');
+				lines.push(stdout.trim() ? cap(stdout, STDOUT_CAP) : '(empty)');
 				if (r.stderr.trim()) {
 					lines.push('', 'stderr:', cap(r.stderr, STDERR_CAP));
 				}
@@ -185,14 +230,32 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					lines.push('', `Files produced: ${produced.join(', ')}`);
 				}
 				if (savedTo) {
-					lines.push('', `Results are in the project at analysis/${id}/ (${savedTo}).`);
-					lines.push(`If a result is large or an image/plot (not shown above), tell the user to open it from the analysis/${id}/ folder in the Explorer.`);
+					lines.push('', `Results were saved automatically into the project at analysis/${id}/ (${savedTo}).`
+						+ (mounted ? '' : ' They were copied back over SFTP, so they are already on the user\'s disk.'));
+					lines.push('Do NOT read these files off the server and write them again yourself - they are already local. To show a result, point the user at analysis/' + id + '/ in the Explorer, or read it from that LOCAL path.');
+					if (skipped.length) {
+						lines.push(`Left on the server (over the ${humanSize(MAX_COPY_BYTES)} auto-copy limit): ${skipped.join(', ')}. Tell the user, and only fetch one if they ask.`);
+					}
 				} else if (!wsRoot) {
-					lines.push('', `No project folder is open, so results were left in the built-in server at ${runDirGuest}. Ask the user to open a folder to have results saved into analysis/.`);
+					lines.push('', `No project folder is open, so results could NOT be saved locally; they are on the run target at ${resolvedDir || 'the run directory'}. Ask the user to open a folder so results are saved into analysis/ automatically.`);
+				}
+				if (copyNote) {
+					lines.push('', copyNote);
 				}
 				return textResult(lines.join('\n'));
 			} catch (err) {
-				return errorResult(`run_code failed: ${(err as Error).message}`);
+				const message = (err as Error).message;
+				// ssh2 reports every connect/auth problem as this one opaque string.
+				// Translate it into the actionable message the pre-run probe used to
+				// produce - without the probe's extra login, which is what pushed
+				// rate-limiting servers into refusing the run in the first place.
+				if (/authentication methods failed|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|Timed out while waiting for handshake/i.test(message)) {
+					return errorResult(
+						`run_code could not connect to ${target}: ${message}. `
+						+ 'Check that the server is reachable and the credentials in the Connections tab are current, then try again. '
+						+ 'If it just worked and now fails, the server may be refusing rapid repeat logins - wait a few seconds and retry.');
+				}
+				return errorResult(`run_code failed: ${message}`);
 			}
 		},
 	},
@@ -238,5 +301,6 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'- Installing micromamba and/or conda tools (bash run): e.g. "micromamba와 요청하신 도구를 설치하는 중입니다… 큰 환경은 몇 분 걸릴 수 있어요."',
 	'Say it is a ONE-TIME setup and later runs are cached and fast, and raise timeout_s (up to 900) for large conda/bioconda environments. If nothing new needs installing (already cached), no setup message is needed - just run it.',
 	'',
-	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder. stdout is returned in chat. If a result is large or an image/plot, it is NOT in chat - tell the user to open it from analysis/<run-id>/ in the Explorer.',
+	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder on the user\'s LOCAL disk, automatically - including runs on a remote SSH server, whose outputs are SFTP-copied back before the tool returns. stdout is returned in chat. If a result is large or an image/plot, it is NOT in chat - tell the user to open it from analysis/<run-id>/ in the Explorer.',
+	'Do NOT hand-copy results: never chain read_file on the server + write_file locally to "bring back" an output. The copy already happened. Read from the LOCAL analysis/<run-id>/ path if you need the contents. The only exception is a file the result explicitly says was left on the server for being over the auto-copy size limit.',
 ].join('\n');

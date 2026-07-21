@@ -115,6 +115,29 @@ function markFirstRunShown(): void {
  * Update this set whenever a new vendored extension/skill/MCP joins the
  * boot sequence with its own `beginTracking` call.
  */
+/**
+ * The live contribution, plus calls that arrived before it existed.
+ *
+ * The startup-tracking commands are registered at MODULE level (bottom of this
+ * file) rather than in the constructor, because the contribution is only
+ * instantiated at LifecyclePhase.Restored while extensions activate BEFORE that
+ * and call `aria.startup.beginTracking` during activate(). Registering in the
+ * constructor meant those early calls failed with "command not found", which
+ * silently skipped the work they were announcing (the default-skill install was
+ * lost this way on a fresh profile, and only appeared after a window reload).
+ * Anything that lands early is queued here and replayed once we are constructed.
+ */
+let overlayInstance: AriaFirstRunOverlayContribution | undefined;
+const pendingStartupCalls: ((c: AriaFirstRunOverlayContribution) => void)[] = [];
+
+function withOverlay(fn: (c: AriaFirstRunOverlayContribution) => void): void {
+	if (overlayInstance) {
+		fn(overlayInstance);
+	} else {
+		pendingStartupCalls.push(fn);
+	}
+}
+
 const KNOWN_TRACKERS: ReadonlySet<string> = new Set([
 	'aria-autopipe-mcp',
 	'aria-paper-search-mcp',
@@ -128,6 +151,17 @@ const KNOWN_TRACKERS: ReadonlySet<string> = new Set([
 	// markComplete means the first session always spawns with MCP ready.
 	'aria-notes-mcp',
 	'aria-paper-mcp',
+	// The remaining MCP servers, for the same reason. Only a tracker listed HERE is
+	// waited for unconditionally; one that is merely "in flight" is waited for only
+	// if it already called beginTracking. These four register late enough that the
+	// overlay could clear first, which is why "Qoka tools are ready" showed up
+	// AFTER loading had finished. With every MCP listed, loading ends only once all
+	// of them have reported in (MAX_DURATION_AFTER_FIRST_TRACK_MS still caps the
+	// wait if one never does).
+	'aria-overview-mcp',
+	'aria-memory-mcp',
+	'aria-hypothesis-mcp',
+	'aria-methods-search-mcp',
 ]);
 
 interface SetupSummary {
@@ -159,36 +193,14 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 	) {
 		super();
 
-		// Tracking-based commands - the canonical entry points.
-		CommandsRegistry.registerCommand('aria.startup.beginTracking', (_accessor, name?: string) => {
-			if (typeof name !== 'string' || !name) {
-				return;
-			}
-			this.beginTracking(name);
-		});
-		CommandsRegistry.registerCommand('aria.startup.markComplete', (_accessor, name?: string, summary?: string, changed?: boolean) => {
-			if (typeof name !== 'string' || !name) {
-				return;
-			}
-			this.markComplete(name, typeof summary === 'string' ? summary : '', !!changed);
-		});
-
-		// Legacy aliases - keep the first-run wizard working without
-		// requiring a touch to that file. `showOverlay` re-enters the
-		// tracking set; `hideOverlay` exits it. The subtitle helper
-		// stays as a pure UI poke.
-		CommandsRegistry.registerCommand('aria.firstRun.showOverlay', (_accessor, message?: string) => {
-			if (typeof message === 'string') {
-				this.updateSubtitle(message);
-			}
-			this.beginTracking('aria-first-run-legacy');
-		});
-		CommandsRegistry.registerCommand('aria.firstRun.updateOverlay', (_accessor, message?: string) => {
-			this.updateSubtitle(typeof message === 'string' ? message : '');
-		});
-		CommandsRegistry.registerCommand('aria.firstRun.hideOverlay', () => {
-			this.markComplete('aria-first-run-legacy', '', false);
-		});
+		// The tracking commands themselves are registered at module load (see the
+		// bottom of this file) so they exist before any extension activates. Here we
+		// just become the live target and replay whatever arrived in the meantime -
+		// typically an extension's beginTracking from its activate().
+		overlayInstance = this;
+		for (const call of pendingStartupCalls.splice(0)) {
+			call(this);
+		}
 
 		// Show the overlay only when a workspace folder is open. The
 		// Started page (Qoka Start Page editor) takes over the screen
@@ -282,7 +294,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		return this.workspaceContextService.getWorkbenchState() !== WorkbenchState.EMPTY;
 	}
 
-	private beginTracking(name: string): void {
+	beginTracking(name: string): void {
 		// Once we've already finished and hidden the overlay, do NOT
 		// re-summon it. A late-arriving beginTracking used to flash the
 		// loading screen back on, producing the "loading appears,
@@ -301,7 +313,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		this.tracking.add(name);
 	}
 
-	private markComplete(name: string, summary: string, changed: boolean): void {
+	markComplete(name: string, summary: string, changed: boolean): void {
 		this.tracking.delete(name);
 		this.knownPending.delete(name);
 		if (summary) {
@@ -315,7 +327,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		}
 	}
 
-	private updateSubtitle(message: string): void {
+	updateSubtitle(message: string): void {
 		if (this.subtitleEl) {
 			this.subtitleEl.textContent = message || 'This usually takes a moment.';
 		}
@@ -514,6 +526,39 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		overlay.addEventListener('click', swallow, true);
 	}
 }
+
+// Tracking-based commands - the canonical entry points. Registered here, at
+// module load, so an extension activating before LifecyclePhase.Restored can
+// still announce its setup work (see the comment on `overlayInstance`).
+CommandsRegistry.registerCommand('aria.startup.beginTracking', (_accessor, name?: string) => {
+	if (typeof name !== 'string' || !name) {
+		return;
+	}
+	withOverlay(c => c.beginTracking(name));
+});
+CommandsRegistry.registerCommand('aria.startup.markComplete', (_accessor, name?: string, summary?: string, changed?: boolean) => {
+	if (typeof name !== 'string' || !name) {
+		return;
+	}
+	withOverlay(c => c.markComplete(name, typeof summary === 'string' ? summary : '', !!changed));
+});
+
+// Legacy aliases - `showOverlay` re-enters the tracking set; `hideOverlay` exits
+// it. The subtitle helper stays a pure UI poke.
+CommandsRegistry.registerCommand('aria.firstRun.showOverlay', (_accessor, message?: string) => {
+	withOverlay(c => {
+		if (typeof message === 'string') {
+			c.updateSubtitle(message);
+		}
+		c.beginTracking('aria-first-run-legacy');
+	});
+});
+CommandsRegistry.registerCommand('aria.firstRun.updateOverlay', (_accessor, message?: string) => {
+	withOverlay(c => c.updateSubtitle(typeof message === 'string' ? message : ''));
+});
+CommandsRegistry.registerCommand('aria.firstRun.hideOverlay', () => {
+	withOverlay(c => c.markComplete('aria-first-run-legacy', '', false));
+});
 
 Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
 	.registerWorkbenchContribution(AriaFirstRunOverlayContribution, LifecyclePhase.Restored);
