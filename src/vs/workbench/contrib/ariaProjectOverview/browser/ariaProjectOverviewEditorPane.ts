@@ -208,6 +208,12 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	private sectionsEl: HTMLElement | undefined;
 	private readonly watcherStore = this._register(new DisposableStore());
 	private lastSelfWriteAt = 0;
+	/** Fields the USER has edited locally and that must survive a merge on save. */
+	private dirtyTitle = false;
+	private dirtyContent = false;
+	/** Cheap change detection so a duplicate watcher event or a tab re-activation
+	 *  does not re-render (and re-scroll) an unchanged overview. */
+	private lastAppliedSignature = '';
 	private readonly saveScheduler = this._register(new RunOnceScheduler(() => void this.persist(), 500));
 
 	constructor(
@@ -253,7 +259,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 			background: 'transparent', color: 'var(--vscode-foreground)', fontSize: '28px', fontWeight: '700',
 			padding: '16px 20px 8px 20px', fontFamily: 'inherit',
 		});
-		title.onchange = () => { this.data.title = title.value; this.updateStartCard(); this.saveScheduler.schedule(); };
+		title.onchange = () => { this.data.title = title.value; this.dirtyTitle = true; this.updateStartCard(); this.saveScheduler.schedule(); };
 		this.titleInput = title;
 
 		// Content (lightweight Markdown textarea) - the flexible middle region.
@@ -269,6 +275,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		});
 		textarea.oninput = () => {
 			this.data.content = markdownToBlocks(textarea.value);
+			this.dirtyContent = true;
 			this.updateStartCard();
 			this.saveScheduler.schedule();
 		};
@@ -368,15 +375,30 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 			this.watcherStore.add(this.fileService.watch(dirUri));
 			this.watcherStore.add(this.fileService.watch(roadmapsDir));
 			this.watcherStore.add(this.fileService.onDidFilesChange(e => {
-				if (Date.now() - this.lastSelfWriteAt < 1000) { return; }
+				// Only skip the echo of our OWN write, and only for a moment. The
+				// previous guard dropped EVERY change in a 1s window, so an MCP write
+				// that arrived right after a local edit was silently discarded.
+				if (Date.now() - this.lastSelfWriteAt < 300) { return; }
 				if (e.contains(overview) || e.affects(roadmapsDir)) { void this.reload(); }
 			}));
 		} catch { /* best-effort */ }
 	}
 
+	override setEditorVisible(visible: boolean): void {
+		super.setEditorVisible(visible);
+		// Coming back to the tab (e.g. after the AI moved to the Roadmap and back)
+		// must always show what is on disk now.
+		if (visible) { void this.reload(); }
+	}
+
 	private async reload(): Promise<void> {
-		this.data = await this.readOverview();
-		this.roadmapNodes = await this.readRoadmap();
+		const next = await this.readOverview();
+		const nextRoadmap = await this.readRoadmap();
+		const signature = JSON.stringify([next, nextRoadmap]);
+		if (signature === this.lastAppliedSignature) { return; }
+		this.lastAppliedSignature = signature;
+		this.data = next;
+		this.roadmapNodes = nextRoadmap;
 		this.applyData();
 	}
 
@@ -436,14 +458,35 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		}
 	}
 
+	/**
+	 * Save, MERGING onto whatever is on disk rather than writing our whole
+	 * in-memory copy. The AI edits the same file through the overview MCP, so a
+	 * blind write of a stale copy would silently erase a summary or a task list
+	 * the AI had just added - the user then sees an empty Content and concludes
+	 * nothing was ever written. Only fields the user actually touched win.
+	 */
 	private async persist(): Promise<void> {
 		const uri = this.overviewUri();
 		if (!uri) { return; }
 		try {
+			const onDisk = await this.readOverview();
+			const merged: OverviewData = {
+				...onDisk,
+				title: this.dirtyTitle ? this.data.title : onDisk.title,
+				content: this.dirtyContent ? this.data.content : onDisk.content,
+				// Tasks and proposals are only ever changed here through explicit
+				// user actions, which set this.data first, so they carry over.
+				tasks: this.data.tasks,
+				pendingCompletions: this.data.pendingCompletions,
+			};
+			this.data = merged;
+			this.dirtyTitle = false;
+			this.dirtyContent = false;
 			this.lastSelfWriteAt = Date.now();
 			await this.fileService.createFolder(URI.joinPath(this.folderUri()!, '.qoka')).catch(() => { /* exists */ });
-			await this.fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(this.data, null, 2) + '\n'));
+			await this.fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(merged, null, 2) + '\n'));
 			this.lastSelfWriteAt = Date.now();
+			this.lastAppliedSignature = '';
 		} catch { /* best-effort */ }
 	}
 

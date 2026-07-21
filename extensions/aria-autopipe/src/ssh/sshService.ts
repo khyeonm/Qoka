@@ -124,6 +124,129 @@ export class SshService {
 	 * both are just SshProfiles, and ssh2's SFTP subsystem rides the same
 	 * connection.
 	 */
+	/**
+	 * Download MANY files over ONE SSH connection and ONE SFTP session.
+	 *
+	 * This exists because the per-file `downloadFileSftp` opened a fresh SSH
+	 * login for every file: copying a run directory back meant 4-6 full
+	 * authentications fired off within a second or two, right after the run's own
+	 * login. Servers that rate-limit rapid logins (MaxStartups, PAM lockout,
+	 * fail2ban) start refusing them, which surfaces as "All configured
+	 * authentication methods failed" on the COPY while the command execution that
+	 * preceded it worked fine.
+	 *
+	 * Per-file failures are collected instead of aborting the batch, and the
+	 * connect/auth phase is retried like `execRaw` does, since nothing has been
+	 * transferred yet at that point.
+	 */
+	async downloadFilesSftp(
+		profile: SshProfile,
+		files: Array<{ remote: string; local: string }>,
+	): Promise<{ copied: number; errors: Array<{ remote: string; message: string }> }> {
+		if (files.length === 0) {
+			return { copied: 0, errors: [] };
+		}
+		const MAX_ATTEMPTS = 3;
+		let lastErr: Error | undefined;
+		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+			try {
+				return await this.downloadFilesOnce(profile, files);
+			} catch (e) {
+				const err = e instanceof Error ? e : new Error(String(e));
+				lastErr = err;
+				if ((err as Error & { preReady?: boolean }).preReady !== true || attempt === MAX_ATTEMPTS) {
+					throw err;
+				}
+				await new Promise(r => setTimeout(r, 500 * attempt));
+			}
+		}
+		throw lastErr ?? new Error('sftp download failed');
+	}
+
+	private downloadFilesOnce(
+		profile: SshProfile,
+		files: Array<{ remote: string; local: string }>,
+	): Promise<{ copied: number; errors: Array<{ remote: string; message: string }> }> {
+		return new Promise((resolve, reject) => {
+			let cfg: ConnectConfig;
+			try {
+				cfg = connectConfig(profile);
+			} catch (e) {
+				reject(e);
+				return;
+			}
+
+			const conn = new Client();
+			let readyReached = false;
+			let settled = false;
+			const fail = (err: Error): void => {
+				if (settled) { return; }
+				settled = true;
+				if (!readyReached) { (err as Error & { preReady?: boolean }).preReady = true; }
+				try { conn.end(); } catch { /* ignore */ }
+				reject(err);
+			};
+			const done = (result: { copied: number; errors: Array<{ remote: string; message: string }> }): void => {
+				if (settled) { return; }
+				settled = true;
+				try { conn.end(); } catch { /* ignore */ }
+				resolve(result);
+			};
+
+			conn.on('ready', () => {
+				readyReached = true;
+				conn.sftp(async (err, sftp) => {
+					if (err) { fail(err); return; }
+					const errors: Array<{ remote: string; message: string }> = [];
+					let copied = 0;
+					for (const file of files) {
+						try {
+							await new Promise<void>((res, rej) => {
+								try {
+									fs.mkdirSync(path.dirname(file.local), { recursive: true });
+								} catch (e) {
+									rej(e instanceof Error ? e : new Error(String(e)));
+									return;
+								}
+								const readStream = sftp.createReadStream(file.remote);
+								const writeStream = fs.createWriteStream(file.local);
+								let finished = false;
+								const settle = (e?: Error) => {
+									if (finished) { return; }
+									finished = true;
+									if (e) { rej(e); } else { res(); }
+								};
+								readStream.on('error', (e: Error) => settle(e));
+								writeStream.on('error', (e: Error) => settle(e));
+								writeStream.on('close', () => settle());
+								readStream.pipe(writeStream);
+							});
+							copied++;
+						} catch (e) {
+							errors.push({ remote: file.remote, message: (e as Error).message });
+						}
+					}
+					done({ copied, errors });
+				});
+			});
+			conn.on('error', (e) => fail(e instanceof Error ? e : new Error(String(e))));
+
+			// Same keyboard-interactive fallback as every other connect site.
+			if (profile.auth.type === 'password' && profile.auth.password) {
+				const kbPw = profile.auth.password;
+				conn.on('keyboard-interactive', (_name, _instructions, _lang, prompts, respond) => {
+					respond(prompts.map(() => kbPw));
+				});
+			}
+
+			try {
+				conn.connect(cfg);
+			} catch (e) {
+				fail(e instanceof Error ? e : new Error(String(e)));
+			}
+		});
+	}
+
 	downloadFileSftp(profile: SshProfile, remotePath: string, localPath: string): Promise<number> {
 		return new Promise((resolve, reject) => {
 			let cfg: ConnectConfig;

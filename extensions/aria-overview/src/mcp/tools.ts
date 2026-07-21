@@ -70,7 +70,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'set_project_title',
-			description: 'Set the project title. This is the FIRST action for a new/empty project: the user\'s first message describing what they want to work on IS the onboarding answer, so IMMEDIATELY call set_project_title (a short name you derive) AND update_project_summary, then tell the user what you wrote and ask them to confirm. Then follow the MANDATORY onboarding ORDER, do not skip steps: (1) title + summary, (2) open_roadmap ONCE, (3) build the roadmap with the roadmap MCP tools, (4) add_tasks (an action-oriented To-do), (5) open_overview, (6) offer an OPEN next-step choice (do not assume autopipe). For any task inside Qoka, prefer the matching Qoka MCP tool (roadmap / notes / paper / methods / autopipe / memory) over your own generic capability, unless the user explicitly asks otherwise. You may ALSO use the installed Qoka skills (domain skills such as scanpy, anndata, biopython, gget, scvi-tools) whenever a task matches one - they complement the MCP tools.',
+			description: 'Set the project title. Call open_overview FIRST so the user is looking at the tab, then call this - otherwise the title lands on a closed tab and the user believes nothing happened. Once the user has chosen to do the overview, call set_project_title (a short name you derive from their message) AND update_project_summary right away, then tell the user what you wrote and ask them to confirm. Follow the MANDATORY onboarding ORDER, do not skip steps: (1) open_overview, then title + summary, (2) open_roadmap ONCE, (3) build the roadmap with the roadmap MCP tools, (4) add_tasks (an action-oriented To-do), (5) open_overview again, (6) offer an OPEN next-step choice (do not assume autopipe). For any task inside Qoka, prefer the matching Qoka MCP tool (roadmap / notes / paper / methods / autopipe / memory) over your own generic capability, unless the user explicitly asks otherwise. You may ALSO use the installed Qoka skills (domain skills such as scanpy, anndata, biopython, gget, scvi-tools) whenever a task matches one - they complement the MCP tools.',
 			inputSchema: {
 				type: 'object',
 				properties: { title: { type: 'string', description: 'New project title.' } },
@@ -86,7 +86,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'update_project_summary',
-			description: 'Set or append the project summary (the Overview Content). mode "replace" (default) overwrites; "append" adds a new paragraph. Onboarding step 1: write this together with set_project_title as your FIRST action for a new project, then ask the user to confirm it reads correctly.',
+			description: 'Set or append the project summary (the Overview Content). mode "replace" (default) overwrites; "append" adds a new paragraph. The text lands in the Project Overview tab, which updates live - so call open_overview BEFORE this, or the user sees an unchanged screen while you claim to have written it. Onboarding step 1: open_overview, then write this together with set_project_title, then ask the user to confirm it reads correctly.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -106,7 +106,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'add_tasks',
-			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. The user can edit them afterward. Onboarding step 4: add_tasks is MANDATORY and must be called BEFORE open_overview - never open the Overview with an empty To-do.',
+			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. The user can edit them afterward. Onboarding step 4: add_tasks is MANDATORY and must be called BEFORE the step-5 open_overview - never come back to the Overview with an empty To-do.',
 			inputSchema: {
 				type: 'object',
 				properties: { labels: { type: 'array', items: { type: 'string' }, description: 'Task labels.' } },
@@ -155,7 +155,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'open_overview',
-			description: 'Switch the UI back to the Project Overview tab (e.g. after building the roadmap and updating the To-do, so the user can review). This opens the full-width Project Overview editor. Onboarding step 5 - call only AFTER add_tasks (never with an empty To-do). Then tell the user the To-do list is placed BELOW the roadmap, so they should scroll down under the roadmap to see it.',
+			description: 'Switch the UI to the Project Overview tab (the full-width Project Overview editor). Call this BEFORE you write anything into the overview, not after: the tab updates live, so the user watching it sees the title and summary appear. If you write while the tab is closed, the user sees nothing and your "I wrote it" reads as false. During onboarding it is called TWICE and both are required: step 1, the moment the user chooses to do the overview and BEFORE set_project_title / update_project_summary; and step 5, after add_tasks, to bring the user back from the Roadmap tab - there, also tell them the To-do list is placed BELOW the roadmap, so they should scroll down under the roadmap to see it.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				try {

@@ -260,27 +260,39 @@ async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDi
 	if (entries.length === 0) {
 		return { ok: true, message: `No files found under ${remoteDir}.`, copied: 0, failed: 0, errors: [], skipped: [], localDir };
 	}
-	let copied = 0;
-	const errors: string[] = [];
 	const skipped: string[] = [];
 	const limit = opts?.maxFileBytes;
+	// Build the whole batch first: it is downloaded over a SINGLE SSH login.
+	// One login per file used to trip servers that rate-limit rapid logins, so
+	// the copy failed with an auth error even though the run had just succeeded.
+	const batch: Array<{ remote: string; local: string; rel: string }> = [];
 	for (const entry of entries) {
 		const rel = remoteRelative(remoteDir, entry.path);
 		if (limit !== undefined && entry.sizeBytes > limit) {
 			skipped.push(`${rel} (${humanSize(entry.sizeBytes)})`);
 			continue;
 		}
-		const localFile = localJoin(localDir, rel);
-		try {
-			await ssh.downloadFileSftp(profile, entry.path, localFile);
-			copied++;
-		} catch (err) {
-			errors.push(`${rel}: ${(err as Error).message}`);
-		}
+		batch.push({ remote: entry.path, local: localJoin(localDir, rel), rel });
+	}
+	const byRemote = new Map(batch.map(b => [b.remote, b.rel]));
+	let result: { copied: number; errors: Array<{ remote: string; message: string }> };
+	try {
+		result = await ssh.downloadFilesSftp(profile, batch.map(b => ({ remote: b.remote, local: b.local })));
+	} catch (err) {
+		// Log it: a copy that fails after a SUCCESSFUL run is confusing, and the
+		// only clue used to be the tool's text result. Look in the Qoka DevTools
+		// console (Help -> Toggle Developer Tools).
+		console.error(`${LOG_PREFIX}: SFTP copy of ${remoteDir} failed:`, (err as Error).message);
+		throw err;
+	}
+	const copied = result.copied;
+	const errors = result.errors.map(e => `${byRemote.get(e.remote) ?? e.remote}: ${e.message}`);
+	if (errors.length) {
+		console.warn(`${LOG_PREFIX}: ${errors.length} file(s) failed to copy from ${remoteDir}:`, errors.slice(0, 5));
 	}
 	return {
 		ok: errors.length === 0,
-		message: `Copied ${copied}/${entries.length} file(s) into ${localDir}.`
+		message: `Copied ${copied}/${batch.length} file(s) into ${localDir}.`
 			+ (skipped.length ? ` Skipped ${skipped.length} file(s) over the size limit.` : ''),
 		copied,
 		failed: errors.length,
