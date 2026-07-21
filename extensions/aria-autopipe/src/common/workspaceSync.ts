@@ -20,8 +20,8 @@ import { services } from './services';
  *
  * Everything here degrades gracefully: no workspace folder open, no active
  * profile, or an SSH error all resolve to a clear returned message rather than
- * throwing. File copies stream over SFTP (see SshService.downloadFileSftp) so
- * multi-GB genomic outputs never buffer in memory.
+ * throwing. File copies decode straight to disk (see SshService.downloadFilesBase64)
+ * so large genomic outputs never buffer in memory.
  *
  * Local layout mirrors the remote convention (workspacePathsFor):
  *   <workspaceFolder>/autopipe/pipelines/<name>/       pipeline code
@@ -243,17 +243,22 @@ export interface CopySummary {
 }
 
 export interface CopyOptions {
-	/** Skip (do not download) any single file larger than this. Guards against
-	 *  silently pulling a multi-GB genomic output onto the user's laptop. */
+	/** Do not download any single file larger than this; report it in `skipped`
+	 *  instead. The caller is expected to ASK the user about those files rather
+	 *  than either pulling a multi-GB genomic output unasked or dropping it
+	 *  silently. */
 	maxFileBytes?: number;
 }
 
 /**
- * Stream every file under `remoteDir` into `localDir` over SFTP, preserving
- * the relative tree. Best-effort per file: one failure does not abort the
- * rest, and the summary reports both counts.
+ * Copy every file under `remoteDir` into `localDir`, preserving the relative
+ * tree, over a SINGLE SSH login and WITHOUT SFTP (see downloadFilesBase64 for
+ * why). Best-effort per file: one failure does not abort the rest, and the
+ * summary reports both counts. Files above `maxFileBytes` are NOT copied - they
+ * are returned in `skipped` so the caller can ask the user about them instead of
+ * silently pulling a huge file or silently dropping it.
  */
-async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDir: string, opts?: CopyOptions): Promise<CopySummary> {
+async function copyRemoteDirInternal(profile: SshProfile, remoteDir: string, localDir: string, opts?: CopyOptions): Promise<CopySummary> {
 	const { ssh } = services();
 	const entries = await listRemoteFilesWithSizes(profile, remoteDir);
 	ensureLocalDir(localDir);
@@ -265,24 +270,24 @@ async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDi
 	// Build the whole batch first: it is downloaded over a SINGLE SSH login.
 	// One login per file used to trip servers that rate-limit rapid logins, so
 	// the copy failed with an auth error even though the run had just succeeded.
-	const batch: Array<{ remote: string; local: string; rel: string }> = [];
+	const batch: Array<{ remote: string; local: string; rel: string; expectedBytes: number }> = [];
 	for (const entry of entries) {
 		const rel = remoteRelative(remoteDir, entry.path);
 		if (limit !== undefined && entry.sizeBytes > limit) {
 			skipped.push(`${rel} (${humanSize(entry.sizeBytes)})`);
 			continue;
 		}
-		batch.push({ remote: entry.path, local: localJoin(localDir, rel), rel });
+		batch.push({ remote: entry.path, local: localJoin(localDir, rel), rel, expectedBytes: entry.sizeBytes });
 	}
 	const byRemote = new Map(batch.map(b => [b.remote, b.rel]));
 	let result: { copied: number; errors: Array<{ remote: string; message: string }> };
 	try {
-		result = await ssh.downloadFilesSftp(profile, batch.map(b => ({ remote: b.remote, local: b.local })));
+		result = await ssh.downloadFilesBase64(profile, batch.map(b => ({ remote: b.remote, local: b.local, expectedBytes: b.expectedBytes })));
 	} catch (err) {
 		// Log it: a copy that fails after a SUCCESSFUL run is confusing, and the
 		// only clue used to be the tool's text result. Look in the Qoka DevTools
 		// console (Help -> Toggle Developer Tools).
-		console.error(`${LOG_PREFIX}: SFTP copy of ${remoteDir} failed:`, (err as Error).message);
+		console.error(`${LOG_PREFIX}: copy of ${remoteDir} failed:`, (err as Error).message);
 		throw err;
 	}
 	const copied = result.copied;
@@ -309,7 +314,7 @@ async function copyRemoteDirSftp(profile: SshProfile, remoteDir: string, localDi
  * the project (the mounted WSL path needs no copy).
  */
 export async function copyRemoteDirToLocal(profile: SshProfile, remoteDir: string, localDir: string, opts?: CopyOptions): Promise<CopySummary> {
-	return copyRemoteDirSftp(profile, remoteDir, localDir, opts);
+	return copyRemoteDirInternal(profile, remoteDir, localDir, opts);
 }
 
 /** Strip autopipe-app's `autopipe-<name>` image prefix to recover the pipeline name. */
@@ -348,7 +353,7 @@ export async function savePipelineCodeToProject(profile: SshProfile, pipelineNam
 			return { ok: false, message: `Pipeline code directory not found on target: ${remoteDir}` };
 		}
 		const dest = path.join(local.pipelines, pipelineName);
-		const summary = await copyRemoteDirSftp(profile, remoteDir, dest);
+		const summary = await copyRemoteDirInternal(profile, remoteDir, dest);
 		return { ok: summary.ok, message: `Pipeline code '${pipelineName}': ${summary.message}${summary.failed ? ` (${summary.failed} failed)` : ''}` };
 	} catch (err) {
 		return { ok: false, message: `Pipeline code copy failed: ${(err as Error).message}` };
@@ -467,10 +472,13 @@ export async function listRunOutputs(profile: SshProfile, runName: string): Prom
 	}
 }
 
-/** Largest single output file auto-copied when a pipeline finishes. Pipelines
- *  routinely produce multi-GB files (BAM, raw matrices); those stay on the
- *  server and the user can pull one deliberately with save_results_to_project. */
-export const AUTO_SAVE_MAX_FILE_BYTES = 512 * 1024 * 1024;
+/** Largest single file copied back WITHOUT asking. Anything bigger is reported
+ *  so the assistant can ask the user whether to download it - pipelines and
+ *  analyses routinely produce multi-GB files (BAM, raw matrices), and pulling
+ *  one unasked wastes the user's time and disk. Deliberately small: the wait is
+ *  what the user notices, and a confirmed download is always available through
+ *  download_results / save_results_to_project. */
+export const AUTO_SAVE_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 /**
  * Copy a completed run's outputs into `<workspaceFolder>/autopipe/pipelines_output/<run>/`
@@ -489,7 +497,7 @@ export async function autoSaveRunOutputsOnCompletion(profile: SshProfile, runNam
 		if (isMountedRepo(profile)) {
 			return { ok: true, message: 'Mounted run environment - outputs are already in the project (no copy needed).', copied: 0, failed: 0, errors: [], skipped: [], localDir: localOutputDir };
 		}
-		return await copyRemoteDirSftp(profile, resolveOutputDir(profile, runName), localOutputDir, { maxFileBytes: AUTO_SAVE_MAX_FILE_BYTES });
+		return await copyRemoteDirInternal(profile, resolveOutputDir(profile, runName), localOutputDir, { maxFileBytes: AUTO_SAVE_MAX_FILE_BYTES });
 	} catch (err) {
 		return { ok: false, message: `Automatic save failed: ${(err as Error).message}`, copied: 0, failed: 1, errors: [(err as Error).message], skipped: [] };
 	}
@@ -552,16 +560,34 @@ export async function saveResultsToProject(
 	if (files && files.length > 0) {
 		const { ssh } = services();
 		ensureLocalDir(localOutputDir);
-		for (const rel of files) {
+		// Same transport as every other download here: ONE login, base64 over the
+		// exec channel. This used to open an SFTP connection per file, which fails
+		// outright on a server with SFTP disabled - and this is the path the user
+		// lands on after approving a large file, so it has to be the reliable one.
+		// Sizes for the integrity check. The listing is the same helper the rest of
+		// this file uses; without it a corrupt copy of a file the user explicitly
+		// asked for would go unnoticed - the one place that matters most.
+		const sizes = new Map<string, number>();
+		for (const e of await listRemoteFilesWithSizes(profile, outputDir)) {
+			sizes.set(e.path, e.sizeBytes);
+		}
+		const batch = files.map(rel => {
 			const cleanRel = String(rel).replace(/^\/+/, '');
-			const remoteFile = `${outputDir.replace(/\/+$/, '')}/${cleanRel}`;
-			const localFile = localJoin(localOutputDir, cleanRel);
-			try {
-				await ssh.downloadFileSftp(profile, remoteFile, localFile);
-				outputsCopied++;
-			} catch (err) {
-				outputErrors.push(`${cleanRel}: ${(err as Error).message}`);
-			}
+			const remote = `${outputDir.replace(/\/+$/, '')}/${cleanRel}`;
+			return {
+				rel: cleanRel,
+				remote,
+				local: localJoin(localOutputDir, cleanRel),
+				expectedBytes: sizes.get(remote),
+			};
+		});
+		const byRemote = new Map(batch.map(b => [b.remote, b.rel]));
+		try {
+			const copy = await ssh.downloadFilesBase64(profile, batch.map(b => ({ remote: b.remote, local: b.local, expectedBytes: b.expectedBytes })));
+			outputsCopied = copy.copied;
+			outputErrors.push(...copy.errors.map(e => `${byRemote.get(e.remote) ?? e.remote}: ${e.message}`));
+		} catch (err) {
+			outputErrors.push(`Could not connect to copy the outputs: ${(err as Error).message}`);
 		}
 	}
 

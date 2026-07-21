@@ -540,7 +540,9 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 							const parts = [`\n\nResults were saved into the project automatically: ${autoSave.message}`];
 							parts.push(`Tell the user to open ${where} in the Explorer. Do NOT read the files off the server and write them again yourself - they are already local.`);
 							if (autoSave.skipped.length) {
-								parts.push(`Left on the server (over the ${humanSize(AUTO_SAVE_MAX_FILE_BYTES)} auto-copy limit): ${autoSave.skipped.join(', ')}. Mention these and only fetch one with save_results_to_project if the user asks.`);
+								parts.push(`These are too large to copy back automatically (over ${humanSize(AUTO_SAVE_MAX_FILE_BYTES)}) and are still on the server: ${autoSave.skipped.join(', ')}.`
+									+ ` You MUST tell the user about them and ASK whether to download them - do not decide for them, and do not stay silent about them.`
+									+ ` If they say yes, call save_results_to_project with those relative paths in \`files\`; a large copy can take a while.`);
 							}
 							if (autoSave.failed > 0 || !autoSave.ok) {
 								parts.push(`Some files could NOT be copied back (${autoSave.errors.slice(0, 3).join('; ')}). Tell the user, and offer to retry with list_run_outputs + save_results_to_project.`);

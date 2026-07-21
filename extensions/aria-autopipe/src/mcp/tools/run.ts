@@ -62,9 +62,10 @@ function injectPep723(code: string, deps: string[]): string {
 const META_MARK = '<<<QOKA-RUN-META>>>';
 const FILES_MARK = '<<<QOKA-RUN-FILES>>>';
 
-/** Largest single result file copied back automatically. Bigger outputs (BAMs,
- *  raw matrices) stay on the server rather than silently filling a laptop. */
-const MAX_COPY_BYTES = 512 * 1024 * 1024;
+/** Largest single result file copied back WITHOUT asking. Anything bigger is
+ *  reported so the assistant can ASK the user whether to download it, rather
+ *  than pulling a multi-GB output onto their laptop unasked. */
+const MAX_COPY_BYTES = 20 * 1024 * 1024;
 
 /** Split the run script's trailing metadata block off the user's stdout. */
 function splitMeta(raw: string): { stdout: string; runDir?: string; files: string[] } {
@@ -104,6 +105,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
+			+ 'And pass timeout_s: 900 on that call - the first Python run pulls the interpreter and all dependencies, which overruns the 300s default for anything like scanpy/anndata and aborts the install halfway, looking to the user like the code failed. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (autopipe MCP) for that instead. '
 			+ 'Files the code writes are saved AUTOMATICALLY under the project `analysis/<run-id>/` folder on the user\'s own disk - written directly on Windows/WSL, SFTP-copied back for a VM or a remote SSH server. The result says where. Never read those files back off the server and re-write them locally yourself; they are already there. '
 			+ 'stdout is returned here (truncated if very large). Large results or images/plots are NOT shown in chat - tell the user to open them from `analysis/<run-id>/` in the Explorer.',
@@ -113,7 +115,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				language: { type: 'string', description: 'Interpreter to run the code with. Python runs via uv.', enum: ['bash', 'python', 'node'] },
 				code: { type: 'string', description: 'The full script source to run. It executes with its working directory set to the run folder, so relative output paths land in analysis/<run-id>/.' },
 				dependencies: { type: 'array', description: 'Python packages to install for this run (e.g. ["scanpy", "leidenalg"]). Installed automatically via uv before the code runs. Python only; ignored for bash/node. Alternatively put a PEP 723 `# /// script` block in the code itself.', items: { type: 'string' } },
-				timeout_s: { type: 'integer', description: 'Max seconds to allow the script to run (default 300, max 900). The first run that installs packages can take a while.' },
+				timeout_s: { type: 'integer', description: 'Max seconds to allow the script to run (default 300, max 900). SET THIS TO 900 whenever the run may install anything: the FIRST Python run downloads the interpreter plus every requested package, and a scientific stack (scanpy, anndata, scvi-tools, a conda/bioconda env) routinely needs more than the 300s default. Exceeding it kills the run mid-install and looks to the user like the code failed. Later runs reuse the cache and are fast, so this costs nothing when it is not needed.' },
 			},
 			required: ['language', 'code'],
 		},
@@ -234,7 +236,9 @@ export const RUN_TOOLS: ToolDefinition[] = [
 						+ (mounted ? '' : ' They were copied back over SFTP, so they are already on the user\'s disk.'));
 					lines.push('Do NOT read these files off the server and write them again yourself - they are already local. To show a result, point the user at analysis/' + id + '/ in the Explorer, or read it from that LOCAL path.');
 					if (skipped.length) {
-						lines.push(`Left on the server (over the ${humanSize(MAX_COPY_BYTES)} auto-copy limit): ${skipped.join(', ')}. Tell the user, and only fetch one if they ask.`);
+						lines.push(`These are too large to copy back automatically (over ${humanSize(MAX_COPY_BYTES)}) and are still on the server: ${skipped.join(', ')}.`
+							+ ` You MUST tell the user about them and ASK whether to download them - do not decide for them, and do not stay silent about them.`
+							+ ` If they say yes, use download_results (autopipe MCP) with the run directory ${resolvedDir || 'reported above'}; it may take a while for a large file.`);
 					}
 				} else if (!wsRoot) {
 					lines.push('', `No project folder is open, so results could NOT be saved locally; they are on the run target at ${resolvedDir || 'the run directory'}. Ask the user to open a folder so results are saved into analysis/ automatically.`);
@@ -299,7 +303,8 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'ALWAYS announce setup BEFORE calling run_code when an install will happen, so the user is not left waiting on a silent, long call (run_code returns only AFTER the whole thing finishes - installs are NOT streamed). Post a short message in the user\'s language, and be specific about WHAT is installing:',
 	'- Installing uv / Python packages (first Python run, or new `dependencies`): e.g. "uv로 환경을 준비하고 필요한 패키지를 설치하는 중입니다… 처음 한 번은 1~2분 걸릴 수 있어요."',
 	'- Installing micromamba and/or conda tools (bash run): e.g. "micromamba와 요청하신 도구를 설치하는 중입니다… 큰 환경은 몇 분 걸릴 수 있어요."',
-	'Say it is a ONE-TIME setup and later runs are cached and fast, and raise timeout_s (up to 900) for large conda/bioconda environments. If nothing new needs installing (already cached), no setup message is needed - just run it.',
+	'Say it is a ONE-TIME setup and later runs are cached and fast, and pass timeout_s: 900 on ANY run that may install - not just large conda/bioconda environments. The FIRST Python run on a fresh machine downloads the interpreter plus every dependency, and a stack like scanpy or anndata regularly exceeds the 300s default; when it does, the run is killed part-way through the install and the user is told the code failed. Raising the timeout costs nothing on a cached run.',
+	'If nothing new needs installing (already cached), no setup message is needed - just run it.',
 	'',
 	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder on the user\'s LOCAL disk, automatically - including runs on a remote SSH server, whose outputs are SFTP-copied back before the tool returns. stdout is returned in chat. If a result is large or an image/plot, it is NOT in chat - tell the user to open it from analysis/<run-id>/ in the Explorer.',
 	'Do NOT hand-copy results: never chain read_file on the server + write_file locally to "bring back" an output. The copy already happened. Read from the LOCAL analysis/<run-id>/ path if you need the contents. The only exception is a file the result explicitly says was left on the server for being over the auto-copy size limit.',

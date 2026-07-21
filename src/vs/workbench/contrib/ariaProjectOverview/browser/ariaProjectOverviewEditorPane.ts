@@ -211,9 +211,6 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	/** Fields the USER has edited locally and that must survive a merge on save. */
 	private dirtyTitle = false;
 	private dirtyContent = false;
-	/** Cheap change detection so a duplicate watcher event or a tab re-activation
-	 *  does not re-render (and re-scroll) an unchanged overview. */
-	private lastAppliedSignature = '';
 	private readonly saveScheduler = this._register(new RunOnceScheduler(() => void this.persist(), 500));
 
 	constructor(
@@ -391,14 +388,19 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		if (visible) { void this.reload(); }
 	}
 
+	/**
+	 * Re-read from disk and render. Deliberately UNCONDITIONAL: an earlier version
+	 * skipped the render when the data matched what it had last read, but it
+	 * recorded that BEFORE applyData, which skips fields it cannot write yet (the
+	 * textarea may not exist, or may be focused). Once recorded, the same content
+	 * never rendered again - and because the pane is reused, closing and reopening
+	 * the tab did not help either. That is exactly the "the AI says it wrote the
+	 * summary but the Content is empty" report. Re-rendering is cheap; being right
+	 * matters more.
+	 */
 	private async reload(): Promise<void> {
-		const next = await this.readOverview();
-		const nextRoadmap = await this.readRoadmap();
-		const signature = JSON.stringify([next, nextRoadmap]);
-		if (signature === this.lastAppliedSignature) { return; }
-		this.lastAppliedSignature = signature;
-		this.data = next;
-		this.roadmapNodes = nextRoadmap;
+		this.data = await this.readOverview();
+		this.roadmapNodes = await this.readRoadmap();
 		this.applyData();
 	}
 
@@ -486,7 +488,6 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 			await this.fileService.createFolder(URI.joinPath(this.folderUri()!, '.qoka')).catch(() => { /* exists */ });
 			await this.fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(merged, null, 2) + '\n'));
 			this.lastSelfWriteAt = Date.now();
-			this.lastAppliedSignature = '';
 		} catch { /* best-effort */ }
 	}
 
@@ -499,14 +500,29 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		this.startCardEl.style.display = empty ? 'flex' : 'none';
 	}
 
-	/** Push freshly-loaded data into the UI. We skip fields the user is actively
-	 *  editing so an external (MCP) refresh never clobbers a live edit. */
+	/**
+	 * Push freshly-loaded data into the UI, skipping fields with UNSAVED user
+	 * edits so an external (MCP) refresh never clobbers something being typed.
+	 *
+	 * "Has unsaved edits" is deliberately NOT "has focus". This pane's focus()
+	 * focuses the content textarea, and the workbench calls focus() every time the
+	 * editor is opened or activated - so a focus-based guard meant the textarea was
+	 * permanently considered "in use" and never took an update. The summary the AI
+	 * wrote landed in overview.json and showed up nowhere, and reopening the tab
+	 * refocused the textarea and skipped it again. The dirty flags are cleared on
+	 * save, so a real in-progress edit is still protected.
+	 */
 	private applyData(): void {
-		if (this.titleInput && document.activeElement !== this.titleInput) {
+		if (this.titleInput && !this.dirtyTitle) {
 			this.titleInput.value = this.data.title;
 		}
-		if (this.contentTextarea && document.activeElement !== this.contentTextarea) {
-			this.contentTextarea.value = blocksToMarkdown(this.data.content);
+		if (this.contentTextarea && !this.dirtyContent) {
+			const markdown = blocksToMarkdown(this.data.content);
+			// Preserve the caret when the text is unchanged, so a refresh triggered
+			// while the user is reading does not jump them back to the top.
+			if (this.contentTextarea.value !== markdown) {
+				this.contentTextarea.value = markdown;
+			}
 		}
 		this.updateStartCard();
 		this.renderSections();

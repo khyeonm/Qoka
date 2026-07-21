@@ -194,6 +194,12 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 						for (const e of result.outputErrors) {
 							lines.push(`  FAIL ${e}`);
 						}
+						// The user was ASKED before a copy this size, so silence here is
+						// the worst outcome: they would believe the file is on their disk.
+						lines.push('These files were NOT saved and are not on the user\'s computer.'
+							+ ' You MUST say so plainly - name them, say the download did not complete, and offer to retry.'
+							+ ' Do not describe the save as successful, and do not quietly move on.'
+							+ ' A "stalled" error means the server stopped sending data; retrying is reasonable, but ask first.');
 					}
 				} else {
 					lines.push('');

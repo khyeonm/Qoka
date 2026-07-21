@@ -142,15 +142,31 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		'set -e',
 		'export DEBIAN_FRONTEND=noninteractive',
 		'APT_UPDATED=0',
-		'apt_update_once() { if [ "$APT_UPDATED" = 0 ]; then apt-get update -y; APT_UPDATED=1; fi; }',
+		'apt_update_once() { if [ "$APT_UPDATED" = 0 ]; then apt-get update -y || true; APT_UPDATED=1; fi; }',
+		// `apt-get update` exits 0 even when it only PARTIALLY fetched - it just
+		// warns. On a cold WSL boot that leaves e.g. `main` present but `universe`
+		// missing, so `apt-get install docker.io` (universe) fails with "has no
+		// installation candidate" while openssh-server (main) installed fine - which
+		// is exactly the failure seen in the wild. Rather than trying to prove the
+		// lists are complete (an installed package still reports a Candidate, so
+		// probing one proves nothing), just refresh and retry the install itself.
+		'apt_install() {',
+		'  apt_update_once',
+		'  for i in 1 2 3; do',
+		'    if apt-get install -y "$@"; then return 0; fi',
+		'    sleep 5',
+		'    apt-get update -y >/dev/null 2>&1 || true',
+		'  done',
+		'  return 1',
+		'}',
 		// Decide by the REAL artifact, not `command -v`: on a box with Docker
 		// Desktop the injected `docker` CLI makes `command -v docker` succeed while
 		// openssh-server is still absent, so a `command -v sshd` heuristic wrongly
 		// skips the install and sshd can never start.
-		'if [ ! -f /etc/ssh/sshd_config ]; then apt_update_once; apt-get install -y openssh-server; fi',
+		'if [ ! -f /etc/ssh/sshd_config ]; then apt_install openssh-server; fi',
 		// Install the native docker engine only when NO docker CLI works, leaving a
 		// Docker Desktop WSL integration untouched.
-		'if ! command -v docker >/dev/null 2>&1; then apt_update_once; apt-get install -y docker.io; fi',
+		'if ! command -v docker >/dev/null 2>&1; then apt_install docker.io; fi',
 		// docker-in-WSL2 needs the legacy iptables backend on some kernels.
 		'update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true',
 		`usermod -aG docker '${u}' 2>/dev/null || true`,
@@ -171,7 +187,7 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		// it). Best-effort (|| true): a uv install failure must NOT block the built-in
 		// server, which autopipe uses without uv. UV_NO_MODIFY_PATH stops the
 		// installer editing shell profiles (the dir is already on PATH).
-		'if ! command -v curl >/dev/null 2>&1; then apt_update_once; apt-get install -y curl; fi',
+		'if ! command -v curl >/dev/null 2>&1; then apt_install curl; fi',
 		'if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh || true; fi',
 		// Host keys + run dir so the keeper's foreground sshd can start.
 		'ssh-keygen -A',

@@ -510,7 +510,9 @@ export const FILE_TOOLS: ToolDefinition[] = [
 						madeDirs.add(remoteParent);
 					}
 					try {
-						await ssh.uploadFileSftp(profile, f.local, remoteFile);
+						// uploadFile, not uploadFileSftp: falls back to the exec channel on a
+						// server where SFTP is disabled.
+						await ssh.uploadFile(profile, f.local, remoteFile);
 						uploaded++;
 					} catch (e) {
 						errors.push(`${f.rel}: ${(e as Error).message}`);

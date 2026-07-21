@@ -125,23 +125,27 @@ export class SshService {
 	 * connection.
 	 */
 	/**
-	 * Download MANY files over ONE SSH connection and ONE SFTP session.
+	 * Download MANY files over ONE SSH connection, WITHOUT SFTP.
 	 *
-	 * This exists because the per-file `downloadFileSftp` opened a fresh SSH
-	 * login for every file: copying a run directory back meant 4-6 full
-	 * authentications fired off within a second or two, right after the run's own
-	 * login. Servers that rate-limit rapid logins (MaxStartups, PAM lockout,
-	 * fail2ban) start refusing them, which surfaces as "All configured
-	 * authentication methods failed" on the COPY while the command execution that
-	 * preceded it worked fine.
+	 * Two problems forced this shape. Opening a connection per file (the original
+	 * approach) fires several full authentications within seconds, which servers
+	 * that rate-limit rapid logins refuse - reported as "All configured
+	 * authentication methods failed" on the copy even though the run that just
+	 * preceded it worked. And SFTP is not always available at all: a server can
+	 * omit `Subsystem sftp` or block it with Match/ForceCommand while exec works
+	 * fine, so a copy built on SFTP fails there permanently.
 	 *
-	 * Per-file failures are collected instead of aborting the batch, and the
-	 * connect/auth phase is retried like `execRaw` does, since nothing has been
-	 * transferred yet at that point.
+	 * So: one login, then one `base64 <file>` exec per file over that same
+	 * connection - the transport autopipe used before SFTP was introduced, and the
+	 * same trick autopipe-app's Rust `ssh_download_base64` uses. Output is decoded
+	 * incrementally as it streams, so memory stays flat regardless of file size.
+	 *
+	 * Per-file failures are collected rather than aborting the batch; a failure in
+	 * the connect/auth phase is retried, since nothing has transferred yet.
 	 */
-	async downloadFilesSftp(
+	async downloadFilesBase64(
 		profile: SshProfile,
-		files: Array<{ remote: string; local: string }>,
+		files: Array<{ remote: string; local: string; expectedBytes?: number }>,
 	): Promise<{ copied: number; errors: Array<{ remote: string; message: string }> }> {
 		if (files.length === 0) {
 			return { copied: 0, errors: [] };
@@ -150,7 +154,7 @@ export class SshService {
 		let lastErr: Error | undefined;
 		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
 			try {
-				return await this.downloadFilesOnce(profile, files);
+				return await this.downloadFilesBase64Once(profile, files);
 			} catch (e) {
 				const err = e instanceof Error ? e : new Error(String(e));
 				lastErr = err;
@@ -160,12 +164,12 @@ export class SshService {
 				await new Promise(r => setTimeout(r, 500 * attempt));
 			}
 		}
-		throw lastErr ?? new Error('sftp download failed');
+		throw lastErr ?? new Error('download failed');
 	}
 
-	private downloadFilesOnce(
+	private downloadFilesBase64Once(
 		profile: SshProfile,
-		files: Array<{ remote: string; local: string }>,
+		files: Array<{ remote: string; local: string; expectedBytes?: number }>,
 	): Promise<{ copied: number; errors: Array<{ remote: string; message: string }> }> {
 		return new Promise((resolve, reject) => {
 			let cfg: ConnectConfig;
@@ -195,39 +199,19 @@ export class SshService {
 
 			conn.on('ready', () => {
 				readyReached = true;
-				conn.sftp(async (err, sftp) => {
-					if (err) { fail(err); return; }
+				void (async () => {
 					const errors: Array<{ remote: string; message: string }> = [];
 					let copied = 0;
 					for (const file of files) {
 						try {
-							await new Promise<void>((res, rej) => {
-								try {
-									fs.mkdirSync(path.dirname(file.local), { recursive: true });
-								} catch (e) {
-									rej(e instanceof Error ? e : new Error(String(e)));
-									return;
-								}
-								const readStream = sftp.createReadStream(file.remote);
-								const writeStream = fs.createWriteStream(file.local);
-								let finished = false;
-								const settle = (e?: Error) => {
-									if (finished) { return; }
-									finished = true;
-									if (e) { rej(e); } else { res(); }
-								};
-								readStream.on('error', (e: Error) => settle(e));
-								writeStream.on('error', (e: Error) => settle(e));
-								writeStream.on('close', () => settle());
-								readStream.pipe(writeStream);
-							});
+							await this.base64FileToDisk(conn, file.remote, file.local, file.expectedBytes);
 							copied++;
 						} catch (e) {
 							errors.push({ remote: file.remote, message: (e as Error).message });
 						}
 					}
 					done({ copied, errors });
-				});
+				})();
 			});
 			conn.on('error', (e) => fail(e instanceof Error ? e : new Error(String(e))));
 
@@ -244,6 +228,142 @@ export class SshService {
 			} catch (e) {
 				fail(e instanceof Error ? e : new Error(String(e)));
 			}
+		});
+	}
+
+	/**
+	 * Run `base64 <remote>` on an ALREADY-OPEN connection and decode the stream
+	 * straight to disk. Decoding incrementally (rather than buffering the whole
+	 * encoded blob) keeps memory flat, which matters because base64 inflates the
+	 * payload by ~33%.
+	 */
+	private base64FileToDisk(conn: Client, remotePath: string, localPath: string, expectedBytes?: number): Promise<void> {
+		return new Promise((resolve, reject) => {
+			try {
+				fs.mkdirSync(path.dirname(localPath), { recursive: true });
+			} catch (e) {
+				reject(e instanceof Error ? e : new Error(String(e)));
+				return;
+			}
+			// `base64 < file` rather than `base64 -- file`: reading stdin is universal,
+			// while the `--` end-of-options separator is not accepted by every base64
+			// implementation. A missing/unreadable file still exits non-zero.
+			conn.exec(`base64 < ${shellQuote(remotePath)}`, (err, stream) => {
+				if (err) { reject(err); return; }
+				const out = fs.createWriteStream(localPath);
+				let leftover = '';
+				let stderr = '';
+				let settled = false;
+				// Head of the stream, held back until we can tell whether the remote
+				// prefixed the spurious `{"success":true}` banner (see
+				// stripSuccessPrefix). Letting it through would be silent corruption,
+				// not a visible error: Buffer.from(_, 'base64') DISCARDS the invalid
+				// characters and keeps the valid ones ("success"/"true" are all valid
+				// base64), which shifts the 4-character decode alignment and turns the
+				// whole file into garbage while still reporting success.
+				let head = '';
+				let headDone = false;
+				let stall: NodeJS.Timeout | undefined;
+				// Decoded byte count, checked against the size the remote reported. This
+				// is the safety net base64 needs and SFTP did not: Buffer.from(_,'base64')
+				// silently DISCARDS characters it cannot parse, so anything polluting the
+				// stream shifts the 4-character alignment and yields a plausible-looking
+				// but entirely wrong file, with no error anywhere. A byte count that does
+				// not match turns that into a visible failure.
+				let written = 0;
+				const finish = (e?: Error): void => {
+					if (settled) { return; }
+					settled = true;
+					if (stall) { clearTimeout(stall); }
+					if (e) {
+						// A partial file is worse than none: the caller would report it
+						// as copied and the user would open a truncated result.
+						try { out.destroy(); } catch { /* already closed */ }
+						try { fs.unlinkSync(localPath); } catch { /* nothing to remove */ }
+						reject(e);
+					} else {
+						resolve();
+					}
+				};
+				// A download the user explicitly approved must never hang silently: if
+				// no bytes arrive for this long, give up and say so. Inactivity (not
+				// total duration) is the right measure - a slow but progressing
+				// transfer of a large file is fine, a stalled one is not.
+				const armStall = () => {
+					if (stall) { clearTimeout(stall); }
+					stall = setTimeout(() => {
+						try { stream.close(); } catch { /* already gone */ }
+						finish(new Error(`the download stalled - no data for ${STALL_TIMEOUT_MS / 1000}s`));
+					}, STALL_TIMEOUT_MS);
+				};
+				armStall();
+				// Without this, a local write failure (disk full, no permission) emits an
+				// unhandled 'error' on the stream and takes down the extension host.
+				out.on('error', (e: Error) => finish(e));
+				/** Feed whitespace-stripped base64 text through the incremental decoder. */
+				const consume = (text: string): void => {
+					const chunk = leftover + text;
+					const usable = chunk.length - (chunk.length % 4);
+					leftover = chunk.slice(usable);
+					if (usable > 0) {
+						const decoded = Buffer.from(chunk.slice(0, usable), 'base64');
+						written += decoded.length;
+						// Respect backpressure, otherwise a fast remote fills memory with
+						// queued writes - the very thing streaming was meant to avoid.
+						if (!out.write(decoded)) {
+							stream.pause();
+							out.once('drain', () => stream.resume());
+						}
+					}
+				};
+				/** Drop the banner once enough of the head has arrived to recognise it.
+				 *  Whitespace is already gone, so all three spacing variants of the
+				 *  literal have collapsed to the same string. */
+				const takeHead = (): void => {
+					headDone = true;
+					const body = head.startsWith(SUCCESS_BANNER) ? head.slice(SUCCESS_BANNER.length) : head;
+					head = '';
+					consume(body);
+				};
+				stream.on('data', (d: Buffer) => {
+					armStall();
+					const text = d.toString('ascii').replace(/\s+/g, '');
+					if (!headDone) {
+						head += text;
+						// Wait until the head is long enough to compare against the banner;
+						// it can straddle several chunks.
+						if (head.length < SUCCESS_BANNER.length) { return; }
+						takeHead();
+						return;
+					}
+					consume(text);
+				});
+				stream.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+				stream.on('error', (e: Error) => finish(e));
+				stream.on('close', (code: number | null) => {
+					if (stall) { clearTimeout(stall); }
+					// A file smaller than the banner never reached takeHead.
+					if (!headDone) { takeHead(); }
+					if (leftover) {
+						const tail = Buffer.from(leftover, 'base64');
+						written += tail.length;
+						out.write(tail);
+					}
+					// ssh2 passes null when the channel closes without an exit-status
+					// message; treat that as success exactly like execRaw does. Reading
+					// it as a failure would delete every file we just downloaded.
+					const exitCode = code ?? 0;
+					out.end(() => {
+						if (exitCode !== 0) {
+							finish(new Error(stderr.trim() || `base64 exited with ${exitCode}`));
+						} else if (expectedBytes !== undefined && written !== expectedBytes) {
+							finish(new Error(`the copy is corrupt: got ${written} bytes, the server reports ${expectedBytes}`));
+						} else {
+							finish();
+						}
+					});
+				});
+			});
 		});
 	}
 
@@ -278,7 +398,7 @@ export class SshService {
 					const readStream = sftp.createReadStream(remotePath);
 					const writeStream = fs.createWriteStream(localPath);
 					let bytes = 0;
-					readStream.on('data', (d: Buffer) => { bytes += d.length; });
+					readStream.on('data', (d: string | Buffer) => { bytes += typeof d === 'string' ? Buffer.byteLength(d) : d.length; });
 					readStream.on('error', (e: Error) => finish(e));
 					writeStream.on('error', (e: Error) => finish(e));
 					writeStream.on('close', () => finish(undefined, bytes));
@@ -339,7 +459,7 @@ export class SshService {
 					let bytes = 0;
 					const readStream = fs.createReadStream(localPath);
 					const writeStream = sftp.createWriteStream(remotePath);
-					readStream.on('data', (d: Buffer) => { bytes += d.length; });
+					readStream.on('data', (d: string | Buffer) => { bytes += typeof d === 'string' ? Buffer.byteLength(d) : d.length; });
 					readStream.on('error', (e: Error) => finish(e));
 					writeStream.on('error', (e: Error) => finish(e));
 					writeStream.on('close', () => finish(undefined, bytes));
@@ -351,6 +471,111 @@ export class SshService {
 			// keyboard-interactive fallback for password auth (PAM-only servers
 			// that don't offer the `password` method). Answer every prompt with
 			// the profile password, mirroring the OpenSSH client's behaviour.
+			if (profile.auth.type === 'password' && profile.auth.password) {
+				const kbPw = profile.auth.password;
+				conn.on('keyboard-interactive', (_name, _instructions, _lang, prompts, respond) => {
+					respond(prompts.map(() => kbPw));
+				});
+			}
+
+			try {
+				conn.connect(cfg);
+			} catch (e) {
+				finish(e instanceof Error ? e : new Error(String(e)));
+			}
+		});
+	}
+
+	/**
+	 * Upload a local file by streaming it over the exec channel. No SFTP.
+	 *
+	 * SFTP is OPTIONAL on a server - sshd can omit `Subsystem sftp` or block it
+	 * with Match/ForceCommand - while command execution always works, because
+	 * running the user's code is the whole point of the connection. On a server
+	 * that refuses SFTP, every upload paid for a doomed connection first; that was
+	 * the repeated "SFTP failed" during upload. Downloads are exec-only for the
+	 * same reason, so both directions now agree and there is one path to keep
+	 * working rather than two.
+	 */
+	uploadFile(profile: SshProfile, localPath: string, remotePath: string): Promise<number> {
+		return this.uploadFileExec(profile, localPath, remotePath);
+	}
+
+	/**
+	 * Stream a local file to `remotePath` through `cat` on the exec channel. The
+	 * SSH exec channel carries raw bytes (no PTY, so no newline translation), which
+	 * is the same property that lets `readFile` pull binaries down with `cat`.
+	 *
+	 * Writes to a `.qoka-part` temp name and renames on success, so a failed or
+	 * interrupted upload can never leave a truncated file sitting at the real path
+	 * where a pipeline would happily consume it as input.
+	 */
+	uploadFileExec(profile: SshProfile, localPath: string, remotePath: string): Promise<number> {
+		return new Promise((resolve, reject) => {
+			let cfg: ConnectConfig;
+			let size = 0;
+			try {
+				cfg = connectConfig(profile);
+				size = fs.statSync(localPath).size;
+			} catch (e) {
+				reject(e);
+				return;
+			}
+
+			const conn = new Client();
+			let settled = false;
+			let stall: NodeJS.Timeout | undefined;
+			const finish = (err?: Error, val?: number): void => {
+				if (settled) { return; }
+				settled = true;
+				if (stall) { clearTimeout(stall); }
+				try { conn.end(); } catch { /* ignore */ }
+				if (err) { reject(err); } else { resolve(val ?? 0); }
+			};
+
+			conn.on('ready', () => {
+				const part = `${remotePath}.qoka-part`;
+				// `cat` into a temp file, then rename. On any failure remove the temp so
+				// the server is not littered with half-written inputs.
+				const cmd = `cat > ${shellQuote(part)} && mv -f ${shellQuote(part)} ${shellQuote(remotePath)} || { rm -f ${shellQuote(part)}; exit 1; }`;
+				conn.exec(cmd, (err, stream) => {
+					if (err) { finish(err); return; }
+					let stderr = '';
+					let bytes = 0;
+					const armStall = () => {
+						if (stall) { clearTimeout(stall); }
+						stall = setTimeout(() => {
+							try { stream.close(); } catch { /* already gone */ }
+							finish(new Error(`the upload stalled - no progress for ${STALL_TIMEOUT_MS / 1000}s`));
+						}, STALL_TIMEOUT_MS);
+					};
+					armStall();
+					const readStream = fs.createReadStream(localPath);
+					readStream.on('data', (d: string | Buffer) => {
+						bytes += typeof d === 'string' ? Buffer.byteLength(d) : d.length;
+						armStall();
+					});
+					readStream.on('error', (e: Error) => finish(e));
+					stream.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+					stream.on('error', (e: Error) => finish(e));
+					stream.on('close', (code: number | null) => {
+						const exitCode = code ?? 0;
+						if (exitCode !== 0) {
+							finish(new Error(stderr.trim() || `remote write failed (exit ${exitCode})`));
+							return;
+						}
+						if (bytes !== size) {
+							finish(new Error(`upload was truncated: sent ${bytes} of ${size} bytes`));
+							return;
+						}
+						finish(undefined, bytes);
+					});
+					readStream.pipe(stream);
+				});
+			});
+			conn.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
+
+			// Same keyboard-interactive fallback as every other connect site.
 			if (profile.auth.type === 'password' && profile.auth.password) {
 				const kbPw = profile.auth.password;
 				conn.on('keyboard-interactive', (_name, _instructions, _lang, prompts, respond) => {
@@ -474,6 +699,13 @@ export class SshService {
 		});
 	}
 }
+
+/** The spurious banner some remotes prepend to command output, with whitespace
+ *  already removed so every spacing variant matches the same literal. */
+const SUCCESS_BANNER = '{"success":true}';
+
+/** Give up on a download that has received no bytes for this long. */
+const STALL_TIMEOUT_MS = 120_000;
 
 /** Translate an Qoka SshProfile into ssh2's connection config. Throws with a
  *  clear message when required auth material is missing. */
