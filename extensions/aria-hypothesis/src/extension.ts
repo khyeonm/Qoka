@@ -9,7 +9,7 @@ import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 
 /**
- * Hypothesis Search extension entry. Boots the hypothesis MCP server and
+ * Hypothesis Search extension entry. Boots the qoka-hypothesis MCP server and
  * registers it with Claude Code + Codex. Pure MCP - no sidebar/commands.
  *
  * The MCP exposes search_hypothesis (grep the corpus) and
@@ -24,7 +24,7 @@ let mcpServer: AriaHypothesisMcpServer | undefined;
 let startPromise: Promise<number> | undefined;
 
 /**
- * Register the hypothesis MCP with every AI provider whose CLI is
+ * Register the qoka-hypothesis MCP with every AI provider whose CLI is
  * available (Claude Code, Codex). The server serves /sse (Claude) and
  * /mcp (Codex) on the same port; missing CLIs are skipped. Returns
  * whether any registration actually changed.
@@ -68,7 +68,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// batch config write (see aria.mcp.applyConfig).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.hypothesis.mcpInfo', async () => {
 		const port = await startPromise?.catch(() => undefined);
-		return port === undefined ? null : { name: 'hypothesis', port };
+		return port === undefined ? null : { name: 'qoka-hypothesis', port };
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('aria.hypothesis.reregisterMcp', async () => {

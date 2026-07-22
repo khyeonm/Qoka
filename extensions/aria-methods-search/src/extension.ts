@@ -66,7 +66,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// batch config write (see aria.mcp.applyConfig).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.methodsSearch.mcpInfo', async () => {
 		const port = await startPromise?.catch(() => undefined);
-		return port === undefined ? null : { name: 'methods-search', port };
+		return port === undefined ? null : { name: 'qoka-methods-search', port };
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('aria.methodsSearch.reregisterMcp', async () => {

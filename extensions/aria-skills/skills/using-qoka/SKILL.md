@@ -15,16 +15,16 @@ Qoka is a research workbench with purpose-built MCP tools for each research task
 
 | The user wants to... | Use the Qoka MCP tool(s) |
 |---|---|
-| Write, revise, or peer-review a PAPER / manuscript | the paper tools (`aria-paper`, e.g. propose_manuscript_revision); for AI peer review, the `iterative-paper-defense` skill |
+| Write, revise, or peer-review a PAPER / manuscript | the paper tools (`qoka-paper`, e.g. propose_manuscript_revision); for AI peer review, the `iterative-paper-defense` skill |
 | Find / look up academic LITERATURE | the `paper-lookup` skill |
-| Save a paper to the LIBRARY / manage saved papers | `paper-library` |
-| RUN or EXECUTE code / an analysis | FIRST call `get_workspace_info` (autopipe) to confirm the active run connection; THEN `run_code` (qoka-run) for a quick script, or `execute_pipeline` (autopipe) for a reproducible pipeline |
+| Save a paper to the LIBRARY / manage saved papers | `qoka-paper-library` |
+| RUN or EXECUTE code / an analysis | FIRST call `get_workspace_info` (qoka-autopipe) to confirm the active run connection; THEN `run_code` (qoka-run) for a quick script, or `execute_pipeline` (qoka-autopipe) for a reproducible pipeline |
 | Check whether a package / tool is installed, or its version | run a tiny script via `run_code` (e.g. a python that imports it) - do NOT check your own machine with `python -c` / `pip show` / `which` |
-| Plan a project / build a research ROADMAP | the roadmap tools (`aria-roadmap`) |
-| Take or organize NOTES | the notes tools (`aria-notes`) |
-| Search METHODS for a hypothesis | `methods-search` |
-| Search / explore HYPOTHESES | `hypothesis` |
-| Remember or recall context about the user or project | `aria-memory` |
+| Plan a project / build a research ROADMAP | the roadmap tools (`qoka-roadmap`) |
+| Take or organize NOTES | the notes tools (`qoka-notes`) |
+| Search METHODS for a hypothesis | `qoka-methods-search` |
+| Search / explore HYPOTHESES | `qoka-hypothesis` |
+| Remember or recall context about the user or project | `qoka-memory` |
 
 ## Starting a new project or analysis (overview -> roadmap -> to-dos)
 

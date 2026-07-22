@@ -73,6 +73,17 @@ function writeClaude(servers: McpServerInfo[]): void {
 	}
 	const mcp = (obj.mcpServers && typeof obj.mcpServers === 'object' ? obj.mcpServers : {}) as Record<string, unknown>;
 	let changed = false;
+	// Drop entries left by an older Qoka, so its tools stop appearing twice. Only
+	// ones that clearly came from us: a name we no longer use is not proof we wrote
+	// it, and this is the user's own config file.
+	const current = new Set(servers.map(s => s.name));
+	for (const legacy of LEGACY_SERVER_NAMES) {
+		if (current.has(legacy)) { continue; }
+		const entry = mcp[legacy] as { type?: string; url?: string } | undefined;
+		if (!entry || entry.type !== 'sse' || !/^http:\/\/127\.0\.0\.1:\d+\/sse$/.test(entry.url ?? '')) { continue; }
+		delete mcp[legacy];
+		changed = true;
+	}
 	for (const s of servers) {
 		const url = claudeUrl(s.port);
 		const cur = mcp[s.name] as { type?: string; url?: string } | undefined;
@@ -101,7 +112,32 @@ function claudeRegistered(servers: McpServerInfo[]): Set<string> {
 
 // --- Codex (~/.codex/config.toml) ------------------------------------------
 
-/** Upsert a `[mcp_servers.<name>]` block's url, preserving the rest of the TOML. */
+/** Keys that only make sense for a STDIO server. Their presence is what makes
+ *  Codex treat an entry as stdio, so they must not survive next to a `url`. */
+const CODEX_STDIO_KEYS = ['command', 'args', 'env'];
+
+/** Drop stdio-only keys from a TOML block body (the header line is kept). */
+function stripStdioKeys(block: string): { block: string; changed: boolean } {
+	const lines = block.split('\n');
+	const kept = lines.filter((line, i) => {
+		if (i === 0) { return true; }                     // the [table] header
+		const key = line.match(/^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=/);
+		return !(key && CODEX_STDIO_KEYS.includes(key[1]));
+	});
+	return { block: kept.join('\n'), changed: kept.length !== lines.length };
+}
+
+/**
+ * Upsert a `[mcp_servers.<name>]` block's url, preserving the rest of the TOML.
+ *
+ * Any stdio-only key already in the block is REMOVED. Codex decides an entry's
+ * transport from its keys: a `command` means stdio, and stdio does not accept a
+ * `url`, so merging our url into a pre-existing stdio entry produced
+ * "invalid configuration: url is not supported for stdio in mcp_servers.<name>"
+ * and broke EVERY chat, not just that one server. This happens for real - the
+ * standalone AutoPipe app registers `[mcp_servers.autopipe]` with a command, and
+ * we then wrote a url into the same block.
+ */
 function upsertCodexBlock(text: string, name: string, url: string): { text: string; changed: boolean } {
 	const header = `[mcp_servers.${name}]`;
 	const idx = text.indexOf(header);
@@ -112,18 +148,74 @@ function upsertCodexBlock(text: string, name: string, url: string): { text: stri
 	// Extent of this block: from its header to the next table header (or EOF).
 	const nextIdx = text.indexOf('\n[', idx + header.length);
 	const end = nextIdx === -1 ? text.length : nextIdx + 1;
-	const block = text.slice(idx, end);
+	const stripped = stripStdioKeys(text.slice(idx, end));
+	let block = stripped.block;
+	let changed = stripped.changed;
+
 	const urlRe = /url\s*=\s*"([^"]*)"/;
 	const m = block.match(urlRe);
 	if (m) {
-		if (m[1] === url) { return { text, changed: false }; }
-		const newBlock = block.replace(urlRe, `url = "${url}"`);
-		return { text: text.slice(0, idx) + newBlock + text.slice(end), changed: true };
+		if (m[1] !== url) {
+			block = block.replace(urlRe, `url = "${url}"`);
+			changed = true;
+		}
+	} else {
+		block = block.replace(header, `${header}\nurl = "${url}"`);
+		changed = true;
 	}
-	// Header present but no url line - insert one right after the header.
-	const newBlock = block.replace(header, `${header}\nurl = "${url}"`);
-	return { text: text.slice(0, idx) + newBlock + text.slice(end), changed: true };
+	if (!changed) { return { text, changed: false }; }
+	return { text: text.slice(0, idx) + block + text.slice(end), changed: true };
 }
+
+/** Our own entry shape: a loopback Streamable-HTTP url. */
+const OUR_CODEX_URL = /^url\s*=\s*"http:\/\/127\.0\.0\.1:\d+\/mcp"$/;
+
+/**
+ * Retire a `[mcp_servers.<name>]` table we no longer use, WITHOUT damaging
+ * anything that is not ours. Three cases, and the middle one matters most:
+ *
+ *  - only our url in the block  -> delete the whole table.
+ *  - our url NEXT TO stdio keys -> delete just the url line. That block belongs to
+ *    someone else (the standalone AutoPipe app registers `autopipe` with a
+ *    `command`); we merged a url into it, and the mix is invalid - Codex reports
+ *    "url is not supported for stdio" and refuses to start ANY chat. Removing our
+ *    line repairs their entry instead of deleting it.
+ *  - no url of ours            -> leave it completely alone.
+ *
+ * This is the user's own config file: a name we stopped using is not proof we
+ * created the entry.
+ */
+function removeCodexBlock(text: string, name: string): { text: string; changed: boolean } {
+	const header = `[mcp_servers.${name}]`;
+	const idx = text.indexOf(header);
+	if (idx === -1) { return { text, changed: false }; }
+	const nextIdx = text.indexOf('\n[', idx + header.length);
+	const end = nextIdx === -1 ? text.length : nextIdx + 1;
+	const lines = text.slice(idx, end).split('\n');
+	const body = lines.slice(1).map(l => l.trim()).filter(Boolean);
+	const ourUrlCount = body.filter(l => OUR_CODEX_URL.test(l)).length;
+	if (ourUrlCount === 0) { return { text, changed: false }; }
+	if (body.length === ourUrlCount) {
+		// Nothing but our own url - the whole table was ours.
+		return { text: (text.slice(0, idx) + text.slice(end)).replace(/\n{3,}/g, '\n\n'), changed: true };
+	}
+	// Shared with someone else's config: withdraw only our line.
+	const kept = lines.filter((l, i) => i === 0 || !OUR_CODEX_URL.test(l.trim()));
+	return { text: text.slice(0, idx) + kept.join('\n') + text.slice(end), changed: true };
+}
+
+/**
+ * Server names Qoka used previously. Two generations of them: the `aria-*` names
+ * from before the Qoka rename, and the unprefixed names that collided with
+ * unrelated software (a standalone AutoPipe app registers `autopipe` as a stdio
+ * server, and merging our url into that entry broke Codex entirely). Left behind,
+ * each one duplicates every tool the current name already provides.
+ */
+const LEGACY_SERVER_NAMES = [
+	'aria-autopipe', 'aria-run', 'aria-hypothesis', 'aria-memory', 'aria-methods-search',
+	'aria-notes', 'aria-overview', 'aria-paper', 'aria-paper-search', 'aria-roadmap',
+	'autopipe', 'hypothesis', 'methods-search', 'paper-library',
+];
 
 /** Upsert every server into ~/.codex/config.toml, preserving all other content. */
 function writeCodex(servers: McpServerInfo[]): void {
@@ -134,6 +226,15 @@ function writeCodex(servers: McpServerInfo[]): void {
 		text = '';
 	}
 	let changed = false;
+	// Clear the pre-rename duplicates first, so a stale aria-* entry cannot keep
+	// serving the same tools under a second name.
+	const current = new Set(servers.map(s => s.name));
+	for (const legacy of LEGACY_SERVER_NAMES) {
+		if (current.has(legacy)) { continue; }
+		const r = removeCodexBlock(text, legacy);
+		text = r.text;
+		if (r.changed) { changed = true; }
+	}
 	for (const s of servers) {
 		const r = upsertCodexBlock(text, s.name, codexUrl(s.port));
 		text = r.text;

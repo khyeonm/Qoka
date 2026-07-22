@@ -88,8 +88,14 @@ export function isMountedRepo(profile: SshProfile): boolean {
  *   <workspaceFolder>/autopipe/{pipelines,pipelines_input,pipelines_output}/
  *   <workspaceFolder>/analysis/
  * so the mounted run environment has the dirs it writes into and the Explorer
- * shows them. Each gets a `.gitkeep` so the empty tree survives git. Idempotent;
- * no-ops without an open folder.
+ * shows them. Idempotent, and never removes anything: an existing folder is left
+ * exactly as it is. No-ops without an open folder.
+ *
+ * These used to get a `.gitkeep` so the empty tree survived git. Dropped: the
+ * moment a run writes a result the folder appears in git by itself, Qoka recreates
+ * the tree whenever the project is opened, and the other template folders
+ * (notes/, data/, …) never had one - so the files bought nothing and left the user
+ * wondering what they were.
  */
 export function ensureWorkspaceScaffold(root?: string): void {
 	const folder = root ?? workspaceFolderPath();
@@ -104,8 +110,6 @@ export function ensureWorkspaceScaffold(root?: string): void {
 	for (const d of dirs) {
 		try {
 			fs.mkdirSync(d, { recursive: true });
-			const keep = path.join(d, '.gitkeep');
-			if (!fs.existsSync(keep)) { fs.writeFileSync(keep, ''); }
 		} catch { /* best-effort */ }
 	}
 	try {
@@ -118,9 +122,11 @@ const ANALYSIS_README = [
 	'# analysis',
 	'',
 	'Results from quick one-off code runs (the **qoka-run** `run_code` tool) land',
-	'here, one folder per run: `analysis/<run-id>/`. Output files too large to show',
-	'in chat - big tables, images/plots - are written here; open them from the',
-	'Explorer.',
+	'here, one folder per run, named after what you asked for -',
+	'`analysis/rna-velocity-umap/` rather than a timestamp.',
+	'',
+	'A few files from each run open automatically as editor tabs (plots first).',
+	'Everything else stays here - open it from the Explorer.',
 	'',
 ].join('\n');
 
@@ -479,9 +485,10 @@ export async function listRunOutputs(profile: SshProfile, runName: string): Prom
 }
 
 /** Relative POSIX paths of every file under a local dir (recursive, best-effort).
- *  Used for the mounted run environment, where outputs were written straight into
- *  the project so there is no copy list to report. */
-function listLocalFiles(dir: string, prefix = ''): string[] {
+ *  The authoritative list of what a run actually produced: a remote `ls` only sees
+ *  the top level, so results written into a subfolder (figures/, tables/) would
+ *  otherwise be copied but never reported or opened. */
+export function listLocalFiles(dir: string, prefix = ''): string[] {
 	const out: string[] = [];
 	try {
 		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

@@ -44,7 +44,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 ];
 
 /**
- * Server-level guidance for the autopipe MCP, injected at `initialize`. The
+ * Server-level guidance for the qoka-autopipe MCP, injected at `initialize`. The
  * autopipe server previously had NO instructions, so a model connected to it
  * (e.g. Codex) got no routing rule and would "check the environment" by running
  * commands in its OWN terminal. This mirrors the qoka-run guidance so EITHER
@@ -52,7 +52,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
  * the local shell.
  */
 export const AUTOPIPE_MCP_INSTRUCTIONS = [
-	'This server ("autopipe") builds and runs reproducible pipelines and exposes the shared run environment (built-in server or SSH).',
+	'This server ("qoka-autopipe") builds and runs reproducible pipelines and exposes the shared run environment (built-in server or SSH).',
 	'',
 	'HARD RULE - HOW TO RUN OR CHECK CODE (this overrides your defaults):',
 	'ANY request to run/execute code, OR to check the run environment / whether a package or tool is installed (실행, 돌려, run, execute, "is X installed", "환경 확인") MUST go through a Qoka MCP tool. NEVER use your own terminal / shell / bash / python for it.',

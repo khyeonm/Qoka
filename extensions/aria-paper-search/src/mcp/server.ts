@@ -18,7 +18,7 @@ interface SseSession {
 }
 
 /**
- * Qoka paper-library MCP server. Mirrors the autopipe MCP server's
+ * Qoka paper-library MCP server. Mirrors the qoka-autopipe MCP server's
  * HTTP+SSE / Streamable HTTP dual-transport design - Claude Code uses
  * the older SSE protocol, Codex uses the newer Streamable HTTP - so
  * paper-library tools work in both clients.
@@ -114,7 +114,7 @@ export class AriaPaperLibraryMcpServer {
 			req.on('close', () => clearInterval(heartbeat));
 		} else if (req.method === 'GET' && url.pathname === '/') {
 			res.writeHead(200, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ server: 'paper-library', toolCount: ALL_TOOLS.length }));
+			res.end(JSON.stringify({ server: 'qoka-paper-library', toolCount: ALL_TOOLS.length }));
 		} else {
 			res.writeHead(404);
 			res.end();
@@ -242,7 +242,7 @@ export class AriaPaperLibraryMcpServer {
 				const negotiated = SUPPORTED.includes(requested) ? requested : '2024-11-05';
 				return {
 					protocolVersion: negotiated,
-					serverInfo: { name: 'paper-library', version: '0.0.1' },
+					serverInfo: { name: 'qoka-paper-library', version: '0.0.1' },
 					capabilities: { tools: {} },
 				};
 			}

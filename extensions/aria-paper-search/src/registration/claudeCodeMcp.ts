@@ -11,7 +11,7 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-const MCP_NAME = 'paper-library';
+const MCP_NAME = 'qoka-paper-library';
 // Older Qoka builds may have registered under "aria-paper-library" or
 // similar; sweep both on startup so the user doesn't end up with stale
 // duplicates.

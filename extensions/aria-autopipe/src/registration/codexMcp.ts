@@ -9,9 +9,9 @@ import { candidateCodexPaths } from '../detection/claudeCodeDetector';
 
 const execAsync = promisify(exec);
 
-// Use the same name as Claude Code's registration so saved prompts referring
-// to "autopipe" tools work in either client without modification.
-const MCP_NAME = 'autopipe';
+// Same name as the Claude Code registration, so the tools are addressed
+// identically in either client. See claudeCodeMcp.ts for why it is prefixed.
+const MCP_NAME = 'qoka-autopipe';
 const LEGACY_MCP_NAME = 'aria-autopipe';
 
 /**

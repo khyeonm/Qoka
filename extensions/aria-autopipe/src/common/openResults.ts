@@ -36,6 +36,16 @@ const MAX_OPEN_BYTES = 5 * 1024 * 1024;
  *  otherwise bury every other tab the user had open. */
 export const MAX_OPEN_TABS = 3;
 
+/** Lower sorts first. A figure is the point of most analyses; a table can be read
+ *  elsewhere; a text/log-ish file is usually supporting material. */
+function displayPriority(rel: string): number {
+	const ext = path.extname(rel).toLowerCase();
+	if (['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg'].includes(ext)) { return 0; }
+	if (['.pdf', '.html'].includes(ext)) { return 1; }
+	if (['.csv', '.tsv'].includes(ext)) { return 2; }
+	return 3;
+}
+
 export interface OpenedResults {
 	/** Files now showing as editor tabs. */
 	opened: string[];
@@ -56,7 +66,10 @@ export interface OpenedResults {
 export async function openResultsInEditor(localDir: string, files: string[]): Promise<OpenedResults> {
 	const opened: string[] = [];
 	const remaining: string[] = [];
-	for (const rel of files) {
+	// Only a few files get a tab, so spend them on what the user most wants to
+	// LOOK at. Sorted alphabetically, a run that writes three CSVs and a plot
+	// showed three tables and hid the figure - the opposite of useful.
+	for (const rel of [...files].sort((a, b) => displayPriority(a) - displayPriority(b))) {
 		const name = rel.split('/').pop() ?? rel;
 		if (RUN_SCAFFOLDING.has(name)) { continue; }
 		const full = path.join(localDir, ...rel.split('/').filter(Boolean));

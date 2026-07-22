@@ -9,14 +9,14 @@ import { candidateClaudePaths } from '../detection/claudeCodeDetector';
 
 const execAsync = promisify(exec);
 
-// `autopipe` is the same name the standalone autopipe-app Tauri build
-// registers under. Qoka now replaces it - the user is expected to shut down
-// autopipe-app and rely on Qoka alone, so we adopt the original name so
-// existing Claude Code conversations / saved prompts referring to
-// "autopipe" tools continue to work without any user-side rename.
-const MCP_NAME = 'autopipe';
-// Older Qoka builds registered as `aria-autopipe`. Remove that entry too
-// when we start up so the user isn't left with a stale duplicate.
+// Every Qoka server is `qoka-*`. This one used to be plain `autopipe`, which is
+// ALSO what the standalone autopipe-app registers - sharing the name meant our
+// http entry and its stdio entry landed in one config block, which Codex rejects
+// outright ("url is not supported for stdio") and which broke every chat. The
+// prefix keeps the two apps independent.
+const MCP_NAME = 'qoka-autopipe';
+// Names earlier builds registered under. Removed on startup so the user is not
+// left with stale duplicates serving the same tools twice.
 const LEGACY_MCP_NAME = 'aria-autopipe';
 
 /**

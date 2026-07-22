@@ -115,7 +115,7 @@ export class AriaHypothesisMcpServer {
 			req.on('close', () => clearInterval(heartbeat));
 		} else if (req.method === 'GET' && url.pathname === '/') {
 			res.writeHead(200, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ server: 'hypothesis', toolCount: ALL_TOOLS.length }));
+			res.end(JSON.stringify({ server: 'qoka-hypothesis', toolCount: ALL_TOOLS.length }));
 		} else {
 			res.writeHead(404);
 			res.end();
@@ -243,7 +243,7 @@ export class AriaHypothesisMcpServer {
 				const negotiated = SUPPORTED.includes(requested) ? requested : '2024-11-05';
 				return {
 					protocolVersion: negotiated,
-					serverInfo: { name: 'hypothesis', version: '0.0.1' },
+					serverInfo: { name: 'qoka-hypothesis', version: '0.0.1' },
 					capabilities: { tools: {} },
 				};
 			}

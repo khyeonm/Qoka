@@ -334,7 +334,7 @@ export class QokaMcpServer {
 					protocolVersion: negotiated,
 					// `name` is what AI clients show alongside the tool list.
 					// Matches the `claude mcp add` registration name so the
-					// two strings the user sees ("autopipe MCP" / "autopipe
+					// two strings the user sees ("qoka-autopipe MCP" / "autopipe
 					// tools") are consistent.
 					serverInfo: { name: this.opts.name, version: '0.0.1' },
 					capabilities: { tools: {} },

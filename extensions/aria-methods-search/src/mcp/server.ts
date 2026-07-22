@@ -18,7 +18,7 @@ interface SseSession {
 }
 
 /**
- * Qoka methods-search MCP server. Mirrors the paper-library / autopipe MCP
+ * Qoka methods-search MCP server. Mirrors the paper-library / qoka-autopipe MCP
  * servers' HTTP+SSE / Streamable HTTP dual-transport design - Claude Code uses
  * the older SSE protocol (/sse), Codex the newer Streamable HTTP (/mcp) - so
  * the methods-search tools work in both clients from the same port.
@@ -113,7 +113,7 @@ export class AriaMethodsSearchMcpServer {
 			req.on('close', () => clearInterval(heartbeat));
 		} else if (req.method === 'GET' && url.pathname === '/') {
 			res.writeHead(200, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ server: 'methods-search', toolCount: ALL_TOOLS.length }));
+			res.end(JSON.stringify({ server: 'qoka-methods-search', toolCount: ALL_TOOLS.length }));
 		} else {
 			res.writeHead(404);
 			res.end();
@@ -241,7 +241,7 @@ export class AriaMethodsSearchMcpServer {
 				const negotiated = SUPPORTED.includes(requested) ? requested : '2024-11-05';
 				return {
 					protocolVersion: negotiated,
-					serverInfo: { name: 'methods-search', version: '0.0.1' },
+					serverInfo: { name: 'qoka-methods-search', version: '0.0.1' },
 					capabilities: { tools: {} },
 				};
 			}

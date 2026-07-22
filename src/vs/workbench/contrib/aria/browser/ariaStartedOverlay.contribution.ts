@@ -124,8 +124,12 @@ This folder was created by Qoka. Here is what each folder is for:
 - downloads/   Other downloaded files.
 - paper/       Manuscripts you write in the Paper Writing tab.
 - reviews/     Results from the Peer Review tab.
-- .qoka/       Qoka's internal files (roadmap, project settings).
 - analysis/    Results from quick code runs, one folder per run.
+- autopipe/    Pipelines and their results.
+    pipelines/         Pipeline code saved from the run environment.
+    pipelines_input/   Input manifests (file lists, not the data itself).
+    pipelines_output/  Results from each pipeline run.
+- .qoka/       Qoka's internal files (roadmap, project settings).
 
 You can rename or delete any folder you do not need.
 `;
@@ -1440,7 +1444,13 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// `autopipe/` holds pipeline artifacts copied back from the run environment:
 		// the pipeline CODE, an input manifest, and run OUTPUTS (see aria-autopipe's
 		// project-sync). Scaffolded up front so the layout is there before the first run.
+		// Keep this list and PROJECT_TEMPLATE_README in step with aria-autopipe's
+		// ensureWorkspaceScaffold: both create the run/pipeline folders, and a folder
+		// present in one but not the other shows up (or fails to) depending on which
+		// ran first. `analysis/` was missing here, so a brand-new project had no sign
+		// of where run_code results would land until the extension got around to it.
 		const dirs = ['notes', 'references', 'data', 'downloads', 'paper', 'reviews', '.qoka',
+			'analysis',
 			'autopipe', 'autopipe/pipelines', 'autopipe/pipelines_input', 'autopipe/pipelines_output'];
 		for (const dir of dirs) {
 			try {

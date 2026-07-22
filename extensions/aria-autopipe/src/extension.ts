@@ -164,7 +164,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		}),
 	);
 
-	mcpServer = new QokaMcpServer({ name: 'autopipe', tools: ALL_TOOLS, defaultPort: 3748, instructions: AUTOPIPE_MCP_INSTRUCTIONS });
+	mcpServer = new QokaMcpServer({ name: 'qoka-autopipe', tools: ALL_TOOLS, defaultPort: 3748, instructions: AUTOPIPE_MCP_INSTRUCTIONS });
 	// Second MCP: "qoka-run" - quick one-off code execution (run_code) on the SAME
 	// built-in server (shared via VMManager). Registered under its own name/port so
 	// the AI lists it as a separate server. Port range starts at 3760 to stay clear
@@ -229,7 +229,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.autopipe.mcpInfo', async () => {
 			try { await startPromise; } catch { return null; }
 			const port = mcpServer?.currentPort;
-			return typeof port === 'number' ? { name: 'autopipe', port } : null;
+			return typeof port === 'number' ? { name: 'qoka-autopipe', port } : null;
 		}),
 	);
 

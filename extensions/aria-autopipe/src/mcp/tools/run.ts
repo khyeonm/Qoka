@@ -4,12 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
 import { resolveRunTarget } from '../../runtime/builtinServer';
 import { windowsToWsl } from '../../common/dockerEnv';
-import { workspaceFolderPath, copyRemoteDirToLocal } from '../../common/workspaceSync';
+import { workspaceFolderPath, copyRemoteDirToLocal, listLocalFiles } from '../../common/workspaceSync';
 import { humanSize } from '../../common/workspaceSync';
 import { openResultsInEditor, describeOpenedResults } from '../../common/openResults';
 
@@ -82,6 +83,27 @@ function splitMeta(raw: string): { stdout: string; runDir?: string; files: strin
 	return { stdout, runDir, files };
 }
 
+/** Show a path the user can actually locate: under their home it becomes `~/…`,
+ *  which is shorter and unambiguous across machines. Native separators kept. */
+function homeRelative(p: string): string {
+	const home = os.homedir();
+	if (home && (p === home || p.startsWith(home + path.sep))) {
+		return `~${p.slice(home.length)}`;
+	}
+	return p;
+}
+
+/** Subfolders (relative to the run dir) that actually hold results, so the answer
+ *  can name them instead of leaving the user to hunt through the tree. */
+function resultSubdirs(files: string[]): string[] {
+	const dirs = new Set<string>();
+	for (const rel of files) {
+		const idx = rel.lastIndexOf('/');
+		if (idx > 0) { dirs.add(rel.slice(0, idx)); }
+	}
+	return [...dirs].sort();
+}
+
 const STDOUT_CAP = 12000;
 const STDERR_CAP = 4000;
 
@@ -134,12 +156,12 @@ export const RUN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'run_code',
 		description:
-			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Connections tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work (analysis/rna-velocity-umap/) instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
+			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the qoka-autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (qoka-autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Connections tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work (analysis/rna-velocity-umap/) instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
 			+ 'And pass timeout_s: 900 on that call - the first Python run pulls the interpreter and all dependencies, which overruns the 300s default for anything like scanpy/anndata and aborts the install halfway, looking to the user like the code failed. '
-			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (autopipe MCP) for that instead. '
+			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (qoka-autopipe MCP) for that instead. '
 			+ 'Files the code writes are saved AUTOMATICALLY under the project `analysis/<run-id>/` folder on the user\'s own disk - written directly on Windows/WSL, SFTP-copied back for a VM or a remote SSH server. The result says where. Never read those files back off the server and re-write them locally yourself; they are already there. '
 			+ 'stdout is returned here (truncated if very large). Result files the editor can display (plots, tables, reports) are OPENED AUTOMATICALLY as editor tabs, and the result lists which ones - so tell the user to look at the editor rather than instructing them to open anything, and never paste a file\'s contents into chat to "show" it. Anything not opened (too large, or a format the editor cannot display) stays in `analysis/<run-id>/` for them to handle from the Explorer.',
 		inputSchema: {
@@ -282,18 +304,31 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				if (produced.length) {
 					lines.push('', `Files produced: ${produced.join(', ')}`);
 				}
+				// What is ACTUALLY on disk now, recursively. The remote `ls` above only
+				// sees the run dir's top level, so a script that writes into figures/
+				// or tables/ had those files copied but never reported or opened.
+				const savedFiles = savedTo ? listLocalFiles(savedTo) : [];
 				// Show the results, don't just say where they are.
-				const shown = savedTo ? await openResultsInEditor(savedTo, produced) : { opened: [], remaining: [] };
+				const shown = savedTo ? await openResultsInEditor(savedTo, savedFiles) : { opened: [], remaining: [] };
 
 				if (savedTo) {
-					lines.push('', `Results were saved automatically into the project at analysis/${id}/ (${savedTo}).`
-						+ (mounted ? '' : ' They were copied back over SFTP, so they are already on the user\'s disk.'));
-					lines.push('Do NOT read these files off the server and write them again yourself - they are already local. To show a result, point the user at analysis/' + id + '/ in the Explorer, or read it from that LOCAL path.');
+					const subdirs = resultSubdirs(savedFiles);
+					lines.push('', `Results are saved on the user's own computer at: ${homeRelative(savedTo)}`);
+					// Spell out that the last path segment is THIS run's folder. Without a
+					// label it is a bare timestamp, which reads like noise rather than a
+					// name the user can look for in the Explorer.
+					lines.push(`Inside the open project that is analysis/${id}/, where "${id}" is the folder for THIS run.`
+						+ (mounted ? '' : ' The files were copied back from the run target, so they are already local.'));
+					if (subdirs.length) {
+						lines.push(`Result files are in these subfolders of that run folder: ${subdirs.map(d => `${d}/`).join(', ')}. Name the subfolder when you tell the user where something is - do not just say "the analysis folder".`);
+					}
+					lines.push('When you tell the user where results are, give them this full path, not a bare folder name.');
+					lines.push('Do NOT read these files off the server and write them again yourself - they are already local.');
 					lines.push(...describeOpenedResults(shown));
 					if (skipped.length) {
 						lines.push(`These are too large to copy back automatically (over ${humanSize(MAX_COPY_BYTES)}) and are still on the server: ${skipped.join(', ')}.`
 							+ ` You MUST tell the user about them and ASK whether to download them - do not decide for them, and do not stay silent about them.`
-							+ ` If they say yes, use download_results (autopipe MCP) with the run directory ${resolvedDir || 'reported above'}; it may take a while for a large file.`);
+							+ ` If they say yes, use download_results (qoka-autopipe MCP) with the run directory ${resolvedDir || 'reported above'}; it may take a while for a large file.`);
 					}
 				} else if (!wsRoot) {
 					lines.push('', `No project folder is open, so results could NOT be saved locally; they are on the run target at ${resolvedDir || 'the run directory'}. Ask the user to open a folder so results are saved into analysis/ automatically.`);
@@ -327,16 +362,16 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'HARD RULE - HOW TO RUN OR CHECK CODE (this overrides your defaults):',
 	'ANY request to run/execute code, OR to check the environment / whether a package or tool is installed (실행, 돌려, run, execute, "is X installed", "환경 확인") MUST go through a Qoka MCP tool. NEVER use your own terminal / shell / bash / python for it.',
 	'Do NOT run `python -c ...`, `pip show`, `pip list`, `which`, `conda list`, `Rscript -e ...` in YOUR shell to "see what is installed" - that inspects YOUR machine, not the Qoka run environment where code actually runs, so the answer is wrong. To check whether a package is installed, run a tiny script via run_code (e.g. python that imports it) on the run connection.',
-	'Sequence, every time: (1) call get_workspace_info (autopipe MCP) to confirm the ACTIVE run connection is reachable - if not, call start_server then re-check; (2) then run_code here (quick) or execute_pipeline on autopipe (pipeline).',
+	'Sequence, every time: (1) call get_workspace_info (qoka-autopipe MCP) to confirm the ACTIVE run connection is reachable - if not, call start_server then re-check; (2) then run_code here (quick) or execute_pipeline on autopipe (pipeline).',
 	'FALLBACK: if you ever run something in your own terminal and it errors or looks wrong, STOP - that was the wrong tool. Call get_workspace_info to find the run environment and redo it with run_code.',
 	'',
 	'WHERE it runs: run_code executes on the ACTIVE Qoka connection - the built-in server OR the SSH server the user selected in the Connections tab - the SAME target autopipe pipelines use. They are NOT separate servers: whichever connection is active runs BOTH quick code (run_code) AND autopipe pipelines. So run_code CAN run on an SSH server, and autopipe CAN run on the built-in server. The run_code result states which target it actually used - relay that to the user so they know where it ran.',
 	'',
-	'NEVER run the user\'s code in your own terminal/shell. To run/execute code (실행/돌려) you MUST call a Qoka MCP tool: run_code (this server) for a quick one-off script, or the autopipe MCP for a reproducible multi-step pipeline. Falling back to the local terminal is WRONG - it bypasses the Qoka run environment.',
+	'NEVER run the user\'s code in your own terminal/shell. To run/execute code (실행/돌려) you MUST call a Qoka MCP tool: run_code (this server) for a quick one-off script, or the qoka-autopipe MCP for a reproducible multi-step pipeline. Falling back to the local terminal is WRONG - it bypasses the Qoka run environment.',
 	'',
 	'Routing: if it is unclear which the user wants, ASK: "간단한 코드를 바로 돌릴까요, 아니면 autopipe 파이프라인으로 만들까요?" (Run a quick script now, or build an autopipe pipeline?). Or decide yourself which fits - but never fall back to the terminal.',
 	'- Quick / one-off  -> use this server\'s run_code.',
-	'- Multi-step / reproducible / needs inputs & outputs tracked -> use the autopipe MCP instead.',
+	'- Multi-step / reproducible / needs inputs & outputs tracked -> use the qoka-autopipe MCP instead.',
 	'If the user already made the intent clear (e.g. "just run this quickly"), do NOT ask - run it.',
 	'',
 	'Installing packages/tools - always pick the RIGHT manager, and install the manager itself first if it is missing:',

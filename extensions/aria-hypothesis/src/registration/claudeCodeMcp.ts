@@ -11,7 +11,7 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-const MCP_NAME = 'hypothesis';
+const MCP_NAME = 'qoka-hypothesis';
 const LEGACY_NAMES = ['aria-hypothesis'];
 
 const CLAUDE_CANDIDATES = [
@@ -89,7 +89,7 @@ function readUserScopeRegisteredPort(): number | null {
 }
 
 /**
- * Register the hypothesis MCP server with the Claude Code CLI. Uses the
+ * Register the qoka-hypothesis MCP server with the Claude Code CLI. Uses the
  * HTTP+SSE transport endpoint (/sse), distinct from Codex's Streamable
  * HTTP endpoint at /mcp.
  */

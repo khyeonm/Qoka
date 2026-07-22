@@ -11,7 +11,7 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-const MCP_NAME = 'methods-search';
+const MCP_NAME = 'qoka-methods-search';
 // Sweep any earlier names on startup so the user doesn't end up with stale
 // duplicates if the MCP was renamed between builds.
 const LEGACY_NAMES = ['aria-methods-search', 'methods-recommend'];

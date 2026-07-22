@@ -11,7 +11,7 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-const MCP_NAME = 'methods-search';
+const MCP_NAME = 'qoka-methods-search';
 const LEGACY_NAMES = ['aria-methods-search', 'methods-recommend'];
 
 const CODEX_CANDIDATES = [
@@ -65,7 +65,7 @@ async function readRegisteredPort(codex: string): Promise<number | null> {
 		const lines = out.stdout.split('\n');
 		for (let i = 0; i < lines.length; i++) {
 			const t = lines[i].trim();
-			if (/(^|[^a-z-])methods-search([^a-z-]|$)/i.test(t) && !LEGACY_NAMES.some(n => new RegExp(n, 'i').test(t))) {
+			if (new RegExp(`(^|[^a-z-])${MCP_NAME}([^a-z-]|$)`, 'i').test(t) && !LEGACY_NAMES.some(n => new RegExp(n, 'i').test(t))) {
 				for (let j = i; j < Math.min(i + 3, lines.length); j++) {
 					const m = lines[j].match(/127\.0\.0\.1:(\d+)/);
 					if (m) {

@@ -200,7 +200,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// batch config write (see aria.mcp.applyConfig).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paperSearch.mcpInfo', async () => {
 		const port = await startPromise?.catch(() => undefined);
-		return port === undefined ? null : { name: 'paper-library', port };
+		return port === undefined ? null : { name: 'qoka-paper-library', port };
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paperSearch.reregisterMcp', async () => {
