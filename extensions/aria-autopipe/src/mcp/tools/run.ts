@@ -11,6 +11,7 @@ import { resolveRunTarget } from '../../runtime/builtinServer';
 import { windowsToWsl } from '../../common/dockerEnv';
 import { workspaceFolderPath, copyRemoteDirToLocal } from '../../common/workspaceSync';
 import { humanSize } from '../../common/workspaceSync';
+import { openResultsInEditor, describeOpenedResults } from '../../common/openResults';
 
 /**
  * qoka-run MCP: run a short, self-contained script on the Qoka built-in server
@@ -140,7 +141,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 			+ 'And pass timeout_s: 900 on that call - the first Python run pulls the interpreter and all dependencies, which overruns the 300s default for anything like scanpy/anndata and aborts the install halfway, looking to the user like the code failed. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (autopipe MCP) for that instead. '
 			+ 'Files the code writes are saved AUTOMATICALLY under the project `analysis/<run-id>/` folder on the user\'s own disk - written directly on Windows/WSL, SFTP-copied back for a VM or a remote SSH server. The result says where. Never read those files back off the server and re-write them locally yourself; they are already there. '
-			+ 'stdout is returned here (truncated if very large). Large results or images/plots are NOT shown in chat - tell the user to open them from `analysis/<run-id>/` in the Explorer.',
+			+ 'stdout is returned here (truncated if very large). Result files the editor can display (plots, tables, reports) are OPENED AUTOMATICALLY as editor tabs, and the result lists which ones - so tell the user to look at the editor rather than instructing them to open anything, and never paste a file\'s contents into chat to "show" it. Anything not opened (too large, or a format the editor cannot display) stays in `analysis/<run-id>/` for them to handle from the Explorer.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -281,10 +282,14 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				if (produced.length) {
 					lines.push('', `Files produced: ${produced.join(', ')}`);
 				}
+				// Show the results, don't just say where they are.
+				const shown = savedTo ? await openResultsInEditor(savedTo, produced) : { opened: [], remaining: [] };
+
 				if (savedTo) {
 					lines.push('', `Results were saved automatically into the project at analysis/${id}/ (${savedTo}).`
 						+ (mounted ? '' : ' They were copied back over SFTP, so they are already on the user\'s disk.'));
 					lines.push('Do NOT read these files off the server and write them again yourself - they are already local. To show a result, point the user at analysis/' + id + '/ in the Explorer, or read it from that LOCAL path.');
+					lines.push(...describeOpenedResults(shown));
 					if (skipped.length) {
 						lines.push(`These are too large to copy back automatically (over ${humanSize(MAX_COPY_BYTES)}) and are still on the server: ${skipped.join(', ')}.`
 							+ ` You MUST tell the user about them and ASK whether to download them - do not decide for them, and do not stay silent about them.`
@@ -356,6 +361,7 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'Say it is a ONE-TIME setup and later runs are cached and fast, and pass timeout_s: 900 on ANY run that may install - not just large conda/bioconda environments. The FIRST Python run on a fresh machine downloads the interpreter plus every dependency, and a stack like scanpy or anndata regularly exceeds the 300s default; when it does, the run is killed part-way through the install and the user is told the code failed. Raising the timeout costs nothing on a cached run.',
 	'If nothing new needs installing (already cached), no setup message is needed - just run it.',
 	'',
-	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder on the user\'s LOCAL disk, automatically - including runs on a remote SSH server, whose outputs are SFTP-copied back before the tool returns. stdout is returned in chat. If a result is large or an image/plot, it is NOT in chat - tell the user to open it from analysis/<run-id>/ in the Explorer.',
+	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder on the user\'s LOCAL disk, automatically - including runs on a remote SSH server, whose outputs are copied back before the tool returns. stdout is returned in chat.',
+	'Files the editor can display (plots, tables, reports) are then OPENED FOR THE USER as editor tabs, and the tool result names them. So when a run produces a figure or a table, say it is now open in the editor and describe what it shows - do NOT tell the user to go find and open it, and do NOT dump the file contents into chat. Only files that were too large or in a format the editor cannot display are left for the Explorer.',
 	'Do NOT hand-copy results: never chain read_file on the server + write_file locally to "bring back" an output. The copy already happened. Read from the LOCAL analysis/<run-id>/ path if you need the contents. The only exception is a file the result explicitly says was left on the server for being over the auto-copy size limit.',
 ].join('\n');

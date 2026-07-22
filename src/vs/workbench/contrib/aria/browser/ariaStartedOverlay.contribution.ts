@@ -124,7 +124,8 @@ This folder was created by Qoka. Here is what each folder is for:
 - downloads/   Other downloaded files.
 - paper/       Manuscripts you write in the Paper Writing tab.
 - reviews/     Results from the Peer Review tab.
-- .aria/       Qoka's internal files (roadmap, project settings).
+- .qoka/       Qoka's internal files (roadmap, project settings).
+- analysis/    Results from quick code runs, one folder per run.
 
 You can rename or delete any folder you do not need.
 `;

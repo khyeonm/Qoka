@@ -239,6 +239,9 @@ export interface CopySummary {
 	errors: string[];
 	/** Files intentionally left on the server because they exceed `maxFileBytes`. */
 	skipped: string[];
+	/** Relative paths (POSIX) of the files actually written locally. Lets the
+	 *  caller show them - opening a result beats reporting a folder name. */
+	copiedFiles: string[];
 	localDir?: string;
 }
 
@@ -263,7 +266,7 @@ async function copyRemoteDirInternal(profile: SshProfile, remoteDir: string, loc
 	const entries = await listRemoteFilesWithSizes(profile, remoteDir);
 	ensureLocalDir(localDir);
 	if (entries.length === 0) {
-		return { ok: true, message: `No files found under ${remoteDir}.`, copied: 0, failed: 0, errors: [], skipped: [], localDir };
+		return { ok: true, message: `No files found under ${remoteDir}.`, copied: 0, failed: 0, errors: [], skipped: [], copiedFiles: [], localDir };
 	}
 	const skipped: string[] = [];
 	const limit = opts?.maxFileBytes;
@@ -291,6 +294,8 @@ async function copyRemoteDirInternal(profile: SshProfile, remoteDir: string, loc
 		throw err;
 	}
 	const copied = result.copied;
+	const failedRemotes = new Set(result.errors.map(e => e.remote));
+	const copiedFiles = batch.filter(b => !failedRemotes.has(b.remote)).map(b => b.rel);
 	const errors = result.errors.map(e => `${byRemote.get(e.remote) ?? e.remote}: ${e.message}`);
 	if (errors.length) {
 		console.warn(`${LOG_PREFIX}: ${errors.length} file(s) failed to copy from ${remoteDir}:`, errors.slice(0, 5));
@@ -303,6 +308,7 @@ async function copyRemoteDirInternal(profile: SshProfile, remoteDir: string, loc
 		failed: errors.length,
 		errors,
 		skipped,
+		copiedFiles,
 		localDir,
 	};
 }
@@ -472,6 +478,24 @@ export async function listRunOutputs(profile: SshProfile, runName: string): Prom
 	}
 }
 
+/** Relative POSIX paths of every file under a local dir (recursive, best-effort).
+ *  Used for the mounted run environment, where outputs were written straight into
+ *  the project so there is no copy list to report. */
+function listLocalFiles(dir: string, prefix = ''): string[] {
+	const out: string[] = [];
+	try {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+			if (entry.isDirectory()) {
+				out.push(...listLocalFiles(path.join(dir, entry.name), rel));
+			} else if (entry.isFile()) {
+				out.push(rel);
+			}
+		}
+	} catch { /* best-effort */ }
+	return out;
+}
+
 /** Largest single file copied back WITHOUT asking. Anything bigger is reported
  *  so the assistant can ask the user whether to download it - pipelines and
  *  analyses routinely produce multi-GB files (BAM, raw matrices), and pulling
@@ -491,15 +515,15 @@ export async function autoSaveRunOutputsOnCompletion(profile: SshProfile, runNam
 	try {
 		const local = localAutopipePaths();
 		if (!local) {
-			return { ok: false, message: 'No workspace folder is open - results could not be saved locally.', copied: 0, failed: 0, errors: [], skipped: [] };
+			return { ok: false, message: 'No workspace folder is open - results could not be saved locally.', copied: 0, failed: 0, errors: [], skipped: [], copiedFiles: [] };
 		}
 		const localOutputDir = path.join(local.output, runName);
 		if (isMountedRepo(profile)) {
-			return { ok: true, message: 'Mounted run environment - outputs are already in the project (no copy needed).', copied: 0, failed: 0, errors: [], skipped: [], localDir: localOutputDir };
+			return { ok: true, message: 'Mounted run environment - outputs are already in the project (no copy needed).', copied: 0, failed: 0, errors: [], skipped: [], copiedFiles: listLocalFiles(localOutputDir), localDir: localOutputDir };
 		}
 		return await copyRemoteDirInternal(profile, resolveOutputDir(profile, runName), localOutputDir, { maxFileBytes: AUTO_SAVE_MAX_FILE_BYTES });
 	} catch (err) {
-		return { ok: false, message: `Automatic save failed: ${(err as Error).message}`, copied: 0, failed: 1, errors: [(err as Error).message], skipped: [] };
+		return { ok: false, message: `Automatic save failed: ${(err as Error).message}`, copied: 0, failed: 1, errors: [(err as Error).message], skipped: [], copiedFiles: [] };
 	}
 }
 

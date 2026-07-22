@@ -16,6 +16,7 @@ import {
 	findPipelineDir,
 } from '../../common/dockerEnv';
 import { autoSavePipelineCodeOnCompletion, autoSaveRunOutputsOnCompletion, AUTO_SAVE_MAX_FILE_BYTES, humanSize } from '../../common/workspaceSync';
+import { openResultsInEditor, describeOpenedResults } from '../../common/openResults';
 
 /**
  * Docker / Snakemake execution tools - faithful ports of build_image,
@@ -538,7 +539,17 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 						if (exitCode === '0' && autoSave) {
 							const where = `autopipe/pipelines_output/${runName}/`;
 							const parts = [`\n\nResults were saved into the project automatically: ${autoSave.message}`];
-							parts.push(`Tell the user to open ${where} in the Explorer. Do NOT read the files off the server and write them again yourself - they are already local.`);
+							parts.push(`Do NOT read the files off the server and write them again yourself - they are already local.`);
+							// Same treatment run_code gives its outputs: show a few, list the rest.
+							if (autoSave.localDir && autoSave.copiedFiles.length) {
+								const shown = await openResultsInEditor(autoSave.localDir, autoSave.copiedFiles);
+								parts.push(...describeOpenedResults(shown));
+								if (!shown.opened.length) {
+									parts.push(`Tell the user to open ${where} in the Explorer.`);
+								}
+							} else {
+								parts.push(`Tell the user to open ${where} in the Explorer.`);
+							}
 							if (autoSave.skipped.length) {
 								parts.push(`These are too large to copy back automatically (over ${humanSize(AUTO_SAVE_MAX_FILE_BYTES)}) and are still on the server: ${autoSave.skipped.join(', ')}.`
 									+ ` You MUST tell the user about them and ASK whether to download them - do not decide for them, and do not stay silent about them.`
