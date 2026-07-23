@@ -1,0 +1,257 @@
+# One-off release for the cross-arch targets that release-app.yml leaves
+# disabled: Intel macOS (darwin x64) + Windows on ARM (win32 arm64). BOTH land
+# in a SINGLE GitHub Release so one run publishes two installers.
+#
+# Design notes:
+#   * Manual only (workflow_dispatch) - it never fires on a tag push.
+#   * The app SOURCE is always cloned from a FIXED tag (default qoka-v0.3.9), so
+#     the build reflects exactly that release's tree - never the branch this
+#     workflow file happens to sit on, and never any local/uncommitted change.
+#   * The release tag (default `qoka-0.3.9-intel`) deliberately does NOT match
+#     release-app.yml's `qoka-v*` trigger glob, so creating it can never kick off
+#     the normal arm64-.dmg / x64-.exe build. Those releases are left untouched.
+#
+# Both legs are UNSIGNED (Gatekeeper: right-click -> Open; SmartScreen: More info
+# -> Run anyway) and CROSS-BUILT (Intel .dmg on the ARM mac runner; win32-arm64
+# on the x64 windows runner). Neither has been validated on real Intel-Mac /
+# ARM-Windows hardware - smoke-test the installers before sharing them widely.
+name: Release (Intel mac + Windows ARM)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: 'Existing app tag to build from (the source tree).'
+        default: 'qoka-v0.3.9'
+        required: true
+      release_tag:
+        description: 'Tag for THIS release. Must NOT match qoka-v* or it would trigger the normal build.'
+        default: 'qoka-0.3.9-intel'
+        required: true
+      release_title:
+        description: 'Release name shown on GitHub.'
+        default: 'intel winarm'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Create the (empty) release ONCE up front so the two build legs only ever
+  # upload into it - no race on who calls `gh release create` first.
+  init:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Resolve source tag -> commit SHA
+        id: resolve
+        shell: bash
+        run: |
+          SHA="$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
+                 "refs/tags/${{ inputs.source_tag }}" | cut -f1)"
+          if [ -z "$SHA" ]; then
+            echo "::error::Source tag ${{ inputs.source_tag }} not found on origin."
+            exit 1
+          fi
+          echo "Source ${{ inputs.source_tag }} -> $SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Create the release (idempotent)
+        shell: bash
+        run: |
+          # --target pins the new tag to the source commit. `|| true` so re-runs
+          # (release already exists) don't fail; the build legs --clobber assets.
+          gh release create "${{ inputs.release_tag }}" \
+            --target "${{ steps.resolve.outputs.sha }}" \
+            --title "${{ inputs.release_title }}" \
+            --notes "Cross-built installers for ${{ inputs.source_tag }}: Intel macOS (.dmg) and Windows ARM64 (.exe). Unsigned; both cross-built and not validated on native hardware." \
+            2>/dev/null || echo "Release ${{ inputs.release_tag }} already exists - reusing it."
+
+  build:
+    needs: [init]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Intel macOS, cross-built on the ARM runner (GitHub's macos-13 Intel
+          # runner hangs). Node stays arm64 (runner-native); npm_config_arch=x64
+          # pulls x64 prebuilt native deps.
+          - { os: macos-14, plat: darwin, arch: x64, nodearch: arm64 }
+          # Windows on ARM, cross-built on the x64 runner. Node stays x64;
+          # npm_config_arch=arm64 pulls arm64 prebuilt native deps.
+          - { os: windows-latest, plat: win32, arch: arm64, nodearch: x64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      # @vscode/ripgrep (and other prebuilt downloaders) query the GitHub API;
+      # unauthenticated CI hits the 60/hr limit and 403s. Authenticate it.
+      GITHUB_TOKEN: ${{ github.token }}
+      npm_config_arch: ${{ matrix.arch }}
+      npm_config_target_arch: ${{ matrix.arch }}
+    steps:
+      - name: Clone the source tag
+        shell: bash
+        run: git clone --depth 1 --branch "${{ inputs.source_tag }}" "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" .
+
+      # Node comes straight from nodejs.org (no external action). Windows uses
+      # PowerShell + Expand-Archive because Git Bash's tar is GNU tar and can't
+      # read .zip. macOS uses the .tar.xz. Both legs run the runner-native Node
+      # (nodearch), cross-targeting via npm_config_arch above.
+      - name: Install Node from .nvmrc (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          V="$(tr -d '[:space:]' < .nvmrc)"
+          F="node-v$V-darwin-${{ matrix.nodearch }}"
+          curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
+          echo "$PWD/$F/bin" >> "$GITHUB_PATH"
+
+      - name: Install Node from .nvmrc (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $V = (Get-Content .nvmrc -Raw).Trim()
+          $F = "node-v$V-win-${{ matrix.nodearch }}"
+          curl.exe -fsSL "https://nodejs.org/dist/v$V/$F.zip" -o node.zip
+          Expand-Archive -Path node.zip -DestinationPath . -Force
+          "$PWD\$F" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      # preinstall.ts checks default VS install paths and can miss the runner's
+      # edition; point it straight at the real install via vswhere so the
+      # C/C++ toolchain check passes.
+      - name: Locate Visual Studio (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          if (-not $vs) { throw "Visual Studio not found via vswhere" }
+          "vs2022_install=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Found Visual Studio at: $vs"
+
+      # Cross-compiling win32-arm64 needs the ARM64 C++ toolset (MSVC v143
+      # ARM64). Hosted images usually ship it, but add it best-effort so
+      # node-gyp targets (tree-sitter, etc.) can build for arm64.
+      - name: Ensure ARM64 MSVC build tools (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          if (Test-Path $installer) {
+            Write-Host "Requesting ARM64 VC++ toolset (best-effort)…"
+            & $installer modify --installPath "$env:vs2022_install" `
+              --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 `
+              --quiet --norestart --nocache 2>&1 | Out-Host
+          } else {
+            Write-Host "vs_installer.exe not found; assuming ARM64 toolset already present."
+          }
+
+      # patchWin32DependenciesTask strips/verifies Authenticode signatures with
+      # signtool.exe (from the Windows SDK), which isn't on PATH by default.
+      - name: Add Windows SDK (signtool) to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+                 Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $sdk) { throw "signtool.exe not found in Windows Kits" }
+          Write-Host "Found signtool at: $($sdk.FullName)"
+          Split-Path $sdk.FullName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      # node-gyp on the runner picked Python 3.14 (very new), which crashes some
+      # native builds (tree-sitter) with 0xC0000409. Point npm at a stable 3.12/
+      # 3.11 from the toolcache when available.
+      - name: Pin a node-gyp-friendly Python (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $py = Get-ChildItem "C:\hostedtoolcache\windows\Python\3.12.*\x64\python.exe" -ErrorAction SilentlyContinue |
+                Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $py) {
+            $py = Get-ChildItem "C:\hostedtoolcache\windows\Python\3.11.*\x64\python.exe" -ErrorAction SilentlyContinue |
+                  Sort-Object FullName -Descending | Select-Object -First 1
+          }
+          if ($py) {
+            Write-Host "Using Python: $($py.FullName)"
+            "npm_config_python=$($py.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } else {
+            Write-Host "No 3.11/3.12 Python in toolcache; keeping default."
+          }
+          # Run the postinstall's per-directory npm installs one at a time: parallel
+          # child processes crash the Windows build with 0xC0000409.
+          "VSCODE_POSTINSTALL_CONCURRENCY=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Use `npm install`, not `npm ci`: some Qoka extensions ship without a
+      # committed package-lock.json, and the root postinstall runs the same
+      # command in every workspace dir - `npm ci` aborts there, `npm install`
+      # does not. Matches release-app.yml.
+      - name: Install dependencies
+        shell: bash
+        run: |
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npm install
+
+      # Build every bundled Qoka extension so its compiled output ships in the
+      # app (gulp packaging only COPIES existing output, it never compiles).
+      - name: Build Qoka extensions
+        shell: bash
+        run: |
+          set -e
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          transpile_tasks=""
+          for d in extensions/aria-*/; do
+            name="$(basename "$d")"
+            if [ -f "$d/build.mjs" ]; then
+              echo "== $name (esbuild) =="
+              (cd "$d" && npm install && node build.mjs)
+            elif [ -f "$d/tsconfig.json" ]; then
+              transpile_tasks="$transpile_tasks transpile-extension:$name"
+            fi
+          done
+          if [ -n "$transpile_tasks" ]; then
+            echo "== gulp$transpile_tasks =="
+            npm run gulp -- $transpile_tasks
+          fi
+
+      # Full task (compile -> minify -> package). Split by OS so we can raise the
+      # open-files limit on macOS (EMFILE) while leaving Windows on its default.
+      - name: Build app tree (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min
+      - name: Build app tree (Windows)
+        if: runner.os == 'Windows'
+        run: npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min
+
+      - name: Package macOS (.dmg)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          VSCODE_ARCH: ${{ matrix.arch }}
+          VSCODE_QUALITY: stable
+        run: |
+          mkdir -p artifacts
+          # First arg is the PARENT dir; create-dmg.ts appends VSCode-darwin-<arch>.
+          node --experimental-strip-types build/darwin/create-dmg.ts \
+            "$PWD/.." "$PWD/artifacts"
+
+      - name: Package Windows (.exe)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          npm run gulp vscode-win32-${{ matrix.arch }}-inno-updater
+          npm run gulp vscode-win32-${{ matrix.arch }}-user-setup
+          mkdir -p artifacts
+          cp .build/win32-${{ matrix.arch }}/user-setup/*.exe artifacts/ || true
+
+      - name: Upload installers to the release
+        shell: bash
+        run: |
+          for f in artifacts/*; do
+            echo "Uploading $f"
+            gh release upload "${{ inputs.release_tag }}" "$f" --clobber
+          done
