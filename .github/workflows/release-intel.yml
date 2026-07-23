@@ -1,21 +1,29 @@
-# One-off release for the cross-arch targets that release-app.yml leaves
-# disabled: Intel macOS (darwin x64) + Windows on ARM (win32 arm64). BOTH land
-# in a SINGLE GitHub Release so one run publishes two installers.
+# One-off release for Windows on ARM (win32 arm64). The Intel macOS (.dmg) leg
+# already shipped in the `qoka-0.3.9-intel` release, so this now builds ONLY the
+# Windows ARM64 installer and adds it to that same release.
+#
+# Why a NATIVE ARM runner (not a cross-build on x64):
+#   build/.npmrc pins `build_from_source=true`, so build-time native modules
+#   (tree-sitter) are COMPILED, not downloaded. Cross-compiling them to arm64 on
+#   an x64 runner fails - the arm64 `node.lib` import library isn't in node-gyp's
+#   cache (LNK1181), and an arm64 build tool can't run on an x64 host anyway.
+#   Building on `windows-11-arm` makes host==target==arm64, so the exact path the
+#   working x64 build uses just works, natively. GitHub's windows-11-arm hosted
+#   runner is free for public repos.
 #
 # Design notes:
-#   * Manual only (workflow_dispatch) - it never fires on a tag push.
+#   * Manual only (workflow_dispatch) - never fires on a tag push.
 #   * The app SOURCE is always cloned from a FIXED tag (default qoka-v0.3.9), so
-#     the build reflects exactly that release's tree - never the branch this
-#     workflow file happens to sit on, and never any local/uncommitted change.
+#     the build reflects exactly that tree - never this branch, never a local
+#     uncommitted change.
 #   * The release tag (default `qoka-0.3.9-intel`) deliberately does NOT match
-#     release-app.yml's `qoka-v*` trigger glob, so creating it can never kick off
-#     the normal arm64-.dmg / x64-.exe build. Those releases are left untouched.
+#     release-app.yml's `qoka-v*` trigger glob, so it can never kick off the
+#     normal arm64-.dmg / x64-.exe build. Those releases stay untouched, and the
+#     Intel .dmg already on this release is left in place (we only add the .exe).
 #
-# Both legs are UNSIGNED (Gatekeeper: right-click -> Open; SmartScreen: More info
-# -> Run anyway) and CROSS-BUILT (Intel .dmg on the ARM mac runner; win32-arm64
-# on the x64 windows runner). Neither has been validated on real Intel-Mac /
-# ARM-Windows hardware - smoke-test the installers before sharing them widely.
-name: Release (Intel mac + Windows ARM)
+# UNSIGNED build: SmartScreen warns (More info -> Run anyway). Cross-arch app
+# behaviour is not validated on real ARM-Windows hardware - smoke-test first.
+name: Release (Windows ARM64)
 
 on:
   workflow_dispatch:
@@ -37,8 +45,8 @@ permissions:
   contents: write
 
 jobs:
-  # Create the (empty) release ONCE up front so the two build legs only ever
-  # upload into it - no race on who calls `gh release create` first.
+  # Ensure the release exists (it already does from the Intel run; this is a
+  # no-op re-run guard so the workflow also works if the release was deleted).
   init:
     runs-on: ubuntu-latest
     env:
@@ -55,74 +63,49 @@ jobs:
             echo "::error::Source tag ${{ inputs.source_tag }} not found on origin."
             exit 1
           fi
-          echo "Source ${{ inputs.source_tag }} -> $SHA"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-      - name: Create the release (idempotent)
+      - name: Create the release if missing
         shell: bash
         run: |
-          # --target pins the new tag to the source commit. `|| true` so re-runs
-          # (release already exists) don't fail; the build legs --clobber assets.
           gh release create "${{ inputs.release_tag }}" \
             --target "${{ steps.resolve.outputs.sha }}" \
             --title "${{ inputs.release_title }}" \
-            --notes "Cross-built installers for ${{ inputs.source_tag }}: Intel macOS (.dmg) and Windows ARM64 (.exe). Unsigned; both cross-built and not validated on native hardware." \
+            --notes "Cross-arch installers for ${{ inputs.source_tag }}. Unsigned; not validated on native hardware." \
             2>/dev/null || echo "Release ${{ inputs.release_tag }} already exists - reusing it."
 
   build:
     needs: [init]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Intel macOS, cross-built on the ARM runner (GitHub's macos-13 Intel
-          # runner hangs). Node stays arm64 (runner-native); npm_config_arch=x64
-          # pulls x64 prebuilt native deps.
-          - { os: macos-14, plat: darwin, arch: x64, nodearch: arm64 }
-          # Windows on ARM, cross-built on the x64 runner. Node stays x64;
-          # npm_config_arch=arm64 pulls arm64 prebuilt native deps.
-          - { os: windows-latest, plat: win32, arch: arm64, nodearch: x64 }
-    runs-on: ${{ matrix.os }}
+    # Native ARM64 Windows runner - host==target==arm64, so no cross-compile.
+    runs-on: windows-11-arm
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       # @vscode/ripgrep (and other prebuilt downloaders) query the GitHub API;
       # unauthenticated CI hits the 60/hr limit and 403s. Authenticate it.
       GITHUB_TOKEN: ${{ github.token }}
-      npm_config_arch: ${{ matrix.arch }}
-      npm_config_target_arch: ${{ matrix.arch }}
+      # Host arch == arm64, so this is NOT a cross-build; node-gyp downloads the
+      # arm64 node.lib for the target the same way the x64 build does for x64.
+      npm_config_arch: arm64
+      npm_config_target_arch: arm64
     steps:
       - name: Clone the source tag
         shell: bash
         run: git clone --depth 1 --branch "${{ inputs.source_tag }}" "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" .
 
-      # Node comes straight from nodejs.org (no external action). Windows uses
-      # PowerShell + Expand-Archive because Git Bash's tar is GNU tar and can't
-      # read .zip. macOS uses the .tar.xz. Both legs run the runner-native Node
-      # (nodearch), cross-targeting via npm_config_arch above.
-      - name: Install Node from .nvmrc (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          V="$(tr -d '[:space:]' < .nvmrc)"
-          F="node-v$V-darwin-${{ matrix.nodearch }}"
-          curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
-          echo "$PWD/$F/bin" >> "$GITHUB_PATH"
-
-      - name: Install Node from .nvmrc (Windows)
-        if: runner.os == 'Windows'
+      # Node comes straight from nodejs.org - the arm64 Windows build to match
+      # the native runner. PowerShell + Expand-Archive (Git Bash tar can't read .zip).
+      - name: Install Node from .nvmrc (Windows ARM64)
         shell: pwsh
         run: |
           $V = (Get-Content .nvmrc -Raw).Trim()
-          $F = "node-v$V-win-${{ matrix.nodearch }}"
+          $F = "node-v$V-win-arm64"
           curl.exe -fsSL "https://nodejs.org/dist/v$V/$F.zip" -o node.zip
           Expand-Archive -Path node.zip -DestinationPath . -Force
           "$PWD\$F" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       # preinstall.ts checks default VS install paths and can miss the runner's
-      # edition; point it straight at the real install via vswhere so the
-      # C/C++ toolchain check passes.
-      - name: Locate Visual Studio (Windows)
-        if: runner.os == 'Windows'
+      # edition; point it straight at the real install via vswhere.
+      - name: Locate Visual Studio
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -131,48 +114,26 @@ jobs:
           "vs2022_install=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Found Visual Studio at: $vs"
 
-      # Cross-compiling win32-arm64 needs the ARM64 C++ toolset (MSVC v143
-      # ARM64). Hosted images usually ship it, but add it best-effort so
-      # node-gyp targets (tree-sitter, etc.) can build for arm64.
-      - name: Ensure ARM64 MSVC build tools (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
-          if (Test-Path $installer) {
-            Write-Host "Requesting ARM64 VC++ toolset (best-effort)…"
-            & $installer modify --installPath "$env:vs2022_install" `
-              --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 `
-              --quiet --norestart --nocache 2>&1 | Out-Host
-          } else {
-            Write-Host "vs_installer.exe not found; assuming ARM64 toolset already present."
-          }
-
       # patchWin32DependenciesTask strips/verifies Authenticode signatures with
-      # signtool.exe (from the Windows SDK), which isn't on PATH by default.
+      # signtool.exe (from the Windows SDK), which isn't on PATH by default. Pick
+      # whichever arch's signtool the SDK ships (arm64 or x64 both work).
       - name: Add Windows SDK (signtool) to PATH
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\*\signtool.exe" -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -match '\\(arm64|x64)\\signtool.exe$' } |
                  Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $sdk) { throw "signtool.exe not found in Windows Kits" }
           Write-Host "Found signtool at: $($sdk.FullName)"
           Split-Path $sdk.FullName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
-      # node-gyp on the runner picked Python 3.14 (very new), which crashes some
-      # native builds (tree-sitter) with 0xC0000409. Point npm at a stable 3.12/
-      # 3.11 from the toolcache when available.
-      - name: Pin a node-gyp-friendly Python (Windows)
-        if: runner.os == 'Windows'
+      # node-gyp can pick a too-new Python (3.14) that crashes native builds.
+      # Prefer a stable 3.12/3.11 from the toolcache (either arch folder) if present.
+      - name: Pin a node-gyp-friendly Python
         shell: pwsh
         run: |
-          $py = Get-ChildItem "C:\hostedtoolcache\windows\Python\3.12.*\x64\python.exe" -ErrorAction SilentlyContinue |
+          $py = Get-ChildItem "C:\hostedtoolcache\windows\Python\3.12.*\*\python.exe","C:\hostedtoolcache\windows\Python\3.11.*\*\python.exe" -ErrorAction SilentlyContinue |
                 Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $py) {
-            $py = Get-ChildItem "C:\hostedtoolcache\windows\Python\3.11.*\x64\python.exe" -ErrorAction SilentlyContinue |
-                  Sort-Object FullName -Descending | Select-Object -First 1
-          }
           if ($py) {
             Write-Host "Using Python: $($py.FullName)"
             "npm_config_python=$($py.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -180,18 +141,15 @@ jobs:
             Write-Host "No 3.11/3.12 Python in toolcache; keeping default."
           }
           # Run the postinstall's per-directory npm installs one at a time: parallel
-          # child processes crash the Windows build with 0xC0000409.
+          # child processes can crash the Windows build with 0xC0000409.
           "VSCODE_POSTINSTALL_CONCURRENCY=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # Use `npm install`, not `npm ci`: some Qoka extensions ship without a
       # committed package-lock.json, and the root postinstall runs the same
-      # command in every workspace dir - `npm ci` aborts there, `npm install`
-      # does not. Matches release-app.yml.
+      # command in every workspace dir - `npm ci` aborts there.
       - name: Install dependencies
         shell: bash
-        run: |
-          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
-          npm install
+        run: npm install
 
       # Build every bundled Qoka extension so its compiled output ships in the
       # app (gulp packaging only COPIES existing output, it never compiles).
@@ -199,7 +157,6 @@ jobs:
         shell: bash
         run: |
           set -e
-          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
           transpile_tasks=""
           for d in extensions/aria-*/; do
             name="$(basename "$d")"
@@ -215,43 +172,20 @@ jobs:
             npm run gulp -- $transpile_tasks
           fi
 
-      # Full task (compile -> minify -> package). Split by OS so we can raise the
-      # open-files limit on macOS (EMFILE) while leaving Windows on its default.
-      - name: Build app tree (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
-          npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min
-      - name: Build app tree (Windows)
-        if: runner.os == 'Windows'
-        run: npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min
-
-      - name: Package macOS (.dmg)
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          VSCODE_ARCH: ${{ matrix.arch }}
-          VSCODE_QUALITY: stable
-        run: |
-          mkdir -p artifacts
-          # First arg is the PARENT dir; create-dmg.ts appends VSCode-darwin-<arch>.
-          node --experimental-strip-types build/darwin/create-dmg.ts \
-            "$PWD/.." "$PWD/artifacts"
+      - name: Build app tree
+        run: npm run gulp vscode-win32-arm64-min
 
       - name: Package Windows (.exe)
-        if: runner.os == 'Windows'
         shell: bash
         run: |
-          npm run gulp vscode-win32-${{ matrix.arch }}-inno-updater
-          npm run gulp vscode-win32-${{ matrix.arch }}-user-setup
+          npm run gulp vscode-win32-arm64-inno-updater
+          npm run gulp vscode-win32-arm64-user-setup
           mkdir -p artifacts
-          cp .build/win32-${{ matrix.arch }}/user-setup/*.exe artifacts/ || true
+          # Rename so the arch is unmistakable (the raw Inno output is QokaSetup.exe
+          # with no arch suffix, indistinguishable from the x64 installer).
+          src="$(ls .build/win32-arm64/user-setup/*.exe | head -n1)"
+          cp "$src" "artifacts/QokaSetup-arm64.exe"
 
-      - name: Upload installers to the release
+      - name: Upload installer to the release
         shell: bash
-        run: |
-          for f in artifacts/*; do
-            echo "Uploading $f"
-            gh release upload "${{ inputs.release_tag }}" "$f" --clobber
-          done
+        run: gh release upload "${{ inputs.release_tag }}" artifacts/QokaSetup-arm64.exe --clobber
