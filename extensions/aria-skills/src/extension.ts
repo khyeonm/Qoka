@@ -16,7 +16,7 @@ import { ensureCodexAgentsMd } from './common/codexAgents';
 import { syncSkillsToProviders, resyncBundledSkills, cleanupEnvDescriptions } from './common/skillsManager';
 import { reconcileCategories } from './common/skillManifest';
 import { installProviderCli } from './installProviderCli';
-import { ensureAriaBinsOnPath, HeadlessProvider } from './common/headlessCli';
+import { ensureQokaBinsOnPath, HeadlessProvider } from './common/headlessCli';
 import { applyMcpConfig, pruneLegacyMcp, McpServerInfo } from './common/mcpConfig';
 
 /**
@@ -84,7 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Put Qoka's Node + ~/.local/bin on the shared extension-host PATH so every
 	// extension (autopipe, paper, …) can run the codex CLI - an npm script that
 	// needs `node` - even when the machine has no system Node.
-	ensureAriaBinsOnPath();
+	ensureQokaBinsOnPath();
 
 	// Touch ~/.env on startup so "Open ~/.env" always opens something.
 	ensureEnvFile();

@@ -19,10 +19,12 @@
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { QOKA_CODEX_HOME } from './headlessCli';
 
-const CODEX_AGENTS_PATH = path.join(os.homedir(), '.codex', 'AGENTS.md');
+// Isolated: Codex reads its global AGENTS.md from CODEX_HOME, which Qoka points
+// at ~/.qoka/codex - so write there, not the user's system ~/.codex.
+const CODEX_AGENTS_PATH = path.join(QOKA_CODEX_HOME, 'AGENTS.md');
 const BEGIN_MARKER = '<!-- QOKA:BEGIN - managed by Qoka; edits inside this block are overwritten -->';
 const END_MARKER = '<!-- QOKA:END -->';
 

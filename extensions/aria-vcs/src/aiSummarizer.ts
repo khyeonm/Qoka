@@ -41,28 +41,23 @@ const HOME = os.homedir();
 // npm-installed CLIs). These MUST match aria-skills/headlessCli so a
 // self-provisioned CLI is found here too. On Windows npm's `.cmd` shims sit at
 // the prefix root; on Unix they land under `<prefix>/bin`.
-const ARIA_HOME = path.join(HOME, '.aria');
-const ARIA_NODE_DIR = path.join(ARIA_HOME, 'node');
-const ARIA_NPM_PREFIX = path.join(ARIA_HOME, 'npm');
+const QOKA_HOME = path.join(HOME, '.qoka');
+const QOKA_NODE_DIR = path.join(QOKA_HOME, 'node');
+const QOKA_NPM_PREFIX = path.join(QOKA_HOME, 'npm');
+// Isolated config/login homes - MUST match aria-skills/headlessCli. Set on every
+// CLI spawn so summarization uses Qoka's login even if aria-skills hasn't run its
+// env setup yet (activation order between extensions isn't guaranteed).
+const QOKA_CODEX_HOME = path.join(QOKA_HOME, 'codex');
+const QOKA_CLAUDE_CONFIG_DIR = path.join(QOKA_HOME, 'claude');
 
 /** Portable Node bin dir (root on Windows, `bin/` on Unix), if Qoka provisioned
  *  it - prepended to PATH so an npm-installed CLI's node shebang resolves. */
-function ariaNodeBinDir(): string | undefined {
-	const dir = isWin ? ARIA_NODE_DIR : path.join(ARIA_NODE_DIR, 'bin');
+function qokaNodeBinDir(): string | undefined {
+	const dir = isWin ? QOKA_NODE_DIR : path.join(QOKA_NODE_DIR, 'bin');
 	try {
 		return fs.existsSync(dir) ? dir : undefined;
 	} catch {
 		return undefined;
-	}
-}
-
-/** nvm-installed bins (Unix layout). */
-function nvmBinDirs(): string[] {
-	const nvmRoot = path.join(HOME, '.nvm/versions/node');
-	try {
-		return fs.readdirSync(nvmRoot).map(v => path.join(nvmRoot, v, 'bin'));
-	} catch {
-		return [];
 	}
 }
 
@@ -71,26 +66,13 @@ function nvmBinDirs(): string[] {
  *  GUI-launched Electron process often can't see these via PATH. Mirrors
  *  aria-skills/headlessCli.providerDirs so both find the same CLI. */
 function providerDirs(): string[] {
+	// ISOLATION: only Qoka's own locations (mirrors aria-skills/headlessCli). A
+	// system-installed claude/codex is intentionally NOT discovered.
+	const qokaBin = path.join(HOME, '.qoka', 'bin');
 	if (isWin) {
-		const appdata = process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming');
-		const localappdata = process.env.LOCALAPPDATA ?? path.join(HOME, 'AppData', 'Local');
-		return [
-			ARIA_NODE_DIR,                                   // portable node's own dir (npm.cmd etc.)
-			ARIA_NPM_PREFIX,                                 // Qoka-managed npm global (.cmd shims at root)
-			path.join(appdata, 'npm'),                       // default npm global on Windows
-			path.join(HOME, '.local', 'bin'),                // Claude's Windows installer mirrors ~/.local/bin
-			path.join(localappdata, 'Programs', 'claude'),   // alt Claude install location
-		];
+		return [qokaBin, QOKA_NODE_DIR, QOKA_NPM_PREFIX];
 	}
-	return [
-		'/usr/local/bin',
-		'/opt/homebrew/bin',
-		path.join(HOME, '.local/bin'),
-		path.join(HOME, '.claude/local'),
-		path.join(ARIA_NPM_PREFIX, 'bin'),
-		path.join(ARIA_NODE_DIR, 'bin'),
-		...nvmBinDirs(),
-	];
+	return [qokaBin, path.join(QOKA_NPM_PREFIX, 'bin'), path.join(QOKA_NODE_DIR, 'bin')];
 }
 
 /** Executable name variants to try. On Windows npm/native installers produce
@@ -119,23 +101,7 @@ function resolveBin(provider: AiProvider): string | undefined {
 			}
 		}
 	}
-	// 2) Whatever PATH we do have (covers Homebrew/system installs on PATH, plus
-	//    the login-shell dirs aria-skills folds in via ensureAriaBinsOnPath).
-	for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-		if (!dir) {
-			continue;
-		}
-		for (const name of names) {
-			const full = path.join(dir, name);
-			try {
-				if (fs.existsSync(full)) {
-					return full;
-				}
-			} catch {
-				// keep looking
-			}
-		}
-	}
+	// No PATH fallback: isolation means only the ~/.qoka copy is ever run.
 	return undefined;
 }
 
@@ -164,10 +130,14 @@ function runWithStdin(bin: string, args: string[], input: string, timeoutMs: num
 	return new Promise((resolve, reject) => {
 		// If Qoka provisioned a portable Node, put it on PATH so an npm-installed
 		// CLI (e.g. codex) finds `node` for its shebang even with no system Node.
-		const nodeBin = ariaNodeBinDir();
-		const env = nodeBin
-			? { ...process.env, PATH: nodeBin + path.delimiter + (process.env.PATH ?? '') }
-			: process.env;
+		const nodeBin = qokaNodeBinDir();
+		// Always point the CLI at Qoka's isolated config/login homes.
+		const env: NodeJS.ProcessEnv = {
+			...process.env,
+			CODEX_HOME: QOKA_CODEX_HOME,
+			CLAUDE_CONFIG_DIR: QOKA_CLAUDE_CONFIG_DIR,
+			...(nodeBin ? { PATH: nodeBin + path.delimiter + (process.env.PATH ?? '') } : {}),
+		};
 		// Windows: a `.cmd`/`.bat` shim (npm installs codex/claude this way) can't be
 		// spawned directly on modern Node - it needs a shell. Quote the path so a
 		// space (e.g. in the user profile) is safe; argv here are fixed literal flags.

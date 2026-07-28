@@ -20,7 +20,7 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
-import { ARIA_NODE_DIR, ariaNodeBinDir } from './headlessCli';
+import { QOKA_NODE_DIR, qokaNodeBinDir } from './headlessCli';
 import { log } from './logger';
 
 const isWin = process.platform === 'win32';
@@ -48,7 +48,7 @@ function nodeArch(): string {
 /** True when a `node` (and `npm`) already resolves - system install or a Node
  *  Qoka provisioned earlier. */
 function hasUsableNode(): boolean {
-	if (ariaNodeBinDir()) {
+	if (qokaNodeBinDir()) {
 		return true;
 	}
 	// Scan PATH for a real node executable (with Windows extensions).
@@ -108,7 +108,7 @@ function run(cmd: string, args: string[], cwd: string): Promise<void> {
 }
 
 /** Extract a downloaded Node archive (.zip on Windows, .tar.xz elsewhere) so the
- *  binaries end up directly under ARIA_NODE_DIR. */
+ *  binaries end up directly under QOKA_NODE_DIR. */
 async function extract(archive: string, folder: string, into: string): Promise<void> {
 	fs.mkdirSync(into, { recursive: true });
 	if (isWin) {
@@ -118,10 +118,10 @@ async function extract(archive: string, folder: string, into: string): Promise<v
 		await run('tar', ['-xJf', archive, '-C', into], into);
 	}
 	// Archives contain a single top-level `<folder>/` dir; hoist its contents to
-	// ARIA_NODE_DIR so bin/ (or the exe root on Windows) sits where we expect.
+	// QOKA_NODE_DIR so bin/ (or the exe root on Windows) sits where we expect.
 	const top = path.join(into, folder);
 	for (const entry of fs.readdirSync(top)) {
-		fs.renameSync(path.join(top, entry), path.join(ARIA_NODE_DIR, entry));
+		fs.renameSync(path.join(top, entry), path.join(QOKA_NODE_DIR, entry));
 	}
 	fs.rmSync(top, { recursive: true, force: true });
 }
@@ -133,7 +133,7 @@ async function extract(archive: string, folder: string, into: string): Promise<v
  */
 export async function ensureNode(): Promise<string> {
 	if (hasUsableNode()) {
-		return ariaNodeBinDir() ?? '';
+		return qokaNodeBinDir() ?? '';
 	}
 
 	const plat = nodePlatform();
@@ -143,14 +143,14 @@ export async function ensureNode(): Promise<string> {
 	const url = `${DIST_BASE}/v${NODE_VERSION}/${folder}.${ext}`;
 
 	log(`nodeBootstrap: no system Node - downloading portable Node from ${url}`);
-	fs.mkdirSync(ARIA_NODE_DIR, { recursive: true });
+	fs.mkdirSync(QOKA_NODE_DIR, { recursive: true });
 	const tmp = path.join(os.tmpdir(), `${folder}.${ext}`);
 	await download(url, tmp);
-	await extract(tmp, folder, path.join(ARIA_NODE_DIR, '.unpack'));
+	await extract(tmp, folder, path.join(QOKA_NODE_DIR, '.unpack'));
 	fs.rmSync(tmp, { force: true });
-	fs.rmSync(path.join(ARIA_NODE_DIR, '.unpack'), { recursive: true, force: true });
+	fs.rmSync(path.join(QOKA_NODE_DIR, '.unpack'), { recursive: true, force: true });
 
-	const bin = ariaNodeBinDir();
+	const bin = qokaNodeBinDir();
 	if (!bin) {
 		throw new Error('nodeBootstrap: extraction finished but node bin dir is missing');
 	}

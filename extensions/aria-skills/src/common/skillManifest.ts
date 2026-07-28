@@ -25,7 +25,7 @@ import {
  * on the same machine; only the Qoka-specific metadata is lost.
  */
 
-const MANIFEST_DIR = path.join(os.homedir(), '.config', 'aria');
+const MANIFEST_DIR = path.join(os.homedir(), '.config', 'qoka');
 const MANIFEST_PATH = path.join(MANIFEST_DIR, 'skills-manifest.json');
 
 /** Fresh manifest used when no on-disk file exists yet. */

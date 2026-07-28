@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { QOKA_CODEX_HOME, QOKA_CLAUDE_CONFIG_DIR } from './headlessCli';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -37,9 +38,9 @@ import * as path from 'path';
  * shape lands in Claude's context.
  */
 
-const HOOK_DIR = path.join(os.homedir(), '.config/aria/hooks');
+const HOOK_DIR = path.join(os.homedir(), '.config/qoka/hooks');
 const HOOK_SCRIPT_PATH = path.join(HOOK_DIR, 'pre-tool-use.sh');
-const SETTINGS_PATH = path.join(os.homedir(), '.claude/settings.json');
+const SETTINGS_PATH = path.join(QOKA_CLAUDE_CONFIG_DIR, 'settings.json');
 
 /**
  * Stable identifier embedded in the hook command string. We grep for it
@@ -47,7 +48,7 @@ const SETTINGS_PATH = path.join(os.homedir(), '.claude/settings.json');
  * duplicate the entry, and so the user can recognise which line Qoka
  * owns if they open the file.
  */
-const ARIA_HOOK_COMMAND = `"$HOME/.config/aria/hooks/pre-tool-use.sh"`;
+const ARIA_HOOK_COMMAND = `"$HOME/.config/qoka/hooks/pre-tool-use.sh"`;
 
 /**
  * Codex reads PreToolUse hooks and shares Claude's hookSpecificOutput
@@ -56,7 +57,7 @@ const ARIA_HOOK_COMMAND = `"$HOME/.config/aria/hooks/pre-tool-use.sh"`;
  * NOTE: the exact hooks-file location + shell-tool matcher are inferred
  * from docs - verify a blocked `cat .env` under Codex before relying on it.
  */
-const CODEX_HOOKS_PATH = path.join(os.homedir(), '.codex', 'hooks.json');
+const CODEX_HOOKS_PATH = path.join(QOKA_CODEX_HOME, 'hooks.json');
 const CODEX_EXTENSION_ID = 'openai.chatgpt';
 
 /**
@@ -290,7 +291,7 @@ exit 0
 `;
 
 /**
- * Create / refresh ~/.config/aria/hooks/pre-tool-use.sh and register it
+ * Create / refresh ~/.config/qoka/hooks/pre-tool-use.sh and register it
  * in ~/.claude/settings.json. Idempotent - safe to call on every
  * extension activation.
  *

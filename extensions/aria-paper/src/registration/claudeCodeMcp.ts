@@ -31,29 +31,14 @@ export interface RegistrationResult {
 function candidateClaudePaths(): string[] {
 	const home = os.homedir();
 	const out: string[] = [];
-	const direct = [
-		'/usr/local/bin/claude',
-		'/opt/homebrew/bin/claude',
-		path.join(home, '.local/bin', 'claude'),
-		path.join(home, 'bin', 'claude'),
-		path.join(home, '.claude/local/claude'),
-	];
+	const direct = process.platform === 'win32'
+		? [path.join(home, '.qoka', 'bin', 'claude.exe'), path.join(home, '.qoka', 'bin', 'claude.cmd')]
+		: [path.join(home, '.qoka', 'bin', 'claude')];
 	for (const p of direct) {
 		try {
 			if (fs.existsSync(p)) { out.push(p); }
 		} catch { /* ignore */ }
 	}
-	const nvm = path.join(home, '.nvm/versions/node');
-	try {
-		if (fs.existsSync(nvm)) {
-			for (const ver of fs.readdirSync(nvm)) {
-				const p = path.join(nvm, ver, 'bin', 'claude');
-				try {
-					if (fs.existsSync(p)) { out.push(p); }
-				} catch { /* ignore */ }
-			}
-		}
-	} catch { /* ignore */ }
 	return out;
 }
 

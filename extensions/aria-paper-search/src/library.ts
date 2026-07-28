@@ -33,7 +33,7 @@ function libraryDir(): string {
 	if (folder && folder.uri.scheme === 'file') {
 		return path.join(folder.uri.fsPath, 'references');
 	}
-	return path.join(os.homedir(), '.config', 'aria');
+	return path.join(os.homedir(), '.config', 'qoka');
 }
 
 export function libraryPath(): string {

@@ -15,11 +15,9 @@ const MCP_NAME = 'qoka-hypothesis';
 const LEGACY_NAMES = ['aria-hypothesis'];
 
 const CLAUDE_CANDIDATES = [
+	path.join(os.homedir(), '.qoka', 'bin', 'claude'),
+	path.join(os.homedir(), '.qoka', 'bin', 'claude.exe'),
 	'claude',
-	'/usr/local/bin/claude',
-	'/opt/homebrew/bin/claude',
-	path.join(os.homedir(), '.local/bin/claude'),
-	path.join(os.homedir(), '.claude/local/claude'),
 ];
 
 async function resolveClaude(): Promise<string | null> {
@@ -27,18 +25,6 @@ async function resolveClaude(): Promise<string | null> {
 	// install lands on this user's machine, and PATH-based lookup is
 	// flaky from inside a shell-restricted child process. Try the well-
 	// known fixed paths next, then `claude` as a last resort.
-	const nvmDir = path.join(os.homedir(), '.nvm/versions/node');
-	if (fs.existsSync(nvmDir)) {
-		try {
-			for (const ver of fs.readdirSync(nvmDir)) {
-				const candidate = path.join(nvmDir, ver, 'bin/claude');
-				if (fs.existsSync(candidate)) {
-					console.log(`[aria-hypothesis] resolveClaude -> ${candidate} (NVM)`);
-					return candidate;
-				}
-			}
-		} catch { /* ignore */ }
-	}
 	for (const candidate of CLAUDE_CANDIDATES) {
 		try {
 			await execAsync(`"${candidate}" --version`, { timeout: 3000 });
@@ -63,7 +49,7 @@ export interface RegistrationResult {
  * at a 127.0.0.1 URL.
  */
 function readUserScopeRegisteredPort(): number | null {
-	const configPath = path.join(os.homedir(), '.claude.json');
+	const configPath = path.join(os.homedir(), '.qoka', 'claude', '.claude.json'); // isolated CLAUDE_CONFIG_DIR
 	if (!fs.existsSync(configPath)) {
 		return null;
 	}

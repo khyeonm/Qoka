@@ -20,7 +20,7 @@
  */
 
 import * as vscode from 'vscode';
-import { spawn, execSync } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -30,49 +30,25 @@ export type HeadlessProvider = 'claude' | 'codex';
 const isWin = process.platform === 'win32';
 const HOME = os.homedir();
 
-/** PATH entries from the user's LOGIN SHELL. A GUI-launched Electron app (Dock /
- *  Finder) inherits a minimal PATH that omits ~/.local/bin, Homebrew, nvm, and
- *  wherever the user actually installed `claude`/`codex` - so `claude --version`
- *  fails and MCP registration silently no-ops, even though the same CLI works in
- *  the user's terminal. We ask their login shell for its PATH once (cached) and
- *  fold it into the process, matching what the terminal sees. Non-interactive
- *  login shell (`-lc`) sources profile files without the hang risk of `-i`. */
-let cachedLoginPathDirs: string[] | undefined;
-function loginShellPathDirs(): string[] {
-	if (isWin) {
-		return [];
-	}
-	if (cachedLoginPathDirs !== undefined) {
-		return cachedLoginPathDirs;
-	}
-	try {
-		const shell = process.env.SHELL && fs.existsSync(process.env.SHELL) ? process.env.SHELL : '/bin/zsh';
-		// A sentinel isolates PATH from any banner a profile might print.
-		const out = execSync(`${shell} -lc 'printf "__ARIA_PATH__%s__ARIA_END__" "$PATH"'`, {
-			timeout: 4000,
-			encoding: 'utf8',
-			stdio: ['ignore', 'pipe', 'ignore'],
-		});
-		const m = out.match(/__ARIA_PATH__([\s\S]*)__ARIA_END__/);
-		const value = m ? m[1] : '';
-		cachedLoginPathDirs = value ? value.split(path.delimiter).filter(Boolean) : [];
-	} catch {
-		// No login shell / timeout / restricted env - fall back to the fixed dirs.
-		cachedLoginPathDirs = [];
-	}
-	return cachedLoginPathDirs;
-}
-
 /** Qoka's private home for tools it provisions itself when the machine lacks
  *  them (portable Node, npm-installed CLIs). Both the installer and this
  *  resolver agree on these paths so a self-provisioned CLI is always found. */
-export const ARIA_HOME = path.join(HOME, '.aria');
+export const QOKA_HOME = path.join(HOME, '.qoka');
 /** Portable Node root (nodeBootstrap downloads here). `bin/` on Unix; the
  *  executables sit at the root on Windows. */
-export const ARIA_NODE_DIR = path.join(ARIA_HOME, 'node');
+export const QOKA_NODE_DIR = path.join(QOKA_HOME, 'node');
 /** npm --prefix used for Qoka-installed global CLIs. On Unix bins land in
  *  `<prefix>/bin`; on Windows the `.cmd` shims sit at the prefix root. */
-export const ARIA_NPM_PREFIX = path.join(ARIA_HOME, 'npm');
+export const QOKA_NPM_PREFIX = path.join(QOKA_HOME, 'npm');
+/** The ONE directory a provider CLI is installed into. Everything Qoka runs (its
+ *  own headless calls AND, via PATH, the chat extensions) resolves the CLI from
+ *  here and nowhere else - full isolation from a system-installed claude/codex. */
+export const QOKA_BIN_DIR = path.join(QOKA_HOME, 'bin');
+/** Isolated config/login homes. The provider CLIs honour these env vars, so
+ *  Qoka's login lives entirely under ~/.qoka and never touches (or reads) the
+ *  user's terminal login at ~/.codex or ~/.claude.json. */
+export const QOKA_CODEX_HOME = path.join(QOKA_HOME, 'codex');
+export const QOKA_CLAUDE_CONFIG_DIR = path.join(QOKA_HOME, 'claude');
 
 /** Put Qoka's provisioned bins on THIS process's PATH so every extension in the
  *  shared extension host - not just aria-skills - can spawn the provider CLIs and
@@ -80,36 +56,35 @@ export const ARIA_NPM_PREFIX = path.join(ARIA_HOME, 'npm');
  *  needs `node`; a non-developer machine often has none, so we prepend Qoka's
  *  portable Node (~/.aria/node/bin) plus ~/.local/bin (where claude/codex land).
  *  Idempotent - safe to call from multiple extensions' activate(). */
-export function ensureAriaBinsOnPath(): void {
-	const wanted: string[] = [];
-	const nodeBin = ariaNodeBinDir();
-	if (nodeBin) {
-		wanted.push(nodeBin);
-	}
-	// Where `npm install -g` (Qoka-managed prefix + the OS default) drops the
-	// codex CLI. Without these the per-extension MCP resolvers' `codex --version`
-	// PATH probe fails on Windows (codex.cmd lives under ~/.aria/npm, not on PATH),
-	// so Codex MCP registration silently no-ops for every extension but autopipe.
-	wanted.push(isWin ? ARIA_NPM_PREFIX : path.join(ARIA_NPM_PREFIX, 'bin'));
-	if (isWin) {
-		wanted.push(path.join(process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming'), 'npm'));
-	}
-	wanted.push(path.join(HOME, '.local', 'bin'));
-	// The user's real login-shell PATH (Homebrew, nvm, custom claude/codex dirs).
-	// Without this a Dock/Finder launch can't see a CLI that works in the terminal.
-	wanted.push(...loginShellPathDirs());
+export function ensureQokaBinsOnPath(): void {
+	// ISOLATION: put ONLY Qoka's own dirs on PATH, at the FRONT. The chat
+	// extensions (Claude Code, Codex) run in this shared extension host and spawn
+	// their CLI by PATH lookup, so prepending ~/.qoka/bin makes them use Qoka's
+	// isolated binary in preference to any system install. We deliberately do NOT
+	// add ~/.local/bin, the OS npm global, or the login-shell PATH any more - that
+	// is what let a system-installed CLI (and its separate login) leak in.
+	const wanted: string[] = [QOKA_BIN_DIR];
+	const nodeBin = qokaNodeBinDir();
+	if (nodeBin) { wanted.push(nodeBin); }               // codex's node shebang
+	wanted.push(isWin ? QOKA_NPM_PREFIX : path.join(QOKA_NPM_PREFIX, 'bin'));
 	const current = (process.env.PATH ?? '').split(path.delimiter);
 	const missing = wanted.filter(dir => dir && !current.includes(dir));
 	if (missing.length) {
 		process.env.PATH = [...missing, ...current].filter(Boolean).join(path.delimiter);
 	}
+	// Point BOTH CLIs at Qoka's own config/login homes. Set for this extension
+	// host process, so every extension that spawns the CLI (and the CLI's own
+	// children) inherits them - the login the user does inside Qoka is stored here
+	// and the system login is never read or written.
+	process.env.CODEX_HOME = QOKA_CODEX_HOME;
+	process.env.CLAUDE_CONFIG_DIR = QOKA_CLAUDE_CONFIG_DIR;
 }
 
 /** Directory holding the portable `node`/`npm` binaries, or undefined when Qoka
  *  hasn't provisioned Node. Callers prepend this to PATH so npm-based CLIs (and
  *  their node shebang) resolve at run time. */
-export function ariaNodeBinDir(): string | undefined {
-	const dir = isWin ? ARIA_NODE_DIR : path.join(ARIA_NODE_DIR, 'bin');
+export function qokaNodeBinDir(): string | undefined {
+	const dir = isWin ? QOKA_NODE_DIR : path.join(QOKA_NODE_DIR, 'bin');
 	try {
 		return fs.existsSync(dir) ? dir : undefined;
 	} catch {
@@ -121,40 +96,23 @@ export function ariaNodeBinDir(): string | undefined {
  *  npm global prefixes (default + Qoka's) and, on Unix, the usual bin dirs and
  *  nvm - a GUI-launched Electron process often can't see these via PATH. */
 function providerDirs(): string[] {
+	// ISOLATION: only Qoka's own locations. A CLI installed on the system (PATH,
+	// Homebrew, ~/.local/bin, nvm) is intentionally NOT discovered - Qoka runs the
+	// binary it provisioned into ~/.qoka and nothing else.
 	if (isWin) {
-		const appdata = process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming');
-		const localappdata = process.env.LOCALAPPDATA ?? path.join(HOME, 'AppData', 'Local');
 		return [
-			ARIA_NODE_DIR,                 // portable node's own dir (npm.cmd etc.)
-			ARIA_NPM_PREFIX,               // Qoka-managed npm global (.cmd shims at root)
-			path.join(appdata, 'npm'),     // default npm global on Windows
-			path.join(HOME, '.local', 'bin'),          // Claude's Windows installer mirrors ~/.local/bin
-			path.join(localappdata, 'Programs', 'claude'), // alt Claude install location
+			QOKA_BIN_DIR,     // where installProviderCli places both CLIs
+			QOKA_NODE_DIR,    // portable node's own dir (npm.cmd etc.)
+			QOKA_NPM_PREFIX,  // Qoka-managed npm global (.cmd shims at root)
 		];
 	}
 	return [
-		'/usr/local/bin',
-		'/opt/homebrew/bin',
-		path.join(HOME, '.local/bin'),
-		path.join(HOME, '.claude/local'),
-		path.join(ARIA_NPM_PREFIX, 'bin'),
-		path.join(ARIA_NODE_DIR, 'bin'),
-		...nvmBinDirs(),
-		// Real login-shell dirs so a Dock-launched app finds a terminal-installed CLI.
-		...loginShellPathDirs(),
+		QOKA_BIN_DIR,
+		path.join(QOKA_NPM_PREFIX, 'bin'),
+		path.join(QOKA_NODE_DIR, 'bin'),
 	];
 }
 
-/** `<nvm>/<version>/bin` dirs so an nvm-installed CLI is found even when the
- *  Electron process didn't source the user's shell. (Unix nvm layout.) */
-function nvmBinDirs(): string[] {
-	const nvmRoot = path.join(HOME, '.nvm/versions/node');
-	try {
-		return fs.readdirSync(nvmRoot).map(v => path.join(nvmRoot, v, 'bin'));
-	} catch {
-		return [];
-	}
-}
 
 /** Executable name variants to try for a provider. On Windows npm/native
  *  installers produce `.cmd`/`.exe` shims, never a bare extension-less file. */
@@ -181,22 +139,9 @@ export function resolveProviderBin(provider: HeadlessProvider): string | undefin
 			}
 		}
 	}
-	// 2) Whatever PATH we do have (covers Homebrew/system installs on PATH).
-	for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-		if (!dir) {
-			continue;
-		}
-		for (const name of names) {
-			const full = path.join(dir, name);
-			try {
-				if (fs.existsSync(full)) {
-					return full;
-				}
-			} catch {
-				// keep looking
-			}
-		}
-	}
+	// No PATH fallback: isolation means Qoka only ever runs the CLI it installed
+	// under ~/.qoka. A system-installed claude/codex on PATH must NOT be picked up
+	// (it would carry the user's separate system login and defeat the isolation).
 	return undefined;
 }
 
@@ -251,7 +196,7 @@ export function runWithStdin(bin: string, args: string[], input: string, timeout
 		// If Qoka provisioned a portable Node, put it on PATH so an npm-installed
 		// CLI (e.g. codex) can find `node` for its shebang even when the machine
 		// has no system Node.
-		const nodeBin = ariaNodeBinDir();
+		const nodeBin = qokaNodeBinDir();
 		const env = nodeBin
 			? { ...process.env, PATH: nodeBin + path.delimiter + (process.env.PATH ?? '') }
 			: process.env;

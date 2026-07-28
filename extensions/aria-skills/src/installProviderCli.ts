@@ -4,11 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
-import { HeadlessProvider, isProviderInstalled, ARIA_NPM_PREFIX } from './common/headlessCli';
+import { HeadlessProvider, isProviderInstalled, QOKA_HOME, QOKA_NPM_PREFIX, QOKA_BIN_DIR, QOKA_CODEX_HOME, QOKA_CLAUDE_CONFIG_DIR } from './common/headlessCli';
 import { ensureNode } from './common/nodeBootstrap';
 import { log } from './common/logger';
 
@@ -63,13 +62,43 @@ function runHidden(command: string, args: string[], extraEnv?: { [key: string]: 
 	});
 }
 
+/**
+ * Install Claude Code entirely inside Qoka's own tree.
+ *
+ * The official installer offers no install-dir flag: it downloads a self-
+ * contained binary and runs its `install` subcommand, which drops the binary in
+ * `$HOME/.local/bin` AND edits the user's shell rc / PATH. We want neither
+ * touched. The fix is to run the whole thing with HOME pointed at an isolated
+ * sandbox (`~/.qoka/claude-home`): the download, the binary placement, and any rc
+ * edits all land inside that sandbox instead of the user's real home. We then
+ * copy the resulting binary to `~/.qoka/bin`, the one dir Qoka resolves from. At
+ * RUN time the binary uses the real HOME plus CLAUDE_CONFIG_DIR, so nothing about
+ * the user's own environment is disturbed.
+ */
 async function installClaude(): Promise<RunResult> {
-	if (isWin) {
-		return runHidden('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex']);
+	const sandboxHome = path.join(QOKA_HOME, 'claude-home');
+	try { fs.mkdirSync(QOKA_BIN_DIR, { recursive: true }); } catch { /* best-effort */ }
+	try { fs.mkdirSync(sandboxHome, { recursive: true }); } catch { /* best-effort */ }
+	const sandboxEnv = { HOME: sandboxHome, USERPROFILE: sandboxHome, CLAUDE_CONFIG_DIR: QOKA_CLAUDE_CONFIG_DIR };
+	const result = isWin
+		? await runHidden('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex'], sandboxEnv)
+		: await runHidden('/bin/bash', ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash'], sandboxEnv);
+	// Lift the installed binary out of the sandbox into ~/.qoka/bin.
+	const exe = isWin ? 'claude.exe' : 'claude';
+	const candidates = isWin
+		? [path.join(sandboxHome, '.local', 'bin', exe), path.join(sandboxHome, 'AppData', 'Local', 'Programs', 'claude', exe)]
+		: [path.join(sandboxHome, '.local', 'bin', exe)];
+	for (const from of candidates) {
+		try {
+			if (fs.existsSync(from)) {
+				const to = path.join(QOKA_BIN_DIR, exe);
+				fs.copyFileSync(from, to);
+				if (!isWin) { fs.chmodSync(to, 0o755); }
+				break;
+			}
+		} catch (e) { log(`installClaude: copy ${from} failed - ${(e as Error).message}`); }
 	}
-	// Login shell (-lc) so the user's full PATH (curl, install target dir) resolves
-	// even when the GUI app inherited a truncated PATH.
-	return runHidden('/bin/bash', ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash']);
+	return result;
 }
 
 /**
@@ -103,21 +132,36 @@ async function installCodex(): Promise<RunResult> {
 		log(`installProviderCli: ensureNode failed - ${message}`);
 		return { code: -1, output: `Couldn't set up Node for Codex: ${message}` };
 	}
-	// Install into ~/.local on Unix so the codex bin lands in ~/.local/bin - a
-	// directory EVERY Qoka extension's resolver already probes (peer-review
-	// availability, MCP registration), not just aria-skills' headlessCli. On
-	// Windows keep Qoka's own prefix (those resolvers are Windows-agnostic).
-	const prefix = isWin ? ARIA_NPM_PREFIX : path.join(os.homedir(), '.local');
+	// ISOLATION: install into Qoka's own npm prefix (~/.qoka/npm), never the system
+	// ~/.local or the OS npm global. The codex bin then lands in ~/.qoka/npm/bin
+	// (Unix) or the prefix root (Windows), both of which Qoka's resolver probes.
+	const prefix = QOKA_NPM_PREFIX;
 	// Clear any leftover `.codex-*` temp from a prior interrupted install so npm's
 	// atomic-rename doesn't fail with ENOTEMPTY.
 	cleanStaleCodexTemp(prefix);
-	const env: { [key: string]: string } = { npm_config_prefix: prefix };
+	// CODEX_HOME keeps the config/login under ~/.qoka too, even during install.
+	const env: { [key: string]: string } = { npm_config_prefix: prefix, CODEX_HOME: QOKA_CODEX_HOME };
 	if (nodeBin) {
 		env.PATH = nodeBin + path.delimiter + (process.env.PATH ?? '');
 	}
 	const npm = isWin ? 'npm.cmd' : 'npm';
 	log(`installProviderCli: installing Codex via ${npm} install -g @openai/codex (prefix ${prefix})`);
-	return runHidden(npm, ['install', '-g', '@openai/codex'], env);
+	const result = await runHidden(npm, ['install', '-g', '@openai/codex'], env);
+	// Mirror the codex bin into ~/.qoka/bin so the single resolver dir has it too
+	// (Unix bins land in <prefix>/bin; on Windows the .cmd shim sits at the root).
+	try {
+		fs.mkdirSync(QOKA_BIN_DIR, { recursive: true });
+		const names = isWin ? ['codex.cmd', 'codex.exe'] : ['codex'];
+		const srcDir = isWin ? prefix : path.join(prefix, 'bin');
+		for (const n of names) {
+			const from = path.join(srcDir, n);
+			if (fs.existsSync(from)) {
+				fs.copyFileSync(from, path.join(QOKA_BIN_DIR, n));
+				if (!isWin) { fs.chmodSync(path.join(QOKA_BIN_DIR, n), 0o755); }
+			}
+		}
+	} catch (e) { log(`installCodex: mirror to bin failed - ${(e as Error).message}`); }
+	return result;
 }
 
 /**

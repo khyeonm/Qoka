@@ -54,43 +54,18 @@ export function candidateCodexPaths(): string[] {
  *  Homebrew, /usr/local, or ~/.local/bin. `extraHomeRelative` lets a
  *  particular CLI add tool-specific install paths inside the home dir
  *  (Claude has `.claude/local/<name>`). */
-function candidateBinaryPaths(name: string, extraHomeRelative: string[] = []): string[] {
+function candidateBinaryPaths(name: string, _extraHomeRelative: string[] = []): string[] {
+	// ISOLATION: Qoka installs both CLIs into ~/.qoka/bin (see aria-skills'
+	// installProviderCli) and runs only that copy - never a system claude/codex on
+	// PATH, Homebrew, ~/.local/bin or nvm, which would carry a separate login.
 	const home = os.homedir();
-	const out: string[] = [];
-	const direct = [
-		`/usr/local/bin/${name}`,
-		`/opt/homebrew/bin/${name}`,
-		path.join(home, '.local/bin', name),
-		path.join(home, 'bin', name),
-		...extraHomeRelative.map(rel => path.join(home, rel)),
-		// Windows: npm installs the CLI as a `.cmd` shim under the npm prefix root
-		// (Qoka-managed ~/.aria/npm or the OS default %APPDATA%/npm), none of which
-		// sit on the GUI process PATH.
-		...(process.platform === 'win32' ? [
-			path.join(home, '.aria', 'npm', `${name}.cmd`),
-			path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm', `${name}.cmd`),
-			path.join(home, '.local', 'bin', `${name}.exe`),
-		] : []),
-	];
-	for (const p of direct) {
-		if (fs.existsSync(p)) {
-			out.push(p);
-		}
-	}
-	const nvm = path.join(home, '.nvm/versions/node');
-	if (fs.existsSync(nvm)) {
-		try {
-			for (const ver of fs.readdirSync(nvm)) {
-				const p = path.join(nvm, ver, 'bin', name);
-				if (fs.existsSync(p)) {
-					out.push(p);
-				}
-			}
-		} catch {
-			// ignore
-		}
-	}
-	return out;
+	const qokaBin = path.join(home, '.qoka', 'bin');
+	const direct = process.platform === 'win32'
+		? [path.join(qokaBin, `${name}.cmd`), path.join(qokaBin, `${name}.exe`)]
+		: [path.join(qokaBin, name)];
+	return direct.filter(p => {
+		try { return fs.existsSync(p); } catch { return false; }
+	});
 }
 
 async function tryClaudeVersion(binary: string): Promise<string | null> {

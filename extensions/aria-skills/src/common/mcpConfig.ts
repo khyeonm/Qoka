@@ -25,9 +25,8 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
-import { HeadlessProvider, resolveProviderBin } from './headlessCli';
+import { HeadlessProvider, resolveProviderBin, QOKA_CODEX_HOME, QOKA_CLAUDE_CONFIG_DIR } from './headlessCli';
 
 const execAsync = promisify(exec);
 
@@ -45,8 +44,11 @@ export interface ApplyResult {
 	summary: string;
 }
 
-const CLAUDE_JSON = path.join(os.homedir(), '.claude.json');
-const CODEX_TOML = path.join(os.homedir(), '.codex', 'config.toml');
+// ISOLATION: register MCP into Qoka's own config homes, the same ones the CLIs
+// read via CODEX_HOME / CLAUDE_CONFIG_DIR (see headlessCli). The user's system
+// ~/.codex/config.toml and ~/.claude.json are never touched.
+const CLAUDE_JSON = path.join(QOKA_CLAUDE_CONFIG_DIR, '.claude.json');
+const CODEX_TOML = path.join(QOKA_CODEX_HOME, 'config.toml');
 
 function claudeUrl(port: number): string { return `http://127.0.0.1:${port}/sse`; }
 function codexUrl(port: number): string { return `http://127.0.0.1:${port}/mcp`; }

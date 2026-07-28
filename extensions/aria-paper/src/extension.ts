@@ -38,9 +38,9 @@ function cliAvailable(name: 'claude' | 'codex'): boolean {
 	const names = isWin ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name];
 	const dirs = isWin
 		? [
-			path.join(home, '.aria', 'npm'),
+			path.join(home, '.qoka', 'npm'),
 			path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm'),
-			path.join(home, '.aria', 'node'),
+			path.join(home, '.qoka', 'node'),
 			path.join(home, '.local', 'bin'), path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'Programs', 'claude'), // Claude's Windows alt location, matching aria-skills so an installed CLI is always found (no installed-but-not-found)
 		]
 		: [

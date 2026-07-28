@@ -11,6 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 import { SkillInfo } from './types';
+import { QOKA_CODEX_HOME, QOKA_CLAUDE_CONFIG_DIR } from './headlessCli';
 import { DEFAULT_SKILLS } from './defaultSkills';
 import {
 	findSkill,
@@ -37,7 +38,7 @@ const execFileAsync = promisify(execFile);
  * tarball, registry) can be added by branching at `install()`.
  */
 
-const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills');
+const SKILLS_DIR = path.join(QOKA_CLAUDE_CONFIG_DIR, 'skills');
 
 /** Parsed pieces of a GitHub URL - what we need to drive git operations. */
 interface GithubLocation {
@@ -315,7 +316,7 @@ export function installFromLocal(srcDir: string, targetName: string): string {
  * SKILL.md payload is provider-neutral; only the scan path differs.
  */
 const PROVIDER_SKILL_ROOTS: { extId: string; dir: string }[] = [
-	{ extId: 'openai.chatgpt', dir: path.join(os.homedir(), '.codex', 'skills') },
+	{ extId: 'openai.chatgpt', dir: path.join(QOKA_CODEX_HOME, 'skills') },
 ];
 
 function installedProviderSkillDirs(): string[] {

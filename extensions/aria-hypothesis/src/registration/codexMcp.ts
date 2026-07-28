@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { exec } from 'child_process';
-import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -15,15 +14,14 @@ const MCP_NAME = 'qoka-hypothesis';
 const LEGACY_NAMES = ['aria-hypothesis'];
 
 const CODEX_CANDIDATES = [
+	path.join(os.homedir(), '.qoka', 'bin', 'codex'),
+	path.join(os.homedir(), '.qoka', 'bin', 'codex.cmd'),
+	path.join(os.homedir(), '.qoka', 'npm', 'bin', 'codex'),
 	'codex',
-	'/usr/local/bin/codex',
-	'/opt/homebrew/bin/codex',
-	path.join(os.homedir(), '.local/bin/codex'),
 	// Windows: `npm install -g` drops codex as a .cmd shim at the npm prefix root
 	// (Qoka-managed ~/.aria/npm, or the OS default %APPDATA%/npm) - neither is on
 	// the GUI process PATH, so probe them directly or Codex MCP never registers.
-	path.join(os.homedir(), '.aria', 'npm', 'codex.cmd'),
-	path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'npm', 'codex.cmd'),
+	path.join(os.homedir(), '.qoka', 'npm', 'codex.cmd'),
 ];
 
 async function resolveCodex(): Promise<string | null> {
@@ -38,17 +36,6 @@ async function resolveCodex(): Promise<string | null> {
 			await execAsync(probe, { timeout: 3000 });
 			return candidate;
 		} catch { /* try next */ }
-	}
-	const nvmDir = path.join(os.homedir(), '.nvm/versions/node');
-	if (fs.existsSync(nvmDir)) {
-		try {
-			for (const ver of fs.readdirSync(nvmDir)) {
-				const candidate = path.join(nvmDir, ver, 'bin/codex');
-				if (fs.existsSync(candidate)) {
-					return candidate;
-				}
-			}
-		} catch { /* ignore */ }
 	}
 	return null;
 }
