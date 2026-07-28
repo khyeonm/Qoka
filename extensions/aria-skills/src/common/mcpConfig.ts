@@ -72,18 +72,7 @@ function writeClaude(servers: McpServerInfo[]): void {
 		obj = {}; // missing / unreadable - start fresh
 	}
 	const mcp = (obj.mcpServers && typeof obj.mcpServers === 'object' ? obj.mcpServers : {}) as Record<string, unknown>;
-	let changed = false;
-	// Drop entries left by an older Qoka, so its tools stop appearing twice. Only
-	// ones that clearly came from us: a name we no longer use is not proof we wrote
-	// it, and this is the user's own config file.
-	const current = new Set(servers.map(s => s.name));
-	for (const legacy of LEGACY_SERVER_NAMES) {
-		if (current.has(legacy)) { continue; }
-		const entry = mcp[legacy] as { type?: string; url?: string } | undefined;
-		if (!entry || entry.type !== 'sse' || !/^http:\/\/127\.0\.0\.1:\d+\/sse$/.test(entry.url ?? '')) { continue; }
-		delete mcp[legacy];
-		changed = true;
-	}
+	let changed = pruneClaudeLegacy(mcp, new Set(servers.map(s => s.name)));
 	for (const s of servers) {
 		const url = claudeUrl(s.port);
 		const cur = mcp[s.name] as { type?: string; url?: string } | undefined;
@@ -225,22 +214,74 @@ function writeCodex(servers: McpServerInfo[]): void {
 	} catch {
 		text = '';
 	}
-	let changed = false;
 	// Clear the pre-rename duplicates first, so a stale aria-* entry cannot keep
 	// serving the same tools under a second name.
-	const current = new Set(servers.map(s => s.name));
-	for (const legacy of LEGACY_SERVER_NAMES) {
-		if (current.has(legacy)) { continue; }
-		const r = removeCodexBlock(text, legacy);
-		text = r.text;
-		if (r.changed) { changed = true; }
-	}
+	const pruned = pruneCodexLegacy(text, new Set(servers.map(s => s.name)));
+	text = pruned.text;
+	let changed = pruned.changed;
 	for (const s of servers) {
 		const r = upsertCodexBlock(text, s.name, codexUrl(s.port));
 		text = r.text;
 		if (r.changed) { changed = true; }
 	}
 	if (changed) { atomicWrite(CODEX_TOML, text); }
+}
+
+/** Remove our own leftover legacy blocks from a Codex TOML string. A name still
+ *  in `current` is kept (a future rename might reuse an old name). Returns the new
+ *  text and whether anything changed. */
+function pruneCodexLegacy(text: string, current: Set<string>): { text: string; changed: boolean } {
+	let changed = false;
+	for (const legacy of LEGACY_SERVER_NAMES) {
+		if (current.has(legacy)) { continue; }
+		const r = removeCodexBlock(text, legacy);
+		text = r.text;
+		if (r.changed) { changed = true; }
+	}
+	return { text, changed };
+}
+
+/** Remove our own leftover legacy entries from a parsed ~/.claude.json mcpServers
+ *  map (mutates it). Returns whether anything changed. */
+function pruneClaudeLegacy(mcp: Record<string, unknown>, current: Set<string>): boolean {
+	let changed = false;
+	for (const legacy of LEGACY_SERVER_NAMES) {
+		if (current.has(legacy)) { continue; }
+		const entry = mcp[legacy] as { type?: string; url?: string } | undefined;
+		if (!entry || entry.type !== 'sse' || !/^http:\/\/127\.0\.0\.1:\d+\/sse$/.test(entry.url ?? '')) { continue; }
+		delete mcp[legacy];
+		changed = true;
+	}
+	return changed;
+}
+
+/**
+ * Remove leftover pre-rename MCP entries from BOTH provider configs, regardless
+ * of whether registration itself ran. This is separate from applyMcpConfig on
+ * purpose: that only runs on the fast path (every server reported a port), and
+ * when it is skipped the old aria-* entries were never cleaned - so they lingered
+ * next to the new qoka-* ones and every tool showed up twice. `currentNames` are
+ * the names we still use, so a future rename that reuses an old name is safe.
+ */
+export function pruneLegacyMcp(providers: HeadlessProvider[], currentNames: string[]): void {
+	const current = new Set(currentNames);
+	if (providers.includes('codex')) {
+		try {
+			const text = fs.readFileSync(CODEX_TOML, 'utf8');
+			const r = pruneCodexLegacy(text, current);
+			if (r.changed) { atomicWrite(CODEX_TOML, r.text); }
+		} catch { /* no file yet - nothing to prune */ }
+	}
+	if (providers.includes('claude')) {
+		try {
+			const obj = JSON.parse(fs.readFileSync(CLAUDE_JSON, 'utf8')) as Record<string, unknown>;
+			const mcp = (obj.mcpServers && typeof obj.mcpServers === 'object' ? obj.mcpServers : undefined) as Record<string, unknown> | undefined;
+			if (mcp && pruneClaudeLegacy(mcp, current)) {
+				obj.mcpServers = mcp;
+				atomicWrite(CLAUDE_JSON, JSON.stringify(obj, null, 2) + '\n');
+			}
+		} catch { /* no file / unreadable - nothing to prune */ }
+	}
 }
 
 /** Names present in ~/.codex/config.toml with the expected /mcp port. */

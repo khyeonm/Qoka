@@ -19,6 +19,14 @@ import { whenAriaSetupReady } from './ariaSetupReady.js';
 import { ConcreteProvider, hasPickedAiProvider, takePendingInstall, PROVIDER_EXTENSION_ID, PROVIDER_LABEL } from './ariaAiProviderChoice.js';
 import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConfiguration.js';
 
+/** The MCP server names Qoka currently registers. Passed to the legacy pruner so
+ *  it never deletes a name still in use (a future rename could reuse an old one).
+ *  Kept in sync with each extension's MCP_NAME. */
+const QOKA_MCP_NAMES = [
+	'qoka-autopipe', 'qoka-run', 'qoka-paper', 'qoka-paper-library', 'qoka-memory',
+	'qoka-notes', 'qoka-roadmap', 'qoka-methods-search', 'qoka-hypothesis', 'qoka-overview',
+];
+
 /**
  * On startup in a project window:
  *   1. If the user chose an assistant they hadn't installed yet (deferred from
@@ -120,6 +128,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			//    registered" also means "with every chosen provider".
 			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
 			const allRegistered = await this._registerMcpFast(usable);
+			// Always prune pre-rename duplicate MCP entries, even when the fast path
+			// was skipped (a straggler that hadn't bound). Otherwise the old aria-*
+			// entries linger beside the new qoka-* ones and every tool shows twice.
+			try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
 			this._setupGateDone = true;
 			hideLoading();
 

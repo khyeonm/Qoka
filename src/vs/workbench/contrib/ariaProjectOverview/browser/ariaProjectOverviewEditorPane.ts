@@ -28,6 +28,17 @@ interface OverviewTask {
 	label: string;
 	done: boolean;
 	checkedAt?: string;
+	/**
+	 * Optional deadline. Dates and times are stored SEPARATELY and WITHOUT a
+	 * timezone, as local wall-clock values: a deadline is "6pm on the 4th", not an
+	 * instant, so an ISO timestamp would shift the day for anyone in another
+	 * timezone (and around midnight for everyone). `startDate` is set only for a
+	 * period; a single deadline uses `dueDate` alone.
+	 */
+	startDate?: string;   // 'YYYY-MM-DD'
+	startTime?: string;   // 'HH:mm', 24-hour
+	dueDate?: string;     // 'YYYY-MM-DD'
+	dueTime?: string;     // 'HH:mm', 24-hour
 }
 
 interface PendingCompletion {
@@ -237,14 +248,21 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 
 		// First-run guidance: tell the user to introduce the project in the AI chat.
 		// Shown only while the project has no title/content yet (toggled in applyData).
+		// Deliberately loud - yellow and gently pulsing - because on an empty project
+		// this is the one thing the user needs to do, and the old faint blue box was
+		// easy to miss next to a big empty editor.
+		this.installCardPulseStyle(root.ownerDocument);
 		const card = append(root, $('div'));
+		card.className = 'aria-overview-start-card';
 		Object.assign(card.style, {
-			flex: '0 0 auto', display: 'none', flexDirection: 'column', gap: '6px',
-			border: '1px solid var(--vscode-focusBorder, rgba(120,170,255,0.5))', borderRadius: '8px',
-			background: 'rgba(120,170,255,0.08)', padding: '12px 16px', margin: '14px 20px 0 20px', maxWidth: '760px',
+			flex: '0 0 auto', display: 'none', flexDirection: 'row', alignItems: 'center', gap: '10px',
+			border: '1px solid var(--vscode-editorWarning-foreground, #cca700)', borderRadius: '8px',
+			background: 'rgba(255,193,7,0.16)', padding: '12px 16px', margin: '14px 20px 0 20px',
 		});
+		const cardIcon = append(card, $('span.codicon.codicon-arrow-right')) as HTMLElement;
+		Object.assign(cardIcon.style, { fontSize: '16px', flexShrink: '0', opacity: '0.8' });
 		const cardText = append(card, $('div'));
-		cardText.textContent = 'Enter this project\'s name and what it will be, in the AI chat.';
+		cardText.textContent = 'Tell the AI chat on the right what you want to research, and it will help you write this project overview.';
 		Object.assign(cardText.style, { fontSize: '13px', lineHeight: '1.5' });
 		this.startCardEl = card;
 
@@ -252,7 +270,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		const title = append(root, $('input')) as HTMLInputElement;
 		title.placeholder = 'Untitled project';
 		Object.assign(title.style, {
-			flex: '0 0 auto', width: '100%', maxWidth: '760px', boxSizing: 'border-box', border: 'none', outline: 'none',
+			flex: '0 0 auto', width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none',
 			background: 'transparent', color: 'var(--vscode-foreground)', fontSize: '28px', fontWeight: '700',
 			padding: '16px 20px 8px 20px', fontFamily: 'inherit',
 		});
@@ -500,6 +518,21 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		this.startCardEl.style.display = empty ? 'flex' : 'none';
 	}
 
+	/** Inject the start-card pulse keyframes once per document. Kept subtle (a soft
+	 *  glow, not motion) so it draws the eye without being annoying. */
+	private installCardPulseStyle(doc: Document): void {
+		if (doc.getElementById('aria-overview-card-pulse-style')) { return; }
+		const style = doc.createElement('style');
+		style.id = 'aria-overview-card-pulse-style';
+		style.textContent = `
+@keyframes aria-overview-card-pulse {
+	0%, 100% { box-shadow: 0 0 0 0 rgba(255,193,7,0.0); }
+	50%      { box-shadow: 0 0 0 4px rgba(255,193,7,0.28); }
+}
+.aria-overview-start-card { animation: aria-overview-card-pulse 1.8s ease-in-out infinite; }`;
+		doc.head.appendChild(style);
+	}
+
 	/**
 	 * Push freshly-loaded data into the UI, skipping fields with UNSAVED user
 	 * edits so an external (MCP) refresh never clobbers something being typed.
@@ -530,11 +563,22 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 
 	// --- fixed sections (roadmap + to-do) ----------------------------------
 
+	/**
+	 * Rebuild the roadmap + To-do area.
+	 *
+	 * The scroll offset is saved and restored because this container scrolls and
+	 * `clearNode` resets `scrollTop` to 0 the instant its children go away. Every
+	 * checkbox tick, rename and delete re-renders, so without this the view jumped
+	 * back up to the roadmap each time - the user lost their place in the list
+	 * exactly when they were working through it.
+	 */
 	private renderSections(): void {
 		if (!this.sectionsEl) { return; }
+		const scroll = this.sectionsEl.scrollTop;
 		clearNode(this.sectionsEl);
 		this.renderRoadmap(this.sectionsEl);
 		this.renderTasks(this.sectionsEl);
+		this.sectionsEl.scrollTop = scroll;
 	}
 
 	private sectionLabel(parent: HTMLElement, text: string): void {
@@ -656,11 +700,11 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		}
 
 		const list = append(parent, $('div'));
-		Object.assign(list.style, { display: 'flex', flexDirection: 'column', gap: '2px', maxWidth: '760px' });
+		Object.assign(list.style, { display: 'flex', flexDirection: 'column', gap: '2px' });
 		for (const task of this.data.tasks) { list.appendChild(this.taskRow(task)); }
 
 		const addRow = append(parent, $('div'));
-		Object.assign(addRow.style, { display: 'flex', gap: '6px', marginTop: '8px', maxWidth: '760px' });
+		Object.assign(addRow.style, { display: 'flex', gap: '6px', marginTop: '8px' });
 		const input = append(addRow, $('input')) as HTMLInputElement;
 		input.placeholder = 'Add a task...';
 		Object.assign(input.style, { flex: '1', minWidth: '0', boxSizing: 'border-box', padding: '5px 8px', borderRadius: '5px', border: '1px solid rgba(127,127,127,0.3)', background: 'var(--vscode-input-background, transparent)', color: 'var(--vscode-foreground)', fontSize: '12px', fontFamily: 'inherit' });
@@ -676,9 +720,143 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		addRow.appendChild(this.smallButton('Add', true, commit));
 	}
 
+	// --- deadlines --------------------------------------------------------
+
+	/** Today as 'YYYY-MM-DD' in the user's own timezone. `toISOString()` is UTC and
+	 *  would report the wrong day for anyone west of Greenwich in the evening. */
+	private static todayKey(d = new Date()): string {
+		const pad = (n: number) => String(n).padStart(2, '0');
+		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+	}
+
+	/** 'YYYY-MM-DD' -> a local Date at midnight (NOT Date.parse, which reads a
+	 *  bare date as UTC). */
+	private static parseKey(key: string): Date {
+		const [y, m, d] = key.split('-').map(n => parseInt(n, 10));
+		return new Date(y, (m || 1) - 1, d || 1);
+	}
+
+	/** Chip label, showing whatever was set: `Jul 4`, `Jul 4 18:00`, or the full
+	 *  `Jul 1 18:00 - Jul 2 19:00` for a range. Times appear only when the user
+	 *  chose them. */
+	private static formatDeadline(task: OverviewTask): string {
+		if (!task.dueDate) { return ''; }
+		const part = (date: string, time?: string) => {
+			const d = AriaProjectOverviewEditorPane.parseKey(date);
+			const label = `${d.toLocaleDateString(undefined, { month: 'short' })} ${d.getDate()}`;
+			return time ? `${label} ${time}` : label;
+		};
+		return task.startDate
+			? `${part(task.startDate, task.startTime)} - ${part(task.dueDate, task.dueTime)}`
+			: part(task.dueDate, task.dueTime);
+	}
+
+	/** How pressing this deadline is, for colour. A date with no time is due at the
+	 *  END of that day - treating it as midnight would mark today's task overdue
+	 *  from the moment the user woke up. Recomputed on every render, and the pane
+	 *  re-renders when the tab becomes visible, so simply looking at the tab
+	 *  refreshes it. */
+	private static urgency(task: OverviewTask): 'overdue' | 'soon' | 'later' | 'none' {
+		if (!task.dueDate || task.done) { return 'none'; }
+		const [h, m] = (task.dueTime ?? '23:59').split(':').map(n => parseInt(n, 10));
+		const due = AriaProjectOverviewEditorPane.parseKey(task.dueDate);
+		due.setHours(h || 0, m || 0, 0, 0);
+		const now = new Date();
+		if (due.getTime() < now.getTime()) { return 'overdue'; }
+		const tomorrowEnd = new Date();
+		tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+		tomorrowEnd.setHours(23, 59, 59, 999);
+		return due.getTime() <= tomorrowEnd.getTime() ? 'soon' : 'later';
+	}
+
+	/**
+	 * Drag a task row to a new position. The list order IS the user's priority, so
+	 * nothing here ever sorts on its own - deadlines are shown, not obeyed.
+	 *
+	 * Pointer-based rather than HTML5 drag-and-drop: the rows live in a scrolling
+	 * container and are re-rendered constantly, and native DnD's ghost image and
+	 * drop-target quirks fight both. We track the pointer against each sibling row's
+	 * midpoint, show a thin insertion line, and reorder the array on release.
+	 */
+	private beginTaskDrag(e: MouseEvent, row: HTMLElement, task: OverviewTask): void {
+		e.preventDefault();
+		const list = row.parentElement;
+		if (!list) { return; }
+		const doc = row.ownerDocument;
+		const rows = Array.from(list.children) as HTMLElement[];
+		const startIndex = rows.indexOf(row);
+
+		row.classList.add('aria-task-dragging');
+		row.style.opacity = '0.5';
+
+		// A thin line marking where the row would land.
+		const marker = doc.createElement('div');
+		Object.assign(marker.style, { height: '2px', background: 'var(--vscode-focusBorder, #4a9eff)', margin: '0', pointerEvents: 'none' });
+
+		let targetIndex = startIndex;
+		const place = (clientY: number) => {
+			// Insert before the first row whose midpoint is below the pointer.
+			let idx = rows.length;
+			for (let i = 0; i < rows.length; i++) {
+				if (rows[i] === row) { continue; }
+				const r = rows[i].getBoundingClientRect();
+				if (clientY < r.top + r.height / 2) { idx = i; break; }
+			}
+			targetIndex = idx;
+			if (idx >= rows.length) { list.appendChild(marker); }
+			else { list.insertBefore(marker, rows[idx]); }
+		};
+		place(e.clientY);
+
+		const onMove = (ev: MouseEvent) => place(ev.clientY);
+		const onUp = () => {
+			doc.removeEventListener('mousemove', onMove, true);
+			doc.removeEventListener('mouseup', onUp, true);
+			marker.remove();
+			// Translate the marker position into a destination index within the array.
+			// Removing the dragged item first shifts everything after it left by one.
+			let dest = targetIndex;
+			if (dest > startIndex) { dest--; }
+			if (dest !== startIndex && dest >= 0 && dest <= this.data.tasks.length - 1) {
+				const from = this.data.tasks.indexOf(task);
+				if (from >= 0) {
+					this.data.tasks.splice(from, 1);
+					this.data.tasks.splice(dest, 0, task);
+					void this.persist();
+				}
+			}
+			this.renderSections();
+		};
+		doc.addEventListener('mousemove', onMove, true);
+		doc.addEventListener('mouseup', onUp, true);
+	}
+
 	private taskRow(task: OverviewTask): HTMLElement {
 		const row = $('div');
 		Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0' });
+
+		// Drag handle, LEFT of the checkbox. A single up/down grip (↕): grab it and
+		// drag the row to a new spot. Always visible on the first row so the feature
+		// is discoverable; hidden until hover elsewhere, since a grip on every row is
+		// noise. Space is reserved either way (visibility, not display) so rows do
+		// not shift on hover.
+		const index = this.data.tasks.indexOf(task);
+		const isFirst = index === 0;
+		const handle = append(row, $('span')) as HTMLElement;
+		handle.textContent = '↕'; // ↕
+		handle.title = 'Drag to reorder';
+		Object.assign(handle.style, {
+			flexShrink: '0', cursor: 'grab', opacity: '0.5', padding: '0 2px',
+			fontSize: '13px', userSelect: 'none', fontFamily: 'var(--vscode-font-family)',
+			visibility: isFirst ? 'visible' : 'hidden',
+		});
+		row.dataset.taskId = task.id;
+		handle.addEventListener('mousedown', (e) => this.beginTaskDrag(e, row, task));
+		if (!isFirst) {
+			row.addEventListener('mouseenter', () => { if (!row.classList.contains('aria-task-dragging')) { handle.style.visibility = 'visible'; } });
+			row.addEventListener('mouseleave', () => { if (!row.classList.contains('aria-task-dragging')) { handle.style.visibility = 'hidden'; } });
+		}
+
 		const cb = append(row, $('input')) as HTMLInputElement;
 		cb.type = 'checkbox';
 		cb.checked = task.done;
@@ -693,6 +871,25 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		const label = append(row, $('span'));
 		label.textContent = task.label;
 		Object.assign(label.style, { flex: '1', minWidth: '0', fontSize: '13px', textDecoration: task.done ? 'line-through' : 'none', opacity: task.done ? '0.55' : '1' });
+
+		// Deadline chip: a calendar glyph until a date is set, then the date itself.
+		// Always visible (unlike the row's hover icons) - a deadline is information,
+		// not an action, and hiding it would defeat the point.
+		const due = append(row, $('span')) as HTMLElement;
+		const urgency = AriaProjectOverviewEditorPane.urgency(task);
+		const colour = urgency === 'overdue'
+			? 'var(--vscode-errorForeground, #f14c4c)'
+			: urgency === 'soon' ? 'var(--vscode-editorWarning-foreground, #cca700)' : 'var(--vscode-foreground)';
+		if (task.dueDate) {
+			due.textContent = AriaProjectOverviewEditorPane.formatDeadline(task);
+			Object.assign(due.style, { fontSize: '11px', color: colour, opacity: urgency === 'later' ? '0.6' : '1', fontFamily: 'var(--vscode-font-family)' });
+		} else {
+			due.className = 'codicon codicon-calendar';
+			Object.assign(due.style, { fontSize: '13px', opacity: '0.45' });
+		}
+		Object.assign(due.style, { cursor: 'pointer', flexShrink: '0', padding: '2px', whiteSpace: 'nowrap' });
+		due.title = task.dueDate ? AriaProjectOverviewEditorPane.formatDeadline(task) : 'Set a deadline';
+		due.onclick = (e) => { e.stopPropagation(); this.openDeadlinePicker(due, task); };
 
 		// Pencil = inline-rename this task (same edit glyph the research notes use).
 		const edit = append(row, $('span.codicon.codicon-edit')) as HTMLElement;
@@ -710,6 +907,250 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 			this.renderSections();
 		};
 		return row;
+	}
+
+	/**
+	 * Month-grid date picker for a task's deadline.
+	 *
+	 * Hand-rolled because the workbench has no date widget. Deliberately explicit:
+	 * the user picks dates, optionally ticks a time, then presses Save - nothing is
+	 * written until then, so a stray click on the grid costs nothing. Clear removes
+	 * the deadline entirely, which Save/Cancel alone could not express.
+	 */
+	private openDeadlinePicker(anchorEl: HTMLElement, task: OverviewTask): void {
+		const doc = anchorEl.ownerDocument;
+		const pop = doc.createElement('div');
+		Object.assign(pop.style, {
+			position: 'fixed', zIndex: '1000', minWidth: '250px',
+			background: 'var(--vscode-editorWidget-background, var(--vscode-editor-background))',
+			border: '1px solid var(--vscode-editorWidget-border, rgba(127,127,127,0.35))',
+			borderRadius: '6px', padding: '10px', boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+			fontSize: '12px', color: 'var(--vscode-foreground)',
+			// Match the workbench UI font. The popup attaches inside the pane (below)
+			// so it inherits the same --vscode-font-family the rest of Qoka resolves;
+			// the explicit value with a fallback guards the case where it does not.
+			fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)',
+		});
+
+		// Draggable title bar. The popup can cover a row the user wants to see, so
+		// let them grab this and move it out of the way.
+		const bar = append(pop, $('div'));
+		bar.textContent = 'Deadline';
+		Object.assign(bar.style, {
+			cursor: 'move', userSelect: 'none', fontSize: '11px', fontWeight: '600',
+			opacity: '0.7', margin: '-2px 0 8px 0', paddingBottom: '6px',
+			borderBottom: '1px solid rgba(127,127,127,0.2)',
+		});
+		bar.addEventListener('mousedown', (e) => {
+			e.preventDefault();
+			const r = pop.getBoundingClientRect();
+			const dx = e.clientX - r.left;
+			const dy = e.clientY - r.top;
+			const onMove = (ev: MouseEvent) => {
+				pop.style.left = `${Math.max(8, Math.min(ev.clientX - dx, doc.documentElement.clientWidth - pop.offsetWidth - 8))}px`;
+				pop.style.top = `${Math.max(8, Math.min(ev.clientY - dy, doc.documentElement.clientHeight - pop.offsetHeight - 8))}px`;
+			};
+			const onUp = () => { doc.removeEventListener('mousemove', onMove, true); doc.removeEventListener('mouseup', onUp, true); };
+			doc.addEventListener('mousemove', onMove, true);
+			doc.addEventListener('mouseup', onUp, true);
+		});
+
+		// Working copy - only written back on Save.
+		let from: string | undefined = task.startDate ?? task.dueDate;
+		let to: string | undefined = task.dueDate;
+		let tStart = task.startTime ?? '';
+		let tDue = task.dueTime ?? '';
+		const today = new Date();
+		let year = (from ? AriaProjectOverviewEditorPane.parseKey(from) : today).getFullYear();
+		let month = (from ? AriaProjectOverviewEditorPane.parseKey(from) : today).getMonth();
+
+		// --- year / month selectors ---
+		const head = append(pop, $('div'));
+		Object.assign(head.style, { display: 'flex', gap: '6px', marginBottom: '8px' });
+		const selectStyle = { flex: '1', minWidth: '0', padding: '3px', fontSize: '12px', fontFamily: 'inherit', background: 'var(--vscode-dropdown-background, transparent)', color: 'var(--vscode-foreground)', border: '1px solid rgba(127,127,127,0.3)', borderRadius: '4px' };
+		const yearSel = append(head, $('select')) as HTMLSelectElement;
+		Object.assign(yearSel.style, selectStyle);
+		for (let y = today.getFullYear() - 2; y <= today.getFullYear() + 5; y++) {
+			const o = append(yearSel, $('option')) as HTMLOptionElement;
+			o.value = String(y); o.textContent = String(y);
+		}
+		const monthSel = append(head, $('select')) as HTMLSelectElement;
+		Object.assign(monthSel.style, selectStyle);
+		for (let m = 0; m < 12; m++) {
+			const o = append(monthSel, $('option')) as HTMLOptionElement;
+			o.value = String(m);
+			o.textContent = new Date(2020, m, 1).toLocaleDateString(undefined, { month: 'long' });
+		}
+
+		const grid = append(pop, $('div'));
+
+		const hint = append(pop, $('div'));
+		hint.textContent = 'Pick two dates for a period, or one date for a single deadline.';
+		Object.assign(hint.style, { fontSize: '11px', opacity: '0.7', margin: '8px 0', lineHeight: '1.4' });
+
+		// --- optional time ---
+		const timeToggleRow = append(pop, $('label'));
+		Object.assign(timeToggleRow.style, { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: '2px 0' });
+		const timeToggle = append(timeToggleRow, $('input')) as HTMLInputElement;
+		timeToggle.type = 'checkbox';
+		timeToggle.checked = !!(task.startTime || task.dueTime);
+		const timeToggleLabel = append(timeToggleRow, $('span'));
+		timeToggleLabel.textContent = 'Set a time';
+
+		const timeBox = append(pop, $('div'));
+		Object.assign(timeBox.style, { display: timeToggle.checked ? 'block' : 'none', margin: '6px 0 2px 20px' });
+		const timeField = (label: string, value: string, onInput: (v: string) => void) => {
+			const line = append(timeBox, $('div'));
+			Object.assign(line.style, { display: 'flex', alignItems: 'center', gap: '6px', margin: '3px 0' });
+			const l = append(line, $('span'));
+			l.textContent = label;
+			// Wide enough for a `Jul 3` date label, not just `Start`.
+			Object.assign(l.style, { minWidth: '52px', opacity: '0.75', whiteSpace: 'nowrap' });
+			const inp = append(line, $('input')) as HTMLInputElement;
+			inp.value = value;
+			inp.placeholder = '18:30';
+			Object.assign(inp.style, { width: '64px', padding: '2px 5px', fontSize: '12px', fontFamily: 'inherit', background: 'var(--vscode-input-background, transparent)', color: 'var(--vscode-foreground)', border: '1px solid rgba(127,127,127,0.3)', borderRadius: '4px' });
+			inp.oninput = () => onInput(inp.value);
+		};
+		const dateLabel = (key: string) => {
+			const d = AriaProjectOverviewEditorPane.parseKey(key);
+			return `${d.toLocaleDateString(undefined, { month: 'short' })} ${d.getDate()}`;
+		};
+		// One time for a single date, two for a range - rebuilt when the selection
+		// switches between the two. Each row is labelled with ITS date (the user
+		// picks dates first, so `Jul 1 [ ]` / `Jul 3 [ ]` reads naturally). Typed
+		// values survive the rebuild via tStart/tDue.
+		const renderTimeFields = () => {
+			clearNode(timeBox);
+			const isRange = !!from && !!to && from !== to;
+			if (isRange) {
+				timeField(dateLabel(from!), tStart, v => { tStart = v; });
+				timeField(dateLabel(to!), tDue, v => { tDue = v; });
+			} else if (to) {
+				timeField(dateLabel(to), tDue, v => { tDue = v; });
+			} else {
+				timeField('Time', tDue, v => { tDue = v; });
+			}
+		};
+		renderTimeFields();
+		timeToggle.onchange = () => { timeBox.style.display = timeToggle.checked ? 'block' : 'none'; };
+
+		// --- buttons ---
+		const buttons = append(pop, $('div'));
+		Object.assign(buttons.style, { display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '10px' });
+
+		const close = () => {
+			doc.removeEventListener('mousedown', onOutside, true);
+			doc.removeEventListener('keydown', onKey, true);
+			pop.remove();
+		};
+		const onOutside = (e: MouseEvent) => { if (!pop.contains(e.target as Node)) { close(); } };
+		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { close(); } };
+
+		/** 'HH:mm' or undefined. Anything unparseable is treated as "no time" rather
+		 *  than silently storing a bad value. */
+		const readTime = (raw: string): string | undefined => {
+			const m = raw.trim().match(/^(\d{1,2}):(\d{2})$/);
+			if (!m) { return undefined; }
+			const h = parseInt(m[1], 10);
+			const min = parseInt(m[2], 10);
+			if (h > 23 || min > 59) { return undefined; }
+			return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+		};
+
+		buttons.appendChild(this.smallButton('Clear', false, () => {
+			task.startDate = undefined; task.dueDate = undefined;
+			task.startTime = undefined; task.dueTime = undefined;
+			close();
+			void this.persist();
+			this.renderSections();
+		}));
+		buttons.appendChild(this.smallButton('Cancel', false, close));
+		buttons.appendChild(this.smallButton('Save', true, () => {
+			if (!to) {
+				task.startDate = undefined; task.dueDate = undefined;
+				task.startTime = undefined; task.dueTime = undefined;
+			} else {
+				const isRange = !!from && from !== to;
+				task.startDate = isRange ? from : undefined;
+				task.dueDate = to;
+				task.startTime = timeToggle.checked && isRange ? readTime(tStart) : undefined;
+				task.dueTime = timeToggle.checked ? readTime(tDue) : undefined;
+			}
+			close();
+			void this.persist();
+			this.renderSections();
+		}));
+
+		const renderGrid = () => {
+			clearNode(grid);
+			yearSel.value = String(year);
+			monthSel.value = String(month);
+			const table = append(grid, $('div'));
+			Object.assign(table.style, { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px', textAlign: 'center' });
+			for (const d of ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']) {
+				const h = append(table, $('div'));
+				h.textContent = d;
+				Object.assign(h.style, { fontSize: '10px', opacity: '0.55', padding: '2px 0' });
+			}
+			const first = new Date(year, month, 1);
+			const days = new Date(year, month + 1, 0).getDate();
+			for (let i = 0; i < first.getDay(); i++) { append(table, $('div')); }
+			const todayKey = AriaProjectOverviewEditorPane.todayKey();
+			for (let d = 1; d <= days; d++) {
+				const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+				const cell = append(table, $('div'));
+				cell.textContent = String(d);
+				const inRange = !!from && !!to && key >= from && key <= to;
+				const isEdge = key === from || key === to;
+				Object.assign(cell.style, {
+					padding: '3px 0', borderRadius: '3px', cursor: 'pointer', fontSize: '12px',
+					outline: key === todayKey ? '1px solid var(--vscode-focusBorder, #4a9eff)' : 'none',
+					background: isEdge
+						? 'var(--vscode-button-background, #0e639c)'
+						: inRange ? 'rgba(120,170,255,0.18)' : 'transparent',
+					color: isEdge ? 'var(--vscode-button-foreground, #fff)' : 'inherit',
+				});
+				cell.onclick = () => {
+					// First click starts a new selection; a second click completes a
+					// range. Clicking again after that starts over, so a mis-click is
+					// always one click from being corrected.
+					if (!from || (from && to && from !== to) || key < from) {
+						from = key; to = key;
+					} else {
+						to = key;
+					}
+					renderGrid();
+					renderTimeFields(); // single vs range may have changed
+				};
+			}
+		};
+		yearSel.onchange = () => { year = parseInt(yearSel.value, 10); renderGrid(); };
+		monthSel.onchange = () => { month = parseInt(monthSel.value, 10); renderGrid(); };
+		renderGrid();
+
+		// Append first (so we can measure it), THEN place it fully on screen. Below
+		// the chip by default; flipped above when it would run off the bottom - the
+		// old fixed `rect.bottom + 4` cut off the lower rows' popups.
+		// Attach inside the pane container, not document.body, so CSS custom
+		// properties (and thus the font) resolve exactly as they do for every other
+		// element here. position:fixed still positions it against the viewport, so
+		// nothing else about the placement changes.
+		(this.container ?? doc.body).appendChild(pop);
+		const rect = anchorEl.getBoundingClientRect();
+		const vw = doc.documentElement.clientWidth;
+		const vh = doc.documentElement.clientHeight;
+		const h = pop.offsetHeight;
+		const w = pop.offsetWidth;
+		const below = rect.bottom + 4;
+		const top = (below + h <= vh - 8) ? below : Math.max(8, rect.top - h - 4);
+		pop.style.left = `${Math.max(8, Math.min(rect.left, vw - w - 8))}px`;
+		pop.style.top = `${Math.max(8, Math.min(top, vh - h - 8))}px`;
+
+		setTimeout(() => {
+			doc.addEventListener('mousedown', onOutside, true);
+			doc.addEventListener('keydown', onKey, true);
+		}, 0);
 	}
 
 	/** Swap a task's label for an inline text input; commit on Enter/blur, cancel on Escape. */

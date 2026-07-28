@@ -17,7 +17,7 @@ import { syncSkillsToProviders, resyncBundledSkills, cleanupEnvDescriptions } fr
 import { reconcileCategories } from './common/skillManifest';
 import { installProviderCli } from './installProviderCli';
 import { ensureAriaBinsOnPath, HeadlessProvider } from './common/headlessCli';
-import { applyMcpConfig, McpServerInfo } from './common/mcpConfig';
+import { applyMcpConfig, pruneLegacyMcp, McpServerInfo } from './common/mcpConfig';
 
 /**
  * Skills extension entry. Phase 2 replaces the central-area webview with
@@ -149,6 +149,19 @@ export function activate(context: vscode.ExtensionContext): void {
 				.filter((s): s is McpServerInfo => !!s && typeof s === 'object'
 					&& typeof (s as McpServerInfo).name === 'string' && typeof (s as McpServerInfo).port === 'number');
 			return applyMcpConfig(providers, servers);
+		}),
+
+		// Prune pre-rename duplicate MCP entries, ALWAYS - not only on the fast path.
+		// applyConfig above cleans them too, but it runs only when every server
+		// reported a port; when it is skipped the old aria-* entries lingered next to
+		// the new qoka-* ones and each tool appeared twice. This runs regardless.
+		vscode.commands.registerCommand('aria.mcp.pruneLegacy', (arg: unknown) => {
+			const a = (arg && typeof arg === 'object' ? arg : {}) as { providers?: unknown; currentNames?: unknown };
+			const providers = (Array.isArray(a.providers) ? a.providers : [])
+				.filter((p): p is HeadlessProvider => p === 'claude' || p === 'codex');
+			const currentNames = (Array.isArray(a.currentNames) ? a.currentNames : [])
+				.filter((n): n is string => typeof n === 'string');
+			pruneLegacyMcp(providers, currentNames);
 		}),
 
 		// Change which AI(s) Qoka uses, at any time (not just onboarding). Order:

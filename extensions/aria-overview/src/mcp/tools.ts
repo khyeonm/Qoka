@@ -106,7 +106,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'add_tasks',
-			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. The user can edit them afterward. Onboarding step 4: add_tasks is MANDATORY and must be called BEFORE the step-5 open_overview - never come back to the Overview with an empty To-do.',
+			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. The user can edit them afterward. Onboarding step 4: add_tasks is MANDATORY and must be called BEFORE the step-5 open_overview - never come back to the Overview with an empty To-do. After adding them, TELL THE USER what they can do with the list themselves: reorder items with the up/down arrows on the left of each row, and give any item a deadline or a date range (with an optional time) by clicking the calendar icon on its right. You cannot set deadlines - only the user can, because only they know their real schedule.',
 			inputSchema: {
 				type: 'object',
 				properties: { labels: { type: 'array', items: { type: 'string' }, description: 'Task labels.' } },
