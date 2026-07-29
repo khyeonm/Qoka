@@ -147,21 +147,23 @@ async function installCodex(): Promise<RunResult> {
 	const npm = isWin ? 'npm.cmd' : 'npm';
 	log(`installProviderCli: installing Codex via ${npm} install -g @openai/codex (prefix ${prefix})`);
 	const result = await runHidden(npm, ['install', '-g', '@openai/codex'], env);
-	// Mirror the codex bin into ~/.qoka/bin so the single resolver dir has it too
-	// (Unix bins land in <prefix>/bin; on Windows the .cmd shim sits at the root).
-	try {
-		fs.mkdirSync(QOKA_BIN_DIR, { recursive: true });
-		const names = isWin ? ['codex.cmd', 'codex.exe'] : ['codex'];
-		const srcDir = isWin ? prefix : path.join(prefix, 'bin');
-		for (const n of names) {
-			const from = path.join(srcDir, n);
-			if (fs.existsSync(from)) {
-				fs.copyFileSync(from, path.join(QOKA_BIN_DIR, n));
-				if (!isWin) { fs.chmodSync(path.join(QOKA_BIN_DIR, n), 0o755); }
-			}
-		}
-	} catch (e) { log(`installCodex: mirror to bin failed - ${(e as Error).message}`); }
+	// Do NOT mirror codex into ~/.qoka/bin. Unlike Claude (a self-contained
+	// binary), codex is an npm package whose launcher resolves its modules
+	// RELATIVE to the npm prefix: a lone copy elsewhere breaks - on Windows the
+	// .cmd shim's %~dp0 points at the wrong dir, on Unix the entry can't find its
+	// node_modules. Codex stays in QOKA_NPM_PREFIX, which is already both a
+	// providerDirs entry and on PATH. Remove any stale copy an earlier build put
+	// in ~/.qoka/bin so the broken shim stops shadowing the working one.
+	removeStaleCodexFromBin();
 	return result;
+}
+
+/** Delete any codex launcher an earlier build mirrored into ~/.qoka/bin, where it
+ *  cannot resolve its npm modules. Safe to call anytime; no-ops when absent. */
+function removeStaleCodexFromBin(): void {
+	for (const n of ['codex', 'codex.cmd', 'codex.exe', 'codex.bat']) {
+		try { fs.rmSync(path.join(QOKA_BIN_DIR, n), { force: true }); } catch { /* none */ }
+	}
 }
 
 /**

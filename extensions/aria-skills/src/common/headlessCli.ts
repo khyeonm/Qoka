@@ -57,6 +57,14 @@ export const QOKA_CLAUDE_CONFIG_DIR = path.join(QOKA_HOME, 'claude');
  *  portable Node (~/.aria/node/bin) plus ~/.local/bin (where claude/codex land).
  *  Idempotent - safe to call from multiple extensions' activate(). */
 export function ensureQokaBinsOnPath(): void {
+	// Self-heal: an earlier build mirrored codex's npm launcher into ~/.qoka/bin,
+	// where its %~dp0 / node_modules resolution breaks so codex never runs (no
+	// login). Remove it before anything resolves a CLI, so discovery falls through
+	// to the working copy in QOKA_NPM_PREFIX. Claude is a self-contained binary and
+	// is left alone.
+	for (const n of ['codex', 'codex.cmd', 'codex.exe', 'codex.bat']) {
+		try { fs.rmSync(path.join(QOKA_BIN_DIR, n), { force: true }); } catch { /* none */ }
+	}
 	// ISOLATION: put ONLY Qoka's own dirs on PATH, at the FRONT. The chat
 	// extensions (Claude Code, Codex) run in this shared extension host and spawn
 	// their CLI by PATH lookup, so prepending ~/.qoka/bin makes them use Qoka's
