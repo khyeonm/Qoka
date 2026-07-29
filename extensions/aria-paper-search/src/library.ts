@@ -108,18 +108,10 @@ export interface SavePaperInput {
 	tags?: string[];
 }
 
-/**
- * Insert (or upsert) a paper. Returns the stored entry. If a paper with
- * the same ID already exists, the existing note + tags are preserved
- * (so re-saving from Claude doesn't wipe user edits) but the metadata
- * is refreshed.
- */
-export function savePaper(input: SavePaperInput): PaperLibraryEntry {
-	const lib = readLibrary();
-	const id = makeId({ doi: input.doi, url: input.url, title: input.title });
-	const existing = lib.papers.find(p => p.id === id);
-	const now = new Date().toISOString();
-	const entry: PaperLibraryEntry = {
+/** Build a library entry from an input, preserving an existing entry's user edits
+ *  (note + tags) and original savedAt when re-saving. */
+function makeEntry(id: string, input: SavePaperInput, existing: PaperLibraryEntry | undefined, now: string): PaperLibraryEntry {
+	return {
 		id,
 		title: input.title,
 		authors: input.authors,
@@ -134,14 +126,56 @@ export function savePaper(input: SavePaperInput): PaperLibraryEntry {
 		note: existing?.note ?? input.note ?? '',
 		tags: existing?.tags ?? input.tags ?? [],
 	};
-	if (existing) {
-		const idx = lib.papers.indexOf(existing);
-		lib.papers[idx] = entry;
-	} else {
-		lib.papers.unshift(entry);
+}
+
+/**
+ * Insert (or upsert) a paper. Returns the stored entry. If a paper with
+ * the same ID already exists, the existing note + tags are preserved
+ * (so re-saving from Claude doesn't wipe user edits) but the metadata
+ * is refreshed.
+ */
+export function savePaper(input: SavePaperInput): PaperLibraryEntry {
+	return savePapers([input])[0].entry;
+}
+
+/**
+ * Insert (or upsert) SEVERAL papers in ONE read+write of the library file, instead
+ * of one full read/write per paper. New papers are prepended as a block in input
+ * order (so the first paper passed ends up at the top); existing papers are updated
+ * in place, preserving their note + tags. Duplicate inputs (same id) are collapsed.
+ * Returns one result per unique paper with `isNew` telling new saves from refreshes.
+ */
+export function savePapers(inputs: SavePaperInput[]): { entry: PaperLibraryEntry; isNew: boolean }[] {
+	const lib = readLibrary();
+	const now = new Date().toISOString();
+
+	// Collapse duplicates within this batch (same id) so one paper is not staged twice;
+	// later metadata wins, order follows first appearance.
+	const byId = new Map<string, SavePaperInput>();
+	const order: string[] = [];
+	for (const input of inputs) {
+		const id = makeId({ doi: input.doi, url: input.url, title: input.title });
+		if (!byId.has(id)) { order.push(id); }
+		byId.set(id, input);
 	}
+
+	const results: { entry: PaperLibraryEntry; isNew: boolean }[] = [];
+	const newEntries: PaperLibraryEntry[] = [];
+	for (const id of order) {
+		const input = byId.get(id)!;
+		const existing = lib.papers.find(p => p.id === id);
+		const entry = makeEntry(id, input, existing, now);
+		if (existing) {
+			lib.papers[lib.papers.indexOf(existing)] = entry;
+			results.push({ entry, isNew: false });
+		} else {
+			newEntries.push(entry);
+			results.push({ entry, isNew: true });
+		}
+	}
+	if (newEntries.length) { lib.papers.unshift(...newEntries); }
 	writeLibrary(lib);
-	return entry;
+	return results;
 }
 
 export interface ListPapersFilter {

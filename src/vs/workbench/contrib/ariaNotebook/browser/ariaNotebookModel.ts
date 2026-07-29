@@ -16,7 +16,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
  *
  * A page carries only its identity and place in the tree; the CONTENT lives
  * wherever that page kind already stores it, so existing editors keep working:
- *   - overview -> <project>/.qoka/overview.json           (one, the root)
+ *   - overview -> <project>/.qoka/notebook/overview.json  (one, the root)
  *   - roadmap  -> <project>/.qoka/roadmaps/<id>.json       (the existing store)
  *   - note     -> <project>/.qoka/notebook/notes/<id>.md
  *   - folder   -> no content, just groups children
@@ -63,7 +63,7 @@ export class NotebookModel {
 	}
 
 	static roadmapsDir(folder: URI): URI {
-		return joinPath(folder, '.qoka', 'roadmaps');
+		return joinPath(folder, '.qoka', 'notebook', 'roadmaps');
 	}
 
 	static noteUri(folder: URI, id: string): URI {
@@ -76,11 +76,34 @@ export class NotebookModel {
 		return joinPath(folder, '.qoka', 'notebook', 'snapshots');
 	}
 
+	static overviewUri(folder: URI): URI {
+		return joinPath(folder, '.qoka', 'notebook', 'overview.json');
+	}
+
+	/**
+	 * One-time layout migration: the overview and roadmaps used to live directly under
+	 * `.qoka/` (`.qoka/overview.json`, `.qoka/roadmaps/`); they now sit under
+	 * `.qoka/notebook/` with the notes/index/snapshots. Move any old files into the
+	 * new location. Idempotent (only moves when the new target does not yet exist), so
+	 * it is safe to run from several places / on every start. Never throws.
+	 */
+	static async migrateLayout(folder: URI, fileService: IFileService): Promise<void> {
+		const move = async (from: URI, to: URI) => {
+			try {
+				if (!(await fileService.exists(from)) || await fileService.exists(to)) { return; }
+				await fileService.createFolder(joinPath(folder, '.qoka', 'notebook'));
+				await fileService.move(from, to, false);
+			} catch { /* best-effort - a partially-moved layout still reads via the new paths */ }
+		};
+		await move(joinPath(folder, '.qoka', 'overview.json'), NotebookModel.overviewUri(folder));
+		await move(joinPath(folder, '.qoka', 'roadmaps'), NotebookModel.roadmapsDir(folder));
+	}
+
 	/** The content file that backs a page, or undefined for folders (no content).
 	 *  Snapshots copy THIS file, and restore writes back into it. */
 	private contentUri(page: NotebookPage): URI | undefined {
 		switch (page.kind) {
-			case 'overview': return joinPath(this.folder, '.qoka', 'overview.json');
+			case 'overview': return NotebookModel.overviewUri(this.folder);
 			case 'roadmap': return joinPath(NotebookModel.roadmapsDir(this.folder), `${page.id}.json`);
 			case 'note': return NotebookModel.noteUri(this.folder, page.id);
 			case 'folder': return undefined;

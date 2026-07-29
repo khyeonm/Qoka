@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { buildTools } from './mcp/tools';
 import { AriaOverviewMcpServer } from './mcp/server';
+import { migrateOverviewLayout } from './overview';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 
@@ -50,6 +51,9 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
  */
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-overview] activate()');
+
+	// Move a pre-existing overview into `.qoka/notebook/` before anything reads it.
+	migrateOverviewLayout();
 
 	mcpServer = new AriaOverviewMcpServer(buildTools());
 

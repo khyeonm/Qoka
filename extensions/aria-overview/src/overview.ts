@@ -137,13 +137,29 @@ export function markdownToBlocks(markdown: string): unknown[] {
 function overviewDir(): string {
 	const folder = vscode.workspace.workspaceFolders?.[0];
 	if (folder && folder.uri.scheme === 'file') {
-		return path.join(folder.uri.fsPath, '.qoka');
+		return path.join(folder.uri.fsPath, '.qoka', 'notebook');
 	}
 	return path.join(os.homedir(), '.config', 'qoka');
 }
 
 export function overviewPath(): string {
 	return path.join(overviewDir(), 'overview.json');
+}
+
+/** One-time move of the overview from the old `.qoka/overview.json` to the new
+ *  `.qoka/notebook/overview.json`. Idempotent and best-effort - call on activation
+ *  before any read/write. */
+export function migrateOverviewLayout(): void {
+	const folder = vscode.workspace.workspaceFolders?.[0];
+	if (!folder || folder.uri.scheme !== 'file') { return; }
+	try {
+		const oldPath = path.join(folder.uri.fsPath, '.qoka', 'overview.json');
+		const newPath = overviewPath();
+		if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+			fs.mkdirSync(path.dirname(newPath), { recursive: true });
+			fs.renameSync(oldPath, newPath);
+		}
+	} catch { /* best-effort - readers fall back gracefully */ }
 }
 
 function empty(): OverviewData {

@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { listPapers, savePaper } from '../library';
+import { listPapers, savePaper, savePapers, SavePaperInput } from '../library';
 
 /**
  * Two MCP tools the paper-library server exposes:
@@ -70,7 +70,7 @@ function errorResult(text: string): CallToolResult {
 export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'save_paper',
-		description: 'Save a paper to the user\'s Qoka paper library. Only the title is required. Pass whatever other metadata you have - the rest are optional but enrich the library entry. If a field such as authors is missing, first try to find it (from the search result or a quick lookup); if it still cannot be determined, save the paper anyway with what you have (leave authors empty rather than refusing). Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags. After a successful save the Paper Library sidebar tab opens automatically to show the saved paper, so tell the user it now appears in their Paper Library tab.',
+		description: 'Save a SINGLE paper to the user\'s Qoka paper library. To save SEVERAL papers at once, do NOT call this repeatedly - use `save_papers` (one batched call) instead. Only the title is required. Pass whatever other metadata you have - the rest are optional but enrich the library entry. If a field such as authors is missing, first try to find it (from the search result or a quick lookup); if it still cannot be determined, save the paper anyway with what you have (leave authors empty rather than refusing). Re-saving an existing paper (same DOI or URL) refreshes its metadata but preserves the user\'s note and tags. After a successful save the Paper Library sidebar tab opens automatically to show the saved paper, so tell the user it now appears in their Paper Library tab.',
 		inputSchema: {
 			type: 'object',
 			required: ['title'],
@@ -118,6 +118,74 @@ export const ALL_TOOLS: ToolDefinition[] = [
 				} catch { /* reveal is optional - the save already succeeded */ }
 			}
 			return textResult(`Saved "${entry.title}" to the Qoka paper library (id: ${entry.id}).`);
+		},
+	},
+	{
+		name: 'save_papers',
+		description: 'Save SEVERAL papers to the user\'s Qoka paper library in ONE call. Use this instead of calling save_paper repeatedly whenever the user wants to save more than one paper (e.g. "save these", "save all of them") - it writes the library once and opens the Paper Library tab once. Pass an array of paper objects, each with the same fields as save_paper (only `title` is required per paper; fill in whatever other metadata you have). Papers with no title are skipped (the rest are still saved); re-saving an existing paper refreshes its metadata but preserves the user\'s note and tags. After saving, tell the user how many were added and that they now appear in their Paper Library tab.',
+		inputSchema: {
+			type: 'object',
+			required: ['papers'],
+			properties: {
+				papers: {
+					type: 'array',
+					description: 'The papers to save, in the order they should appear (first = top of the list).',
+					items: {
+						type: 'object',
+						required: ['title'],
+						properties: {
+							title: { type: 'string', description: 'Paper title.' },
+							authors: { type: 'array', items: { type: 'string' }, description: 'Author names in publication order.' },
+							doi: { type: 'string', description: 'DOI without the URL prefix, e.g. "10.1126/science.1225829".' },
+							url: { type: 'string', description: 'Landing-page URL for the paper.' },
+							pdfUrl: { type: 'string', description: 'Direct link to a PDF if one is known.' },
+							year: { type: 'integer', description: 'Publication year.' },
+							venue: { type: 'string', description: 'Journal, conference, or preprint server name.' },
+							abstract: { type: 'string', description: 'Abstract text.' },
+							source: { type: 'string', description: 'Where the paper was found (e.g. "openalex", "crossref", "arxiv", "biorxiv", "pubmed").' },
+						},
+						additionalProperties: false,
+					},
+				},
+			},
+		},
+		handler: async (args) => {
+			const raw = Array.isArray(args.papers) ? args.papers : [];
+			if (raw.length === 0) {
+				return errorResult('save_papers requires a non-empty `papers` array. To save one paper, use save_paper.');
+			}
+			const inputs: SavePaperInput[] = [];
+			let skipped = 0;
+			for (const p of raw) {
+				const obj = (p && typeof p === 'object') ? p as Record<string, unknown> : {};
+				const title = typeof obj.title === 'string' ? obj.title.trim() : '';
+				if (!title) { skipped++; continue; }        // best-effort: skip the untitled, keep the rest
+				const authors = Array.isArray(obj.authors) ? obj.authors.map(a => String(a)).filter(Boolean) : [];
+				inputs.push({
+					title,
+					authors,
+					doi: typeof obj.doi === 'string' ? obj.doi : undefined,
+					url: typeof obj.url === 'string' ? obj.url : undefined,
+					pdfUrl: typeof obj.pdfUrl === 'string' ? obj.pdfUrl : undefined,
+					year: typeof obj.year === 'number' ? obj.year : undefined,
+					venue: typeof obj.venue === 'string' ? obj.venue : undefined,
+					abstract: typeof obj.abstract === 'string' ? obj.abstract : undefined,
+					source: normalizeSource(obj.source),
+				});
+			}
+			if (inputs.length === 0) {
+				return errorResult('save_papers: every paper was missing a title, so nothing was saved.');
+			}
+			const results = savePapers(inputs);
+			const created = results.filter(r => r.isNew).length;
+			const refreshed = results.length - created;
+			// Reveal the Paper Library tab ONCE for the whole batch.
+			if (revealLibrary) {
+				try { revealLibrary(); } catch { /* reveal is optional - the saves already succeeded */ }
+			}
+			const parts = [`Saved ${results.length} paper(s) to the Qoka paper library`, `${created} new`, `${refreshed} updated`];
+			if (skipped) { parts.push(`${skipped} skipped for missing title`); }
+			return textResult(`${parts.join(', ')}. They now appear in your Paper Library tab.`);
 		},
 	},
 	{

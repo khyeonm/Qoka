@@ -395,7 +395,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 
 	private overviewUri(): URI | undefined {
 		const f = this.folderUri();
-		return f ? URI.joinPath(f, '.qoka', 'overview.json') : undefined;
+		return f ? URI.joinPath(f, '.qoka', 'notebook', 'overview.json') : undefined;
 	}
 
 	private setupWatcher(): void {
@@ -403,13 +403,14 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		try {
 			const f = this.folderUri();
 			if (!f) { return; }
-			const dirUri = URI.joinPath(f, '.qoka');
-			const overview = URI.joinPath(dirUri, 'overview.json');
-			const roadmapsDir = URI.joinPath(dirUri, 'roadmaps');
+			// Overview, roadmaps and the index all live under `.qoka/notebook/` now.
+			const notebookDir = URI.joinPath(f, '.qoka', 'notebook');
+			const overview = URI.joinPath(notebookDir, 'overview.json');
+			const roadmapsDir = URI.joinPath(notebookDir, 'roadmaps');
 			// index.json records which roadmap sits under the Overview, so a move
 			// (which changes only the index) must also refresh the shown roadmap.
-			const notebookIndex = URI.joinPath(dirUri, 'notebook', 'index.json');
-			this.watcherStore.add(this.fileService.watch(dirUri));
+			const notebookIndex = URI.joinPath(notebookDir, 'index.json');
+			this.watcherStore.add(this.fileService.watch(notebookDir));
 			this.watcherStore.add(this.fileService.watch(roadmapsDir));
 			this.watcherStore.add(this.fileService.onDidFilesChange(e => {
 				// Only skip the echo of our OWN write, and only for a moment. The
@@ -474,7 +475,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		const f = this.folderUri();
 		if (!f) { this.overviewRoadmaps = []; return []; }
 		const parentOf = await this.readNotebookParents(f);
-		const roadmapsDir = URI.joinPath(f, '.qoka', 'roadmaps');
+		const roadmapsDir = URI.joinPath(f, '.qoka', 'notebook', 'roadmaps');
 		try {
 			const dir = await this.fileService.resolve(roadmapsDir);
 			// Every roadmap that sits directly under the Overview - the choices offered

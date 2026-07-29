@@ -71,7 +71,7 @@ export class RoadmapStore {
 
 	constructor(state: RoadmapState, workspaceFsPath: string | undefined) {
 		this.state = state;
-		this.dir = workspaceFsPath ? path.join(workspaceFsPath, '.qoka', 'roadmaps') : undefined;
+		this.dir = workspaceFsPath ? path.join(workspaceFsPath, '.qoka', 'notebook', 'roadmaps') : undefined;
 	}
 
 	get hasWorkspace(): boolean {
@@ -95,18 +95,39 @@ export class RoadmapStore {
 		}
 	}
 
-	/** One-time migration: an older single-roadmap `.aria/roadmap.json` becomes
-	 *  the project's first roadmap under `roadmaps/`. The legacy file is left in
-	 *  place (harmless) so nothing is destroyed. */
+	/**
+	 * One-time migration into the current store dir (`.qoka/notebook/roadmaps/`):
+	 *  (a) the previous per-roadmap dir `.qoka/roadmaps/` -> move its files in;
+	 *  (b) an even older single-roadmap `.qoka/roadmap.json` -> the first roadmap.
+	 * Idempotent (skips when the new dir already has roadmaps) and best-effort.
+	 */
 	migrateLegacy(): void {
 		if (!this.dir) {
 			return;
 		}
 		try {
 			if (fs.existsSync(this.dir) && fs.readdirSync(this.dir).some(f => f.endsWith('.json'))) {
-				return; // already have roadmaps/ - nothing to migrate
+				return; // already have roadmaps in the new location - nothing to migrate
 			}
-			const legacy = path.join(path.dirname(this.dir), 'roadmap.json');
+			const qokaDir = path.dirname(path.dirname(this.dir)); // .../.qoka
+
+			// (a) Previous location: `.qoka/roadmaps/` -> `.qoka/notebook/roadmaps/`.
+			const oldDir = path.join(qokaDir, 'roadmaps');
+			if (fs.existsSync(oldDir) && fs.statSync(oldDir).isDirectory()) {
+				const jsons = fs.readdirSync(oldDir).filter(f => f.endsWith('.json'));
+				if (jsons.length) {
+					this.ensureDir();
+					for (const f of jsons) {
+						const to = path.join(this.dir, f);
+						if (!fs.existsSync(to)) { fs.renameSync(path.join(oldDir, f), to); }
+					}
+					console.log(`[aria-roadmap] migrated ${jsons.length} roadmap(s) from .qoka/roadmaps -> .qoka/notebook/roadmaps`);
+					return;
+				}
+			}
+
+			// (b) Oldest layout: a single `.qoka/roadmap.json`.
+			const legacy = path.join(qokaDir, 'roadmap.json');
 			if (!fs.existsSync(legacy)) {
 				return;
 			}
@@ -117,7 +138,7 @@ export class RoadmapStore {
 			this.ensureDir();
 			const id = this.newId();
 			this.writeFile(id, parsed.nodes);
-			console.log(`[aria-roadmap] migrated legacy roadmap.json -> roadmaps/${id}.json`);
+			console.log(`[aria-roadmap] migrated legacy roadmap.json -> notebook/roadmaps/${id}.json`);
 		} catch (e) {
 			console.warn('[aria-roadmap] legacy migration skipped:', (e as Error).message);
 		}

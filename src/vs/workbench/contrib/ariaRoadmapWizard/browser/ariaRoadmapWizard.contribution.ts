@@ -217,7 +217,7 @@ class AriaRoadmapContextContribution extends Disposable implements IWorkbenchCon
 	/** Current layout: each roadmap is a file under `<folder>/.aria/roadmaps/`. */
 	private roadmapsDirUri() {
 		const folder = this.workspaceContextService.getWorkspace().folders[0];
-		return folder ? joinPath(folder.uri, '.qoka', 'roadmaps') : undefined;
+		return folder ? joinPath(folder.uri, '.qoka', 'notebook', 'roadmaps') : undefined;
 	}
 
 	/** Legacy layout: a single `<folder>/.aria/roadmap.json`. */

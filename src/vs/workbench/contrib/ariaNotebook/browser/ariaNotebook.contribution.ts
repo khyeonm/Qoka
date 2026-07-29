@@ -7,11 +7,17 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { localize2 } from '../../../../nls.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
+import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { AriaNotebookView } from './ariaNotebookView.js';
+import { NotebookModel } from './ariaNotebookModel.js';
 
 /**
  * Qoka Notebook contribution.
@@ -64,3 +70,31 @@ Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([noteboo
 CommandsRegistry.registerCommand('aria.notebook.reveal', async (accessor) => {
 	try { await accessor.get(IViewsService).openViewContainer(NOTEBOOK_CONTAINER_ID, false); } catch { /* sidebar optional */ }
 });
+
+/**
+ * Move a project's overview + roadmaps from the old `.qoka/` location into
+ * `.qoka/notebook/` on startup, so existing projects keep showing their content
+ * after the layout change. Runs early (before the user opens a page) and again
+ * whenever the workspace folders change; idempotent via NotebookModel.migrateLayout.
+ */
+class AriaNotebookLayoutMigration extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.aria.notebookLayoutMigration';
+
+	constructor(
+		@IFileService private readonly fileService: IFileService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+	) {
+		super();
+		void this.run();
+		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => void this.run()));
+	}
+
+	private async run(): Promise<void> {
+		for (const folder of this.workspaceContextService.getWorkspace().folders) {
+			await NotebookModel.migrateLayout(folder.uri, this.fileService);
+		}
+	}
+}
+
+Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
+	.registerWorkbenchContribution(AriaNotebookLayoutMigration, LifecyclePhase.Ready);

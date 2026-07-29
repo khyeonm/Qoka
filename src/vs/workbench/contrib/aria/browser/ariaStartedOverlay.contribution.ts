@@ -118,7 +118,6 @@ const PROJECT_TEMPLATE_README = `# Qoka project
 
 This folder was created by Qoka. Here is what each folder is for:
 
-- notes/       Your research notes.
 - references/  Papers you save or download to read (PDFs).
 - data/        Datasets and analysis inputs.
 - downloads/   Other downloaded files.
@@ -1429,8 +1428,8 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 	/**
 	 * Create the default project folder layout inside a freshly created New
-	 * Project folder. Folders that Qoka features also create lazily (notes/,
-	 * paper/, reviews/) are pre-created so the structure is visible from the
+	 * Project folder. Folders that Qoka features also create lazily (paper/,
+	 * reviews/) are pre-created so the structure is visible from the
 	 * start; references/, data/, and downloads/ are new user-facing
 	 * conventions. All writes are best-effort and idempotent - a failure here
 	 * must never prevent the project from opening.
@@ -1449,7 +1448,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// present in one but not the other shows up (or fails to) depending on which
 		// ran first. `analysis/` was missing here, so a brand-new project had no sign
 		// of where run_code results would land until the extension got around to it.
-		const dirs = ['notes', 'references', 'data', 'downloads', 'paper', 'reviews', '.qoka',
+		// 'notes' is intentionally NOT scaffolded: research notes now live inside the
+		// Notebook tab at .qoka/notebook/notes, so a top-level notes/ folder would be
+		// a confusing empty duplicate.
+		const dirs = ['references', 'data', 'downloads', 'paper', 'reviews', '.qoka',
 			'analysis',
 			'autopipe', 'autopipe/pipelines', 'autopipe/pipelines_input', 'autopipe/pipelines_output'];
 		for (const dir of dirs) {
@@ -1466,7 +1468,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		try {
 			const marker = URI.joinPath(folderUri, '.qoka', 'project.json');
 			if (!(await this.fileService.exists(marker))) {
-				const body = JSON.stringify({ createdBy: 'aria', template: 'default', version: 1 }, null, 2) + '\n';
+				const body = JSON.stringify({ createdBy: 'qoka', template: 'default', version: 1 }, null, 2) + '\n';
 				await this.fileService.writeFile(marker, VSBuffer.fromString(body));
 			}
 		} catch { /* best-effort */ }
