@@ -20,6 +20,7 @@ import { IEditorOpenContext } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { AriaProjectOverviewEditorInput } from './ariaProjectOverviewEditorInput.js';
 import { computeRoadmapLayout, layoutBounds, COLUMN_WIDTH, NODE_LINE_HEIGHT, NODE_LABEL_PAD_X } from '../../ariaRoadmapWizard/browser/roadmapCanvasLayout.js';
 
@@ -63,6 +64,15 @@ interface RoadmapNode {
 	parent: string | null;
 	column: number;
 	label: string;
+}
+
+/** A roadmap's label for the Select dropdown: its explicit name, else its first Goal
+ *  node (the hypothesis sentence), else a placeholder. Mirrors the Notebook list. */
+function roadmapDisplayName(explicit: string | undefined, nodes: RoadmapNode[]): string {
+	const name = (explicit ?? '').trim();
+	if (name) { return name; }
+	const goal = nodes.find(n => n.column === 0 && (n.parent === null || n.parent === undefined));
+	return (goal?.label ?? '').trim() || 'Untitled roadmap';
 }
 
 const SCHEMA_VERSION = 1;
@@ -210,6 +220,14 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 
 	private data: OverviewData = emptyOverview();
 	private roadmapNodes: RoadmapNode[] = [];
+	/** Id of the roadmap the box currently shows. */
+	private newestRoadmapId: string | undefined;
+	/** All roadmaps directly under the Overview - the "Select" dropdown's choices. */
+	private overviewRoadmaps: { id: string; name: string }[] = [];
+	/** The roadmap the user explicitly picked in the dropdown (else the newest shows). */
+	private selectedRoadmapId: string | undefined;
+	/** Closes the open roadmap dropdown, if any (also used to toggle it). */
+	private roadmapMenuClose: (() => void) | undefined;
 	private folderResource: URI | undefined;
 
 	private container: HTMLElement | undefined;
@@ -231,6 +249,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		@IStorageService storageService: IStorageService,
 		@IFileService private readonly fileService: IFileService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IViewsService private readonly viewsService: IViewsService,
 	) {
 		super(AriaProjectOverviewEditorPane.ID, group, telemetryService, themeService, storageService);
 	}
@@ -387,6 +406,9 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 			const dirUri = URI.joinPath(f, '.qoka');
 			const overview = URI.joinPath(dirUri, 'overview.json');
 			const roadmapsDir = URI.joinPath(dirUri, 'roadmaps');
+			// index.json records which roadmap sits under the Overview, so a move
+			// (which changes only the index) must also refresh the shown roadmap.
+			const notebookIndex = URI.joinPath(dirUri, 'notebook', 'index.json');
 			this.watcherStore.add(this.fileService.watch(dirUri));
 			this.watcherStore.add(this.fileService.watch(roadmapsDir));
 			this.watcherStore.add(this.fileService.onDidFilesChange(e => {
@@ -394,7 +416,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 				// previous guard dropped EVERY change in a 1s window, so an MCP write
 				// that arrived right after a local edit was silently discarded.
 				if (Date.now() - this.lastSelfWriteAt < 300) { return; }
-				if (e.contains(overview) || e.affects(roadmapsDir)) { void this.reload(); }
+				if (e.contains(overview) || e.affects(roadmapsDir) || e.contains(notebookIndex)) { void this.reload(); }
 			}));
 		} catch { /* best-effort */ }
 	}
@@ -442,32 +464,48 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	}
 
 	/**
-	 * Read the project's active roadmap. Roadmaps live under
-	 * `.aria/roadmaps/<id>.json` (one file per hypothesis); we render the most
-	 * recently updated one - the roadmap the user is currently building. Falls
-	 * back to the legacy single `.aria/roadmap.json` if the folder is empty.
+	 * Read the roadmap to show in the overview. A project can hold many roadmaps
+	 * (each `.qoka/roadmaps/<id>.json`) placed anywhere in the Notebook tree, so the
+	 * overview shows only a roadmap that sits DIRECTLY UNDER the Overview page - not
+	 * whichever was edited last. Among those, the most recently updated one wins.
+	 * Falls back to the legacy single `.aria/roadmap.json` if the folder is empty.
 	 */
 	private async readRoadmap(): Promise<RoadmapNode[]> {
 		const f = this.folderUri();
-		if (!f) { return []; }
+		if (!f) { this.overviewRoadmaps = []; return []; }
+		const parentOf = await this.readNotebookParents(f);
 		const roadmapsDir = URI.joinPath(f, '.qoka', 'roadmaps');
 		try {
 			const dir = await this.fileService.resolve(roadmapsDir);
-			let newest: { nodes: RoadmapNode[]; updatedAt: number } | undefined;
+			// Every roadmap that sits directly under the Overview - the choices offered
+			// in the section's "Select" dropdown.
+			const candidates: { id: string; name: string; nodes: RoadmapNode[]; updatedAt: number }[] = [];
 			for (const child of dir.children ?? []) {
 				if (child.isDirectory || !child.name.endsWith('.json')) { continue; }
+				const id = child.name.slice(0, -'.json'.length);
+				// A roadmap absent from the index defaults to sitting under the Overview
+				// root; one moved into a folder has that folder as its parent instead.
+				const parent = parentOf.has(id) ? parentOf.get(id) : 'overview';
+				if (parent !== 'overview') { continue; }
 				try {
 					const raw = (await this.fileService.readFile(child.resource)).value.toString();
-					const parsed = JSON.parse(raw) as { nodes?: RoadmapNode[]; updatedAt?: number };
+					const parsed = JSON.parse(raw) as { nodes?: RoadmapNode[]; updatedAt?: number; name?: string };
 					const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
-					const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0;
-					if (nodes.length && (!newest || updatedAt >= newest.updatedAt)) {
-						newest = { nodes, updatedAt };
-					}
+					candidates.push({ id, name: roadmapDisplayName(parsed.name, nodes), nodes, updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0 });
 				} catch { /* skip unreadable roadmap */ }
 			}
-			if (newest) { return newest.nodes; }
+			// Newest first, so the dropdown and the default choice share an order.
+			candidates.sort((a, b) => b.updatedAt - a.updatedAt);
+			this.overviewRoadmaps = candidates.map(c => ({ id: c.id, name: c.name }));
+			// Show the user's picked roadmap if it still exists, else the newest with
+			// content, else just the newest.
+			const chosen = candidates.find(c => c.id === this.selectedRoadmapId)
+				?? candidates.find(c => c.nodes.length)
+				?? candidates[0];
+			this.newestRoadmapId = chosen?.id;
+			if (chosen) { return chosen.nodes; }
 		} catch { /* no roadmaps dir yet */ }
+		this.overviewRoadmaps = [];
 		// Legacy single-file roadmap.
 		try {
 			const raw = (await this.fileService.readFile(URI.joinPath(f, '.qoka', 'roadmap.json'))).value.toString();
@@ -476,6 +514,21 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		} catch {
 			return [];
 		}
+	}
+
+	/** Map each Notebook page id to its parent page id, from the Notebook index. Used
+	 *  to tell which roadmaps sit under the Overview. Missing/unreadable index -> an
+	 *  empty map, so every roadmap falls back to its default (under the Overview). */
+	private async readNotebookParents(folder: URI): Promise<Map<string, string | null>> {
+		const out = new Map<string, string | null>();
+		try {
+			const raw = (await this.fileService.readFile(URI.joinPath(folder, '.qoka', 'notebook', 'index.json'))).value.toString();
+			const parsed = JSON.parse(raw) as { pages?: Array<{ id?: string; parent?: string | null }> };
+			for (const p of parsed.pages ?? []) {
+				if (typeof p.id === 'string') { out.set(p.id, p.parent ?? null); }
+			}
+		} catch { /* no index yet - callers default to the Overview root */ }
+		return out;
 	}
 
 	/**
@@ -588,27 +641,113 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 	}
 
 	private renderRoadmap(parent: HTMLElement): void {
-		this.sectionLabel(parent, 'Roadmap');
+		// Header row: the "Roadmap" label, plus a "Select" dropdown on the right when
+		// more than one roadmap sits under the Overview.
+		// Close any open dropdown left over from a previous render.
+		this.roadmapMenuClose?.();
+		if (this.overviewRoadmaps.length > 1) {
+			const header = append(parent, $('div'));
+			Object.assign(header.style, { display: 'flex', alignItems: 'center', gap: '8px', margin: '14px 0 6px 0' });
+			const label = append(header, $('div'));
+			label.textContent = 'Roadmap';
+			Object.assign(label.style, { flex: '1', fontSize: '11px', fontWeight: '600', opacity: '0.6', textTransform: 'uppercase', letterSpacing: '0.04em' });
+
+			// A custom dropdown so the popup list can be styled to match Qoka (a native
+			// <select> renders an OS-styled, square list we cannot theme).
+			const current = this.overviewRoadmaps.find(r => r.id === this.newestRoadmapId);
+			const trigger = append(header, $('div'));
+			trigger.title = 'Choose which roadmap to show';
+			Object.assign(trigger.style, {
+				display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '60%', boxSizing: 'border-box',
+				fontSize: '11px', padding: '3px 8px', borderRadius: '6px', cursor: 'pointer',
+				background: 'var(--vscode-dropdown-background)', color: 'var(--vscode-dropdown-foreground)',
+				border: '1px solid var(--vscode-dropdown-border, rgba(127,127,127,0.35))',
+			});
+			const name = append(trigger, $('span'));
+			name.textContent = current?.name ?? 'Select roadmap';
+			Object.assign(name.style, { flex: '1', minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' });
+			const chevron = append(trigger, $('span.codicon.codicon-chevron-down')) as HTMLElement;
+			Object.assign(chevron.style, { fontSize: '13px', opacity: '0.8', flexShrink: '0' });
+			trigger.onclick = () => this.toggleRoadmapMenu(trigger);
+		} else {
+			this.sectionLabel(parent, 'Roadmap');
+		}
 		const box = append(parent, $('div'));
 		Object.assign(box.style, { border: '1px solid rgba(127,127,127,0.25)', borderRadius: '6px', padding: '8px', cursor: 'pointer', overflowX: 'auto' });
-		box.title = 'Open the full Roadmap';
-		// Clicking opens the Roadmap tab + the active roadmap in the editor. NB: the
-		// registered command is the container id verbatim (`workbench.view.ariaRoadmap`)
-		// - the `.focus` suffix is never registered, so calling it throws.
+		box.title = 'Open this roadmap (and show the Notebook list)';
+		// The Roadmap tab was merged into the Notebook tab. Reveal the Notebook page
+		// tree (via the views service, which focuses without toggling the sidebar
+		// shut) so the roadmaps are listed, then open the active roadmap in the editor.
 		box.onclick = () => {
 			void (async () => {
-				try { await this.commandService.executeCommand('workbench.view.ariaRoadmap'); } catch { /* sidebar optional */ }
-				try { await this.commandService.executeCommand('aria.roadmap.openWizard'); } catch { /* editor optional */ }
+				try { await this.viewsService.openViewContainer('workbench.view.ariaNotebook', true); } catch { /* sidebar optional */ }
+				try {
+					if (this.newestRoadmapId) {
+						await this.commandService.executeCommand('aria.roadmap.openWizard', { id: this.newestRoadmapId });
+					}
+				} catch { /* editor optional */ }
 			})();
 		};
 
 		if (this.roadmapNodes.length === 0) {
 			const empty = append(box, $('div'));
-			empty.textContent = 'No roadmap yet. Build one in the Roadmap tab.';
+			empty.textContent = 'No roadmap yet. Add one in the Notebook tab.';
 			Object.assign(empty.style, { opacity: '0.6', padding: '6px' });
 			return;
 		}
 		this.drawRoadmapGraph(box, this.roadmapNodes);
+	}
+
+	private toggleRoadmapMenu(trigger: HTMLElement): void {
+		if (this.roadmapMenuClose) { this.roadmapMenuClose(); return; }
+		this.openRoadmapMenu(trigger);
+	}
+
+	/** A Qoka-styled dropdown list anchored under `trigger`: rounded, soft-shadowed,
+	 *  with hover highlight and a check on the current roadmap. */
+	private openRoadmapMenu(trigger: HTMLElement): void {
+		const doc = trigger.ownerDocument;
+		const rect = trigger.getBoundingClientRect();
+		const menu = doc.createElement('div');
+		Object.assign(menu.style, {
+			position: 'fixed', left: `${rect.left}px`, top: `${rect.bottom + 4}px`,
+			minWidth: `${Math.max(rect.width, 180)}px`, maxWidth: '340px', zIndex: '3000',
+			background: 'var(--vscode-editorWidget-background, var(--vscode-dropdown-background))',
+			border: '1px solid var(--vscode-editorWidget-border, rgba(127,127,127,0.35))', borderRadius: '8px',
+			boxShadow: '0 6px 24px rgba(0,0,0,0.35)', padding: '4px', maxHeight: '260px', overflowY: 'auto',
+			fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)', fontSize: '12px', color: 'var(--vscode-foreground)',
+		});
+
+		const close = () => {
+			doc.removeEventListener('mousedown', onDown, true);
+			doc.removeEventListener('keydown', onKey, true);
+			menu.remove();
+			this.roadmapMenuClose = undefined;
+		};
+		const onDown = (e: MouseEvent) => {
+			const t = e.target as Node;
+			if (menu.contains(t) || trigger.contains(t)) { return; }
+			close();
+		};
+		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { close(); } };
+
+		for (const r of this.overviewRoadmaps) {
+			const item = append(menu, $('div'));
+			Object.assign(item.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '5px', cursor: 'pointer' });
+			item.addEventListener('mouseenter', () => { item.style.background = 'var(--vscode-list-hoverBackground, rgba(127,127,127,0.15))'; });
+			item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
+			const check = append(item, $('span.codicon.codicon-check')) as HTMLElement;
+			Object.assign(check.style, { fontSize: '13px', flexShrink: '0', opacity: '0.85', visibility: r.id === this.newestRoadmapId ? 'visible' : 'hidden' });
+			const label = append(item, $('span'));
+			label.textContent = r.name;
+			Object.assign(label.style, { flex: '1', minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' });
+			item.onclick = () => { close(); this.selectedRoadmapId = r.id; void this.reload(); };
+		}
+
+		doc.body.appendChild(menu);
+		doc.addEventListener('mousedown', onDown, true);
+		doc.addEventListener('keydown', onKey, true);
+		this.roadmapMenuClose = close;
 	}
 
 	/**

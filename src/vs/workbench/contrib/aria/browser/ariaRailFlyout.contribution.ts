@@ -7,13 +7,10 @@ import { $, addDisposableListener, append, clearNode, EventType } from '../../..
 import { asCSSUrl } from '../../../../base/browser/cssValue.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { disposableTimeout } from '../../../../base/common/async.js';
-import { Codicon } from '../../../../base/common/codicons.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
@@ -44,7 +41,6 @@ export class AriaRailFlyoutContribution extends Disposable implements IWorkbench
 		@IPaneCompositePartService private readonly paneCompositeService: IPaneCompositePartService,
 		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super();
 		this.applyMode();
@@ -166,16 +162,8 @@ export class AriaRailFlyoutContribution extends Disposable implements IWorkbench
 				this.close();
 			});
 		}
-
-		// Spacer pushes Settings to the bottom, mirroring the rail's global gear.
-		const spacer = append(container, $('div'));
-		spacer.style.flex = '1 1 auto';
-
-		// Settings (the activity bar's gear, shown here with its label).
-		this.addRow(container, localize('aria.rail.settings', "Settings"), Codicon.settingsGear, false, () => {
-			void this.commandService.executeCommand('workbench.action.openSettings');
-			this.close();
-		});
+		// The Settings row was removed: Settings stays reachable from the activity-bar
+		// gear and the standard keybinding, so the flyout only lists the project tabs.
 	}
 
 	/**

@@ -19,7 +19,7 @@ import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js'
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { revealAiProviderChat } from '../../aria/browser/aiProviderChat.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import { IContextKeyService, RawContextKey, ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -174,7 +174,8 @@ const roadmapView: IViewDescriptor = {
 	ctorDescriptor: new SyncDescriptor(AriaRoadmapView),
 	canToggleVisibility: true,
 	canMoveView: true,
-	when: RoadmapFilePresentContext,
+	// Retired: roadmaps are now pages inside the Notebook tab.
+	when: ContextKeyExpr.false(),
 	order: 1,
 };
 

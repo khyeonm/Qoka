@@ -21,6 +21,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { EditorExtensions } from '../../../common/editor.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { AriaNoteEditorPane } from './ariaNoteEditorPane.js';
@@ -66,6 +67,8 @@ CommandsRegistry.registerCommand('aria.notes.new', async (accessor) => {
 CommandsRegistry.registerCommand('aria.notes.open', async (accessor, resource?: unknown) => {
 	const uri = reviveUri(resource);
 	if (!uri) { return; }
+	// Reveal the Notebook sidebar (no focus steal) so the page tree shows beside the note.
+	try { await accessor.get(IViewsService).openViewContainer('workbench.view.ariaNotebook', false); } catch { /* sidebar optional */ }
 	await accessor.get(IEditorService).openEditor(new AriaNoteEditorInput(uri), { pinned: true });
 });
 
@@ -141,7 +144,7 @@ const notesContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewC
 		id: NOTES_CONTAINER_ID,
 		title: localize2('aria.notes.containerTitle', "Research Note"),
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [NOTES_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-		hideIfEmpty: false,
+		hideIfEmpty: true,
 		icon: notesIcon,
 		order: 13,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
@@ -153,8 +156,10 @@ const notesView: IViewDescriptor = {
 	ctorDescriptor: new SyncDescriptor(AriaNotesView),
 	canToggleVisibility: true,
 	canMoveView: true,
-	// Only meaningful with a project folder open (notes live in <project>/notes/).
-	when: ContextKeyExpr.notEquals('workbenchState', 'empty'),
+	// Retired: notes are now pages inside the Notebook tab. The editor pane and the
+	// aria.notes.open command stay registered (the Notebook opens notes through
+	// them); only this activity-bar entry is hidden.
+	when: ContextKeyExpr.false(),
 	order: 1,
 };
 

@@ -65,6 +65,18 @@ export function registerWorkbenchCommands(
 			return snapshotPayload(store, getFinalized());
 		}),
 
+		// Re-read a roadmap from disk after an external tool (History restore) rewrote
+		// its file, so the open canvas reflects the restored content. Notifies the pane
+		// only when the reloaded roadmap is the one currently shown.
+		vscode.commands.registerCommand('aria.roadmap.reloadFromDisk', (id: string) => {
+			const wasActive = store.activeId === id;
+			const ok = store.reloadFromDisk(id);
+			if (wasActive) {
+				fireChange();
+			}
+			return ok;
+		}),
+
 		// Ensure some roadmap is active (newest, or a fresh one); returns its id.
 		vscode.commands.registerCommand('aria.roadmap.ensureActive', () => {
 			const id = store.ensureActive();

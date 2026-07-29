@@ -35,7 +35,10 @@ export interface NoteInfo {
 
 export function notesDir(): string | undefined {
 	const folder = vscode.workspace.workspaceFolders?.[0];
-	return folder ? path.join(folder.uri.fsPath, 'notes') : undefined;
+	// Hidden under .qoka so notes are edited only through the Notebook tab (not as
+	// loose files in the project root). The Notebook's discovery reads the same dir,
+	// so a note the MCP creates here shows up in the tree automatically.
+	return folder ? path.join(folder.uri.fsPath, '.qoka', 'notebook', 'notes') : undefined;
 }
 
 export function listNotes(): NoteInfo[] {

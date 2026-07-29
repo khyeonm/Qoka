@@ -32,7 +32,7 @@ function asStringArray(v: unknown): string[] | undefined {
  * Project Overview tools. Read the project's title / summary / To-do list and
  * update them. The two proposal tools are the heart of progress tracking: when,
  * during a conversation, a To-do item looks finished, call propose_task_completion(s)
- * to surface an Accept/Reject badge in the Project Overview tab AND then ask the
+ * to surface an Accept/Reject badge in the Notebook tab AND then ask the
  * user in chat. Only mark a task done (set_task_done) once the user agrees.
  */
 export function buildTools(): ToolDefinition[] {
@@ -86,7 +86,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'update_project_summary',
-			description: 'Set or append the project summary (the Overview Content). mode "replace" (default) overwrites; "append" adds a new paragraph. The text lands in the Project Overview tab, which updates live - so call open_overview BEFORE this, or the user sees an unchanged screen while you claim to have written it. Onboarding step 1: open_overview, then write this together with set_project_title, then ask the user to confirm it reads correctly.',
+			description: 'Set or append the project summary (the Overview Content). mode "replace" (default) overwrites; "append" adds a new paragraph. The text lands in the Notebook tab, which updates live - so call open_overview BEFORE this, or the user sees an unchanged screen while you claim to have written it. Onboarding step 1: open_overview, then write this together with set_project_title, then ask the user to confirm it reads correctly. After they confirm, the NEXT step is NOT the To-do: call open_roadmap and BUILD THE ROADMAP first (steps 2-3). Do NOT call add_tasks yet - the To-do is drafted from the roadmap, which does not exist until you build it.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -106,7 +106,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'add_tasks',
-			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. The user can edit them afterward. Onboarding step 4: add_tasks is MANDATORY and must be called BEFORE the step-5 open_overview - never come back to the Overview with an empty To-do. After adding them, TELL THE USER what they can do with the list themselves: reorder items with the up/down arrows on the left of each row, and give any item a deadline or a date range (with an optional time) by clicking the calendar icon on its right. You cannot set deadlines - only the user can, because only they know their real schedule.',
+			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). HARD PRECONDITION: the To-do is derived FROM the roadmap, so you may call this ONLY AFTER the roadmap has been built (it has committed nodes - check with the roadmap tool get_tree if unsure). NEVER call add_tasks right after writing the project summary; during onboarding the order is FIXED: overview title+summary -> build the roadmap (open_roadmap, then propose/accept nodes) -> ONLY THEN add_tasks -> open_overview again. Skipping the roadmap and jumping from the summary straight to the To-do is a bug - do not do it. Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. It is MANDATORY before the final open_overview - never come back to the Overview with an empty To-do. After adding them, TELL THE USER what they can do with the list themselves: reorder items with the up/down arrows on the left of each row, and give any item a deadline or a date range (with an optional time) by clicking the calendar icon on its right. You cannot set deadlines - only the user can, because only they know their real schedule.',
 			inputSchema: {
 				type: 'object',
 				properties: { labels: { type: 'array', items: { type: 'string' }, description: 'Task labels.' } },
@@ -117,12 +117,12 @@ export function buildTools(): ToolDefinition[] {
 				const labels = asStringArray(args.labels);
 				if (!labels || labels.length === 0) { return err('labels (non-empty string array) is required.'); }
 				const added = addTasks(labels);
-				return ok(`Added ${added.length} task(s). They are editable in the Project Overview tab.`);
+				return ok(`Added ${added.length} task(s). They are editable in the Notebook tab.`);
 			},
 		},
 		{
 			name: 'open_roadmap',
-			description: 'Switch the UI to the Roadmap tab and open THIS project\'s roadmap canvas in the editor. A new project already has exactly one empty roadmap, so this opens that one - it does NOT create a duplicate. Pass a short `title` so the roadmap is named (instead of "Untitled roadmap") and is opened from the list. Call this after the project title/summary are confirmed, to start planning the process. Onboarding step 2 - call it ONCE, and never create a roadmap yourself (either makes a duplicate).',
+			description: 'Switch the UI to the Notebook tab and open THIS project\'s roadmap canvas in the editor. A new project already has exactly one empty roadmap, so this opens that one - it does NOT create a duplicate. Pass a short `title` so the roadmap is named (instead of "Untitled roadmap") and is opened from the list. Call this after the project title/summary are confirmed, to start planning the process. Onboarding step 2 - call it ONCE, and never create a roadmap yourself (either makes a duplicate).',
 			inputSchema: {
 				type: 'object',
 				properties: { title: { type: 'string', description: 'Short descriptive roadmap title (e.g. the research theme).' } },
@@ -130,12 +130,11 @@ export function buildTools(): ToolDefinition[] {
 			},
 			handler: async (args) => {
 				try {
-					// Reveal the Roadmap sidebar (the list of roadmaps). The registered
-					// command is the view-CONTAINER id verbatim - `workbench.view.ariaRoadmap`
-					// with NO `.focus` suffix (that suffixed id is never registered, and
-					// calling it throws and aborts the whole tool). Best-effort so a
-					// missing sidebar can't stop the editor from opening.
-					try { await vscode.commands.executeCommand('workbench.view.ariaRoadmap'); } catch { /* sidebar optional */ }
+					// Reveal the Notebook tab (which now holds the roadmap list) WITHOUT
+					// toggling it shut when it is already active. aria.notebook.reveal wraps
+					// openViewContainer; best-effort so a missing sidebar can't stop the
+					// editor from opening.
+					try { await vscode.commands.executeCommand('aria.notebook.reveal'); } catch { /* sidebar optional */ }
 					// A fresh project already holds one empty roadmap. ensureActive
 					// returns that existing (newest) roadmap's id, only creating one
 					// when the project genuinely has none - so we never make a duplicate.
@@ -147,7 +146,7 @@ export function buildTools(): ToolDefinition[] {
 					// openWizard opens THIS roadmap in the editor (like the sidebar list's
 					// row click). Passing `name` seeds the editor tab title.
 					await vscode.commands.executeCommand('aria.roadmap.openWizard', id ? { id, name: title || undefined } : undefined);
-					return ok('Opened the roadmap on the Roadmap tab.');
+					return ok('Opened the roadmap in the Notebook tab.');
 				} catch (e) {
 					return err(`Could not open the roadmap: ${(e as Error).message}`);
 				}
@@ -155,12 +154,12 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'open_overview',
-			description: 'Switch the UI to the Project Overview tab (the full-width Project Overview editor). Call this BEFORE you write anything into the overview, not after: the tab updates live, so the user watching it sees the title and summary appear. If you write while the tab is closed, the user sees nothing and your "I wrote it" reads as false. During onboarding it is called TWICE and both are required: step 1, the moment the user chooses to do the overview and BEFORE set_project_title / update_project_summary; and step 5, after add_tasks, to bring the user back from the Roadmap tab - there, also tell them the To-do list is placed BELOW the roadmap, so they should scroll down under the roadmap to see it.',
+			description: 'Switch the UI to the Notebook tab (the full-width Project Overview editor). Call this BEFORE you write anything into the overview, not after: the tab updates live, so the user watching it sees the title and summary appear. If you write while the tab is closed, the user sees nothing and your "I wrote it" reads as false. During onboarding it is called TWICE and both are required: step 1, the moment the user chooses to do the overview and BEFORE set_project_title / update_project_summary; and step 5, after add_tasks, to switch from the roadmap canvas back to the Project Overview - there, also tell them the To-do list is placed BELOW the roadmap, so they should scroll down under the roadmap to see it.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				try {
 					await vscode.commands.executeCommand('aria.overview.open');
-					return ok('Opened the Project Overview tab.');
+					return ok('Opened the Notebook tab.');
 				} catch (e) {
 					return err(`Could not open the overview: ${(e as Error).message}`);
 				}
@@ -257,7 +256,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'propose_task_completion',
-			description: 'Propose marking ONE task complete: shows an Accept/Reject badge in the Project Overview tab. Call this when a task looks finished, THEN ask the user in chat "○○ 완료로 표시할까요?". Do NOT mark it done yourself - wait for the user (they Accept in the tab or say yes, then you call set_task_done).',
+			description: 'Propose marking ONE task complete: shows an Accept/Reject badge in the Notebook tab. Call this when a task looks finished, THEN ask the user in chat (in their own language) to confirm marking that task done. Do NOT mark it done yourself - wait for the user (they Accept in the tab or say yes, then you call set_task_done).',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -271,7 +270,7 @@ export function buildTools(): ToolDefinition[] {
 				const id = asString(args.id);
 				if (!id) { return err('id is required.'); }
 				const r = proposeCompletions([id], asString(args.reason));
-				return r.proposed.length ? ok('Proposed. A badge is shown in the Project Overview tab; ask the user to confirm.') : ok('Not proposed (task unknown, already done, or already pending).');
+				return r.proposed.length ? ok('Proposed. A badge is shown in the Notebook tab; ask the user to confirm.') : ok('Not proposed (task unknown, already done, or already pending).');
 			},
 		},
 		{
@@ -290,7 +289,7 @@ export function buildTools(): ToolDefinition[] {
 				const ids = asStringArray(args.ids);
 				if (!ids || ids.length === 0) { return err('ids (non-empty string array) is required.'); }
 				const r = proposeCompletions(ids, asString(args.reason));
-				return ok(`Proposed ${r.proposed.length} task(s). Badges are shown in the Project Overview tab; ask the user to confirm (partial ok).`);
+				return ok(`Proposed ${r.proposed.length} task(s). Badges are shown in the Notebook tab; ask the user to confirm (partial ok).`);
 			},
 		},
 	];

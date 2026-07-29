@@ -48,10 +48,12 @@ const overviewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(Vi
 		id: OVERVIEW_CONTAINER_ID,
 		title: localize2('aria.overview.containerTitle', "Project Overview"),
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [OVERVIEW_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-		hideIfEmpty: false,
+		// Merged into the Notebook tab: this activity-bar entry is retired. Keeping
+		// the container (and its editor/commands) registered means aria.overview.open
+		// still works from the Notebook, but hideIfEmpty + a never-true view `when`
+		// keep the old icon out of the activity bar.
+		hideIfEmpty: true,
 		icon: overviewIcon,
-		// Negative order so the activity-bar icon sorts ABOVE the Roadmap (-5) and
-		// Explorer (0).
 		order: -10,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
@@ -62,8 +64,8 @@ const overviewView: IViewDescriptor = {
 	ctorDescriptor: new SyncDescriptor(AriaProjectOverviewView),
 	canToggleVisibility: true,
 	canMoveView: true,
-	// Only meaningful with a project folder open (overview lives in <project>/.aria/).
-	when: ContextKeyExpr.notEquals('workbenchState', 'empty'),
+	// Retired: the Overview now lives as the root page of the Notebook tab.
+	when: ContextKeyExpr.false(),
 	order: 1,
 };
 
@@ -88,11 +90,14 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 CommandsRegistry.registerCommand('aria.overview.open', async (accessor) => {
 	const workspaceContextService = accessor.get(IWorkspaceContextService);
 	const editorService = accessor.get(IEditorService);
-	const layoutService = accessor.get(IWorkbenchLayoutService);
+	const viewsService = accessor.get(IViewsService);
 	const folder = workspaceContextService.getWorkspace().folders[0];
 	if (!folder) { return; }
+	// Reveal the Notebook sidebar (without stealing focus from the editor) so the page
+	// tree is visible beside the overview - openViewContainer does not toggle it shut
+	// the way executing the view-container command would.
+	try { await viewsService.openViewContainer('workbench.view.ariaNotebook', false); } catch { /* sidebar optional */ }
 	await editorService.openEditor(new AriaProjectOverviewEditorInput(folder.uri), { pinned: true });
-	try { layoutService.setPartHidden(true, Parts.SIDEBAR_PART); } catch { /* layout not ready */ }
 });
 
 // --- Full-width layout orchestration ---------------------------------------

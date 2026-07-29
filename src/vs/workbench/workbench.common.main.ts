@@ -384,6 +384,7 @@ import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
 
 // Qoka
 import './contrib/aria/browser/aria.contribution.js';
+import './contrib/ariaNotebook/browser/ariaNotebook.contribution.js';
 import './contrib/ariaProjectOverview/browser/ariaProjectOverview.contribution.js';
 import './contrib/ariaAutopipe/browser/ariaAutopipe.contribution.js';
 import './contrib/ariaConnections/browser/ariaConnections.contribution.js';

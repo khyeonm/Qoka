@@ -16,8 +16,21 @@
  * To retune the accent, change the single `--aria-accent` value below.
  */
 /* Hide the Accounts (user) icon from the activity bar in easy mode - the account
-   lives in the bottom-right status bar instead. The gear (Settings) stays. */
+   lives in the bottom-right status bar instead. */
 .monaco-workbench.aria-mode-easy .activitybar .monaco-action-bar .action-item:has(.codicon-accounts-view-bar-icon) {
+	display: none;
+}
+
+/* Hide the global Manage gear (Settings) from the activity bar in easy mode - the
+   standard Settings editor is developer chrome. A future dedicated "Qoka Settings"
+   tab will take its place (reusing this settings-view-bar-icon gear). */
+.monaco-workbench.aria-mode-easy .activitybar .monaco-action-bar .action-item:has(.codicon-settings-view-bar-icon) {
+	display: none;
+}
+
+/* Hide the global Search viewlet from the activity bar in easy mode - full-text
+   file/code search is developer chrome (still reachable via its keybinding). */
+.monaco-workbench.aria-mode-easy .activitybar .monaco-action-bar .action-item[data-aria-composite-id="workbench.view.search"] {
 	display: none;
 }
 

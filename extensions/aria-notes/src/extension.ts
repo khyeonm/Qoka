@@ -64,12 +64,12 @@ export function activate(context: vscode.ExtensionContext): void {
 		});
 	};
 
-	// Reveal the Research Note tab and open a note file. Best-effort: opening the
+	// Reveal the Notebook tab and open a note file. Best-effort: opening the
 	// UI must never break note creation, so failures are swallowed.
 	const openNote = (filePath: string) => {
 		void (async () => {
 			try {
-				await vscode.commands.executeCommand('workbench.view.ariaNotes');
+				await vscode.commands.executeCommand('workbench.view.ariaNotebook'); // unified Notebook tab
 				await vscode.commands.executeCommand('aria.notes.open', vscode.Uri.file(filePath));
 			} catch (e) {
 				console.warn('[aria-notes] openNote failed:', e);

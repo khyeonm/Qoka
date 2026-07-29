@@ -84,15 +84,15 @@ export function activate(context: vscode.ExtensionContext): void {
 			snapshotPayload(store!, finalized),
 		);
 	};
-	// Best-effort: reveal the Roadmap view container so nodes are never proposed
-	// onto a canvas the user cannot see. Revealing the container is idempotent
-	// and cheap; guarded to fire once per session to avoid stealing focus on
-	// every node. Mirrors aria-overview's open_roadmap container reveal.
+	// Best-effort: reveal the Notebook tab (which now holds the roadmaps) so nodes are
+	// never proposed onto a canvas the user cannot see. Revealing the container is
+	// idempotent and cheap; guarded to fire once per session to avoid stealing focus
+	// on every node. Mirrors aria-overview's open_roadmap container reveal.
 	const ensureCanvasOpen = () => {
 		if (canvasRevealed) { return; }
 		canvasRevealed = true;
 		try {
-			void vscode.commands.executeCommand('workbench.view.ariaRoadmap');
+			void vscode.commands.executeCommand('aria.notebook.reveal');
 		} catch { /* no UI (headless / registration-only) - best-effort */ }
 	};
 	const tools = buildTools(store, notify, value => { finalized = value; }, ensureCanvasOpen);

@@ -211,6 +211,29 @@ export class RoadmapStore {
 		return true;
 	}
 
+	/**
+	 * Force the shared state to re-read roadmap `id` from disk. Unlike switchActive,
+	 * this does NOT persist the current in-memory copy first - it is called after an
+	 * external tool (the Notebook's History restore) has rewritten the file, so the
+	 * ON-DISK content must win. Only the ACTIVE roadmap is mirrored in memory; a
+	 * different roadmap needs nothing (its file is already the source of truth and
+	 * loads when the user next opens it).
+	 */
+	reloadFromDisk(id: string): boolean {
+		if (!this.dir || this.activeId !== id) {
+			return true;
+		}
+		let roadmap: { nodes: RoadmapNode[]; name: string | undefined };
+		try {
+			roadmap = this.readRoadmap(id);
+		} catch {
+			return false;
+		}
+		this.state.load(roadmap.nodes);
+		this.activeExplicitName = roadmap.name;
+		return true;
+	}
+
 	/** Set (or clear, with an empty string) a roadmap's explicit name. */
 	rename(id: string, name: string): void {
 		if (!this.dir) {
