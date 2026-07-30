@@ -388,7 +388,7 @@ async function collectEnvVarValues(envVars: EnvVarRequirement[]): Promise<Record
 		[
 			{
 				label: '$(arrow-right) Skip - configure keys later',
-				description: 'Install the skill now and add keys from the Skills tab when ready.',
+				description: 'Install the skill now and add keys from the Settings tab when ready.',
 			},
 			{
 				label: '$(key) Enter keys now',

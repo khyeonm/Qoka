@@ -60,7 +60,7 @@ export function readManifest(): SkillsManifest {
 		};
 	} catch {
 		// Corrupted manifest - pretend it didn't exist. The user can
-		// re-add their custom categories and skills from the Skills tab.
+		// re-add their custom categories and skills from the Settings tab.
 		return emptyManifest();
 	}
 }

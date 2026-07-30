@@ -113,7 +113,7 @@ export function envPath(): string {
 /**
  * Make sure ~/.env exists. Created empty with mode 0600 if missing. We
  * call this on extension activate so the "Open ~/.env" button in the
- * Skills tab always opens something, even before the user saves a
+ * Settings tab always opens something, even before the user saves a
  * single key - opening "no such file" was the most common confusion.
  */
 export function ensureEnvFile(): void {

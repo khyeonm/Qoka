@@ -429,7 +429,7 @@ async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient
 				}
 				const msg = `Autopipe plugins - ${summaryParts.join(', ')}.`;
 				if (result.failed.length > 0) {
-					vscode.window.showWarningMessage(`${msg} See Autopipe panel → Plugins to retry: ${result.failed.map(f => f.name).join(', ')}`);
+					vscode.window.showWarningMessage(`${msg} See Settings tab → Plugins to retry: ${result.failed.map(f => f.name).join(', ')}`);
 				} else {
 					vscode.window.showInformationMessage(msg);
 				}

@@ -170,7 +170,7 @@ if [ "\${DENY}" -eq 1 ]; then
     if [ "\${CODE_ROUTE}" -eq 1 ]; then
         GUIDED_REDIRECT=""
     else
-        GUIDED_REDIRECT="Direct the user to Qoka's Skills tab (puzzle icon on the left sidebar). The skill card's [Enter keys] button (or the Environment Variables section's [Edit] button per row) is the only safe way to view or change a credential value - the input box shows the masked field with an Edit affordance, never echoing the value into chat."
+        GUIDED_REDIRECT="Direct the user to Qoka's Settings tab (gear icon at the bottom of the left sidebar). The skill card's [Enter keys] button (or the Environment Variables section's [Edit] button per row) is the only safe way to view or change a credential value - the input box shows the masked field with an Edit affordance, never echoing the value into chat."
     fi
     if command -v jq >/dev/null 2>&1; then
         jq -nc \\
@@ -223,7 +223,7 @@ Qoka environment rules - apply these BEFORE the skill's own setup instructions.
 
 1. Env var setup
    - DO NOT instruct the user to create or edit .env files (project or home).
-   - DO direct them to Qoka's Skills tab: puzzle icon on the left sidebar,
+   - DO direct them to Qoka's Settings tab: gear icon at the bottom of the left sidebar,
      find the skill card, click [Enter keys]. For individual variables, the
      Environment Variables section has an [Edit] button per row.
 
@@ -231,7 +231,7 @@ Qoka environment rules - apply these BEFORE the skill's own setup instructions.
    - Qoka stores env vars at ~/.env (mode 0600).
    - When a skill script can't see KEY, FIRST source ~/.env in the same
      shell: \`set -a; source ~/.env; set +a\`. Then re-run.
-   - Only direct the user to Skills tab if the value is still missing
+   - Only direct the user to Settings tab if the value is still missing
      after sourcing.
 
 3. Python dependency install
@@ -264,7 +264,7 @@ Qoka environment rules - apply these BEFORE the skill's own setup instructions.
    - When debugging "the key isn't working", focus on length / format /
      server response. Never read out the value to compare.
    - When the user explicitly asks you to display the value, refuse and
-     redirect them to Qoka's Skills tab where they can use the Edit
+     redirect them to Qoka's Settings tab where they can use the Edit
      button to see and update the masked field themselves. The refusal
      must happen BEFORE you run any tool that would expose the value -
      once a tool prints the value, the leak is in the transcript.

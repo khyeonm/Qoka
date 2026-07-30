@@ -207,7 +207,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				if (cloneCode !== 0) {
 					let msg: string;
 					if (/could not read Username|Authentication failed|terminal prompts disabled/.test(cloneOutput)) {
-						msg = "Repository may be private. Connect GitHub in the Qoka Autopipe panel's GitHub section and retry.";
+						msg = "Repository may be private. Connect GitHub in the Qoka Settings tab's GitHub section and retry.";
 					} else if (/Repository not found|not found|does not exist/.test(cloneOutput)) {
 						msg = 'Repository not found on GitHub. Verify the pipeline ID.';
 					} else if (cloneOutput.includes('Could not resolve host')) {
@@ -306,7 +306,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				const { ssh } = services();
 				const token = cfg.github?.token;
 				if (!token) {
-					return errorResult('GitHub login is required. Please open the Autopipe panel, connect GitHub from the GitHub section, and try again.');
+					return errorResult('GitHub login is required. Please open the Settings tab, connect GitHub from the GitHub section, and try again.');
 				}
 
 				const pipelineDirIn = String(args.pipeline_dir ?? '');
@@ -356,7 +356,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				} else {
 					repoName = cfg.github_repo;
 					if (!repoName) {
-						return errorResult('Single-repo mode is enabled but github_repo is unset. Configure it in the Autopipe panel → Pipeline upload mode.');
+						return errorResult('Single-repo mode is enabled but github_repo is unset. Configure it in the Settings tab → Pipeline upload mode.');
 					}
 					pathPrefix = `pipelines/${pipelineName}/`;
 				}
@@ -566,7 +566,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				const cfg = services().config.get();
 				const token = cfg.github?.token;
 				if (!token) {
-					return errorResult('GitHub login is required. Please open the Autopipe panel, connect GitHub from the GitHub section, and try again.');
+					return errorResult('GitHub login is required. Please open the Settings tab, connect GitHub from the GitHub section, and try again.');
 				}
 				const base = cfg.registry_url.replace(/\/+$/, '');
 				const githubUrl = String(args.github_url ?? '');
@@ -864,7 +864,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				const cfg = services().config.get();
 				const token = cfg.github?.token;
 				if (!token) {
-					return errorResult('GitHub login is required to unpublish a pipeline because the Hub verifies ownership via your GitHub token. Please open the Autopipe panel, connect GitHub from the GitHub section, and try again.');
+					return errorResult('GitHub login is required to unpublish a pipeline because the Hub verifies ownership via your GitHub token. Please open the Settings tab, connect GitHub from the GitHub section, and try again.');
 				}
 				const base = cfg.registry_url.replace(/\/+$/, '');
 				const pipelineId = Number(args.pipeline_id);
@@ -1070,7 +1070,7 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 									errors.push(`ro-crate-metadata.json: '#author.name' is empty and auto-fill failed to rewrite the file (${(e as Error).message}).`);
 								}
 							} else {
-								errors.push("ro-crate-metadata.json: '#author.name' is empty and GitHub is not connected. Open the Autopipe panel, complete the GitHub connection step, then re-run validate_pipeline (it will auto-fill the author from your GitHub login).");
+								errors.push("ro-crate-metadata.json: '#author.name' is empty and GitHub is not connected. Open the Settings tab, complete the GitHub connection step, then re-run validate_pipeline (it will auto-fill the author from your GitHub login).");
 							}
 						}
 					}

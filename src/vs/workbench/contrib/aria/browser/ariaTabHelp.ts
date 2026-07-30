@@ -133,22 +133,21 @@ Have independent AI reviewers read your paper and point out concerns - the way a
 		summary: 'The AI assistant builds and runs your analysis pipelines and shows you the results.',
 		howTo: `# Autopipe - How to use
 
-This is where the AI assistant **builds and runs** your data-analysis pipelines and **shows you the results** - you drive it all from the chat.
+The AI assistant **builds and runs** your data-analysis pipelines and **shows you the results** - you drive it all from the chat. The **Autopipe** section of the **Settings** tab is where you connect GitHub (to share pipelines) and find ready-made ones.
 
 ## Where it runs
-- **Built-in server (Windows / Mac)** - a small analysis machine that runs on your own computer. No setup and no server of your own needed; it's the default.
-- **Your own lab server** - if you have one, click **+** on **Run environment** and add it (name, host, port, username, password, remote workspace), then **Save profile**. Click a row to make it the active one.
+You choose where pipelines run in the **Connections** section (just above Autopipe in Settings): the **built-in server** (default on Windows / Mac) or your own **SSH lab server**. The AI assistant then uses whichever one is active.
 
 ## Steps
-1. **Pick where it runs** - the built-in server (default on Windows/Mac) or your lab server (see above).
-2. **(Optional) Connect GitHub** - click **Connect to GitHub** to upload or share pipelines, and choose whether each pipeline gets its **own repo** or they **share one repo**.
-3. **Find pipelines** - open **Pipeline Hub** to browse ready-made pipelines, or **Plugins** for add-ons.
-4. **Build & run** - ask the AI assistant in the chat to build or run a pipeline; it uses your run environment, reports progress, and shows the results.
+1. **(Optional) Connect GitHub** - click **Connect to GitHub** to upload or share pipelines. A code and a button to open GitHub appear; enter the code there to finish. Once connected, the row shows your account and a **Sign out** button.
+2. **Choose the upload mode** - under **Pipeline upload mode**, pick **Per-pipeline repo** (each pipeline gets its own GitHub repo) or **Single shared repo** (all pipelines share one repo - type its name in the field that appears).
+3. **Find pipelines** - under **Discover**, open **Pipeline Hub** to browse ready-made pipelines, or **Plugins** for add-ons.
+4. **Build & run** - ask the AI assistant in the chat to build or run a pipeline; it uses your active run environment, reports progress, and shows the results.
 
-Your **Run environment** and **GitHub** choices are **saved automatically** the moment you change them - there's no Save button.
+Your **GitHub** and **upload mode** choices are **saved automatically** the moment you change them - there's no Save button.
 
 ## Tips
-- Adjust the built-in server's memory / CPU with the **⚙** on its row - it shows the **maximum available on your computer**, so you can't set more than your machine has.
+- GitHub is only needed to **upload or share** pipelines - you can build and run them without it.
 - You don't need to know Linux or Git - the AI assistant handles the commands.`,
 	},
 	'roadmap': {
@@ -182,16 +181,21 @@ The assistant offers these right after you add a hypothesis or goal - just say y
 		summary: 'Install extra tools for the AI assistant and set up their access keys.',
 		howTo: `# Skills - How to use
 
-Skills are extra tools you can give the AI assistant - for example, searching a specific database. This tab installs them and manages the access keys they need.
+Skills are extra tools you can give the AI assistant - for example, searching a specific database. The **Skills** section of the **Settings** tab installs them and manages the access keys they need.
 
 ## Steps
-1. **Add a skill** - click **+ Add Skill** and paste the GitHub link of a repo that contains a \`SKILL.md\`. The AI reads it and automatically **names the skill, suggests a category, and tells you which environment variables it needs**, then installs it. You don't have to enter any keys to add it - set them afterward (below) when needed.
-2. **Browse** - use the search box and category filter. **Default Skills** come pre-installed; **My Skills** are the ones you added.
-3. **See details** - click **Details** on a skill to expand it. The pills show whether its access keys are set, and you can see its source or **Uninstall** a skill you added.
-4. **Environment variables** - the **Environment Variables** section lists every key a skill uses (marked **Required** / **Optional**). Edit any key with its **Edit** button; changes are **saved automatically to your \`~/.env\` file**. Click **Open ~/.env** to view the file's contents.
+1. **Add a skill** - click **+ Add** and paste the GitHub link of a repo that contains a \`SKILL.md\`. The AI reads it and automatically **names the skill, suggests a category, and tells you which environment variables it needs**, then installs it. You don't have to enter any keys to add it - set them afterward (below) when needed.
+2. **Browse** - use the search box and the **category** filter next to it. Skills are grouped into **Default Skills** (pre-installed, with a nested **K-Dense** group) and **My Skills** (the ones you added). Click a group heading to collapse or expand it.
+3. **See details** - click a skill's row to expand it in place. Inside you'll see its description, its **Category** (edit it with the pencil), and its keys split into **Required** and **Optional** columns. For a skill you added you can also open its **source** or **Uninstall** it.
+4. **Set a key** - click the **pencil** next to any key (in a skill's details or in the **Environment Variables** section) to enter its value. Changes are **saved automatically to your \`~/.env\` file**. Click **Open ~/.env** to view the file's contents.
+
+## Reading the key status
+Each skill shows a small pill:
+- **No key needed** - it works as-is.
+- **keys set** - every key it needs has a value.
+- **N required** / **N optional** - that many keys are still empty (red = required, yellow = optional).
 
 ## Tips
-- The key-status pills tell you at a glance whether a skill has everything it needs.
 - Fill in the **Required** keys for a skill to work; Optional ones can be left blank.
 - Keys live in your \`~/.env\` file and are used only by the skill that needs them.`,
 	},

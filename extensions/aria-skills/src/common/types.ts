@@ -40,9 +40,9 @@ export interface SkillDependency {
 export interface SkillInfo {
 	/** Stable identifier (matches the directory name in ~/.claude/skills/). */
 	name: string;
-	/** Qoka-assigned category - used only for filtering in the Skills tab. */
+	/** Qoka-assigned category - used only for filtering in the Settings tab. */
 	category: string;
-	/** Short description for the Skills tab card. */
+	/** Short description for the Settings tab card. */
 	description: string;
 	/** Where the skill came from (GitHub URL or local path). */
 	source: string;
@@ -50,10 +50,10 @@ export interface SkillInfo {
 	type: SkillType;
 	/** Optional grouping label for default skills (e.g. 'K-Dense'). Default
 	 *  skills sharing a group render under one collapsible sub-section in the
-	 *  Skills tab. Undefined for user skills and ungrouped defaults. */
+	 *  Settings tab. Undefined for user skills and ungrouped defaults. */
 	group?: string;
 	/** Hidden skills are installed + mirrored to providers like any other, but
-	 *  NEVER shown in the Skills tab. Used for internal helper skills such as the
+	 *  NEVER shown in the Settings tab. Used for internal helper skills such as the
 	 *  Qoka tool-routing guide the AI reads to prefer Qoka MCP tools. */
 	hidden?: boolean;
 	/** ISO timestamp set when the skill was installed by Qoka. */

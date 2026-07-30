@@ -34,12 +34,12 @@ export interface DefaultSkillSpec {
 	 *  (e.g. 'skills/iterative-paper-defense'). When set, the wizard copies it
 	 *  into ~/.claude/skills/ instead of cloning from GitHub - no network. */
 	bundledPath?: string;
-	/** Category label shown in the Skills tab. */
+	/** Category label shown in the Settings tab. */
 	category: string;
 	/** Short blurb used until SKILL.md analysis fills in a better one. */
 	description: string;
 	/** Optional grouping label. Default skills that share a `group` are rendered
-	 *  under one collapsible sub-section in the Skills tab (e.g. 'K-Dense' bundles
+	 *  under one collapsible sub-section in the Settings tab (e.g. 'K-Dense' bundles
 	 *  every skill sourced from the K-Dense scientific-agent-skills repo). Omit to
 	 *  render the skill at the top level of the Default Skills section. */
 	group?: string;
@@ -51,7 +51,7 @@ export interface DefaultSkillSpec {
 	 *  undefined to fall back to analyzeSkillMd at install time. */
 	envVars?: EnvVarRequirement[];
 	/** Hidden skills install + mirror to providers like any other, but never
-	 *  appear in the Skills tab. Used for the internal Qoka tool-routing guide. */
+	 *  appear in the Settings tab. Used for the internal Qoka tool-routing guide. */
 	hidden?: boolean;
 }
 
@@ -97,7 +97,7 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 	{
 		name: 'scanpy',
 		bundledPath: 'skills/scanpy',
-		category: 'Bioinformatics',
+		category: 'Single-cell',
 		description: 'Single-cell RNA-seq analysis with Scanpy: QC, normalization, PCA/UMAP, clustering, and visualization.',
 		group: 'K-Dense',
 		envVars: [],
@@ -105,7 +105,7 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 	{
 		name: 'anndata',
 		bundledPath: 'skills/anndata',
-		category: 'Bioinformatics',
+		category: 'Single-cell',
 		description: 'Work with AnnData (.h5ad) objects, the standard scverse container for single-cell and omics data.',
 		group: 'K-Dense',
 		envVars: [],
@@ -113,7 +113,7 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 	{
 		name: 'scvi-tools',
 		bundledPath: 'skills/scvi-tools',
-		category: 'Bioinformatics',
+		category: 'Single-cell',
 		description: 'Probabilistic single-cell analysis with scvi-tools: batch correction, DE with uncertainty, multimodal integration.',
 		group: 'K-Dense',
 		envVars: [],
@@ -121,7 +121,7 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 	{
 		name: 'bioservices',
 		bundledPath: 'skills/bioservices',
-		category: 'Bioinformatics',
+		category: 'Databases',
 		description: 'Unified access to 40+ bioinformatics databases (UniProt, KEGG, ChEMBL, Reactome) with cross-database ID mapping.',
 		group: 'K-Dense',
 		// NCBI BLAST identifies callers by email - optional, everything else works without it.
@@ -132,7 +132,7 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 	{
 		name: 'gget',
 		bundledPath: 'skills/gget',
-		category: 'Bioinformatics',
+		category: 'Databases',
 		description: 'Fast queries to 20+ genomic databases: gene info, BLAST, PDB/AlphaFold structures, expression, and disease associations.',
 		group: 'K-Dense',
 		envVars: [],
@@ -140,7 +140,7 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 	{
 		name: 'biopython',
 		bundledPath: 'skills/biopython',
-		category: 'Bioinformatics',
+		category: 'Sequence analysis',
 		description: 'Molecular biology toolkit for sequence handling, file parsing, NCBI/Entrez access, structures, and phylogenetics.',
 		group: 'K-Dense',
 		// Both optional - only the Bio.Entrez (NCBI) examples read them.

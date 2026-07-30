@@ -155,6 +155,9 @@ export class AriaRailFlyoutContribution extends Disposable implements IWorkbench
 		const activeId = this.paneCompositeService.getActivePaneComposite(ViewContainerLocation.Sidebar)?.getId();
 
 		for (const id of ids) {
+			// Global full-text Search is hidden from the activity bar in easy mode
+			// (developer chrome), so it must not appear in the hover flyout either.
+			if (id === 'workbench.view.search') { continue; }
 			const viewContainer = this.viewDescriptorService.getViewContainerById(id);
 			const model = viewContainer ? this.viewDescriptorService.getViewContainerModel(viewContainer) : undefined;
 			this.addRow(container, model?.title ?? id, model?.icon, id === activeId, () => {

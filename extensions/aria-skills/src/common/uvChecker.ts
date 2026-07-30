@@ -64,7 +64,7 @@ async function tryCandidates(): Promise<string | null> {
 
 /**
  * Return the path to a usable `uv` binary, or null if uv is missing. The
- * Skills tab uses this to render the "uv installed" / "uv not installed"
+ * Settings tab uses this to render the "uv installed" / "uv not installed"
  * badge in the environment section; the first-run wizard uses it to
  * decide whether to run the installer.
  */

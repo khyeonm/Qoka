@@ -52,7 +52,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				return textResult([
 					'No active SSH profile configured yet.',
 					'',
-					'Open the Autopipe tab in the activity bar, click "+" on the SSH connection section, fill in host / port / username / password / remote workspace, then Save profile and press Save settings. Or use the built-in server instead - no SSH needed.',
+					'Open the Settings tab in the activity bar, click "+" on the SSH connection section, fill in host / port / username / password / remote workspace, then Save profile and press Save settings. Or use the built-in server instead - no SSH needed.',
 					'',
 					`Registry: ${cfg.registry_url}`,
 					`GitHub: ${cfg.github?.login ? `connected as @${cfg.github.login}` : 'not connected'}`,
@@ -74,7 +74,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 			// uploads, so we shouldn't tell the user they're disconnected.
 			const ghLine = cfg.github?.token
 				? `GitHub: connected${cfg.github.login ? ` as @${cfg.github.login}` : ''}`
-				: 'GitHub: Not connected - open the Autopipe tab in the activity bar, find the GitHub section, and click "Connect to GitHub" to log in.';
+				: 'GitHub: Not connected - open the Settings tab in the activity bar, find the GitHub section, and click "Connect to GitHub" to log in.';
 			return textResult([
 				`SSH: ${profile.username}@${profile.host}:${profile.port}`,
 				`Connection: ${reachable ? 'reachable (checked moments ago)' : 'not verified just now - just run; if it cannot connect the run will say so, and start_server can re-establish it'}`,

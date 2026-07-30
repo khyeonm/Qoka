@@ -16,6 +16,7 @@ import {
 	IViewDescriptor,
 } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { AriaSkillsView } from './ariaSkillsView.js';
 import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 
@@ -80,7 +81,10 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 		id: ARIA_SKILLS_CONTAINER_ID,
 		title: localize2('aria.skills.containerTitle', "Skills"),
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ARIA_SKILLS_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-		hideIfEmpty: false,
+		// Retired: Skills is now a section of the Settings tab. Container + view/commands
+		// stay registered (the Settings section drives them); hideIfEmpty + a never-true
+		// view `when` keep this icon out of the activity bar.
+		hideIfEmpty: true,
 		icon: skillsIcon,
 		order: 10,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
@@ -92,6 +96,7 @@ const skillsView: IViewDescriptor = {
 	ctorDescriptor: new SyncDescriptor(AriaSkillsView),
 	canToggleVisibility: false,
 	canMoveView: false,
+	when: ContextKeyExpr.false(),
 	order: 1,
 };
 

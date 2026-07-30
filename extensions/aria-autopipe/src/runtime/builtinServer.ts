@@ -88,7 +88,7 @@ export async function builtinExec(command: string, opts?: RunOptions): Promise<S
 
 /**
  * The run target for run_code, honoring the ACTIVE connection chosen in the
- * Connections tab: the built-in server when it is the active target, otherwise
+ * Settings tab: the built-in server when it is the active target, otherwise
  * the active SSH profile. `isBuiltIn` lets the caller decide whether the local
  * /mnt mount is available (built-in on Windows/WSL) or results must be
  * SFTP-copied back (a remote SSH host). Throws when nothing is selected.
@@ -104,14 +104,14 @@ export async function resolveRunTarget(): Promise<{ profile: SshProfile; isBuilt
 		if (!await isReachable(ep)) {
 			ep = await restartBuiltinServer();
 			if (!await isReachable(ep)) {
-				throw new Error('The built-in server is not reachable (it was restarted but still refused the connection). Open the Connections tab to check its status.');
+				throw new Error('The built-in server is not reachable (it was restarted but still refused the connection). Open the Settings tab to check its status.');
 			}
 		}
 		return { profile: ep, isBuiltIn: true };
 	}
 	const profile = config.activeProfile();
 	if (!profile) {
-		throw new Error('No active connection. Open the Connections tab and select the built-in server or an SSH server.');
+		throw new Error('No active connection. Open the Settings tab and select the built-in server or an SSH server.');
 	}
 	// Deliberately NO probe for a user's own SSH host. Probing costs a full extra
 	// login, and a run already opens several in a row - servers that rate-limit

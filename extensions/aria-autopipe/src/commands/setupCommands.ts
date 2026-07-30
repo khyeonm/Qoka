@@ -9,7 +9,7 @@ import { services } from '../common/services';
 import { SshProfile } from '../common/types';
 
 /**
- * Multi-step input flows for the Setup section of the Autopipe panel.
+ * Multi-step input flows for the Setup section of the Settings tab.
  *
  * We use `vscode.window.showInputBox` / `showQuickPick` instead of a webview
  * form so the user gets the standard VS Code modal experience and we don't
@@ -289,10 +289,13 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 			// Copy the user code to the clipboard so the user just pastes it
 			// into the GitHub device-code page.
 			await vscode.env.clipboard.writeText(start.user_code);
+			// Show the device code as a CENTERED modal dialog (not a corner
+			// notification) so it is unmissable. The later "connected" message stays a
+			// normal notification.
 			const choice = await vscode.window.showInformationMessage(
-				`Enter this code on GitHub:\n\n${start.user_code}\n\n(Already copied to clipboard.)`,
+				'Connect to GitHub',
+				{ modal: true, detail: `Enter this code on GitHub:\n\n${start.user_code}\n\n(Already copied to your clipboard.)` },
 				'Open GitHub',
-				'Cancel',
 			);
 			if (choice !== 'Open GitHub') {
 				return;
@@ -300,12 +303,14 @@ export function registerSetupCommands(context: vscode.ExtensionContext): void {
 			vscode.env.openExternal(vscode.Uri.parse(start.verification_uri));
 
 			await vscode.window.withProgress(
-				{ location: vscode.ProgressLocation.Notification, title: 'Waiting for GitHub authorization…' },
-				async () => {
+				{ location: vscode.ProgressLocation.Notification, title: 'Waiting for GitHub authorization…', cancellable: true },
+				async (_progress, token) => {
 					const deadline = Date.now() + start.expires_in * 1000;
 					let delaySec = Math.max(5, start.interval || 5);
 					while (Date.now() < deadline) {
+						if (token.isCancellationRequested) { return; }
 						await new Promise((r) => setTimeout(r, delaySec * 1000));
+						if (token.isCancellationRequested) { return; }
 						const result = await github.pollForToken(start.device_code);
 						if (result.status === 'authorized' && result.token) {
 							await config.update({

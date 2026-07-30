@@ -156,7 +156,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'run_code',
 		description:
-			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the qoka-autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (qoka-autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Connections tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work (analysis/rna-velocity-umap/) instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
+			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the qoka-autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (qoka-autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Settings tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work (analysis/rna-velocity-umap/) instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
@@ -191,7 +191,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const timeoutMs = Math.max(1000, Math.min(900_000, Math.round(Number(args.timeout_s ?? 300) * 1000)));
 
 				// Run on the ACTIVE connection (built-in server or an SSH server),
-				// chosen in the Connections tab - shared with autopipe.
+				// chosen in the Settings tab - shared with autopipe.
 				const { profile: ep, isBuiltIn } = await resolveRunTarget();
 				target = isBuiltIn ? 'the built-in server' : `the SSH server ${ep.username}@${ep.host}:${ep.port}`;
 				const { ssh } = services();
@@ -346,7 +346,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				if (/authentication methods failed|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|Timed out while waiting for handshake/i.test(message)) {
 					return errorResult(
 						`run_code could not connect to ${target}: ${message}. `
-						+ 'Check that the server is reachable and the credentials in the Connections tab are current, then try again. '
+						+ 'Check that the server is reachable and the credentials in the Settings tab are current, then try again. '
 						+ 'If it just worked and now fails, the server may be refusing rapid repeat logins - wait a few seconds and retry.');
 				}
 				return errorResult(`run_code failed: ${message}`);
@@ -365,7 +365,7 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'Sequence, every time: (1) call get_workspace_info (qoka-autopipe MCP) to confirm the ACTIVE run connection is reachable - if not, call start_server then re-check; (2) then run_code here (quick) or execute_pipeline on autopipe (pipeline).',
 	'FALLBACK: if you ever run something in your own terminal and it errors or looks wrong, STOP - that was the wrong tool. Call get_workspace_info to find the run environment and redo it with run_code.',
 	'',
-	'WHERE it runs: run_code executes on the ACTIVE Qoka connection - the built-in server OR the SSH server the user selected in the Connections tab - the SAME target autopipe pipelines use. They are NOT separate servers: whichever connection is active runs BOTH quick code (run_code) AND autopipe pipelines. So run_code CAN run on an SSH server, and autopipe CAN run on the built-in server. The run_code result states which target it actually used - relay that to the user so they know where it ran.',
+	'WHERE it runs: run_code executes on the ACTIVE Qoka connection - the built-in server OR the SSH server the user selected in the Settings tab - the SAME target autopipe pipelines use. They are NOT separate servers: whichever connection is active runs BOTH quick code (run_code) AND autopipe pipelines. So run_code CAN run on an SSH server, and autopipe CAN run on the built-in server. The run_code result states which target it actually used - relay that to the user so they know where it ran.',
 	'',
 	'NEVER run the user\'s code in your own terminal/shell. To run/execute code (실행/돌려) you MUST call a Qoka MCP tool: run_code (this server) for a quick one-off script, or the qoka-autopipe MCP for a reproducible multi-step pipeline. Falling back to the local terminal is WRONG - it bypasses the Qoka run environment.',
 	'',

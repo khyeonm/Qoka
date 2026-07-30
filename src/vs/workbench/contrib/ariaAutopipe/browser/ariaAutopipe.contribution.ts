@@ -16,6 +16,7 @@ import {
 	IViewDescriptor,
 } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { AriaAutopipeView } from './ariaAutopipeView.js';
 import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 
@@ -79,7 +80,10 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 		id: ARIA_AUTOPIPE_CONTAINER_ID,
 		title: localize2('aria.autopipe.containerTitle', "Autopipe"),
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ARIA_AUTOPIPE_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-		hideIfEmpty: false,
+		// Retired: Autopipe's settings are now a section of the Settings tab. Container +
+		// view/commands stay registered (the Settings section drives them); hideIfEmpty +
+		// a never-true view `when` keep this icon out of the activity bar.
+		hideIfEmpty: true,
 		icon: autopipeIcon,
 		order: 14,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
@@ -91,6 +95,7 @@ const autopipeView: IViewDescriptor = {
 	ctorDescriptor: new SyncDescriptor(AriaAutopipeView),
 	canToggleVisibility: false,
 	canMoveView: false,
+	when: ContextKeyExpr.false(),
 	order: 1,
 };
 

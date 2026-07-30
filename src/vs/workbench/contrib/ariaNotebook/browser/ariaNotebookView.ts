@@ -76,6 +76,8 @@ export class AriaNotebookView extends ViewPane {
 	/** History section: expanded by default, with a user-draggable height. */
 	private historyExpanded = true;
 	private historyHeight = 220;
+	/** Until the user drags the splitter, History defaults to ~30% of the view height. */
+	private historyUserResized = false;
 	/** Latest tree, kept so drag handlers can reason about ancestry without re-reading. */
 	private allPages: NotebookPage[] = [];
 	/** Signature of the last rendered tree (structure + labels + collapse state). A
@@ -234,6 +236,7 @@ export class AriaNotebookView extends ViewPane {
 		const startHeight = this.historyHeight;
 		const totalH = this.viewBody?.clientHeight ?? 600;
 		const onMove = (ev: MouseEvent) => {
+			this.historyUserResized = true;
 			const next = startHeight - (ev.clientY - startY);
 			this.historyHeight = Math.max(80, Math.min(next, totalH - 120));
 			if (this.historyWrap) { this.historyWrap.style.height = `${this.historyHeight}px`; }
@@ -249,10 +252,16 @@ export class AriaNotebookView extends ViewPane {
 			this.viewBody.style.height = `${height}px`;
 			this.viewBody.style.width = `${width}px`;
 		}
-		// Keep History from eating the whole view when it shrinks.
-		if (this.historyExpanded && this.historyHeight > height - 120) {
-			this.historyHeight = Math.max(80, height - 120);
-			this.applyHistoryLayout();
+		if (this.historyExpanded) {
+			if (!this.historyUserResized) {
+				// Default History to ~30% of the view height (until the user drags it).
+				this.historyHeight = Math.max(80, Math.min(Math.round(height * 0.3), height - 120));
+				this.applyHistoryLayout();
+			} else if (this.historyHeight > height - 120) {
+				// Keep History from eating the whole view when it shrinks.
+				this.historyHeight = Math.max(80, height - 120);
+				this.applyHistoryLayout();
+			}
 		}
 	}
 

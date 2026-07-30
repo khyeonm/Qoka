@@ -15,6 +15,7 @@ import {
 	IViewDescriptor,
 } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { AriaConnectionsView } from './ariaConnectionsView.js';
 
 const ARIA_CONNECTIONS_CONTAINER_ID = 'workbench.view.ariaConnections';
@@ -34,7 +35,10 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 		id: ARIA_CONNECTIONS_CONTAINER_ID,
 		title: localize2('aria.connections.containerTitle', "Connections"),
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [ARIA_CONNECTIONS_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-		hideIfEmpty: false,
+		// Retired: Connections is now a section of the Settings tab. The container and
+		// its view/commands stay registered (the Settings section drives them), but
+		// hideIfEmpty + a never-true view `when` keep this icon out of the activity bar.
+		hideIfEmpty: true,
 		icon: connectionsIcon,
 		order: 13,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
@@ -46,6 +50,7 @@ const connectionsView: IViewDescriptor = {
 	ctorDescriptor: new SyncDescriptor(AriaConnectionsView),
 	canToggleVisibility: false,
 	canMoveView: false,
+	when: ContextKeyExpr.false(),
 	order: 1,
 };
 

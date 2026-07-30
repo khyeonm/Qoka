@@ -538,7 +538,7 @@ export function cleanupEnvDescriptions(): void {
  * that exist on disk but aren't in the manifest - those were likely
  * installed by another tool and Qoka shouldn't claim them.
  */
-/** Every skill directory the Skills tab should reflect: Qoka's canonical
+/** Every skill directory the Settings tab should reflect: Qoka's canonical
  *  ~/.claude/skills/ PLUS each provider's dir (~/.codex/skills/) that exists on
  *  disk. A skill counts as present if its folder is in ANY of them. */
 function allSkillScanDirs(): string[] {
@@ -555,7 +555,7 @@ function isInstalledOnAnyDisk(name: string): boolean {
 
 /** Build a display-only SkillInfo for a skill folder found on disk but NOT in the
  *  manifest - e.g. added directly to ~/.codex/skills/ outside Qoka. Metadata is
- *  read from its SKILL.md. Not persisted or mirrored; purely so the Skills tab
+ *  read from its SKILL.md. Not persisted or mirrored; purely so the Settings tab
  *  reflects skills present in either provider's dir. */
 function adoptDiskSkill(name: string, dir: string): SkillInfo {
 	let description: string | undefined;
@@ -568,7 +568,7 @@ function adoptDiskSkill(name: string, dir: string): SkillInfo {
 		envVars = parsed.envVars ?? [];
 	} catch { /* missing/unreadable SKILL.md - use defaults */ }
 	// Keep internal hidden defaults (e.g. the using-qoka router) hidden even when
-	// adopted straight from disk, so they never leak into the Skills tab.
+	// adopted straight from disk, so they never leak into the Settings tab.
 	const hidden = DEFAULT_SKILLS.find(d => d.name === name)?.hidden;
 	return {
 		name,
@@ -596,7 +596,7 @@ export function reconcileWithDisk(): SkillInfo[] {
 	const known = new Set(kept.map(s => s.name));
 	// Adopt disk-only folders across ~/.claude/skills/ + provider dirs, deduped by
 	// name so a skill present in BOTH is shown once. Lets a Codex-only user (or a
-	// skill added straight into ~/.codex/skills/) still appear in the Skills tab.
+	// skill added straight into ~/.codex/skills/) still appear in the Settings tab.
 	const adopted: SkillInfo[] = [];
 	for (const dir of allSkillScanDirs()) {
 		let names: string[] = [];

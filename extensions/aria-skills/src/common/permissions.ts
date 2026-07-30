@@ -11,7 +11,7 @@ import * as path from 'path';
  * Manage Claude Code's user-level settings file. Qoka writes the
  * per-skill auto-approve preferences into ~/.claude/settings.json so
  * the user doesn't get a permission prompt every time Claude wants to
- * invoke a skill they've already vetted from the Skills tab.
+ * invoke a skill they've already vetted from the Settings tab.
  *
  * The file format is JSON; we preserve unknown top-level keys verbatim
  * so editing the Qoka toggle doesn't clobber settings Claude Code (or

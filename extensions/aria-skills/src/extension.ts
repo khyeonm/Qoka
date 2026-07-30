@@ -93,7 +93,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// injects Qoka's environment rules whenever Claude is about to run
 	// a shell command that touches .env files, pip/conda installs, or
 	// credential env vars - so skill SKILL.md instructions to "create a
-	// .env file" get overridden in favour of Qoka's Skills tab.
+	// .env file" get overridden in favour of Qoka's Settings tab.
 	ensureAriaHook();
 
 	// Codex reads ~/.codex/AGENTS.md as BASE instructions every session, so that -
@@ -214,6 +214,16 @@ export function activate(context: vscode.ExtensionContext): void {
 				return;
 			}
 			return editSingleEnvVar(name);
+		}),
+
+		// Direct setter (no prompt) so the Settings UI can edit a value in its own
+		// centered modal and persist it here. Empty string clears the value.
+		vscode.commands.registerCommand('aria.skills.setEnvVarValue', (name: unknown, value: unknown) => {
+			if (typeof name !== 'string' || typeof value !== 'string') {
+				return;
+			}
+			skillsServices().env.writeEnv({ [name]: value.trim() });
+			void vscode.commands.executeCommand('aria.skills.requestRefresh');
 		}),
 
 		// Open an input box pre-filled with the skill's current category
@@ -338,7 +348,7 @@ async function getState(): Promise<AriaSkillsState> {
 	};
 
 	// Hidden skills (e.g. the internal Qoka tool-routing guide) are installed and
-	// mirrored to providers like any other, but never surface in the Skills tab.
+	// mirrored to providers like any other, but never surface in the Settings tab.
 	const visible = allSkills.filter(s => !s.hidden);
 	const defaults = visible.filter(s => s.type === 'default').map(decorate);
 	const users = visible.filter(s => s.type === 'user').map(decorate);
@@ -452,7 +462,7 @@ async function configureKeysForSkill(skillName: string): Promise<void> {
 	try {
 		svc.env.writeEnv(updates);
 		vscode.window.showInformationMessage(
-			`Saved ${Object.keys(updates).length} value(s) to ~/.env. Click the refresh icon to update the Skills tab.`,
+			`Saved ${Object.keys(updates).length} value(s) to ~/.env. Click the refresh icon to update the Settings tab.`,
 		);
 	} catch (err) {
 		vscode.window.showErrorMessage(`Failed to write ~/.env: ${(err as Error).message}`);

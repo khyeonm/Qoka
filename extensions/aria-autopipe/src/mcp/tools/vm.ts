@@ -38,7 +38,7 @@ function builtinFailureGuidance(reason: string): string {
 export const VM_TOOLS: ToolDefinition[] = [
 	{
 		name: 'start_server',
-		description: '(Re)start and VERIFY the ACTIVE run connection - the built-in server OR the SSH server selected in the Connections tab. Call this whenever code cannot run because the connection is not ready: the built-in server is not running, an SSH server is unreachable, or a run just failed with a connection/refused error. For the built-in server it boots or restarts it and confirms it actually answers over SSH; for an SSH server it re-tests the connection and reports the endpoint. If the built-in server repeatedly fails to start on Windows, it tells you to check that WSL AND a Linux distribution (Ubuntu) are installed. Call this instead of asking the user to press a button. After it reports the connection is up, retry the run.',
+		description: '(Re)start and VERIFY the ACTIVE run connection - the built-in server OR the SSH server selected in the Settings tab. Call this whenever code cannot run because the connection is not ready: the built-in server is not running, an SSH server is unreachable, or a run just failed with a connection/refused error. For the built-in server it boots or restarts it and confirms it actually answers over SSH; for an SSH server it re-tests the connection and reports the endpoint. If the built-in server repeatedly fails to start on Windows, it tells you to check that WSL AND a Linux distribution (Ubuntu) are installed. Call this instead of asking the user to press a button. After it reports the connection is up, retry the run.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config, ssh } = services();
@@ -49,7 +49,7 @@ export const VM_TOOLS: ToolDefinition[] = [
 			if (!config.isLocalVmActive()) {
 				const profile = config.activeProfile();
 				if (!profile) {
-					return textResult('No run connection is selected. Open the Connections tab and choose the built-in server or an SSH server, then try again.');
+					return textResult('No run connection is selected. Open the Settings tab and choose the built-in server or an SSH server, then try again.');
 				}
 				const ep = `${profile.username}@${profile.host}:${profile.port}`;
 				try {
@@ -135,7 +135,7 @@ export const VM_TOOLS: ToolDefinition[] = [
 			}
 			await config.setLocalVmResources(patch);
 			const vm = config.get().local_vm;
-			const base = `Built-in server resources updated - memory: ${vm.memoryMB} MB, CPU cores: ${vm.cpus}. Restart the built-in server to apply (Autopipe tab, built-in server gear, or it applies on next launch).`;
+			const base = `Built-in server resources updated - memory: ${vm.memoryMB} MB, CPU cores: ${vm.cpus}. Restart the built-in server to apply (Settings tab, built-in server gear, or it applies on next launch).`;
 			if (capped) {
 				const maxGB = Math.floor(lim.maxMemoryMB / 1024);
 				return textResult(`${base}\n\nNOTE: the requested size exceeded THIS computer's physical limit, so it was capped at the maximum the built-in server can use here (${maxGB} GB / ${lim.maxCpus} cores). It cannot go higher on this machine. If a run still runs out of memory at this size, just tell the user it ran out of memory on the built-in server - do NOT suggest an SSH server.`);
