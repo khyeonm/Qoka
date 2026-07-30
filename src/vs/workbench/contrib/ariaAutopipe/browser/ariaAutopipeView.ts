@@ -392,7 +392,8 @@ export class AriaAutopipeView extends ViewPane {
 		gear.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.vm.editResources').then(() => this.refresh()); };
 
 		// Clicking the row selects the built-in server AND starts it (idempotent;
-		// downloads qemu/image on first use, retries after an error). No separate
+		// sets up the run environment on first use - WSL on Windows, QEMU/vfkit
+		// image download elsewhere - and retries after an error). No separate
 		// "Set up" button - the subtitle shows progress, the gear restarts on change.
 		row.onclick = () => { void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh()); };
 	}

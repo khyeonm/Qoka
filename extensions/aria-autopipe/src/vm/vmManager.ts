@@ -27,8 +27,9 @@ const execFileAsync = promisify(execFile);
  * like any SSH server (it's exposed as a synthetic SshProfile on 127.0.0.1).
  *
  * Two modes:
- *  - REAL: boot QEMU (Mac=HVF / Win=WHPX / Linux=KVM). Needs a base image + the
- *    qemu binary. This is the production path (image comes from GitHub Releases
+ *  - REAL: boot QEMU (Intel Mac=HVF / Linux=KVM) or vfkit (Apple Silicon).
+ *    Windows uses WSL instead (see startWsl). Needs a base image + the qemu
+ *    binary. This is the production path (image comes from GitHub Releases
  *    in M4; for dev you can point ARIA_AUTOPIPE_VM_IMAGE / ARIA_QEMU_PATH).
  *  - STAND-IN (dev): when ARIA_AUTOPIPE_VM_STANDIN is set, skip QEMU and treat a
  *    given SSH endpoint as the "VM". Lets Linux dev boxes (no qemu/KVM) test the
@@ -150,8 +151,9 @@ export class VMManager {
 		this.set('ready');
 	}
 
-	/** Provision + boot the built-in VM. macOS uses vfkit (Apple VZ - works on
-	 *  every Apple Silicon generation); Windows/Linux use portable QEMU. */
+	/** Provision + boot the built-in VM. Windows uses WSL; Apple Silicon uses
+	 *  vfkit (Apple VZ - works on every Apple Silicon generation); Intel Mac and
+	 *  Linux use portable QEMU. */
 	private async startReal(): Promise<void> {
 		this.set('provisioning');
 		const progress: ProgressFn = (message, pct) => {
@@ -264,7 +266,8 @@ export class VMManager {
 		}
 	}
 
-	/** Windows/Linux boot path: portable QEMU with WHPX/KVM and a TCG fallback. */
+	/** Intel Mac / Linux boot path: portable QEMU with HVF/KVM and a TCG fallback.
+	 *  (Windows uses WSL; Apple Silicon uses vfkit.) */
 	private async startQemu(progress: ProgressFn): Promise<void> {
 		const qemu = await this.provisioner.ensureQemu(progress);
 		const image = await this.provisioner.ensureImage(progress);
@@ -276,27 +279,17 @@ export class VMManager {
 		const seed = await this.buildSeed(key + '.pub');
 		const qimg = this.qemuImg(qemu);
 
-		// Mac/Linux: a fresh overlay each boot keeps the base image pristine because
-		// user DATA lives on the 9p-shared host workspace, not the overlay.
-		// Windows: qemu has no 9p/virtfs, so there is NO host share - user data
-		// lives inside the guest overlay, so we must PERSIST it across boots (never
-		// wipe; only create it the first time) or every restart loses the workspace.
+		// A fresh overlay each boot keeps the base image pristine because user DATA
+		// lives on the 9p-shared host workspace, not the overlay.
 		const createArgs = ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', image, overlay, `${this.config.get().local_vm.diskGB}G`];
-		if (process.platform === 'win32') {
-			if (!fs.existsSync(overlay)) {
-				await execFileAsync(qimg, createArgs, { windowsHide: true });
-			}
-		} else {
-			if (fs.existsSync(overlay)) { fs.rmSync(overlay); }
-			await execFileAsync(qimg, createArgs, { windowsHide: true });
-		}
+		if (fs.existsSync(overlay)) { fs.rmSync(overlay); }
+		await execFileAsync(qimg, createArgs, { windowsHide: true });
 
 		const vm = this.hostSafeSpec();
 		// Boot with hardware acceleration first, but fall back to (slow) TCG
 		// software emulation if qemu exits before SSH comes up. That covers a
 		// broken host accelerator such as the QEMU HVF/SME assertion crash seen on
-		// some Apple Silicon Macs, or a Windows host without the Hypervisor
-		// Platform feature - the VM still boots, just slower.
+		// some Intel Macs - the VM still boots, just slower.
 		const primary = this.accel();
 		const accels = primary === 'tcg' ? ['tcg'] : [primary, 'tcg'];
 		const sshProfile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
@@ -459,13 +452,8 @@ export class VMManager {
 			// `cidata` label, and virtio attaches cleanly on both q35 and arm64 virt.
 			'-drive', `file=${seed},if=virtio,format=raw`,
 			'-netdev', `user,id=n0,hostfwd=tcp:127.0.0.1:${port}-:22`, '-device', 'virtio-net-pci,netdev=n0',
-			// 9p host-workspace share - Linux/macOS qemu only. The Windows qemu build
-			// (choco) has virtfs DISABLED, and passing -virtfs makes it exit at start
-			// ("There is no option group 'virtfs'"). Omit it there; the guest keeps
-			// its data in the persisted overlay instead (see overlay handling above).
-			...(process.platform === 'win32'
-				? []
-				: ['-virtfs', `local,path=${this.workspace},mount_tag=aria,security_model=mapped-xattr,id=aria`]),
+			// 9p host-workspace share (Intel Mac / Linux qemu).
+			'-virtfs', `local,path=${this.workspace},mount_tag=aria,security_model=mapped-xattr,id=aria`,
 			'-display', 'none', '-serial', `file:${path.join(this.dir, 'console.log')}`,
 		];
 	}
@@ -512,32 +500,24 @@ export class VMManager {
 	}
 
 	private qemuImg(qemu: string): string {
-		const exe = process.platform === 'win32' ? '.exe' : '';
-		const cand = path.join(path.dirname(qemu), `qemu-img${exe}`);
-		return fs.existsSync(cand) ? cand : `qemu-img${exe}`;
+		const cand = path.join(path.dirname(qemu), 'qemu-img');
+		return fs.existsSync(cand) ? cand : 'qemu-img';
 	}
 
 	private accel(): string {
 		switch (process.platform) {
 			case 'darwin': return 'hvf';
-			case 'win32': return 'whpx';
 			default: return 'kvm';
 		}
 	}
 
 	/** `-machine`/`-accel`/`-cpu` args for a specific accelerator.
 	 *  - hvf/kvm: `-cpu host` (host passthrough - required and fast).
-	 *  - whpx: NO `-cpu host` - the Windows Hypervisor Platform rejects/degrades
-	 *    the host model, which makes qemu fall back to (slow) TCG. Letting qemu
-	 *    pick the machine default keeps WHPX engaged and fast.
 	 *  - tcg: `-cpu max` (host is invalid under software emulation). */
 	private cpuMachineArgs(accel: string): string[] {
 		const machine = this.machineType();
 		if (accel === 'tcg') {
 			return ['-machine', machine, '-accel', 'tcg', '-cpu', 'max'];
-		}
-		if (accel === 'whpx') {
-			return ['-machine', machine, '-accel', 'whpx'];
 		}
 		return ['-machine', machine, '-accel', accel, '-cpu', 'host'];
 	}

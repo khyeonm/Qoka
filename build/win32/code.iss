@@ -81,6 +81,10 @@ Name: "addcontextmenufolders"; Description: "{cm:AddContextMenuFolders,{#NameSho
 Name: "associatewithfiles"; Description: "{cm:AssociateWithFiles,{#NameShort}}"; GroupDescription: "{cm:Other}"
 Name: "addtopath"; Description: "{cm:AddToPath}"; GroupDescription: "{cm:Other}"
 Name: "runcode"; Description: "{cm:RunAfter,{#NameShort}}"; GroupDescription: "{cm:Other}"; Check: WizardSilent
+; Shown only when a previous install is detected (ShowCleanInstallTask). When
+; ticked, the old version's app files are removed before the new ones are laid
+; down; user settings and data are kept.
+Name: "cleaninstall"; Description: "Remove the existing installation first (clean reinstall - your settings are kept)"; GroupDescription: "{cm:Other}"; Flags: unchecked; Check: ShowCleanInstallTask
 
 [Dirs]
 Name: "{app}"; AfterInstall: DisableAppDirInheritance
@@ -1475,10 +1479,63 @@ end;
 
 
 // called before the wizard checks for running application
+// Uninstaller path of an existing install of THIS app, read from the same
+// `<AppId>_is1` uninstall key Inno registers under (mirrors InitializeSetup's
+// incompatible-arch probe). Empty when nothing is installed. Both roots are
+// checked so a user- or system-scope prior install is found either way.
+function GetExistingUninstaller(): String;
+var
+  regKey: String;
+  s: String;
+begin
+  regKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + copy('{#AppId}', 2, 38) + '_is1';
+  s := '';
+  if not RegQueryStringValue(HKCU, regKey, 'UninstallString', s) then
+    RegQueryStringValue(HKLM, regKey, 'UninstallString', s);
+  Result := RemoveQuotes(s);
+end;
+
+// Only offer the "clean reinstall" task on an interactive re-install (a previous
+// version is present, and this is not a silent background update).
+function ShowCleanInstallTask(): Boolean;
+begin
+  Result := IsNotBackgroundUpdate() and (GetExistingUninstaller() <> '');
+end;
+
+// Run the previous version's uninstaller before new files are copied. Removes
+// only the old APP files - user settings and data (%APPDATA%, %USERPROFILE%\.qoka)
+// are left untouched, because the uninstaller does not delete them. Best-effort:
+// a failure never blocks the fresh install.
+procedure RemovePreviousInstall();
+var
+  uninstaller: String;
+  resultCode: Integer;
+  waited: Integer;
+begin
+  uninstaller := GetExistingUninstaller();
+  if uninstaller = '' then
+    Exit;
+  if not Exec(uninstaller, '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES', '', SW_HIDE, ewWaitUntilTerminated, resultCode) then
+    Exit;
+  // Inno's uninstaller relocates itself to %TEMP% and returns immediately, so the
+  // real removal keeps running after Exec returns. Wait (up to ~30s) for the old
+  // uninstaller to disappear before laying the new files into the same folder.
+  waited := 0;
+  while FileExists(uninstaller) and (waited < 60) do begin
+    Sleep(500);
+    waited := waited + 1;
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   if IsNotBackgroundUpdate() then
     StopTunnelServiceIfNeeded();
+
+  // Opt-in clean reinstall: remove the previous version's app files first so no
+  // stale files remain. Keeps user settings/data (see RemovePreviousInstall).
+  if IsNotBackgroundUpdate() and WizardIsTaskSelected('cleaninstall') then
+    RemovePreviousInstall();
 
   if IsNotBackgroundUpdate() and not StopTunnelOtherProcesses() then
      Result := '{#NameShort} is still running a tunnel process. Please stop the tunnel before installing.'
