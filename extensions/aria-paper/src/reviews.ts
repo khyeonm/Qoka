@@ -334,8 +334,14 @@ export function buildReviewTools(): ToolDefinition[] {
 				} catch (e) {
 					return err(`record_review failed: ${(e as Error).message}`);
 				}
+				// Auto-open the review results so the user sees them as soon as they land
+				// (best-effort; idempotent - reopening the same run just focuses it).
+				try {
+					await vscode.commands.executeCommand('workbench.view.ariaManuscript');
+					await vscode.commands.executeCommand('aria.peerReview.open', execId);
+				} catch { /* UI reveal is best-effort */ }
 				const major = concerns.filter(c => c.severity === 'major').length;
-				return ok(`Recorded ${concerns.length} concern(s) for "${reviewer}" (${major} major). Qoka's Manuscript tab will show them.`);
+				return ok(`Recorded ${concerns.length} concern(s) for "${reviewer}" (${major} major). Qoka opened the review results in the Manuscript tab.`);
 			},
 		},
 		{

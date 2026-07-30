@@ -15,15 +15,19 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { IAction } from '../../../../base/common/actions.js';
+import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
+import { IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { applyAriaScrollbar } from '../../aria/browser/ariaScrollbar.js';
-import { renderAriaTabSummary } from '../../aria/browser/ariaHelpEditor.js';
+import { createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { FileChange, Snapshot, SnapshotDraft, StatusInfo, basename, formatRelativeTime, injectAriaVcsStyles, markerFor, onDidChangeSnapshots, notifySnapshotsChanged } from './ariaVcsCommon.js';
+import { FileChange, Snapshot, SnapshotDraft, StatusInfo, basename, injectAriaVcsStyles, markerFor, onDidChangeSnapshots, notifySnapshotsChanged } from './ariaVcsCommon.js';
 
 interface SnapshotGroup {
 	groupId: string | undefined;
@@ -40,6 +44,11 @@ export class AriaVersionsView extends ViewPane {
 
 	static readonly ID = 'workbench.view.aria.versions.main';
 
+	/** Which region(s) this instance renders: 'both' = the classic merged view;
+	 *  'changes' / 'snapshots' = a single region, so the Analysis tab can show them
+	 *  as two separate collapsible toggles. Subclasses set this. */
+	protected mode: 'both' | 'changes' | 'snapshots' = 'both';
+
 	private viewBody: HTMLElement | undefined;
 	/** Top region (summary + changes), scrolls independently. */
 	private changesRegion: HTMLElement | undefined;
@@ -51,13 +60,11 @@ export class AriaVersionsView extends ViewPane {
 
 	// --- Changes state ---
 	private selectedPaths: Set<string> | undefined;
+	/** Number of unsaved changes in the last refresh (gates the title-bar Save). */
+	private unsavedCount = 0;
 
 	// --- Snapshots state ---
 	private readonly expandedSnapshots = new Set<string>();
-	private selectedHash: string | undefined;
-	private checkboxes: { hash: string; el: HTMLInputElement }[] = [];
-	private goBackBtn: HTMLButtonElement | undefined;
-	private goingBack = false;
 	/** Hash of the newest snapshot (= current version / HEAD). Going back to it is
 	 *  a no-op, so we tell the user instead of silently doing nothing. */
 	private newestHash: string | undefined;
@@ -84,6 +91,7 @@ export class AriaVersionsView extends ViewPane {
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IFileService private readonly fileService: IFileService,
+		@IDialogService private readonly dialogService: IDialogService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		injectAriaVcsStyles();
@@ -96,6 +104,11 @@ export class AriaVersionsView extends ViewPane {
 		// Re-query (debounced) when files in the workspace change, so the unsaved
 		// change list stays current without a manual refresh.
 		this.setupFileWatcher();
+	}
+
+	override createActionViewItem(action: IAction, options?: IDropdownMenuActionViewItemOptions): IActionViewItem | undefined {
+		return createAriaHelpTitleActionViewItem(action, 'versions', options ?? {})
+			?? super.createActionViewItem(action, options);
 	}
 
 	/** Watch the workspace folder (minus noisy dirs) and refresh on file changes. */
@@ -123,25 +136,33 @@ export class AriaVersionsView extends ViewPane {
 		Object.assign(root.style, { display: 'flex', flexDirection: 'column', height: '100%', width: '100%', boxSizing: 'border-box', overflow: 'hidden' });
 		this.viewBody = root;
 
-		const changesRegion = append(root, $('.aria-vcs-scroll'));
-		applyAriaScrollbar(changesRegion);
-		// Fixed height (set from `changesRatio` in layoutBody); the user drags the
-		// divider below to change the split.
-		Object.assign(changesRegion.style, { padding: '10px 8px', overflowY: 'auto', boxSizing: 'border-box', flex: '0 0 auto' });
-		this.changesRegion = changesRegion;
+		if (this.mode !== 'snapshots') {
+			const changesRegion = append(root, $('.aria-vcs-scroll'));
+			applyAriaScrollbar(changesRegion);
+			// In 'both' mode the height is fixed (from `changesRatio`, dragged via the
+			// divider); as its own toggle it just fills the view. Minimal top padding so
+			// the change list sits right under the "CHANGES" title.
+			Object.assign(changesRegion.style, { padding: '2px 8px 10px', overflowY: 'auto', boxSizing: 'border-box', flex: this.mode === 'both' ? '0 0 auto' : '1 1 auto' });
+			this.changesRegion = changesRegion;
+		}
 
-		// Draggable divider between Changes (top) and Snapshots (bottom).
-		const divider = append(root, $('.aria-vcs-divider'));
-		Object.assign(divider.style, {
-			flex: '0 0 auto', height: '7px', cursor: 'ns-resize', boxSizing: 'border-box',
-			borderTop: '1px solid rgba(127,127,127,0.25)',
-		});
-		this.installDividerDrag(divider);
+		// Draggable divider between Changes (top) and Snapshots (bottom) - only in the
+		// classic merged view.
+		if (this.mode === 'both') {
+			const divider = append(root, $('.aria-vcs-divider'));
+			Object.assign(divider.style, {
+				flex: '0 0 auto', height: '7px', cursor: 'ns-resize', boxSizing: 'border-box',
+				borderTop: '1px solid rgba(127,127,127,0.25)',
+			});
+			this.installDividerDrag(divider);
+		}
 
-		const snapshotsRegion = append(root, $('.aria-vcs-scroll'));
-		applyAriaScrollbar(snapshotsRegion);
-		Object.assign(snapshotsRegion.style, { padding: '6px 8px 10px', overflowY: 'auto', boxSizing: 'border-box', flex: '1 1 auto' });
-		this.snapshotsRegion = snapshotsRegion;
+		if (this.mode !== 'changes') {
+			const snapshotsRegion = append(root, $('.aria-vcs-scroll'));
+			applyAriaScrollbar(snapshotsRegion);
+			Object.assign(snapshotsRegion.style, { padding: '6px 8px 10px', overflowY: 'auto', boxSizing: 'border-box', flex: '1 1 auto' });
+			this.snapshotsRegion = snapshotsRegion;
+		}
 
 		this.applyChangesHeight();
 		this.refresh();
@@ -158,6 +179,11 @@ export class AriaVersionsView extends ViewPane {
 
 	/** Apply the current Changes/Snapshots split ratio to the Changes region. */
 	private applyChangesHeight(): void {
+		// Only the merged view splits the height between two regions; a single-region
+		// toggle just fills its view.
+		if (this.mode !== 'both') {
+			return;
+		}
 		const body = this.viewBody;
 		const region = this.changesRegion;
 		if (!body || !region) {
@@ -204,17 +230,16 @@ export class AriaVersionsView extends ViewPane {
 	private async refresh(): Promise<void> {
 		const cReg = this.changesRegion;
 		const sReg = this.snapshotsRegion;
-		if (!cReg || !sReg) {
+		const primary = cReg ?? sReg;
+		if (!primary) {
 			return;
 		}
 		const token = ++this.refreshToken;
 
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
-			clearNode(cReg);
-			clearNode(sReg);
-			this.checkboxes = [];
-			renderAriaTabSummary(cReg, 'versions');
-			this.renderInfo(cReg, localize('aria.vcs.openFolder', "Open a folder to start saving snapshots."));
+			if (cReg) { clearNode(cReg); }
+			if (sReg) { clearNode(sReg); }
+			this.renderInfo(primary, localize('aria.vcs.openFolder', "Open a folder to start saving snapshots."));
 			return;
 		}
 
@@ -234,106 +259,54 @@ export class AriaVersionsView extends ViewPane {
 			return; // a newer refresh owns the render
 		}
 
-		clearNode(cReg);
-		clearNode(sReg);
-		this.checkboxes = [];
-		renderAriaTabSummary(cReg, 'versions');
-		this.renderChangesArea(cReg, status, changes);
-		this.renderSnapshotsArea(sReg, snapshots);
+		if (cReg) { clearNode(cReg); }
+		if (sReg) { clearNode(sReg); }
+		if (cReg) {
+			this.renderChangesArea(cReg, status, changes);
+		}
+		if (sReg) {
+			this.renderSnapshotsArea(sReg, snapshots);
+		}
 	}
 
 	// --- Changes area --------------------------------------------------------
 
 	private renderChangesArea(root: HTMLElement, status: StatusInfo | undefined, changes: FileChange[]): void {
-		const banner = append(root, $('div'));
-		Object.assign(banner.style, {
-			padding: '8px 10px', marginBottom: '6px', borderRadius: '4px',
-			background: 'var(--vscode-editorWidget-background)',
-			border: '1px solid var(--vscode-widget-border, transparent)',
-		});
-
-		// Status line + an always-visible Refresh button (right-aligned). Keeping
-		// Refresh here - not inside the conditional change list - means the user can
-		// re-query even when there are no changes to show.
-		const bannerTop = append(banner, $('div'));
-		Object.assign(bannerTop.style, { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' });
-
-		const bannerText = append(bannerTop, $('div'));
-		Object.assign(bannerText.style, { fontSize: '12px', flex: '1', minWidth: '0' });
-		if (!status || !status.isRepo) {
-			bannerText.textContent = localize('aria.vcs.notInitialized', "No snapshots yet - your first Save will set things up.");
-		} else if (status.unsavedChanges > 0) {
-			bannerText.textContent = localize('aria.vcs.unsavedCount', "{0} unsaved change{1}", status.unsavedChanges, status.unsavedChanges === 1 ? '' : 's');
-		} else {
-			bannerText.textContent = localize('aria.vcs.allSaved', "All changes saved.");
+		// Save + Refresh live on the view's TITLE bar (next to "CHANGES"), so the body
+		// is just the change list, pulled to the very top - no toolbar row, no blank.
+		this.unsavedCount = (status && status.isRepo) ? status.unsavedChanges : 0;
+		if (this.unsavedCount > 0) {
+			this.renderChangesList(root, changes, () => { /* save is a title action; nothing to sync */ });
 		}
+	}
 
-		const refreshBtn = append(bannerTop, $('button')) as HTMLButtonElement;
-		refreshBtn.title = localize('aria.vcs.refreshTooltip', "Refresh");
-		Object.assign(refreshBtn.style, { padding: '2px 4px', background: 'transparent', color: 'var(--vscode-foreground)', border: 'none', borderRadius: '3px', cursor: 'pointer', flexShrink: '0', display: 'inline-flex', alignItems: 'center' });
-		const refreshIcon = append(refreshBtn, $('span.codicon.codicon-refresh'));
-		refreshIcon.style.fontSize = '14px';
-		refreshBtn.onclick = () => void this.refresh();
-
-		const saveBtn = append(banner, $('button')) as HTMLButtonElement;
-		Object.assign(saveBtn.style, {
-			width: '100%', padding: '6px 10px', fontSize: '12px', cursor: 'pointer',
-			background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)',
-			border: 'none', borderRadius: '4px', fontWeight: '500',
-		});
-
-		const updateSaveLabel = () => {
-			if (this.selectedPaths === undefined) {
-				saveBtn.textContent = localize('aria.vcs.save', "Save Snapshot");
-				saveBtn.disabled = false;
-				saveBtn.style.opacity = '1';
-				saveBtn.style.cursor = 'pointer';
-			} else {
-				const n = this.selectedPaths.size;
-				saveBtn.textContent = localize('aria.vcs.saveSelected', "Save Snapshot ({0} selected)", n);
-				saveBtn.disabled = n === 0;
-				saveBtn.style.opacity = n === 0 ? '0.5' : '1';
-				saveBtn.style.cursor = n === 0 ? 'not-allowed' : 'pointer';
-			}
-		};
-		updateSaveLabel();
-
-		saveBtn.onclick = async () => {
-			const paths = this.selectedPaths ? Array.from(this.selectedPaths) : undefined;
-			if (paths && paths.length === 0) {
-				return;
-			}
-			const savedLabel = saveBtn.textContent;
-			const savedBanner = bannerText.textContent;
-			saveBtn.disabled = true;
-			saveBtn.style.opacity = '0.7';
-			saveBtn.style.cursor = 'progress';
-			saveBtn.textContent = localize('aria.vcs.preparing', "Preparing snapshot…");
-			bannerText.textContent = localize('aria.vcs.preparingHint', "This can take a moment - keep working. The naming box opens when it's ready.");
-			let draft: SnapshotDraft | undefined;
-			try {
-				draft = await this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths);
-			} catch {
-				draft = undefined;
-			}
-			saveBtn.disabled = false;
-			saveBtn.style.opacity = '1';
-			saveBtn.style.cursor = 'pointer';
-			saveBtn.textContent = savedLabel;
-			bannerText.textContent = savedBanner;
-
-			const result = await this.showSaveDialog(draft?.suggestedTitle ?? '', draft?.previousTitle, draft?.continuation === true);
-			if (!result) {
-				return;
-			}
-			await this.commandService.executeCommand('aria.vcs.saveSnapshot', result.title, paths, result.group);
-			this.selectedPaths = undefined;
-			notifySnapshotsChanged();
-		};
-
-		if (status && status.isRepo && status.unsavedChanges > 0) {
-			this.renderChangesList(root, changes, updateSaveLabel);
+	/** Run the Save-snapshot flow (title-bar action): prepare, name it, save. */
+	async saveSnapshotFlow(): Promise<void> {
+		if (this.unsavedCount === 0) {
+			this.notificationService.info(localize('aria.vcs.nothingToSave', "No changes to snapshot - everything is already saved."));
+			return;
 		}
+		const paths = this.selectedPaths ? Array.from(this.selectedPaths) : undefined;
+		if (paths && paths.length === 0) {
+			this.notificationService.info(localize('aria.vcs.nothingSelected', "Select at least one changed file to snapshot."));
+			return;
+		}
+		let draft: SnapshotDraft | undefined;
+		try {
+			draft = await this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths);
+		} catch {
+			draft = undefined;
+		}
+		const result = await this.showSaveDialog(draft?.suggestedTitle ?? '', draft?.previousTitle, draft?.continuation === true);
+		if (!result) { return; }
+		await this.commandService.executeCommand('aria.vcs.saveSnapshot', result.title, paths, result.group);
+		this.selectedPaths = undefined;
+		notifySnapshotsChanged();
+	}
+
+	/** Re-query the working tree (title-bar Refresh action). */
+	refreshNow(): void {
+		void this.refresh();
 	}
 
 	private renderChangesList(parent: HTMLElement, changes: FileChange[], onSelectionChanged: () => void): void {
@@ -348,7 +321,6 @@ export class AriaVersionsView extends ViewPane {
 		}
 
 		const list = append(parent, $('div'));
-		list.style.marginTop = '4px';
 
 		const totalSelected = (): number => this.selectedPaths === undefined ? changes.length : this.selectedPaths.size;
 		const fileCheckboxes: { path: string; checkbox: HTMLInputElement }[] = [];
@@ -516,90 +488,40 @@ export class AriaVersionsView extends ViewPane {
 	// --- Snapshots area ------------------------------------------------------
 
 	private renderSnapshotsArea(root: HTMLElement, snapshots: Snapshot[]): void {
-		const divider = append(root, $('div'));
-		// Down-arrow marks the bottom-pinned Snapshots section. Uppercase, small,
-		// non-bold, muted - matching the "VERSIONS" pane title's treatment.
-		divider.textContent = '▾ ' + localize('aria.vcs.snapshotsHeading', "Snapshots");
-		Object.assign(divider.style, {
-			margin: '2px 0 8px', fontSize: '11px', fontWeight: 'normal',
-			textTransform: 'uppercase', letterSpacing: '0.6px', opacity: '0.6',
-		});
-
-		const btn = append(root, $('button')) as HTMLButtonElement;
-		btn.textContent = localize('aria.vcs.goBack', "Go back to this version");
-		Object.assign(btn.style, { width: '100%', padding: '6px 10px', marginBottom: '10px', fontSize: '12px', borderRadius: '4px', border: '1px solid var(--vscode-button-border, transparent)' });
-		btn.onclick = () => void this.goBackToSelected();
-		this.goBackBtn = btn;
-
+		// No in-body heading: the "SNAPSHOTS" pane title already labels this section.
 		// getRecent is newest-first, so snapshots[0] is the current version (HEAD).
 		this.newestHash = snapshots[0]?.hash;
 
-		// Drop a selection whose snapshot vanished (e.g. after a go-back).
-		if (this.selectedHash && !snapshots.some(s => s.hash === this.selectedHash)) {
-			this.selectedHash = undefined;
-		}
-
-		const list = append(root, $('div'));
 		if (snapshots.length === 0) {
-			this.renderInfo(list, localize('aria.vcs.noSnapshots', "No snapshots yet - save your first one above."));
-		} else {
-			for (const group of this.groupSnapshots(snapshots)) {
-				this.renderGroup(list, group);
-			}
-		}
-		this.updateGoBackButton();
-	}
-
-	private updateGoBackButton(): void {
-		const btn = this.goBackBtn;
-		if (!btn || this.goingBack) {
+			this.renderInfo(root, localize('aria.vcs.noSnapshots', "No snapshots yet - save your first one from Changes above."));
 			return;
 		}
-		const on = !!this.selectedHash;
-		btn.textContent = localize('aria.vcs.goBack', "Go back to this version");
-		btn.disabled = !on;
-		btn.style.cursor = on ? 'pointer' : 'not-allowed';
-		btn.style.opacity = on ? '1' : '0.5';
-		btn.style.background = on ? 'var(--vscode-button-background)' : 'transparent';
-		btn.style.color = on ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)';
+		for (const group of this.groupSnapshots(snapshots)) {
+			this.renderGroup(root, group);
+		}
 	}
 
-	async goBackToSelected(): Promise<void> {
-		const hash = this.selectedHash;
-		if (!hash || this.goingBack) {
-			return;
-		}
-		// Going back to the newest snapshot (= current version) does nothing -
-		// there's nothing after it to undo. Tell the user instead of a silent no-op.
-		if (hash === this.newestHash) {
+	/** Roll the whole project back to a snapshot, after a confirm. The current state
+	 *  is kept in history first, so it can be undone. */
+	private async restoreToSnapshot(snapshot: Snapshot): Promise<void> {
+		if (snapshot.hash === this.newestHash) {
 			this.notificationService.info(localize('aria.vcs.alreadyLatest', "You're already at this version - pick an older snapshot to go back to."));
 			return;
 		}
-		this.goingBack = true;
-		const btn = this.goBackBtn;
-		if (btn) {
-			btn.disabled = true;
-			btn.style.cursor = 'progress';
-			btn.style.opacity = '1';
-			btn.textContent = localize('aria.vcs.goingBack', "Going back…");
-		}
+		const when = new Date(snapshot.timestamp).toLocaleString();
+		const { confirmed } = await this.dialogService.confirm({
+			type: 'question',
+			message: localize('aria.vcs.restoreConfirm', "Go back to \"{0}\"?", snapshot.message),
+			detail: localize('aria.vcs.restoreDetail', "This restores every file to how it was in this snapshot ({0}). Your current state is saved to history first, so you can undo it.", when),
+			primaryButton: localize('aria.vcs.goBackBtn', "Go back"),
+		});
+		if (!confirmed) { return; }
 		try {
-			await this.commandService.executeCommand('aria.vcs.restoreSnapshot', hash);
+			await this.commandService.executeCommand('aria.vcs.restoreSnapshot', snapshot.hash);
 		} finally {
-			this.goingBack = false;
-			this.updateGoBackButton();
+			// A restore rewrites the working tree - refresh so Changes and the timeline update.
+			notifySnapshotsChanged();
 		}
-		// A restore rewrites the working tree - refresh so the Changes list shows
-		// the undone changes and the timeline updates.
-		notifySnapshotsChanged();
-	}
-
-	private setSelected(hash: string | undefined): void {
-		this.selectedHash = hash;
-		for (const { hash: h, el } of this.checkboxes) {
-			el.checked = h === hash;
-		}
-		this.updateGoBackButton();
 	}
 
 	private groupSnapshots(snapshots: Snapshot[]): SnapshotGroup[] {
@@ -637,43 +559,51 @@ export class AriaVersionsView extends ViewPane {
 	}
 
 	private renderSnapshotRow(parent: HTMLElement, snapshot: Snapshot, indent: boolean): void {
-		const container = append(parent, $('div'));
-		const row = append(container, $('.aria-vcs-row')) as HTMLElement;
-		if (indent) { row.style.paddingLeft = '24px'; }
-
-		// The newest snapshot IS the current version - going back to it is a no-op,
-		// so its checkbox is disabled and greyed (not selectable).
 		const isNewest = snapshot.hash === this.newestHash;
-		const cb = append(row, $('input')) as HTMLInputElement;
-		cb.type = 'checkbox';
-		cb.style.flexShrink = '0';
-		if (isNewest) {
-			cb.disabled = true;
-			cb.checked = false;
-			cb.style.opacity = '0.45';
-			cb.style.cursor = 'not-allowed';
-			cb.title = localize('aria.vcs.currentVersion', "Current version");
-		} else {
-			cb.checked = this.selectedHash === snapshot.hash;
-			cb.onclick = (e) => {
-				e.stopPropagation();
-				this.setSelected(this.selectedHash === snapshot.hash ? undefined : snapshot.hash);
-			};
-			this.checkboxes.push({ hash: snapshot.hash, el: cb });
+		const container = append(parent, $('div'));
+
+		// Notebook-History-style row: a chevron (expands the changed files), the title
+		// with the date/time beneath it, and a restore action at the right (on hover).
+		const row = append(container, $('div'));
+		Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 2px', borderRadius: '4px', cursor: 'pointer' });
+		if (indent) { row.style.paddingLeft = '24px'; }
+		row.addEventListener('mouseenter', () => { row.style.background = 'var(--vscode-list-hoverBackground, rgba(127,127,127,0.12))'; });
+		row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
+
+		const chevron = append(row, $('span.codicon.codicon-chevron-right')) as HTMLElement;
+		Object.assign(chevron.style, { fontSize: '13px', flexShrink: '0', opacity: '0.7' });
+
+		const text = append(row, $('div'));
+		Object.assign(text.style, { flex: '1', minWidth: '0' });
+		const t1 = append(text, $('div'));
+		t1.textContent = snapshot.message;
+		t1.title = snapshot.message;
+		Object.assign(t1.style, { fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' });
+		const t2 = append(text, $('div'));
+		t2.textContent = new Date(snapshot.timestamp).toLocaleString();
+		Object.assign(t2.style, { fontSize: '10px', opacity: '0.6' });
+
+		// The newest snapshot IS the current version - nothing to go back to. Every
+		// other row shows an always-visible "go back" arrow pinned to the right, with
+		// its own background so a long (ellipsised) title never runs under it.
+		if (!isNewest) {
+			const restore = append(row, $('span.codicon.codicon-discard')) as HTMLElement;
+			restore.title = localize('aria.vcs.restoreThis', "Go back to this version");
+			Object.assign(restore.style, {
+				cursor: 'pointer', flexShrink: '0', fontSize: '13px', padding: '3px 5px', borderRadius: '4px',
+				background: 'var(--vscode-toolbar-hoverBackground, rgba(127,127,127,0.2))',
+				color: 'var(--vscode-foreground)',
+			});
+			restore.onmouseenter = () => { restore.style.background = 'var(--vscode-toolbar-activeBackground, rgba(127,127,127,0.35))'; };
+			restore.onmouseleave = () => { restore.style.background = 'var(--vscode-toolbar-hoverBackground, rgba(127,127,127,0.2))'; };
+			restore.onclick = (e) => { e.stopPropagation(); void this.restoreToSnapshot(snapshot); };
 		}
-
-		const time = append(row, $('span'));
-		Object.assign(time.style, { opacity: '0.6', fontSize: '11px', minWidth: '62px', flexShrink: '0' });
-		time.textContent = formatRelativeTime(snapshot.timestamp);
-
-		const message = append(row, $('span'));
-		Object.assign(message.style, { flex: '1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' });
-		message.textContent = snapshot.message;
-		message.title = snapshot.message;
 
 		let details: HTMLElement | undefined;
 		let loaded = false;
 		const applyExpanded = (expanded: boolean): void => {
+			chevron.classList.toggle('codicon-chevron-down', expanded);
+			chevron.classList.toggle('codicon-chevron-right', !expanded);
 			if (expanded) {
 				this.expandedSnapshots.add(snapshot.hash);
 				if (!details) {
@@ -692,7 +622,7 @@ export class AriaVersionsView extends ViewPane {
 			}
 		};
 		applyExpanded(this.expandedSnapshots.has(snapshot.hash));
-		message.onclick = () => applyExpanded(!this.expandedSnapshots.has(snapshot.hash));
+		row.onclick = () => applyExpanded(!this.expandedSnapshots.has(snapshot.hash));
 	}
 
 	private async renderSnapshotFiles(details: HTMLElement, snapshot: Snapshot): Promise<void> {
@@ -733,4 +663,16 @@ export class AriaVersionsView extends ViewPane {
 		p.style.fontSize = '13px';
 		p.textContent = text;
 	}
+}
+
+/** The "Changes" toggle in the Analysis tab: pending changes + Save snapshot. */
+export class AriaChangesView extends AriaVersionsView {
+	static override readonly ID = 'workbench.view.aria.changes.main';
+	protected override mode: 'both' | 'changes' | 'snapshots' = 'changes';
+}
+
+/** The "Snapshots" toggle in the Analysis tab: the saved-version timeline + restore. */
+export class AriaSnapshotsView extends AriaVersionsView {
+	static override readonly ID = 'workbench.view.aria.snapshots.main';
+	protected override mode: 'both' | 'changes' | 'snapshots' = 'snapshots';
 }

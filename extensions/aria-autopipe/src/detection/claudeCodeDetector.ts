@@ -21,7 +21,11 @@ export interface DetectedProvider {
 	kind: AiProviderKind;
 	displayName: string;
 	extensionId: string;
+	/** The provider's VS Code chat EXTENSION is installed. */
 	installed: boolean;
+	/** The provider's CLI is installed on disk (what reviews / run_code actually
+	 *  execute - `claude --print` / `codex exec`). Independent of the extension. */
+	cliInstalled: boolean;
 	active: boolean;
 }
 
@@ -55,14 +59,16 @@ export function candidateCodexPaths(): string[] {
  *  particular CLI add tool-specific install paths inside the home dir
  *  (Claude has `.claude/local/<name>`). */
 function candidateBinaryPaths(name: string, _extraHomeRelative: string[] = []): string[] {
-	// ISOLATION: Qoka installs both CLIs into ~/.qoka/bin (see aria-skills'
-	// installProviderCli) and runs only that copy - never a system claude/codex on
-	// PATH, Homebrew, ~/.local/bin or nvm, which would carry a separate login.
+	// ISOLATION: Qoka installs the CLIs under ~/.qoka and runs only that copy - never
+	// a system claude/codex on PATH, Homebrew, ~/.local/bin or nvm (which would carry
+	// a separate login). Claude lands in ~/.qoka/bin; Codex is an npm global, so it
+	// lands in ~/.qoka/npm/bin. Probe both.
 	const home = os.homedir();
 	const qokaBin = path.join(home, '.qoka', 'bin');
+	const qokaNpmBin = path.join(home, '.qoka', 'npm', 'bin');
 	const direct = process.platform === 'win32'
-		? [path.join(qokaBin, `${name}.cmd`), path.join(qokaBin, `${name}.exe`)]
-		: [path.join(qokaBin, name)];
+		? [path.join(qokaBin, `${name}.cmd`), path.join(qokaBin, `${name}.exe`), path.join(qokaNpmBin, `${name}.cmd`), path.join(qokaNpmBin, `${name}.exe`)]
+		: [path.join(qokaBin, name), path.join(qokaNpmBin, name)];
 	return direct.filter(p => {
 		try { return fs.existsSync(p); } catch { return false; }
 	});
@@ -84,27 +90,12 @@ async function tryClaudeVersion(binary: string): Promise<string | null> {
  * (consumed only by the registration code path, not surfaced in UI).
  */
 export async function detectAiProviders(): Promise<AiDetection> {
-	const providers: DetectedProvider[] = [];
-
 	const claudeExt = vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID);
-	providers.push({
-		kind: 'claude-code',
-		displayName: 'Claude Code',
-		extensionId: CLAUDE_CODE_EXTENSION_ID,
-		installed: !!claudeExt,
-		active: claudeExt?.isActive ?? false,
-	});
-
 	const codexExt = vscode.extensions.getExtension(CODEX_EXTENSION_ID);
-	providers.push({
-		kind: 'codex',
-		displayName: 'Codex',
-		extensionId: CODEX_EXTENSION_ID,
-		installed: !!codexExt,
-		active: codexExt?.isActive ?? false,
-	});
 
-	// Claude CLI probe - internal use only.
+	// CLI presence - what reviews / run_code actually execute, independent of the
+	// VS Code chat extension. Claude gets a version probe (also confirms it runs);
+	// Codex is detected by its binary on disk (fast, no auth needed).
 	let cliVersion: string | null = await tryClaudeVersion('claude');
 	if (!cliVersion) {
 		for (const candidate of candidateClaudePaths()) {
@@ -114,11 +105,32 @@ export async function detectAiProviders(): Promise<AiDetection> {
 			}
 		}
 	}
+	const claudeCliInstalled = !!cliVersion || candidateClaudePaths().length > 0;
+	const codexCliInstalled = candidateCodexPaths().length > 0;
+
+	const providers: DetectedProvider[] = [
+		{
+			kind: 'claude-code',
+			displayName: 'Claude Code',
+			extensionId: CLAUDE_CODE_EXTENSION_ID,
+			installed: !!claudeExt,
+			cliInstalled: claudeCliInstalled,
+			active: claudeExt?.isActive ?? false,
+		},
+		{
+			kind: 'codex',
+			displayName: 'Codex',
+			extensionId: CODEX_EXTENSION_ID,
+			installed: !!codexExt,
+			cliInstalled: codexCliInstalled,
+			active: codexExt?.isActive ?? false,
+		},
+	];
 
 	return {
 		providers,
 		anyInstalled: providers.some(p => p.installed),
-		claudeCliInstalled: !!cliVersion,
+		claudeCliInstalled,
 		claudeCliVersion: cliVersion,
 	};
 }

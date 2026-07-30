@@ -34,6 +34,25 @@
 	display: none;
 }
 
+/* Hide the Claude Code extension's LEFT activity-bar icon(s) in easy mode. The
+   chat lives in the right Secondary Side Bar (see below), so the extra left icon is
+   redundant. Matches its activity-bar containers by id substring (claude-sidebar /
+   claude-sessions-sidebar => workbench.view.extension.claude-*); the right-hand
+   secondary-sidebar view is NOT in .activitybar, so it stays available. */
+.monaco-workbench.aria-mode-easy .activitybar .monaco-action-bar .action-item[data-aria-composite-id*="claude" i] {
+	display: none;
+}
+
+/* Hide the Claude Code / Codex extensions' persistent editor-title-bar icons in
+   easy mode (the "Claude Code: Open" asterisk and the "Open Codex Sidebar" icon).
+   The chat lives in the right Secondary Side Bar, so these per-editor icons are
+   redundant. Matched by the action's aria-label (= the command title); the
+   contextual Accept/Reject-proposed-diff actions are left alone. */
+.monaco-workbench.aria-mode-easy .editor-actions .action-item:has(.action-label[aria-label*="Claude Code: Open" i]),
+.monaco-workbench.aria-mode-easy .editor-actions .action-item:has(.action-label[aria-label*="Codex Sidebar" i]) {
+	display: none;
+}
+
 /* Hide the bottom panel (Terminal / Problems / Output / Ports / Debug Console) in
    easy mode - developer tooling. The panel is closed by default, so this only
    matters if it were opened. Advanced mode is unaffected. */

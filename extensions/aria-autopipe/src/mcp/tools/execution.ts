@@ -338,7 +338,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 								+ `Output directory: ${outputDir}\n`
 								+ `Log: ${logPath}\n\n${logTail}\n\n`
 								+ `Pipeline code was auto-saved to the project folder (autopipe/pipelines/). `
-								+ `The results are in autopipe/pipelines_output/${runName}/. Built-in run environment: they are ALREADY there (the environment writes directly via the local mount) - just tell the user to open that folder in the Explorer, no save needed. Remote SSH server: ASK whether to save the results; if yes, call list_run_outputs for run '${runName}' then save_results_to_project (it warns before large copies), then tell the user to open autopipe/pipelines_output/${runName}/.`,
+								+ `The results are in autopipe/pipelines_output/${runName}/. Built-in run environment: they are ALREADY there (the environment writes directly via the local mount) - just tell the user to open that folder in the Analysis tab, no save needed. Remote SSH server: ASK whether to save the results; if yes, call list_run_outputs for run '${runName}' then save_results_to_project (it warns before large copies), then tell the user to open autopipe/pipelines_output/${runName}/.`,
 							);
 						}
 						if (hasError) {
@@ -545,10 +545,10 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 								const shown = await openResultsInEditor(autoSave.localDir, autoSave.copiedFiles);
 								parts.push(...describeOpenedResults(shown));
 								if (!shown.opened.length) {
-									parts.push(`Tell the user to open ${where} in the Explorer.`);
+									parts.push(`Tell the user to open ${where} in the Analysis tab.`);
 								}
 							} else {
-								parts.push(`Tell the user to open ${where} in the Explorer.`);
+								parts.push(`Tell the user to open ${where} in the Analysis tab.`);
 							}
 							if (autoSave.skipped.length) {
 								parts.push(`These are too large to copy back automatically (over ${humanSize(AUTO_SAVE_MAX_FILE_BYTES)}) and are still on the server: ${autoSave.skipped.join(', ')}.`

@@ -163,7 +163,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 			+ 'And pass timeout_s: 900 on that call - the first Python run pulls the interpreter and all dependencies, which overruns the 300s default for anything like scanpy/anndata and aborts the install halfway, looking to the user like the code failed. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (qoka-autopipe MCP) for that instead. '
 			+ 'Files the code writes are saved AUTOMATICALLY under the project `analysis/<run-id>/` folder on the user\'s own disk - written directly on Windows/WSL, SFTP-copied back for a VM or a remote SSH server. The result says where. Never read those files back off the server and re-write them locally yourself; they are already there. '
-			+ 'stdout is returned here (truncated if very large). Result files the editor can display (plots, tables, reports) are OPENED AUTOMATICALLY as editor tabs, and the result lists which ones - so tell the user to look at the editor rather than instructing them to open anything, and never paste a file\'s contents into chat to "show" it. Anything not opened (too large, or a format the editor cannot display) stays in `analysis/<run-id>/` for them to handle from the Explorer.',
+			+ 'stdout is returned here (truncated if very large). Result files the editor can display (plots, tables, reports) are OPENED AUTOMATICALLY as editor tabs, and the result lists which ones - so tell the user to look at the editor rather than instructing them to open anything, and never paste a file\'s contents into chat to "show" it. Anything not opened (too large, or a format the editor cannot display) stays in `analysis/<run-id>/` for them to handle from the Analysis tab.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -316,7 +316,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					lines.push('', `Results are saved on the user's own computer at: ${homeRelative(savedTo)}`);
 					// Spell out that the last path segment is THIS run's folder. Without a
 					// label it is a bare timestamp, which reads like noise rather than a
-					// name the user can look for in the Explorer.
+					// name the user can look for in the Analysis tab.
 					lines.push(`Inside the open project that is analysis/${id}/, where "${id}" is the folder for THIS run.`
 						+ (mounted ? '' : ' The files were copied back from the run target, so they are already local.'));
 					if (subdirs.length) {
@@ -397,6 +397,6 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'If nothing new needs installing (already cached), no setup message is needed - just run it.',
 	'',
 	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder on the user\'s LOCAL disk, automatically - including runs on a remote SSH server, whose outputs are copied back before the tool returns. stdout is returned in chat.',
-	'Files the editor can display (plots, tables, reports) are then OPENED FOR THE USER as editor tabs, and the tool result names them. So when a run produces a figure or a table, say it is now open in the editor and describe what it shows - do NOT tell the user to go find and open it, and do NOT dump the file contents into chat. Only files that were too large or in a format the editor cannot display are left for the Explorer.',
+	'Files the editor can display (plots, tables, reports) are then OPENED FOR THE USER as editor tabs, and the tool result names them. So when a run produces a figure or a table, say it is now open in the editor and describe what it shows - do NOT tell the user to go find and open it, and do NOT dump the file contents into chat. Only files that were too large or in a format the editor cannot display are left for the Analysis tab.',
 	'Do NOT hand-copy results: never chain read_file on the server + write_file locally to "bring back" an output. The copy already happened. Read from the LOCAL analysis/<run-id>/ path if you need the contents. The only exception is a file the result explicitly says was left on the server for being over the auto-copy size limit.',
 ].join('\n');

@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
-// The in-app Autopipe Viewer is disabled: results are inspected in the Explorer
+// The in-app Autopipe Viewer is disabled: results are inspected in the Analysis tab
 // under `autopipe/pipelines_output/<run>/` instead. Kept as a comment so the
 // viewer can be re-enabled later without re-deriving the wiring.
 // import { openViewerForDirectory } from '../../viewer/viewerPanel';
@@ -111,7 +111,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'show_results',
-		description: "List the result files at a remote path and tell the user where to open them. There is NO in-app viewer: saved pipeline results live in the project's Explorer under `autopipe/pipelines_output/<run_name>/` (put there by save_results_to_project). This tool reports the files present so you can summarise them; then direct the user to open them from the Explorer file tree (autopipe/pipelines_output/<run_name>/). Never tell the user to open a browser, a 127.0.0.1 URL, or an in-app viewer panel. Pass a DIRECTORY path to list its files, or a single FILE path to report just that file.",
+		description: "List the result files at a remote path and tell the user where to open them. There is NO in-app viewer: saved pipeline results live in the project's Analysis tab under `autopipe/pipelines_output/<run_name>/` (put there by save_results_to_project). This tool reports the files present so you can summarise them; then direct the user to open them from the Analysis tab file tree (autopipe/pipelines_output/<run_name>/). Never tell the user to open a browser, a 127.0.0.1 URL, or an in-app viewer panel. Pass a DIRECTORY path to list its files, or a single FILE path to report just that file.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -140,18 +140,18 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 				}
 
 				if (kind === 'FILE') {
-					// Viewer disabled: point the user to the file in the Explorer
+					// Viewer disabled: point the user to the file in the Analysis tab
 					// instead of opening the in-app viewer.
 					// const parent = target.replace(/\/[^/]+$/, '') || '/';
 					// await openViewerForDirectory(parent, target);
 					return textResult([
 						`${path.basename(target)} is ready.`,
-						`Open it from the Explorer under autopipe/pipelines_output/<run_name>/ (after the results are saved to the project with save_results_to_project).`,
+						`Open it from the Analysis tab under autopipe/pipelines_output/<run_name>/ (after the results are saved to the project with save_results_to_project).`,
 					].join('\n'));
 				}
 
 				// Directory: viewer disabled. List the files so the AI can
-				// summarise them, then direct the user to the Explorer.
+				// summarise them, then direct the user to the Analysis tab.
 				// await openViewerForDirectory(target);
 				const { stdout } = await ssh.run(profile, `ls -1 -- ${q(target)}`);
 				const entries = stdout.trim().split('\n').filter(Boolean);
@@ -165,7 +165,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 					lines.push(`  ${name}`);
 				}
 				lines.push('');
-				lines.push('Tell the user these results open in the Explorer under autopipe/pipelines_output/<run_name>/ (save them there first with save_results_to_project if not done yet).');
+				lines.push('Tell the user these results open in the Analysis tab under autopipe/pipelines_output/<run_name>/ (save them there first with save_results_to_project if not done yet).');
 				return textResult(lines.join('\n'));
 			} catch (err) {
 				return errorResult((err as Error).message);

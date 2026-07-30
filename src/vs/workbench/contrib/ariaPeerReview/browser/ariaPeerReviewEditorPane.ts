@@ -127,25 +127,39 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		this._register(this.extensionService.onDidChangeExtensions(() => void this.refreshCliAvailability()));
 	}
 
-	/** Ask the extension whether each reviewer CLI is installed, then re-render so
-	 *  the reviewer checkboxes reflect it. Best-effort - assumes available on
-	 *  failure so we never wrongly block a working setup. */
+	/** Refresh whether each reviewer's CLI is installed, then re-render so the
+	 *  reviewer checkboxes reflect it. Best-effort - assumes available on failure so
+	 *  we never wrongly block a working setup. */
 	private async refreshCliAvailability(): Promise<void> {
-		// Gate each reviewer on whether its PROVIDER EXTENSION is installed. The
-		// review runs through that extension's chat (sendToChat), so "extension
-		// installed" is the accurate, reliably-detectable "can I review with this
-		// AI" signal - unlike login (Claude stores it in the macOS keychain) or a
-		// bare CLI probe. Qoka installs each provider's CLI alongside its extension.
-		const claude = !!(await this.extensionService.getExtension('anthropic.claude-code'));
-		const codex = !!(await this.extensionService.getExtension('openai.chatgpt'));
+		// Gate each reviewer on whether its CLI is INSTALLED, NOT its VS Code
+		// extension: the review actually runs `claude --print` / `codex exec` (a CLI),
+		// so CLI presence is the correct signal - and it matches the inline "Install"
+		// link, which installs the CLI. Having the extension without the CLI (or vice
+		// versa) would otherwise mis-gate. Source is the shared provider status (the
+		// same `aria.autopipe.getStatus` Settings > Providers uses).
+		let claude = this.claudeAvailable;
+		let codex = this.codexAvailable;
+		try {
+			const status = await this.commandService.executeCommand<{ providers?: { kind?: string; displayName?: string; cliInstalled?: boolean }[] }>('aria.autopipe.getStatus', true);
+			const providers = status?.providers ?? [];
+			if (providers.length) {
+				const match = (needle: RegExp) => providers.find(p => needle.test(p.kind ?? '') || needle.test(p.displayName ?? ''));
+				const claudeP = match(/claude/i);
+				const codexP = match(/codex/i);
+				// Gate on the CLI (cliInstalled), NOT the chat extension: the review runs
+				// `claude --print` / `codex exec`. A provider missing from the status
+				// entirely also counts as unavailable.
+				claude = !!claudeP?.cliInstalled;
+				codex = !!codexP?.cliInstalled;
+			}
+		} catch { /* status not ready - keep the optimistic current value */ }
 		const changed = claude !== this.claudeAvailable || codex !== this.codexAvailable;
 		this.claudeAvailable = claude;
 		this.codexAvailable = codex;
 		if (!this.codexAvailable) { this.reviewers.codex = false; }
 		if (!this.claudeAvailable) { this.reviewers.claude = false; }
-		// Only repaint when availability actually flipped - onDidChangeExtensions
-		// fires often during startup and a blind render() would drop focus from the
-		// form the user may be filling in.
+		// Only repaint when availability actually flipped, so a background re-check
+		// never drops focus from the form the user may be filling in.
 		if (this.root && changed) {
 			this.render();
 		}
@@ -440,10 +454,15 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		// reviewers
 		const s2 = this.section(root);
 		this.label(s2, localize('aria.peerReview.reviewers', "2 · Reviewers"));
+		// One-line guidance: an enabled reviewer still needs a signed-in provider, and a
+		// disabled (not installed) one is added from the Settings tab.
+		const revHint = append(s2, $('div'));
+		revHint.textContent = localize('aria.peerReview.reviewersHint', "An enabled reviewer still needs you signed in to that AI (sign in from its chat). A reviewer you can't select isn't installed - install it in the Settings tab's Providers section.");
+		Object.assign(revHint.style, { fontSize: '11.5px', opacity: '0.6', lineHeight: '1.45', margin: '2px 0 8px' });
 		const rw = append(s2, $('div'));
 		Object.assign(rw.style, { display: 'flex', flexDirection: 'column', gap: '6px' });
-		rw.appendChild(this.reviewerCheckbox('claude', this.claudeAvailable ? 'Claude' : localize('aria.peerReview.claudeMissing', "Claude - CLI not installed"), this.claudeAvailable));
-		rw.appendChild(this.reviewerCheckbox('codex', this.codexAvailable ? 'Codex' : localize('aria.peerReview.codexMissing', "Codex - CLI not installed"), this.codexAvailable));
+		rw.appendChild(this.reviewerCheckbox('claude', this.claudeAvailable ? 'Claude' : localize('aria.peerReview.claudeMissing', "Claude - not installed"), this.claudeAvailable));
+		rw.appendChild(this.reviewerCheckbox('codex', this.codexAvailable ? 'Codex' : localize('aria.peerReview.codexMissing', "Codex - not installed"), this.codexAvailable));
 
 		// copy prompt
 		const bar = append(root, $('div'));

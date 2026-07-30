@@ -87,7 +87,7 @@ export function isMountedRepo(profile: SshProfile): boolean {
  * Create Qoka's local project scaffold on first launch:
  *   <workspaceFolder>/autopipe/{pipelines,pipelines_input,pipelines_output}/
  *   <workspaceFolder>/analysis/
- * so the mounted run environment has the dirs it writes into and the Explorer
+ * so the mounted run environment has the dirs it writes into and the Analysis tab
  * shows them. Idempotent, and never removes anything: an existing folder is left
  * exactly as it is. No-ops without an open folder.
  *
@@ -126,7 +126,7 @@ const ANALYSIS_README = [
 	'`analysis/rna-velocity-umap/` rather than a timestamp.',
 	'',
 	'A few files from each run open automatically as editor tabs (plots first).',
-	'Everything else stays here - open it from the Explorer.',
+	'Everything else stays here - open it from the Analysis tab.',
 	'',
 ].join('\n');
 

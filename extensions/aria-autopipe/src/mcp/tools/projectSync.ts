@@ -207,7 +207,7 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 				}
 				// After a successful output save, tell the user where the files landed.
 				if (result.outputsCopied > 0) {
-					lines.push('', `Tell the user the results were saved and can be opened from the Explorer under autopipe/pipelines_output/${runName}/.`);
+					lines.push('', `Tell the user the results were saved and can be opened from the Analysis tab under autopipe/pipelines_output/${runName}/.`);
 				}
 				return textResult(lines.join('\n'));
 			} catch (err) {

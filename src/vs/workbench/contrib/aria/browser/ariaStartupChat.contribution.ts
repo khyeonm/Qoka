@@ -66,6 +66,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		this._register(CommandsRegistry.registerCommand('aria.setup.prepareProviders', (_acc, providers) =>
 			this._prepareProviders(Array.isArray(providers) ? providers : [])));
 
+		// Add a provider LATER (Settings > Providers "Install"): run the SAME reliable
+		// flow as first-run - a blocking loader while the CLI installs and every MCP
+		// registers, THEN open its chat extension. So by the time the chat opens, all
+		// tools are already registered.
+		this._register(CommandsRegistry.registerCommand('aria.setup.installProvider', (_acc, provider) =>
+			this._installProviderInteractive(provider)));
+
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
 			return;
 		}
@@ -313,6 +320,44 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
 		for (const p of chosen) {
 			try { await this.commandService.executeCommand('aria.provider.installCli', p); } catch { /* ignore */ }
+		}
+	}
+
+	/**
+	 * Add ONE provider from Settings, the reliable way: hold a blocking loader while
+	 * we (1) install its CLI and (2) register EVERY Qoka MCP with that CLI, THEN open
+	 * its chat extension in the Marketplace. Because registration finishes before the
+	 * loader clears (and before the extension is even installed), the chat lights up
+	 * with all tools the moment it opens. Idempotent - a re-run with the CLI already
+	 * present and the MCPs already registered returns almost immediately.
+	 */
+	private async _installProviderInteractive(provider: unknown): Promise<void> {
+		const p: ConcreteProvider | undefined = provider === 'claude' || provider === 'codex' ? provider : undefined;
+		if (!p) { return; }
+		const hideLoading = this._showLoadingOverlay(`Setting up ${PROVIDER_LABEL[p]}…`);
+		try {
+			// aria-skills owns installProviderCli; make sure it's active first.
+			try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
+			const ok = await this._installAndVerifyCli(p);
+			if (!ok) {
+				this.notificationService.warn(`Qoka couldn't install the ${PROVIDER_LABEL[p]} command-line tool. Check your internet connection, then press Install again.`);
+				return; // finally still clears the loader; the extension is NOT opened on failure.
+			}
+			// Register every Qoka MCP with the new CLI, holding the loader until done.
+			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+			await this._registerMcpFast([p]);
+			try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: [p], currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+		} finally {
+			hideLoading();
+		}
+		// Tools are registered; now open the chat extension so the user can install it
+		// (or reveal the chat if it is already installed).
+		const extId = PROVIDER_EXTENSION_ID[p];
+		if (!(await this.extensionService.getExtension(extId))) {
+			try { await this.commandService.executeCommand('workbench.extensions.action.showExtensionsWithIds', [extId]); } catch { /* ignore */ }
+			this._revealWhenInstalled([p]);
+		} else {
+			void revealAiProviderChat(this.commandService, this.configurationService, { retryMs: 6000 });
 		}
 	}
 

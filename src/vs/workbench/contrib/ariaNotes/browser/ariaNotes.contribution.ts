@@ -67,9 +67,14 @@ CommandsRegistry.registerCommand('aria.notes.new', async (accessor) => {
 CommandsRegistry.registerCommand('aria.notes.open', async (accessor, resource?: unknown) => {
 	const uri = reviveUri(resource);
 	if (!uri) { return; }
+	// Capture services BEFORE any await - the accessor is only valid during the
+	// synchronous part of the command. (Getting IEditorService after the
+	// openViewContainer await threw, so no note tab ever opened.)
+	const viewsService = accessor.get(IViewsService);
+	const editorService = accessor.get(IEditorService);
 	// Reveal the Notebook sidebar (no focus steal) so the page tree shows beside the note.
-	try { await accessor.get(IViewsService).openViewContainer('workbench.view.ariaNotebook', false); } catch { /* sidebar optional */ }
-	await accessor.get(IEditorService).openEditor(new AriaNoteEditorInput(uri), { pinned: true });
+	try { await viewsService.openViewContainer('workbench.view.ariaNotebook', false); } catch { /* sidebar optional */ }
+	await editorService.openEditor(new AriaNoteEditorInput(uri), { pinned: true });
 });
 
 // Fired by the aria-notes MCP server when Claude proposes a note edit. We stage

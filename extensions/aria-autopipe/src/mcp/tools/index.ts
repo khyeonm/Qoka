@@ -32,7 +32,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	FILE_TOOLS[5], FILE_TOOLS[6], FILE_TOOLS[7], // prepare_input, check_download_status, remove_input
 	FILE_TOOLS[8], // upload_local_input (upload data from the user's local machine into pipelines_input)
 	// show_results (RESULT_TOOLS[1]) disabled: the in-app viewer is gone, results
-	// are inspected in the Explorer under autopipe/pipelines_output/<run>/. Use
+	// are inspected in the Analysis tab under autopipe/pipelines_output/<run>/. Use
 	// list_files to enumerate result files instead. Kept in results.ts so the tool
 	// can be re-registered later if the viewer returns.
 	// RESULT_TOOLS[1], // show_results
@@ -66,7 +66,7 @@ export const AUTOPIPE_MCP_INSTRUCTIONS = [
 	'FALLBACK: if you ever run something in your own terminal and it errors or looks wrong, STOP - that was the wrong tool. Call get_workspace_info to find the run environment, then redo it with run_code / execute_pipeline.',
 	'When a Qoka skill (anndata, scanpy, …) matches the task, follow the skill - but still EXECUTE everything through run_code / execute_pipeline on the run connection, never locally.',
 	'',
-	'RESULTS COME BACK BY THEMSELVES: when check_status sees a pipeline finish cleanly, its outputs are copied into the project at autopipe/pipelines_output/<run>/ on the user\'s LOCAL disk automatically - including runs on a remote SSH server. run_code does the same into analysis/<run-id>/. So never chain read_file (server) + write_file (local) to "bring results back", and do not ask the user for permission to save what is already saved. Just tell them the folder to open in the Explorer, and read from the LOCAL path if you need the contents. The only files still on the server are ones the tool explicitly reported as skipped for being over the auto-copy size limit, or as failed - handle those with list_run_outputs + save_results_to_project.',
+	'RESULTS COME BACK BY THEMSELVES: when check_status sees a pipeline finish cleanly, its outputs are copied into the project at autopipe/pipelines_output/<run>/ on the user\'s LOCAL disk automatically - including runs on a remote SSH server. run_code does the same into analysis/<run-id>/. So never chain read_file (server) + write_file (local) to "bring results back", and do not ask the user for permission to save what is already saved. Just tell them the folder to open in the Analysis tab, and read from the LOCAL path if you need the contents. The only files still on the server are ones the tool explicitly reported as skipped for being over the auto-copy size limit, or as failed - handle those with list_run_outputs + save_results_to_project.',
 ].join('\n');
 
 export function findTool(name: string): ToolDefinition | undefined {

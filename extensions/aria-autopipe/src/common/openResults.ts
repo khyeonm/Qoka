@@ -23,7 +23,7 @@ const RUN_SCAFFOLDING = new Set(['main.sh', 'main.py', 'main.js', 'stdout.log', 
 
 /** Extensions the editor can actually display usefully. Anything else (.h5ad,
  *  .bam, .npz, a bare binary) would open as garbage or a "cannot display"
- *  placeholder, so it is left for the user to handle from the Explorer. */
+ *  placeholder, so it is left for the user to handle from the Analysis tab. */
 const OPENABLE_EXTENSIONS = new Set([
 	'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg',
 	'.txt', '.csv', '.tsv', '.md', '.json', '.yaml', '.yml', '.html', '.pdf',

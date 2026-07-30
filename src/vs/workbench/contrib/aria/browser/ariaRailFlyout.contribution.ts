@@ -158,6 +158,10 @@ export class AriaRailFlyoutContribution extends Disposable implements IWorkbench
 			// Global full-text Search is hidden from the activity bar in easy mode
 			// (developer chrome), so it must not appear in the hover flyout either.
 			if (id === 'workbench.view.search') { continue; }
+			// The Claude Code extension's left-sidebar icon is hidden in easy mode (the
+			// chat lives in the right Secondary Side Bar), so it must not resurface in
+			// the hover flyout. Matches its containers (workbench.view.extension.claude-*).
+			if (id.toLowerCase().includes('claude')) { continue; }
 			const viewContainer = this.viewDescriptorService.getViewContainerById(id);
 			const model = viewContainer ? this.viewDescriptorService.getViewContainerModel(viewContainer) : undefined;
 			this.addRow(container, model?.title ?? id, model?.icon, id === activeId, () => {

@@ -49,12 +49,15 @@ export class ProvidersSection extends SettingsSection {
 			name.textContent = p.displayName ?? p.kind ?? 'AI assistant';
 			Object.assign(name.style, { flex: '1', minWidth: '0' });
 
-			const state = append(row, $('span'));
-			state.textContent = !installed ? 'not installed' : active ? 'active' : 'installed, not yet active';
-			Object.assign(state.style, { fontSize: '11px', opacity: '0.7', flexShrink: '0' });
-
-			if (!installed) {
-				const arg = /codex/i.test(p.kind ?? '') || /codex/i.test(p.displayName ?? '') ? 'codex' : 'claude';
+			// Show a state label only for an INSTALLED provider; an uninstalled one just
+			// gets the Install button (no "not installed" text).
+			if (installed) {
+				const state = append(row, $('span'));
+				state.textContent = active ? 'active' : 'installed, not yet active';
+				Object.assign(state.style, { fontSize: '11px', opacity: '0.7', flexShrink: '0' });
+			} else {
+				const isCodex = /codex/i.test(p.kind ?? '') || /codex/i.test(p.displayName ?? '');
+				const cliArg = isCodex ? 'codex' : 'claude';
 				const install = append(row, $('button')) as HTMLButtonElement;
 				install.textContent = 'Install';
 				Object.assign(install.style, {
@@ -62,12 +65,10 @@ export class ProvidersSection extends SettingsSection {
 					border: '1px solid var(--vscode-button-border, transparent)',
 					background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)',
 				});
-				install.onclick = async () => {
-					install.textContent = 'Installing...';
-					install.disabled = true;
-					try { await this.commandService.executeCommand('aria.provider.installCli', arg); } catch { /* surfaced by the command */ }
-					await this.refresh();
-				};
+				// Run the full setup: a blocking loader installs the CLI and registers
+				// every Qoka MCP with it, THEN opens the chat extension - so the chat has
+				// all tools the moment it opens.
+				install.onclick = () => { void this.commandService.executeCommand('aria.setup.installProvider', cliArg); };
 			}
 		}
 	}
