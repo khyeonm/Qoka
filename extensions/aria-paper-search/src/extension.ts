@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { deletePaper, ensureLibraryFile, listPapers, allTags, updateNote, updateTags } from './library';
+import { deletePaper, listPapers, allTags, updateNote, updateTags } from './library';
 import { AriaPaperLibraryMcpServer } from './mcp/server';
 import { setRevealLibrary } from './mcp/tools';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
@@ -56,7 +56,10 @@ async function registerProviders(port: number): Promise<{ changed: boolean; regi
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-paper-search] activate()');
 
-	ensureLibraryFile();
+	// Do NOT create the library file eagerly here: that would create
+	// <workspace>/.qoka/references before the workbench's one-time migration runs,
+	// making it skip moving the old <workspace>/references in. The file is created
+	// lazily on the first save (writeLibrary), and reads tolerate its absence.
 
 	// After a paper is saved via the MCP, reveal the Paper Library sidebar tab
 	// so the newly saved paper is shown (the view auto-refreshes when it

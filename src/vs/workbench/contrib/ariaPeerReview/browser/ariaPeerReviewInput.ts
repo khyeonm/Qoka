@@ -24,9 +24,14 @@ export class AriaPeerReviewInput extends EditorInput {
 	private readonly _resource: URI;
 	private _name: string;
 
-	constructor(readonly execId: string | undefined) {
+	/**
+	 * @param execId an existing review run, or `undefined` for the "new review" form.
+	 * @param seedPaperId when opening a NEW review, pre-select this Paper Writing
+	 *   manuscript as the source (the handoff from the Paper Writing tab).
+	 */
+	constructor(readonly execId: string | undefined, readonly seedPaperId?: string) {
 		super();
-		this._resource = URI.from({ scheme: ARIA_REVIEW_SCHEME, path: '/' + (execId ?? 'new') });
+		this._resource = URI.from({ scheme: ARIA_REVIEW_SCHEME, path: '/' + (execId ?? (seedPaperId ? `new-${seedPaperId}` : 'new')) });
 		this._name = execId
 			? localize('aria.peerReview.reviewName', "Review")
 			: localize('aria.peerReview.newName', "New Review");
@@ -47,6 +52,6 @@ export class AriaPeerReviewInput extends EditorInput {
 
 	override matches(other: EditorInput | IUntypedEditorInput): boolean {
 		if (super.matches(other)) { return true; }
-		return other instanceof AriaPeerReviewInput && other.execId === this.execId;
+		return other instanceof AriaPeerReviewInput && other.execId === this.execId && other.seedPaperId === this.seedPaperId;
 	}
 }

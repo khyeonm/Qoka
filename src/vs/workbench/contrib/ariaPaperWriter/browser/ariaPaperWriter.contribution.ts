@@ -5,8 +5,6 @@
 
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { Codicon } from '../../../../base/common/codicons.js';
-import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -19,14 +17,15 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { EditorExtensions } from '../../../common/editor.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
-import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { AriaPaperWriterView } from './ariaPaperWriterView.js';
 import { AriaPaperWriterEditorPane } from './ariaPaperWriterEditorPane.js';
-import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 import { AriaPaperWriterInput } from './ariaPaperWriterInput.js';
 import { AriaManuscriptReviewEditorPane } from './ariaManuscriptReviewEditorPane.js';
 import { AriaManuscriptReviewInput } from './ariaManuscriptReviewInput.js';
+
+// The Paper Writing sidebar tab was merged into the consolidated "Manuscript" tab
+// (see ariaManuscript.contribution). This file keeps registering the paper-writing
+// editor panes, inputs and `aria.paperWriter.*` commands - only the sidebar
+// container/view moved - so the Manuscript list and the MCP tools keep working.
 
 // --- Editor pane (paper setup form) -----------------------------------------
 
@@ -74,7 +73,7 @@ CommandsRegistry.registerCommand('aria.paperWriter.new', async (accessor) => {
 	const folder = workspaceContextService.getWorkspace().folders[0];
 	if (!folder) { return; }
 	const id = 'paper-' + generateUuid().slice(0, 8);
-	const dir = joinPath(folder.uri, 'paper', id);
+	const dir = joinPath(folder.uri, '.qoka', 'manuscript', 'draft', id);
 	await fileService.createFolder(dir);
 	const now = new Date().toISOString();
 	const meta = {
@@ -116,36 +115,3 @@ CommandsRegistry.registerCommand('aria.paperWriter.delete', async (accessor, res
 		await fileService.del(uri, { useTrash: false, recursive: true });
 	}
 });
-
-// --- Sidebar "Paper Writer" view --------------------------------------------
-
-const PAPER_WRITER_CONTAINER_ID = 'workbench.view.ariaPaperWriter';
-
-const paperWriterIcon = registerIcon('aria-paper-writer-view', Codicon.edit, localize('aria.paperWriter.iconLabel', "Qoka Paper Writer activity bar icon"));
-
-const paperWriterContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
-	.registerViewContainer({
-		id: PAPER_WRITER_CONTAINER_ID,
-		title: localize2('aria.paperWriter.containerTitle', "Paper Writing"),
-		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [PAPER_WRITER_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-		hideIfEmpty: false,
-		icon: paperWriterIcon,
-		order: 16,
-	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
-
-const paperWriterView: IViewDescriptor = {
-	id: AriaPaperWriterView.ID,
-	name: localize2('aria.paperWriter.viewName', "Paper Writing"),
-	containerIcon: paperWriterIcon,
-	ctorDescriptor: new SyncDescriptor(AriaPaperWriterView),
-	// Pinned like the other Qoka views; a togglable single view with no `when`
-	// gets hidden by the merge-single-view logic.
-	canToggleVisibility: false,
-	canMoveView: false,
-	order: 1,
-};
-
-Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([paperWriterView], paperWriterContainer);
-
-// "How to use?" link in the view's title bar.
-registerAriaTabHelpTitleAction(AriaPaperWriterView.ID, 'paper-writer');

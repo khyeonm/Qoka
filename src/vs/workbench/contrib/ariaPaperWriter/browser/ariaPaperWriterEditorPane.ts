@@ -27,6 +27,7 @@ import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { applyAriaScrollbar } from '../../aria/browser/ariaScrollbar.js';
 import { AriaManuscriptReviewInput } from './ariaManuscriptReviewInput.js';
 import { AriaPaperWriterInput } from './ariaPaperWriterInput.js';
@@ -100,6 +101,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		@IClipboardService private readonly clipboardService: IClipboardService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IPathService private readonly pathService: IPathService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IDialogService private readonly dialogService: IDialogService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
@@ -122,10 +124,17 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		}
 		this.inputStore.clear();
 		this.folder = input.folderResource;
+		this.forcedStep = undefined;
 		await this.reload();
 		this.library = await this.loadLibrary();
 		if (token.isCancellationRequested) {
 			return;
+		}
+		// Opening a finished paper (manuscript already written) should show the paper,
+		// not restart the wizard: jump to the Write step, with the earlier steps shown
+		// as completed. Cleared as soon as the user navigates a step.
+		if (this.meta && this.manuscript.trim().length > 0) {
+			this.forcedStep = STEPS.length - 1;
 		}
 		if (this.meta?.title) {
 			input.setName(this.meta.title);
@@ -167,11 +176,12 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 
 	private async loadLibrary(): Promise<LibraryEntry[]> {
 		try {
-			// The Paper Library is PER-PROJECT at <workspace>/references/paper-library.json
+			// The Paper Library is PER-PROJECT at <workspace>/.qoka/references/paper-library.json
 			// (matches aria-paper-search's library.ts). Fall back to ~/.config/aria when
 			// no project folder is known.
-			const libUri = this.folder
-				? joinPath(this.folder, 'references', 'paper-library.json')
+			const wsFolder = this.workspaceContextService.getWorkspace().folders[0];
+			const libUri = wsFolder
+				? joinPath(wsFolder.uri, '.qoka', 'references', 'paper-library.json')
 				: joinPath(await this.pathService.userHome(), '.config', 'aria', 'paper-library.json');
 			const lib = await this.readJson<{ papers?: LibraryEntry[] }>(libUri);
 			return Array.isArray(lib?.papers) ? lib!.papers! : [];
@@ -200,9 +210,18 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	}
 	private async saveCitations(): Promise<void> { await this.write('citations.csl.json', JSON.stringify(this.citations, null, 2) + '\n'); }
 
-	private get step(): number { return Math.max(0, Math.min(STEPS.length - 1, this.meta?.step ?? 0)); }
+	/** When a finished paper is opened, we jump straight to the Write step (the
+	 *  result) without persisting that as the saved step; survives content reloads
+	 *  and is cleared the moment the user navigates a step. */
+	private forcedStep: number | undefined;
+
+	private get step(): number {
+		if (this.forcedStep !== undefined) { return this.forcedStep; }
+		return Math.max(0, Math.min(STEPS.length - 1, this.meta?.step ?? 0));
+	}
 	private goStep(n: number): void {
 		if (!this.meta) { return; }
+		this.forcedStep = undefined;
 		this.meta.step = Math.max(0, Math.min(STEPS.length - 1, n));
 		void this.saveMeta();
 		this.render();
@@ -268,10 +287,25 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		// generous gap before the step content below.
 		Object.assign(rail.style, { display: 'flex', alignItems: 'center', gap: '0', margin: '18px 0 26px' });
 		STEPS.forEach((label, i) => {
-			const chip = append(rail, $('span'));
-			chip.textContent = `${i + 1}. ${label}`;
 			const active = i === this.step;
-			Object.assign(chip.style, { fontSize: '13.5px', padding: '6px 14px', borderRadius: '15px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: '0', border: '1px solid rgba(127,127,127,0.4)', background: active ? 'var(--vscode-button-background)' : 'transparent', color: active ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)', fontWeight: active ? '600' : '400' });
+			// A step you have moved past is completed: fill it grey (with a check), the
+			// current step stays blue, and steps still ahead are just an outline.
+			const done = i < this.step;
+			// active = blue (button), done = grey fill, upcoming = transparent outline.
+			const background = active
+				? 'var(--vscode-button-background)'
+				: done ? 'var(--vscode-button-secondaryBackground, rgba(127,127,127,0.35))' : 'transparent';
+			const color = active
+				? 'var(--vscode-button-foreground)'
+				: done ? 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))' : 'var(--vscode-foreground)';
+			const chip = append(rail, $('span'));
+			Object.assign(chip.style, { display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '13.5px', padding: '6px 14px', borderRadius: '15px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: '0', border: '1px solid rgba(127,127,127,0.4)', background, color, fontWeight: active ? '600' : '400', opacity: (!active && !done) ? '0.8' : '1' });
+			if (done) {
+				const check = append(chip, $('span.codicon.codicon-check')) as HTMLElement;
+				Object.assign(check.style, { fontSize: '12px', opacity: '0.85' });
+			}
+			const txt = append(chip, $('span'));
+			txt.textContent = `${i + 1}. ${label}`;
 			chip.onclick = () => this.goStep(i);
 			if (i < STEPS.length - 1) {
 				const line = append(rail, $('div'));
@@ -418,7 +452,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const tools = append(root, $('div'));
 		Object.assign(tools.style, { display: 'flex', alignItems: 'center', gap: '8px', margin: '8px 0 0' });
 		tools.appendChild(this.button(
-			kind === 'figure' ? localize('aria.paperWriter.addFigures', "➕ Add figures") : localize('aria.paperWriter.addSources', "➕ Add files"),
+			kind === 'figure' ? localize('aria.paperWriter.addFigures', "Add figures") : localize('aria.paperWriter.addSources', "Add files"),
 			'ghost', () => void this.addAssets(kind)));
 		const pending = items.filter(i => !i.summary).length;
 		if (pending > 0) {
@@ -700,6 +734,14 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			bar.appendChild(this.button('Export DOCX', 'ghost', () => void this.export('docx')));
 			bar.appendChild(this.button('Export LaTeX', 'ghost', () => void this.export('latex')));
 
+			// Hand the finished (or revised) manuscript straight to a peer review, with
+			// this paper pre-selected as the source.
+			const proceed = append(root, $('div'));
+			Object.assign(proceed.style, { marginTop: '14px' });
+			proceed.appendChild(this.button(
+				localize('aria.paperWriter.toReview', "Proceed to paper review →"), 'primary',
+				() => void this.commandService.executeCommand('aria.peerReview.newForPaper', this.meta!.id)));
+
 			const id = this.meta!.id;
 			const note = append(root, $('div'));
 			Object.assign(note.style, { marginTop: '14px', padding: '11px 14px', borderRadius: '6px', background: 'rgba(127,127,127,0.08)', fontSize: '12.5px', lineHeight: '1.65' });
@@ -712,13 +754,13 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			};
 			bullet(
 				localize('aria.paperWriter.noteDraftLabel', "Working draft"),
-				localize('aria.paperWriter.noteDraft', " - paper/{0}/manuscript.md. Your current manuscript; the title and AI edits are saved here.", id));
+				localize('aria.paperWriter.noteDraft', " - .qoka/manuscript/draft/{0}/manuscript.md. Your current manuscript; the title and AI edits are saved here.", id));
 			bullet(
 				localize('aria.paperWriter.noteOriginalLabel', "Original draft"),
-				localize('aria.paperWriter.noteOriginal', " - paper/{0}/manuscript.original.md. The first generated draft, kept unchanged even when you revise with AI.", id));
+				localize('aria.paperWriter.noteOriginal', " - .qoka/manuscript/draft/{0}/manuscript.original.md. The first generated draft, kept unchanged even when you revise with AI.", id));
 			bullet(
 				localize('aria.paperWriter.noteExportLabel', "Exports"),
-				localize('aria.paperWriter.noteExport', " - paper/{0}/export/ (paper.md / .docx / .tex). These are snapshots: they only change when you Export again, so re-export after any update.", id));
+				localize('aria.paperWriter.noteExport', " - .qoka/manuscript/draft/{0}/export/ (paper.md / .docx / .tex). These are snapshots: they only change when you Export again, so re-export after any update.", id));
 		}
 	}
 

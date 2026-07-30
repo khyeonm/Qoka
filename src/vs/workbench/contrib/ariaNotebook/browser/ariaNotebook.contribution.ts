@@ -97,4 +97,7 @@ class AriaNotebookLayoutMigration extends Disposable implements IWorkbenchContri
 }
 
 Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
-	.registerWorkbenchContribution(AriaNotebookLayoutMigration, LifecyclePhase.Ready);
+	// Must be Restored/Eventually: the deprecated registerWorkbenchContribution maps
+	// the phase via toWorkbenchPhase(), which returns undefined for Ready, so a
+	// Ready-phase contribution is never instantiated (the migration never runs).
+	.registerWorkbenchContribution(AriaNotebookLayoutMigration, LifecyclePhase.Restored);

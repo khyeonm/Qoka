@@ -25,13 +25,13 @@ import { PaperLibrary, PaperLibraryEntry } from './types';
 
 const SCHEMA_VERSION = 1;
 
-/** Directory holding this project's library: <workspace>/references, or
+/** Directory holding this project's library: <workspace>/.qoka/references, or
  *  ~/.config/aria when no folder is open. Computed per call so it always tracks
  *  the current window's workspace. */
 function libraryDir(): string {
 	const folder = vscode.workspace.workspaceFolders?.[0];
 	if (folder && folder.uri.scheme === 'file') {
-		return path.join(folder.uri.fsPath, 'references');
+		return path.join(folder.uri.fsPath, '.qoka', 'references');
 	}
 	return path.join(os.homedir(), '.config', 'qoka');
 }
@@ -42,8 +42,9 @@ export function libraryPath(): string {
 
 /**
  * Ensure the library file exists. Created with an empty papers array if
- * missing - calls into this module that don't change anything still
- * leave a valid file on disk so the sidebar can read it.
+ * missing. Call this ONLY from a write path: creating it eagerly (on read or on
+ * activation) would create <workspace>/.qoka/references before the one-time
+ * migration runs and make it skip the old top-level references/.
  */
 export function ensureLibraryFile(): void {
 	const libPath = libraryPath();
@@ -56,7 +57,8 @@ export function ensureLibraryFile(): void {
 }
 
 export function readLibrary(): PaperLibrary {
-	ensureLibraryFile();
+	// Read directly; a missing file just means an empty library (do NOT create it
+	// here - see ensureLibraryFile).
 	try {
 		const raw = fs.readFileSync(libraryPath(), 'utf8');
 		const parsed = JSON.parse(raw);

@@ -16,14 +16,14 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Per-project AI Peer Review storage. Each review run lives in
- * `<workspace>/reviews/<execId>/`:
+ * `<workspace>/.qoka/manuscript/review/<execId>/`:
  *   - meta.json      { execId, title, reviewers[], paperId?, manuscriptFile?, supplementaryFiles[], createdAt, iteration }
  *   - files/         attached originals (manuscript + supplementary) for file-based reviews
  *   - concerns.json  { iteration, reviewers: { <reviewer>: { concerns: Concern[], recordedAt } } }
  *   - revisions/     (Phase 2) staged defensive revisions
  *
  * execId is unique per run, so two reviews of a same-titled paper stay distinct.
- * The Qoka Peer Review tab reads meta/concerns directly; these MCP tools are for
+ * The Qoka Manuscript tab reads meta/concerns directly; these MCP tools are for
  * the reviewer agent (extract text on read, record structured concerns).
  */
 
@@ -61,7 +61,8 @@ function err(text: string): CallToolResult { return { content: [{ type: 'text', 
 
 export function reviewsDir(): string | undefined {
 	const folder = vscode.workspace.workspaceFolders?.[0];
-	return folder ? path.join(folder.uri.fsPath, 'reviews') : undefined;
+	// Reviews live under .qoka/: <workspace>/.qoka/manuscript/review/<execId>/.
+	return folder ? path.join(folder.uri.fsPath, '.qoka', 'manuscript', 'review') : undefined;
 }
 
 function reviewDir(execId: string): string | undefined {
@@ -224,19 +225,19 @@ export function buildReviewTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'open_new_review',
-			description: 'Open Qoka\'s Peer Review tab and start a NEW review window. Call this FIRST when the user asks IN CHAT to peer-review / critique a paper and you do not yet have an execId. It only opens the UI (best-effort) - it does not start the review. After calling it, tell the user their draft is in the new-review window where they can add figures / supplementary files, and to say when they are done; the actual run is started from the tab (which gives you an execId for get_review).',
+			description: 'Open Qoka\'s Manuscript tab and start a NEW review window. Call this FIRST when the user asks IN CHAT to peer-review / critique a paper and you do not yet have an execId. It only opens the UI (best-effort) - it does not start the review, and it does NOT pre-load any paper. After calling it, tell the user to pick ONE source in the new-review window: upload a file, OR click "A paper written in the Manuscript tab" and select the manuscript they wrote. They can add figures / supplementary files, then say when they are done; the actual run is started from the tab (which gives you an execId for get_review).',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
-				// Best-effort: reveal the Peer Review tab, then open the new-review
+				// Best-effort: reveal the Manuscript tab, then open the new-review
 				// window. UI failures must not fail the tool.
-				try { await vscode.commands.executeCommand('workbench.view.ariaPeerReview'); } catch { /* tab optional */ }
+				try { await vscode.commands.executeCommand('workbench.view.ariaManuscript'); } catch { /* tab optional */ }
 				try { await vscode.commands.executeCommand('aria.peerReview.new'); } catch { /* window optional */ }
-				return ok('Opened the new-review window on the Peer Review tab. Tell the user their draft is in and they can add figures / supplementary files there, then say when they are done - only then does the review run (started from the tab).');
+				return ok('Opened the new-review window on the Manuscript tab. Tell the user to pick ONE source there - upload a file, or select "A paper written in the Manuscript tab" and choose their manuscript - and add any figures / supplementary files, then say when they are done. Only then does the review run (started from the tab).');
 			},
 		},
 		{
 			name: 'get_review',
-			description: 'Load an AI Peer Review run started from Qoka\'s Peer Review tab. Returns the paper title, the MAIN manuscript text (the thing to review), any supplementary text, referenced figure names, and the reviewers to use. Call this first with the execId Qoka gave you, then run the reviewer sub-agents on the manuscript.',
+			description: 'Load an AI Peer Review run started from Qoka\'s Manuscript tab. Returns the paper title, the MAIN manuscript text (the thing to review), any supplementary text, referenced figure names, and the reviewers to use. Call this first with the execId Qoka gave you, then run the reviewer sub-agents on the manuscript.',
 			inputSchema: {
 				type: 'object',
 				properties: { execId: { type: 'string', description: 'The review run id Qoka passed in the prompt.' } },
@@ -300,7 +301,7 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'record_review',
-			description: 'Record one reviewer\'s Major/Minor Concerns for a review run so Qoka\'s Peer Review tab can display them. Call once per reviewer after aggregating that reviewer\'s sub-agents. `concerns` is an array of { severity: "major"|"minor", title, detail }.',
+			description: 'Record one reviewer\'s Major/Minor Concerns for a review run so Qoka\'s Manuscript tab can display them. Call once per reviewer after aggregating that reviewer\'s sub-agents. `concerns` is an array of { severity: "major"|"minor", title, detail }.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -334,7 +335,7 @@ export function buildReviewTools(): ToolDefinition[] {
 					return err(`record_review failed: ${(e as Error).message}`);
 				}
 				const major = concerns.filter(c => c.severity === 'major').length;
-				return ok(`Recorded ${concerns.length} concern(s) for "${reviewer}" (${major} major). Qoka's Peer Review tab will show them.`);
+				return ok(`Recorded ${concerns.length} concern(s) for "${reviewer}" (${major} major). Qoka's Manuscript tab will show them.`);
 			},
 		},
 		{
@@ -396,7 +397,7 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'propose_document_edit',
-			description: 'Propose an edit to ONE document of a review (the "main" manuscript or a supplementary doc like "suppl-1") that the USER directly asked for and is NOT tied to a review concern - e.g. "delete the title in the supplementary", "fix this typo". Qoka shows it inline in that document (auto-switching to its tab) with an Accept button; nothing changes until the user accepts. This is for the REVIEW\'s documents - do NOT use Paper Writer tools for these. (For fixing a specific review concern, use record_revision instead.) You may give up to 3 alternative `proposals`; the user browses "< N/3 >" and accepts one. Call get_review first and copy the exact text. Set `replacement` to "" to delete a span.',
+			description: 'Propose an edit to ONE document of a review (the "main" manuscript or a supplementary doc like "suppl-1") that the USER directly asked for and is NOT tied to a review concern - e.g. "delete the title in the supplementary", "fix this typo". Qoka shows it inline in that document (auto-switching to its tab) with an Accept button; nothing changes until the user accepts. This is for the REVIEW\'s documents - do NOT use the paper-writing tools for these. (For fixing a specific review concern, use record_revision instead.) You may give up to 3 alternative `proposals`; the user browses "< N/3 >" and accepts one. Call get_review first and copy the exact text. Set `replacement` to "" to delete a span.',
 			inputSchema: {
 				type: 'object',
 				properties: {

@@ -10,7 +10,7 @@ import * as crypto from 'crypto';
 
 /**
  * Per-project paper storage for the aria-paper MCP. Each manuscript lives in
- * `<workspace>/paper/<id>/`:
+ * `<workspace>/.qoka/manuscript/draft/<id>/`:
  *   - meta.json          { id, title, format, outline, createdAt, updatedAt }
  *   - manuscript.md      Markdown source of truth (citations as [@citekey])
  *   - citations.csl.json CSL-JSON array of the citeable references
@@ -59,7 +59,7 @@ export interface PaperInfo {
 }
 
 /** A user-provided figure (image) or supplementary source file. Stored under
- *  paper/<id>/figures|sources/; `summary` is the AI description generated once
+ *  .qoka/manuscript/draft/<id>/figures|sources/; `summary` is the AI description generated once
  *  on add (so writing prompts use the summary, not the raw file). */
 export interface PaperAsset {
 	id: string;
@@ -85,7 +85,9 @@ export const DEFAULT_FORMAT: PaperFormat = {
 
 export function papersDir(): string | undefined {
 	const folder = vscode.workspace.workspaceFolders?.[0];
-	return folder ? path.join(folder.uri.fsPath, 'paper') : undefined;
+	// Manuscripts you write live under .qoka/ (kept out of the project's top-level
+	// analysis files): <workspace>/.qoka/manuscript/draft/<id>/.
+	return folder ? path.join(folder.uri.fsPath, '.qoka', 'manuscript', 'draft') : undefined;
 }
 
 function paperDir(id: string): string | undefined {

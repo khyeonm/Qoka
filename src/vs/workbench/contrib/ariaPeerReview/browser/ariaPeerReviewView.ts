@@ -77,7 +77,7 @@ export class AriaPeerReviewView extends ViewPane {
 
 	private reviewsDir(): URI | undefined {
 		const folder = this.workspaceContextService.getWorkspace().folders[0];
-		return folder ? joinPath(folder.uri, 'reviews') : undefined;
+		return folder ? joinPath(folder.uri, '.qoka', 'manuscript', 'review') : undefined;
 	}
 
 	private async refresh(): Promise<void> {

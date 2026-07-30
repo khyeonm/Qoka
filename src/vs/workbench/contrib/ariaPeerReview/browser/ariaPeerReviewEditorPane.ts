@@ -179,6 +179,12 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		} else {
 			this.papers = await this.loadPapers();
 			this.sourceMode = 'file';
+			// Handoff from Paper Writing: if a paper was passed in and it exists, start on
+			// the "manuscript" source with that paper already picked.
+			if (input.seedPaperId && this.papers.some(p => p.id === input.seedPaperId)) {
+				this.sourceMode = 'manuscript';
+				this.selectedPaperId = input.seedPaperId;
+			}
 		}
 		if (token.isCancellationRequested) { return; }
 		this.render();
@@ -190,7 +196,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	// --- data ---------------------------------------------------------------
 
 	private folderUri(): URI | undefined { return this.workspaceContextService.getWorkspace().folders[0]?.uri; }
-	private reviewDir(): URI | undefined { const f = this.folderUri(); return f && this.execId ? joinPath(f, 'reviews', this.execId) : undefined; }
+	private reviewDir(): URI | undefined { const f = this.folderUri(); return f && this.execId ? joinPath(f, '.qoka', 'manuscript', 'review', this.execId) : undefined; }
 	private async readJson<T>(uri: URI): Promise<T | undefined> { try { return JSON.parse((await this.fileService.readFile(uri)).value.toString()) as T; } catch { return undefined; } }
 	private async readText(uri: URI): Promise<string> { try { return (await this.fileService.readFile(uri)).value.toString(); } catch { return ''; } }
 
@@ -284,7 +290,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		}
 		// Fallback for the main manuscript before the agent has extracted it.
 		const f = this.folderUri();
-		if (docKey === 'main' && f && this.meta?.paperId) { return this.readText(joinPath(f, 'paper', this.meta.paperId, 'manuscript.md')); }
+		if (docKey === 'main' && f && this.meta?.paperId) { return this.readText(joinPath(f, '.qoka', 'manuscript', 'draft', this.meta.paperId, 'manuscript.md')); }
 		return '';
 	}
 	private async loadPapers(): Promise<PaperItem[]> {
@@ -292,7 +298,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		if (!f) { return []; }
 		const out: PaperItem[] = [];
 		try {
-			const stat = await this.fileService.resolve(joinPath(f, 'paper'));
+			const stat = await this.fileService.resolve(joinPath(f, '.qoka', 'manuscript', 'draft'));
 			for (const c of stat.children ?? []) {
 				if (!c.isDirectory) { continue; }
 				const meta = await this.readJson<{ id?: string; title?: string }>(joinPath(c.resource, 'meta.json'));
@@ -306,7 +312,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		const f = this.folderUri();
 		if (!f || !paperId) { return ['markdown']; }
 		const out: PaperFormat[] = ['markdown'];
-		const exp = joinPath(f, 'paper', paperId, 'export');
+		const exp = joinPath(f, '.qoka', 'manuscript', 'draft', paperId, 'export');
 		if (await this.fileService.exists(joinPath(exp, 'paper.docx'))) { out.push('docx'); }
 		if (await this.fileService.exists(joinPath(exp, 'paper.tex'))) { out.push('latex'); }
 		return out;
@@ -377,7 +383,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		Object.assign(cards.style, { display: 'flex', gap: '12px', flexWrap: 'wrap' });
 		cards.appendChild(this.sourceCard('file', localize('aria.peerReview.optFile', "Upload a file"), localize('aria.peerReview.optFileHint', "A paper on your computer (.md, .txt, .docx, .pdf, .tex). Add supplementary files too."), true));
 		const hasPapers = this.papers.length > 0;
-		cards.appendChild(this.sourceCard('manuscript', localize('aria.peerReview.optManuscript', "A paper written in the Paper Writing tab"), hasPapers ? localize('aria.peerReview.optManuscriptHint', "Review a manuscript you drafted in the Paper Writing tab.") : localize('aria.peerReview.optManuscriptNone', "No manuscripts yet - create one in the Paper Writing tab first."), hasPapers));
+		cards.appendChild(this.sourceCard('manuscript', localize('aria.peerReview.optManuscript', "A paper written in the Manuscript tab"), hasPapers ? localize('aria.peerReview.optManuscriptHint', "Review a manuscript you drafted in the Manuscript tab.") : localize('aria.peerReview.optManuscriptNone', "No manuscripts yet - write one in the Manuscript tab first."), hasPapers));
 
 		// selected-source detail
 		const detail = append(s1, $('div')); detail.style.marginTop = '12px';
@@ -426,7 +432,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 			}
 
 			if (this.availableFormats.length === 1) {
-				const hint = append(detail, $('div')); hint.textContent = localize('aria.peerReview.onlyMd', "Only the Markdown source exists. Export the paper to .docx/.tex in the Paper Writing tab if you want to review a specific format.");
+				const hint = append(detail, $('div')); hint.textContent = localize('aria.peerReview.onlyMd', "Only the Markdown source exists. Export the paper to .docx/.tex in the Manuscript tab if you want to review a specific format.");
 				Object.assign(hint.style, { fontSize: '12px', opacity: '0.6', marginTop: '8px' });
 			}
 		}
@@ -535,11 +541,16 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 
 	/** A labelled file slot: title, hint, current file rows (with ✕), and an add/select button. */
 	private fileSlot(parent: HTMLElement, title: string, hint: string, files: URI[], multi: boolean, add: () => void, remove: (i: number) => void): void {
-		this.label(parent, title);
-		const h = append(parent, $('div')); h.textContent = hint;
+		// Each slot sits in its own block with a top margin, so its title is clearly
+		// separated from the previous slot's "Select file / + Add files" button rather
+		// than butting right up against it.
+		const slot = append(parent, $('div'));
+		slot.style.marginTop = '18px';
+		this.label(slot, title);
+		const h = append(slot, $('div')); h.textContent = hint;
 		Object.assign(h.style, { fontSize: '12px', opacity: '0.6', marginTop: '-4px', marginBottom: '8px' });
 		if (files.length) {
-			const list = append(parent, $('div'));
+			const list = append(slot, $('div'));
 			Object.assign(list.style, { display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '520px', marginBottom: '8px' });
 			files.forEach((u, i) => {
 				const row = append(list, $('div'));
@@ -554,7 +565,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		const label = files.length
 			? (multi ? localize('aria.peerReview.addMore', "+ Add more") : localize('aria.peerReview.replace', "Replace"))
 			: (multi ? localize('aria.peerReview.addFiles', "+ Add files") : localize('aria.peerReview.selectFile', "Select file"));
-		parent.appendChild(this.button(label, files.length ? 'ghost' : 'primary', add));
+		slot.appendChild(this.button(label, files.length ? 'ghost' : 'primary', add));
 	}
 
 	private async pickDraft(): Promise<void> {
@@ -582,7 +593,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		if (reviewers.length === 0) { this.notificationService.error(localize('aria.peerReview.noReviewer', "Select at least one reviewer.")); return; }
 
 		const execId = 'rev-' + generateUuid().slice(0, 8);
-		const dir = joinPath(folder, 'reviews', execId);
+		const dir = joinPath(folder, '.qoka', 'manuscript', 'review', execId);
 		await this.fileService.createFolder(dir);
 		const now = new Date().toISOString();
 		let meta: ReviewMeta;

@@ -22,7 +22,7 @@ const execFileAsync = promisify(execFile);
 
 /**
  * True when the given reviewer CLI (`claude` or `codex`) is on this machine. The
- * Peer Review tab gates each reviewer on THIS (not the VS Code extension): the
+ * Manuscript tab gates each reviewer on THIS (not the VS Code extension): the
  * review skill runs `claude --print` / `codex exec` via the shell, so the CLI is
  * the real requirement - installing the extension does not install the CLI. We
  * probe the same locations the skill's resolver checks (abs install dirs, PATH,
@@ -151,7 +151,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.exportPaper', (execId: string, format: string, docKey?: string) =>
 		exportReviewPaper(execId, format as ReviewExportFormat, docKey ?? 'main')));
 
-	// Whether the Codex CLI is available - the Peer Review tab uses this to gate
+	// Whether the Codex CLI is available - the Manuscript tab uses this to gate
 	// its Codex reviewer checkbox (the reviewer runs `codex exec`).
 	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.codexAvailable', () => cliAvailable('codex')));
 	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.claudeAvailable', () => cliAvailable('claude')));

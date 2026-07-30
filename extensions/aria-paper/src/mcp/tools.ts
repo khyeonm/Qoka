@@ -62,7 +62,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'create_paper',
-			description: 'Create a new, empty paper project and return its id. Writes <project>/paper/<id>/ with a default format.',
+			description: 'Create a new, empty paper project and return its id. Writes <project>/.qoka/manuscript/draft/<id>/ with a default format.',
 			inputSchema: {
 				type: 'object',
 				properties: { title: { type: 'string', description: 'Working title for the paper.' } },
@@ -72,18 +72,18 @@ export function buildTools(): ToolDefinition[] {
 			handler: async (a) => {
 				try {
 					const meta = createPaper(asString(a.title) ?? 'Untitled');
-					// Best-effort: move to the Paper Writing tab and open the new paper
+					// Best-effort: move to the Manuscript tab and open the new paper
 					// so the user lands in the wizard (folder URI is
-					// <workspace>/paper/<id>). UI failures must not fail the tool.
+					// <workspace>/.qoka/manuscript/draft/<id>). UI failures must not fail the tool.
 					try {
 						const folder = vscode.workspace.workspaceFolders?.[0];
 						if (folder) {
-							const paperUri = vscode.Uri.joinPath(folder.uri, 'paper', meta.id);
-							await vscode.commands.executeCommand('workbench.view.ariaPaperWriter');
+							const paperUri = vscode.Uri.joinPath(folder.uri, '.qoka', 'manuscript', 'draft', meta.id);
+							await vscode.commands.executeCommand('workbench.view.ariaManuscript');
 							await vscode.commands.executeCommand('aria.paperWriter.open', paperUri);
 						}
 					} catch { /* opening the writing window is best-effort */ }
-					return ok(`Created paper "${meta.title}" (id: ${meta.id}). Opened the Paper Writing window - tell the user you moved to the writing window.`);
+					return ok(`Created paper "${meta.title}" (id: ${meta.id}). Opened the writing window in the Manuscript tab - tell the user you moved to the Manuscript tab and opened the writing window.`);
 				} catch (e) { return err(`create_paper failed: ${(e as Error).message}`); }
 			},
 		},
@@ -164,7 +164,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'set_title',
-			description: 'Set the paper title. Updates the title shown in the Paper Writer sidebar/editor AND the manuscript\'s top-level heading (and the frozen original). Propose a title to the user and get their confirmation BEFORE calling this.',
+			description: 'Set the paper title. Updates the title shown in the Manuscript tab (list + editor) AND the manuscript\'s top-level heading (and the frozen original). Propose a title to the user and get their confirmation BEFORE calling this.',
 			inputSchema: {
 				type: 'object',
 				properties: {

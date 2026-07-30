@@ -118,17 +118,17 @@ const PROJECT_TEMPLATE_README = `# Qoka project
 
 This folder was created by Qoka. Here is what each folder is for:
 
-- references/  Papers you save or download to read (PDFs).
 - data/        Datasets and analysis inputs.
-- downloads/   Other downloaded files.
-- paper/       Manuscripts you write in the Paper Writing tab.
-- reviews/     Results from the Peer Review tab.
 - analysis/    Results from quick code runs, one folder per run.
 - autopipe/    Pipelines and their results.
     pipelines/         Pipeline code saved from the run environment.
     pipelines_input/   Input manifests (file lists, not the data itself).
     pipelines_output/  Results from each pipeline run.
-- .qoka/       Qoka's internal files (roadmap, project settings).
+- .qoka/       Qoka's own files - edit these through the app, not by hand:
+    manuscript/draft/   Papers you write in the Manuscript tab.
+    manuscript/review/  Results from the Manuscript tab's reviews.
+    references/         Papers you save to your Paper Library.
+    notebook/           Overview, roadmaps and research notes.
 
 You can rename or delete any folder you do not need.
 `;
@@ -1428,16 +1428,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 	/**
 	 * Create the default project folder layout inside a freshly created New
-	 * Project folder. Folders that Qoka features also create lazily (paper/,
-	 * reviews/) are pre-created so the structure is visible from the
-	 * start; references/, data/, and downloads/ are new user-facing
-	 * conventions. All writes are best-effort and idempotent - a failure here
-	 * must never prevent the project from opening.
-	 *
-	 * Note on `paper/` vs `references/`: `paper/` is app-managed and holds the
-	 * manuscripts you write (Paper Writer), one subfolder per manuscript.
-	 * `references/` is for papers you save/download to read - kept separate so
-	 * the two never collide.
+	 * Project folder. The top level holds only the user-facing analysis files
+	 * (data/, analysis/, autopipe/); everything Qoka manages for you
+	 * - the manuscripts you write, their reviews, the papers you save, and the
+	 * notebook - lives under `.qoka/` so it never clutters the analysis view.
+	 * Those `.qoka/` subfolders (manuscript/draft, manuscript/review,
+	 * references, notebook) are created lazily by their features, so they are
+	 * not pre-created here. All writes are best-effort and idempotent - a
+	 * failure here must never prevent the project from opening.
 	 */
 	private async scaffoldProjectTemplate(folderUri: URI): Promise<void> {
 		// `autopipe/` holds pipeline artifacts copied back from the run environment:
@@ -1451,8 +1449,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// 'notes' is intentionally NOT scaffolded: research notes now live inside the
 		// Notebook tab at .qoka/notebook/notes, so a top-level notes/ folder would be
 		// a confusing empty duplicate.
-		const dirs = ['references', 'data', 'downloads', 'paper', 'reviews', '.qoka',
-			'analysis',
+		const dirs = ['data', 'analysis', '.qoka',
 			'autopipe', 'autopipe/pipelines', 'autopipe/pipelines_input', 'autopipe/pipelines_output'];
 		for (const dir of dirs) {
 			try {

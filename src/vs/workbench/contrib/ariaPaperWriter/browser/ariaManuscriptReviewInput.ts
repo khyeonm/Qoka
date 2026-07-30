@@ -15,7 +15,7 @@ export const ARIA_MANUSCRIPT_REVIEW_SCHEME = 'aria-manuscript-review';
 
 /**
  * Editor input for reviewing a staged manuscript revision. `folderResource` is
- * the paper directory (`<workspace>/paper/<id>/`); the pane reads manuscript.md
+ * the paper directory (`<workspace>/.qoka/manuscript/draft/<id>/`); the pane reads manuscript.md
  * (current) and manuscript.proposed.md (proposed) to render the diff.
  */
 export class AriaManuscriptReviewInput extends EditorInput {

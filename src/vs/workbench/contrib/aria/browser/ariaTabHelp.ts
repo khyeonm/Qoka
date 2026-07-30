@@ -15,7 +15,7 @@
 
 export type AriaTabKey =
 	| 'files' | 'paper-library' | 'research-note' | 'paper-writer'
-	| 'peer-review' | 'autopipe' | 'roadmap' | 'skills' | 'versions';
+	| 'peer-review' | 'manuscript' | 'autopipe' | 'roadmap' | 'skills' | 'versions';
 
 export interface AriaTabHelp {
 	/** Tab name, used as the "How to use" editor tab title. */
@@ -108,6 +108,26 @@ Write a scientific paper with the AI assistant, step by step: **Format → Sourc
 
 ## Tips
 - Your original first draft is kept as \`paper/<id>/manuscript.original.md\` and stays there **unchanged even while you revise with the AI**, so you never lose your earlier version.`,
+	},
+	'manuscript': {
+		title: 'Manuscript',
+		summary: 'Write a paper with the AI, then hand it straight to an AI peer review.',
+		howTo: `# Manuscript - How to use
+
+The **Manuscript** tab is where you both **write** a paper and **review** it. Click **+ New** and choose **Paper writing** to draft a paper, or **Paper review** to critique one. The list below has a **Writing** section (your papers) and a **Reviews** section (your review runs); click any item to reopen it, or the trash icon to delete it.
+
+## Write a paper
+Choosing **Paper writing** opens the writing wizard: **Format → Sources → Focus → Outline → Write → Revise**. Each paper is saved under \`.qoka/manuscript/draft/\`. The AI buttons **copy a prompt** that you paste to the AI assistant in the chat; you can edit any result freely. (This is the same flow as the old Paper Writing tab - nothing was removed.)
+
+## Hand off to review
+On the last step, once the paper is drafted, click **Proceed to paper review →**. It opens a new review with **this paper already selected as the source** - whatever you last wrote or revised. You don't have to re-upload anything.
+
+## Review a paper
+Choosing **Paper review** (or arriving via the hand-off) opens the new-review form: pick **one source** (upload a file, or a paper you wrote here), choose the AI reviewer(s), then run them to surface **Major** and **Minor** concerns. For each concern, click **Suggest Revision** to get inline before → after edits you can **Accept**, tick **Resolved** when done, then **Save** / **Re-run on revised**. (This is the same flow as the old Peer Review tab.)
+
+## Tips
+- The **Proceed to paper review** button uses your current manuscript, so revise first, then hand off.
+- A review needs an AI you've **signed in to** in its chat app; if a reviewer shows "CLI not installed", set up its provider in the **Settings** tab.`,
 	},
 	'peer-review': {
 		title: 'Peer Review',

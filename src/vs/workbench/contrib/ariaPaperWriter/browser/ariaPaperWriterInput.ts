@@ -10,7 +10,7 @@ import { basename, isEqual } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
 
 /** Synthetic scheme so the paper opens in our custom pane, not as a folder. The
- *  real paper directory (`<workspace>/paper/<id>/`) is `folderResource`. */
+ *  real paper directory (`<workspace>/.qoka/manuscript/draft/<id>/`) is `folderResource`. */
 export const ARIA_PAPER_SCHEME = 'aria-paper';
 
 /**

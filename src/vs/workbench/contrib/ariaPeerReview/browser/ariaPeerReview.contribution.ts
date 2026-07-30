@@ -5,8 +5,6 @@
 
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { Codicon } from '../../../../base/common/codicons.js';
-import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
@@ -16,12 +14,14 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { EditorExtensions } from '../../../common/editor.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
-import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { AriaPeerReviewView } from './ariaPeerReviewView.js';
-import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 import { AriaPeerReviewEditorPane } from './ariaPeerReviewEditorPane.js';
 import { AriaPeerReviewInput } from './ariaPeerReviewInput.js';
+
+// The Peer Review sidebar tab was merged into the consolidated "Manuscript" tab
+// (see ariaManuscript.contribution). This file keeps registering the review editor
+// pane, input and `aria.peerReview.*` commands - only the sidebar container/view
+// moved - so the Manuscript list, the Paper Writing handoff and the MCP tools keep
+// working.
 
 // --- Editor pane ------------------------------------------------------------
 
@@ -40,6 +40,13 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 
 CommandsRegistry.registerCommand('aria.peerReview.new', async (accessor) => {
 	await accessor.get(IEditorService).openEditor(new AriaPeerReviewInput(undefined), { pinned: true });
+});
+
+// Handoff from Paper Writing: open a NEW review with the given paper pre-selected as
+// the source (the pane reads seedPaperId and switches to the "manuscript" source).
+CommandsRegistry.registerCommand('aria.peerReview.newForPaper', async (accessor, paperId?: unknown) => {
+	const seed = typeof paperId === 'string' && paperId ? paperId : undefined;
+	await accessor.get(IEditorService).openEditor(new AriaPeerReviewInput(undefined, seed), { pinned: true });
 });
 
 CommandsRegistry.registerCommand('aria.peerReview.open', async (accessor, execId?: unknown) => {
@@ -61,37 +68,7 @@ CommandsRegistry.registerCommand('aria.peerReview.delete', async (accessor, exec
 		primaryButton: localize('aria.peerReview.deleteButton', "Delete"),
 	});
 	if (!confirmed) { return; }
-	const dir = joinPath(folder.uri, 'reviews', execId);
+	const dir = joinPath(folder.uri, '.qoka', 'manuscript', 'review', execId);
 	try { await fileService.del(dir, { useTrash: true, recursive: true }); }
 	catch { await fileService.del(dir, { useTrash: false, recursive: true }); }
 });
-
-// --- Sidebar "AI Peer Review" view ------------------------------------------
-
-const PEER_REVIEW_CONTAINER_ID = 'workbench.view.ariaPeerReview';
-const peerReviewIcon = registerIcon('aria-peer-review-view', Codicon.commentDiscussion, localize('aria.peerReview.iconLabel', "Qoka Peer Review activity bar icon"));
-
-const peerReviewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry)
-	.registerViewContainer({
-		id: PEER_REVIEW_CONTAINER_ID,
-		title: localize2('aria.peerReview.containerTitle', "Peer Review"),
-		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [PEER_REVIEW_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-		hideIfEmpty: false,
-		icon: peerReviewIcon,
-		order: 17,
-	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
-
-const peerReviewView: IViewDescriptor = {
-	id: AriaPeerReviewView.ID,
-	name: localize2('aria.peerReview.viewName', "Peer Review"),
-	containerIcon: peerReviewIcon,
-	ctorDescriptor: new SyncDescriptor(AriaPeerReviewView),
-	canToggleVisibility: false,
-	canMoveView: false,
-	order: 1,
-};
-
-Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([peerReviewView], peerReviewContainer);
-
-// "How to use?" link in the view's title bar.
-registerAriaTabHelpTitleAction(AriaPeerReviewView.ID, 'peer-review');

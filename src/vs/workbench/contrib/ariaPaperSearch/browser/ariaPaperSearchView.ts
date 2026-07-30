@@ -103,7 +103,7 @@ export class AriaPaperSearchView extends ViewPane {
 
 	/** Watch the project's library file for external writes (MCP saves) so new
 	 *  papers appear without a manual refresh. The library is PER-PROJECT at
-	 *  <workspace>/references/paper-library.json (matches library.ts in the
+	 *  <workspace>/.qoka/references/paper-library.json (matches library.ts in the
 	 *  extension); with no folder open it falls back to ~/.config/aria.
 	 *  writeLibrary() does a tmp-file + rename, so we watch the containing
 	 *  directory to catch the rename rather than the file inode. */
@@ -111,7 +111,7 @@ export class AriaPaperSearchView extends ViewPane {
 		try {
 			const folder = this.workspaceContextService.getWorkspace().folders[0];
 			const dirUri = folder && folder.uri.scheme === 'file'
-				? URI.joinPath(folder.uri, 'references')
+				? URI.joinPath(folder.uri, '.qoka', 'references')
 				: URI.joinPath(await this.pathService.userHome(), '.config', 'aria');
 			const libUri = URI.joinPath(dirUri, 'paper-library.json');
 			this._register(this.fileService.watch(dirUri));

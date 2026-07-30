@@ -26,7 +26,7 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 
 /**
- * Sidebar "Paper Writer" view: lists the project's papers (`paper/<id>/`) with a
+ * Sidebar "Paper Writer" view: lists the project's papers (`.qoka/manuscript/draft/<id>/`) with a
  * "New paper" button. Clicking a paper opens the setup-form editor pane.
  */
 export class AriaPaperWriterView extends ViewPane {
@@ -76,7 +76,7 @@ export class AriaPaperWriterView extends ViewPane {
 
 	private papersDir(): URI | undefined {
 		const folder = this.workspaceContextService.getWorkspace().folders[0];
-		return folder ? joinPath(folder.uri, 'paper') : undefined;
+		return folder ? joinPath(folder.uri, '.qoka', 'manuscript', 'draft') : undefined;
 	}
 
 	private async refresh(): Promise<void> {
