@@ -119,9 +119,13 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; user creates their Linux account at Ubuntu's first run after rebooting.
 ; NB: the PowerShell if-body braces MUST be doubled ({{ }}) - Inno Setup treats a
 ; single {...} as a constant reference and fails to compile otherwise.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu' -Verb RunAs"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended, needs a reboot)"; Flags: postinstall waituntilterminated runhidden skipifsilent; Check: WslNotInstalled
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu' -Verb RunAs -Wait"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended, needs a reboot)"; Flags: postinstall waituntilterminated runhidden skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
-Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WizardNotSilent
+; Launch Qoka - only when WSL is already installed. If WSL is missing the user must
+; reboot and create a Linux account first, so launching now would hit a not-ready
+; built-in server (see WslInstalledAndNotSilent). WSL-missing installs get the
+; "Install WSL" item + its guidance MsgBox instead.
+Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WslInstalledAndNotSilent
 
 [Registry]
 #if "user" == InstallTarget
@@ -1331,6 +1335,30 @@ begin
   finally
     EnableFsRedirection(OldRedir);
   end;
+end;
+
+// The general "Launch Qoka" finish-page item shows ONLY when WSL is present: with
+// WSL missing the user must reboot and create a Linux account first, so launching
+// now would just hit a not-ready built-in server. (WslNotInstalled runs a quick
+// `wsl --status`; the finish page evaluates it a couple of times, which is fine.)
+function WslInstalledAndNotSilent(): Boolean;
+begin
+  Result := (not WslNotInstalled()) and (not WizardSilent());
+end;
+
+// Modal guidance shown AFTER the WSL install finishes (the install [Run] uses
+// -Wait, so this MsgBox itself IS the "install is done" signal). MB_OK is modal, so
+// it stays until the user clicks OK - it does not vanish on its own. Lays out the
+// reboot -> create-account -> open-Qoka steps the user does by hand.
+procedure WslPostInstallMsg();
+begin
+  MsgBox(
+    'WSL (Ubuntu) is installed - it powers Qoka''s built-in run environment.' + #13#10 + #13#10 +
+    'To finish, please:' + #13#10 +
+    '1. Restart your PC now.' + #13#10 +
+    '2. After restarting, an "Ubuntu" window will appear - create a username and password. (If it doesn''t appear, search for "Ubuntu" in the Start menu and open it.)' + #13#10 +
+    '3. Then open Qoka - the rest is set up automatically. (This is a one-time step.)',
+    mbInformation, MB_OK);
 end;
 
 function IsBackgroundUpdate(): Boolean;

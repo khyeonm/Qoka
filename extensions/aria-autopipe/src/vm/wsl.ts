@@ -165,8 +165,13 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		// skips the install and sshd can never start.
 		'if [ ! -f /etc/ssh/sshd_config ]; then apt_install openssh-server; fi',
 		// Install the native docker engine only when NO docker CLI works, leaving a
-		// Docker Desktop WSL integration untouched.
-		'if ! command -v docker >/dev/null 2>&1; then apt_install docker.io; fi',
+		// Docker Desktop WSL integration untouched. `docker.io` installs on a clean
+		// Ubuntu; if it FAILS (e.g. a distro that already carries docker-ce /
+		// containerd.io remnants, where apt refuses docker.io with "pkgProblemResolver
+		// generated breaks"), fall back to the docker-ce packages. Pure safety net: the
+		// `||` runs the fallback ONLY when docker.io failed, so the clean-Ubuntu path is
+		// byte-for-byte unchanged.
+		'if ! command -v docker >/dev/null 2>&1; then apt_install docker.io || apt_install docker-ce docker-ce-cli containerd.io; fi',
 		// docker-in-WSL2 needs the legacy iptables backend on some kernels.
 		'update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true',
 		`usermod -aG docker '${u}' 2>/dev/null || true`,
