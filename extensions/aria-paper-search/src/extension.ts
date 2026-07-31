@@ -4,8 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { deletePaper, listPapers, allTags, updateNote, updateTags } from './library';
+import { applyResolution, deletePaper, listPapers, allTags, unresolvedPapers, updateNote, updateTags } from './library';
 import { notesCiting } from './noteCitations';
+import { resolveIdentifier } from './resolver';
 import { AriaPaperLibraryMcpServer } from './mcp/server';
 import { setRevealLibrary } from './mcp/tools';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
@@ -24,6 +25,34 @@ import { PaperLibraryState } from './types';
  */
 
 let mcpServer: AriaPaperLibraryMcpServer | undefined;
+
+const BACKFILL_START_DELAY_MS = 20_000;
+const BACKFILL_GAP_MS = 1_500;
+
+/**
+ * Walk the entries that have a DOI but no verified record, one every so often,
+ * writing each result as it lands. Runs once per window; a paper that fails
+ * (still offline) is simply picked up by the next window.
+ */
+async function backfillMetadata(): Promise<void> {
+	await new Promise(resolve => setTimeout(resolve, BACKFILL_START_DELAY_MS));
+	const pending = unresolvedPapers();
+	for (const paper of pending) {
+		try {
+			const record = await resolveIdentifier({ doi: paper.doi });
+			if (record) {
+				applyResolution(paper.id, {
+					title: record.title, authors: record.authors, year: record.year,
+					venue: record.venue, doi: record.doi, csl: record.csl,
+					metadataSource: record.source, cslType: record.cslType,
+				});
+			}
+		} catch {
+			// One bad paper must not stop the sweep.
+		}
+		await new Promise(resolve => setTimeout(resolve, BACKFILL_GAP_MS));
+	}
+}
 // The MCP server's start(). reregisterMcp awaits this for the port, so a
 // workbench call that lands before the server is listening still registers.
 let startPromise: Promise<number> | undefined;
@@ -168,6 +197,25 @@ export function activate(context: vscode.ExtensionContext): void {
 			updateTags(id, next);
 		}),
 
+		// Re-fetch one paper's metadata from its identifier. Used by the sidebar's
+		// Verify action for entries saved while offline, or saved before the
+		// library resolved anything at all.
+		vscode.commands.registerCommand('aria.paperSearch.resolveNow', async (id: unknown) => {
+			if (typeof id !== 'string') { return false; }
+			const paper = listPapers().find(p => p.id === id);
+			if (!paper?.doi) { return false; }
+			const record = await resolveIdentifier({ doi: paper.doi });
+			if (!record) { return false; }
+			// No title check here: the user asked for this specific paper to be
+			// refreshed, so the identifier on it is taken as intended.
+			applyResolution(id, {
+				title: record.title, authors: record.authors, year: record.year,
+				venue: record.venue, doi: record.doi, csl: record.csl,
+				metadataSource: record.source, cslType: record.cslType,
+			});
+			return true;
+		}),
+
 		vscode.commands.registerCommand('aria.paperSearch.confirmAndDelete', async (id: unknown) => {
 			if (typeof id !== 'string') {
 				return;
@@ -200,6 +248,13 @@ export function activate(context: vscode.ExtensionContext): void {
 	// library commands work whether or not Claude has discovered the MCP yet.
 	// Registration is driven separately by the workbench (see below).
 	void bootMcp();
+
+	// Repair papers saved before metadata resolution existed (or saved while
+	// offline). Deliberately slow and late: nobody is waiting on it, and it must
+	// not compete with startup or hammer the agency. Unlike a fresh save, this
+	// runs behind the user's back, so it only ever fills in a paper THEY already
+	// chose - the identifier is taken as given and no title check is applied.
+	void backfillMetadata();
 
 	// Sole registration entry point: the workbench chat-open coordinator calls
 	// this (serialized across every Qoka MCP) so the concurrent `claude mcp add`

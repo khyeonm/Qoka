@@ -34,6 +34,10 @@ import { renderAriaTabSummary, createAriaHelpTitleActionViewItem } from '../../a
 
 interface PaperLibraryEntry {
 	id: string;
+	/** How this paper is cited in a research note, as `[@citekey]`. */
+	citekey?: string;
+	/** Where the metadata came from; `assistant` (or absent) = unverified. */
+	metadataSource?: 'crossref' | 'datacite' | 'pubmed' | 'arxiv' | 'assistant';
 	title: string;
 	authors: string[];
 	year: number | undefined;
@@ -363,6 +367,35 @@ export class AriaPaperSearchView extends ViewPane {
 			parts.push(String(paper.year));
 		}
 		meta.textContent = parts.join(' · ');
+
+		// Papers whose metadata is still the assistant's transcription: the author
+		// list or the year may be wrong in ways that look complete, so say so
+		// rather than presenting them as equal to a publisher-sourced record.
+		const unverified = !paper.metadataSource || paper.metadataSource === 'assistant';
+		if (unverified) {
+			const warn = append(card, $('div'));
+			warn.style.display = 'flex';
+			warn.style.alignItems = 'center';
+			warn.style.gap = '6px';
+			warn.style.fontSize = '10.5px';
+			warn.style.opacity = '0.7';
+			const label = append(warn, $('span'));
+			label.textContent = paper.doi
+				? 'Details not verified with the publisher yet'
+				: 'Details not verified (no DOI to check against)';
+			if (paper.doi) {
+				const verifyBtn = append(warn, $('a')) as HTMLElement;
+				verifyBtn.textContent = 'Verify now';
+				verifyBtn.style.cursor = 'pointer';
+				verifyBtn.style.color = 'var(--vscode-textLink-foreground)';
+				verifyBtn.onclick = async (e) => {
+					e.stopPropagation();
+					label.textContent = 'Checking…';
+					try { await this.commandService.executeCommand('aria.paperSearch.resolveNow', paper.id); } catch { /* stays unverified */ }
+					await this.refresh();
+				};
+			}
+		}
 
 		// Action row - Details (toggle expansion) + Delete. The title is
 		// also clickable, but a dedicated Details button is easier to

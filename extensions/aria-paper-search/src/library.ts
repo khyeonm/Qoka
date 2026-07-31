@@ -162,6 +162,11 @@ export interface SavePaperInput {
 	source?: PaperLibraryEntry['source'];
 	note?: string;
 	tags?: string[];
+	/** Set when the fields above were replaced with a registration agency's record
+	 *  (see resolver.ts). Absent = the assistant's own transcription. */
+	csl?: Record<string, unknown>;
+	metadataSource?: PaperLibraryEntry['metadataSource'];
+	cslType?: string;
 }
 
 /** Build a library entry from an input, preserving an existing entry's user edits
@@ -172,6 +177,9 @@ export interface SavePaperInput {
 function makeEntry(id: string, input: SavePaperInput, existing: PaperLibraryEntry | undefined, now: string, used: Set<string>): PaperLibraryEntry {
 	const citekey = existing?.citekey || uniqueCitekey(baseCitekey(input), used);
 	used.add(citekey);
+	// A verified record wins; without one, keep whatever verification the entry
+	// already had rather than downgrading it to an assistant transcription.
+	const verified = !!input.csl;
 	return {
 		id,
 		citekey,
@@ -183,11 +191,47 @@ function makeEntry(id: string, input: SavePaperInput, existing: PaperLibraryEntr
 		url: input.url,
 		pdfUrl: input.pdfUrl,
 		abstract: input.abstract,
+		csl: input.csl ?? existing?.csl,
+		metadataSource: verified ? input.metadataSource : (existing?.metadataSource ?? input.metadataSource),
+		resolvedAt: verified ? now : existing?.resolvedAt,
+		cslType: input.cslType ?? existing?.cslType,
 		source: input.source ?? 'other',
 		savedAt: existing?.savedAt ?? now,
 		note: existing?.note ?? input.note ?? '',
 		tags: existing?.tags ?? input.tags ?? [],
 	};
+}
+
+/**
+ * Write a resolved record onto an existing entry, for the repair paths (the
+ * sidebar's Verify action and the background sweep over papers saved before
+ * resolution existed). The citekey is deliberately NOT recomputed: it is already
+ * written into notes as `[@citekey]`, and changing it would break every one.
+ */
+export function applyResolution(id: string, fields: {
+	title: string; authors: string[]; year?: number; venue?: string; doi?: string;
+	csl: Record<string, unknown>; metadataSource: PaperLibraryEntry['metadataSource']; cslType?: string;
+}): PaperLibraryEntry | undefined {
+	const lib = readLibrary();
+	const paper = lib.papers.find(p => p.id === id);
+	if (!paper) { return undefined; }
+	paper.title = fields.title;
+	paper.authors = fields.authors;
+	paper.year = fields.year ?? paper.year;
+	paper.venue = fields.venue ?? paper.venue;
+	paper.doi = fields.doi ?? paper.doi;
+	paper.csl = fields.csl;
+	paper.metadataSource = fields.metadataSource;
+	paper.cslType = fields.cslType;
+	paper.resolvedAt = new Date().toISOString();
+	writeLibrary(lib);
+	return paper;
+}
+
+/** Entries that have an identifier but no verified record yet, oldest first, for
+ *  the background repair sweep. */
+export function unresolvedPapers(): PaperLibraryEntry[] {
+	return readLibrary().papers.filter(p => !p.csl && !!p.doi);
 }
 
 /**

@@ -26,6 +26,20 @@ export interface PaperLibraryEntry {
 	abstract: string | undefined;
 	/** Where the paper was found - used for badge display, no special handling. */
 	source: 'openalex' | 'crossref' | 'arxiv' | 'biorxiv' | 'pubmed' | 'other';
+	/**
+	 * The registration agency's own CSL-JSON for this paper, cached from the DOI
+	 * (or PMID / arXiv id). Present means the bibliographic fields above came from
+	 * the publisher rather than from the assistant transcribing a search result.
+	 * Doubles as the `--bibliography` input a future export needs, so nothing has
+	 * to be rebuilt for it.
+	 */
+	csl?: Record<string, unknown>;
+	/** Where the metadata came from. `assistant` = unverified transcription. */
+	metadataSource?: 'crossref' | 'datacite' | 'pubmed' | 'arxiv' | 'assistant';
+	/** ISO timestamp of the last successful lookup. */
+	resolvedAt?: string;
+	/** CSL item type (article-journal, preprint, …), needed to render a reference. */
+	cslType?: string;
 	/** ISO timestamp the paper was added. */
 	savedAt: string;
 	/** Free-text note the user can edit from the sidebar. */
