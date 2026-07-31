@@ -7,6 +7,7 @@ import * as http from 'http';
 import * as crypto from 'crypto';
 import { URL } from 'url';
 import { ToolDefinition } from './tools';
+import { SERVER_INSTRUCTIONS } from './guide';
 import { isJsonRpcRequest, jsonRpcSuccess, jsonRpcError, JsonRpcErrorCodes, JsonRpcRequest } from './jsonrpc';
 
 const DEFAULT_PORT = 3786;
@@ -257,6 +258,10 @@ export class AriaNotesMcpServer {
 					protocolVersion: negotiated,
 					serverInfo: { name: 'qoka-notes', version: '0.0.1' },
 					capabilities: { tools: {} },
+					// Citation rules span the library, the notes and the editor, so they
+					// are delivered once as session context rather than repeated in
+					// every tool description.
+					instructions: SERVER_INSTRUCTIONS,
 				};
 			}
 			case 'notifications/initialized':

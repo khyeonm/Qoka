@@ -14,6 +14,9 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
+import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
+import { ActiveEditorContext } from '../../../common/contextkeys.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -28,7 +31,7 @@ import { AriaNoteEditorPane } from './ariaNoteEditorPane.js';
 import { AriaNoteEditorInput } from './ariaNoteEditorInput.js';
 import { AriaNotesView } from './ariaNotesView.js';
 import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
-import { setNoteProposal } from './ariaNotesProposals.js';
+import { PendingCitation, setNoteProposal } from './ariaNotesProposals.js';
 
 // --- Editor pane (BlockNote webview) ---------------------------------------
 
@@ -80,15 +83,20 @@ CommandsRegistry.registerCommand('aria.notes.open', async (accessor, resource?: 
 // Fired by the aria-notes MCP server when Claude proposes a note edit. We stage
 // the proposal and open the note; the pane shows it read-only for Accept/Reject.
 CommandsRegistry.registerCommand('aria.notes.workbench.onProposal', async (accessor, payload?: unknown) => {
-	const p = payload as { filePath?: string; title?: string; blocks?: unknown[]; currentMarkdown?: string; proposedMarkdown?: string } | undefined;
+	const p = payload as {
+		filePath?: string; title?: string; blocks?: unknown[];
+		currentMarkdown?: string; proposedMarkdown?: string; pendingCitations?: unknown;
+	} | undefined;
 	if (!p || typeof p.filePath !== 'string' || !Array.isArray(p.blocks)) { return; }
 	const fileUri = URI.file(p.filePath);
 	setNoteProposal({
 		fileKey: fileUri.toString(),
+		filePath: p.filePath,
 		title: typeof p.title === 'string' ? p.title : '',
 		blocks: p.blocks,
 		currentMarkdown: typeof p.currentMarkdown === 'string' ? p.currentMarkdown : '',
 		proposedMarkdown: typeof p.proposedMarkdown === 'string' ? p.proposedMarkdown : '',
+		pendingCitations: Array.isArray(p.pendingCitations) ? p.pendingCitations as PendingCitation[] : [],
 	});
 	await accessor.get(IEditorService).openEditor(new AriaNoteEditorInput(fileUri), { pinned: true });
 });
@@ -136,6 +144,31 @@ CommandsRegistry.registerCommand('aria.notes.delete', async (accessor, resource?
 	} catch {
 		await fileService.del(uri, { useTrash: false, recursive: false });
 	}
+});
+
+// --- Ctrl+B belongs to the note editor --------------------------------------
+
+/**
+ * While a research note is the active editor, Ctrl/Cmd+B means BOLD, not "toggle
+ * the primary side bar".
+ *
+ * The note editor is a webview, and webviews forward every keystroke to the
+ * workbench for keybinding resolution. So Ctrl+B was doing both things at once:
+ * BlockNote bolded the selection inside the iframe, and a moment later the
+ * workbench toggled the sidebar - the Notebook tab visibly flapping open and shut
+ * on every bold.
+ *
+ * This rule shadows `workbench.action.toggleSidebarVisibility` (same key, higher
+ * weight, scoped `when`) with a handler that does nothing. Bold still happens,
+ * because that is handled inside the webview before the event is ever forwarded;
+ * only the workbench half is swallowed. Every other editor keeps Ctrl+B.
+ */
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: 'aria.notes.suppressSidebarToggle',
+	weight: KeybindingWeight.WorkbenchContrib + 1,
+	when: ActiveEditorContext.isEqualTo(AriaNoteEditorInput.EDITOR_ID),
+	primary: KeyMod.CtrlCmd | KeyCode.KeyB,
+	handler: () => { /* swallowed: the webview already applied bold */ },
 });
 
 // --- Sidebar "Research Note" view -------------------------------------------

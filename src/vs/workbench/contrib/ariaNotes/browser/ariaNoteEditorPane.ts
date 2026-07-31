@@ -11,9 +11,14 @@ import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IQuickInputService, IQuickPickItem, QuickPickInput } from '../../../../platform/quickinput/common/quickInput.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
@@ -23,7 +28,8 @@ import { IEditorGroup } from '../../../services/editor/common/editorGroupsServic
 import { asWebviewUri, webviewGenericCspSource } from '../../webview/common/webview.js';
 import { IWebviewElement, IWebviewService } from '../../webview/browser/webview.js';
 import { AriaNoteEditorInput } from './ariaNoteEditorInput.js';
-import { NoteProposal, clearNoteProposal, getNoteProposal, onDidProposeNote } from './ariaNotesProposals.js';
+import { NoteProposal, PendingCitation, clearNoteProposal, getNoteProposal, onDidProposeNote } from './ariaNotesProposals.js';
+import { revealAiProviderChat } from '../../aria/browser/aiProviderChat.js';
 
 const MEDIA_ROOT = FileAccess.asFileUri('vs/workbench/contrib/ariaNotes/browser/media');
 
@@ -44,6 +50,9 @@ export class AriaNoteEditorPane extends EditorPane {
 	private container: HTMLElement | undefined;
 	private webviewHost: HTMLElement | undefined;
 	private banner: HTMLElement | undefined;
+	private bannerLabel: HTMLElement | undefined;
+	private bannerPickButton: HTMLButtonElement | undefined;
+	private bannerAcceptButton: HTMLButtonElement | undefined;
 	private readonly webviewStore = this._register(new DisposableStore());
 	private webview: IWebviewElement | undefined;
 
@@ -64,6 +73,10 @@ export class AriaNoteEditorPane extends EditorPane {
 		@IStorageService storageService: IStorageService,
 		@IFileService private readonly fileService: IFileService,
 		@IWebviewService private readonly webviewService: IWebviewService,
+		@ICommandService private readonly commandService: ICommandService,
+		@IQuickInputService private readonly quickInputService: IQuickInputService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super(AriaNoteEditorPane.ID, group, telemetryService, themeService, storageService);
 
@@ -77,6 +90,12 @@ export class AriaNoteEditorPane extends EditorPane {
 		// External change to the open note (e.g. Claude create/delete, or accept
 		// writing the file) → reload, unless it was our own write or we're mid-review.
 		this._register(this.fileService.onDidFilesChange(e => {
+			// A paper saved while this note is open changes which [@key] markers
+			// resolve, so refresh the webview's citekey map even during a review.
+			const lib = this.libraryUri();
+			if (lib && e.contains(lib)) {
+				void this.sendPapers();
+			}
 			const r = this.currentResource;
 			if (!r || this.reviewing || Date.now() - this.lastSelfWriteAt < 1500) {
 				return;
@@ -124,15 +143,30 @@ export class AriaNoteEditorPane extends EditorPane {
 		bar.style.fontFamily = 'var(--vscode-font-family, system-ui, sans-serif)';
 
 		const label = document.createElement('span');
-		label.textContent = localize('aria.notes.proposedBanner', "✦ The AI proposed changes - additions in yellow, removals struck through in red. Accept to apply, or Reject to discard.");
 		label.style.fontSize = '12.5px';
 		label.style.flex = '1';
 		label.style.color = 'var(--vscode-foreground, #ccc)';
 		bar.appendChild(label);
+		this.bannerLabel = label;
 
-		bar.appendChild(this.bannerButton(localize('aria.notes.accept', "Accept"), 'primary', () => void this.accept()));
+		// Shown only while citations still need a position. Accept stays disabled
+		// until then, so the user never approves a preview that is missing part of
+		// what the assistant proposed.
+		const pick = this.bannerButton(localize('aria.notes.pickCitationLocation', "Pick location"), 'primary', () => void this.resolveNextCitation());
+		bar.appendChild(pick);
+		this.bannerPickButton = pick;
+
+		const accept = this.bannerButton(localize('aria.notes.accept', "Accept"), 'primary', () => void this.accept());
+		bar.appendChild(accept);
+		this.bannerAcceptButton = accept;
+
 		bar.appendChild(this.bannerButton(localize('aria.notes.reject', "Reject"), 'ghost', () => void this.reject()));
 		return bar;
+	}
+
+	/** Citations the staged proposal still needs the user to position. */
+	private get pendingCitations(): readonly PendingCitation[] {
+		return this.activeProposal?.pendingCitations ?? [];
 	}
 
 	private bannerButton(text: string, variant: 'primary' | 'ghost', onclick: () => void): HTMLButtonElement {
@@ -224,12 +258,16 @@ export class AriaNoteEditorPane extends EditorPane {
 	}
 
 	private onWebviewMessage(message: unknown): void {
-		const msg = message as { type?: string; blocks?: unknown[] } | undefined;
+		const msg = message as {
+			type?: string; blocks?: unknown[]; token?: string;
+			id?: string; blockId?: string; offset?: number;
+		} | undefined;
 		if (!msg) {
 			return;
 		}
 		if (msg.type === 'ready') {
 			void this.webview?.postMessage({ type: 'load', blocks: this.pendingBlocks, editable: this.pendingEditable, decorations: this.pendingDecorations });
+			void this.sendPapers();
 		} else if (msg.type === 'save' && Array.isArray(msg.blocks)) {
 			// Ignore saves while previewing a proposal (read-only).
 			if (this.reviewing) {
@@ -237,7 +275,93 @@ export class AriaNoteEditorPane extends EditorPane {
 			}
 			this.lastBlocks = msg.blocks;
 			this.saveScheduler.schedule();
+		} else if (msg.type === 'cite:pick') {
+			void this.pickCitation(typeof msg.token === 'string' ? msg.token : '');
+		} else if (msg.type === 'cite:locationPicked') {
+			if (typeof msg.id === 'string' && typeof msg.blockId === 'string' && typeof msg.offset === 'number') {
+				void this.placeCitation(msg.id, msg.blockId, msg.offset);
+			}
+		} else if (msg.type === 'cite:locationSkipped') {
+			if (typeof msg.id === 'string') {
+				void this.skipCitation(msg.id);
+			}
 		}
+	}
+
+	/**
+	 * `/cite` in the note: choose a paper from the library and send its citekey
+	 * back for the webview to drop in at the placeholder it left behind.
+	 *
+	 * Papers already cited in this note are grouped first because re-citing the
+	 * same source is by far the common case in a research note.
+	 */
+	private async pickCitation(token: string): Promise<void> {
+		const cancel = () => void this.webview?.postMessage({ type: 'cite:cancel', token });
+		if (this.reviewing) {
+			cancel();
+			return;
+		}
+		let papers: { citekey?: string; title?: string; authors?: string[]; year?: number; venue?: string }[] = [];
+		try {
+			const state = await this.commandService.executeCommand<{ papers?: typeof papers }>('aria.paperSearch.list');
+			papers = Array.isArray(state?.papers) ? state!.papers! : [];
+		} catch {
+			papers = [];
+		}
+		const citable = papers.filter(p => typeof p.citekey === 'string' && p.citekey);
+
+		const alreadyCited = new Set(citekeysInBlocks(this.lastBlocks));
+		type PaperItem = IQuickPickItem & { citekey?: string; askAi?: boolean };
+		const toItem = (p: typeof citable[number]): PaperItem => ({
+			label: p.title ?? p.citekey!,
+			description: p.citekey,
+			detail: [
+				(p.authors ?? []).slice(0, 3).join(', '),
+				p.year ? String(p.year) : '',
+				p.venue ?? '',
+			].filter(Boolean).join(' · '),
+			citekey: p.citekey,
+		});
+
+		const items: QuickPickInput<PaperItem>[] = [];
+		const cited = citable.filter(p => alreadyCited.has(p.citekey!));
+		const rest = citable.filter(p => !alreadyCited.has(p.citekey!));
+		if (cited.length) {
+			items.push({ type: 'separator', label: localize('aria.notes.citeInThisNote', "In this note") });
+			items.push(...cited.map(toItem));
+		}
+		if (rest.length) {
+			items.push({ type: 'separator', label: localize('aria.notes.citeLibrary', "Library") });
+			items.push(...rest.map(toItem));
+		}
+		items.push({ type: 'separator' });
+		items.push({
+			label: localize('aria.notes.citeAskAi', "Ask the AI to find and cite a paper"),
+			detail: localize('aria.notes.citeAskAiDetail', "Not in your library? Ask in the AI chat and it will find the paper, save it, and cite it here."),
+			askAi: true,
+		});
+
+		const picked = await this.quickInputService.pick<PaperItem>(items, {
+			placeHolder: localize('aria.notes.citePlaceholder', "Choose a paper to cite"),
+			matchOnDescription: true,
+			matchOnDetail: true,
+		});
+		if (!picked) {
+			cancel();
+			return;
+		}
+		if (picked.askAi) {
+			cancel();
+			// Bring up whichever provider chat the user installed, so "ask the AI"
+			// is one click rather than an instruction to go find the chat.
+			await revealAiProviderChat(this.commandService, this.configurationService);
+			return;
+		}
+		if (!picked.citekey) {
+			cancel();
+			return;
+		}
+		void this.webview?.postMessage({ type: 'cite:insert', token, citekey: picked.citekey });
 	}
 
 	private postLoad(blocks: unknown[], editable: boolean, decorations?: ReviewDecorations): void {
@@ -248,9 +372,133 @@ export class AriaNoteEditorPane extends EditorPane {
 	}
 
 	private updateBanner(): void {
-		if (this.banner) {
-			this.banner.style.display = this.reviewing ? 'flex' : 'none';
+		if (!this.banner) { return; }
+		this.banner.style.display = this.reviewing ? 'flex' : 'none';
+		if (!this.reviewing) { return; }
+		const pending = this.pendingCitations;
+		if (this.bannerLabel) {
+			this.bannerLabel.textContent = pending.length
+				? localize(
+					'aria.notes.citationsNeedLocation',
+					"✦ {0} citation(s) still need a location. Place or skip each one, then Accept.",
+					pending.length)
+				: localize(
+					'aria.notes.proposedBanner',
+					"✦ The AI proposed changes - additions in yellow, removals struck through in red. Accept to apply, or Reject to discard.");
 		}
+		if (this.bannerPickButton) {
+			this.bannerPickButton.style.display = pending.length ? '' : 'none';
+		}
+		if (this.bannerAcceptButton) {
+			const blocked = pending.length > 0;
+			this.bannerAcceptButton.disabled = blocked;
+			this.bannerAcceptButton.style.opacity = blocked ? '0.45' : '1';
+			this.bannerAcceptButton.style.cursor = blocked ? 'default' : 'pointer';
+			this.bannerAcceptButton.title = blocked
+				? localize('aria.notes.acceptBlocked', "Place or skip the remaining citations first.")
+				: '';
+		}
+	}
+
+	// --- citation questions -------------------------------------------------
+
+	/**
+	 * Walk the user through the next unplaced citation.
+	 *
+	 * `ambiguous` has real candidate positions, so it is a pick. `not_found` has
+	 * none, so the webview goes into click-to-place mode and the user points at
+	 * the spot in the preview - far better than choosing from a list of every
+	 * paragraph in a long note.
+	 */
+	private async resolveNextCitation(): Promise<void> {
+		const proposal = this.activeProposal;
+		const next = this.pendingCitations[0];
+		if (!proposal || !next) { return; }
+
+		if (next.reason === 'ambiguous' && next.candidates?.length) {
+			type CandidateItem = IQuickPickItem & { index: number };
+			const items: CandidateItem[] = next.candidates.map((candidate, index) => ({
+				label: candidate.context,
+				description: localize('aria.notes.candidateOrdinal', "occurrence {0}", index + 1),
+				index,
+			}));
+			items.push({ label: localize('aria.notes.skipCitation', "Skip this citation"), index: -1 });
+			const picked = await this.quickInputService.pick<CandidateItem>(items, {
+				placeHolder: localize(
+					'aria.notes.pickOccurrence',
+					"Where should [@{0}] go? \"{1}\" occurs {2} times.",
+					next.citekey, next.anchor, next.candidates.length),
+			});
+			if (!picked) { return; }
+			if (picked.index < 0) {
+				await this.skipCitation(next.id);
+				return;
+			}
+			const target = next.candidates[picked.index];
+			await this.placeCitation(next.id, target.blockId, target.offset);
+			return;
+		}
+
+		// not_found: ask the webview to collect a click position.
+		void this.webview?.postMessage({
+			type: 'cite:askLocation',
+			id: next.id,
+			citekey: next.citekey,
+			title: next.title,
+			anchor: next.anchor,
+		});
+	}
+
+	private async placeCitation(id: string, blockId: string, offset: number): Promise<void> {
+		const filePath = this.activeProposal?.filePath;
+		if (!filePath) { return; }
+		try {
+			await this.commandService.executeCommand('aria.notes.resolveCitationLocation', filePath, id, blockId, offset);
+		} catch {
+			// The extension re-publishes the proposal on success; a failure just
+			// leaves the question open for another try.
+		}
+	}
+
+	private async skipCitation(id: string): Promise<void> {
+		const filePath = this.activeProposal?.filePath;
+		if (!filePath) { return; }
+		try {
+			await this.commandService.executeCommand('aria.notes.skipCitation', filePath, id);
+		} catch { /* question stays open */ }
+	}
+
+	/** Tell the extension the staged edit is over, so it stops reporting open
+	 *  questions and refusing the assistant's next call. */
+	private clearStaging(): void {
+		const filePath = this.activeProposal?.filePath;
+		if (!filePath) { return; }
+		try {
+			void this.commandService.executeCommand('aria.notes.clearCitationStaging', filePath);
+		} catch { /* best-effort */ }
+	}
+
+	// --- paper library feed --------------------------------------------------
+
+	/** The project's paper library file, watched so the webview's citekey map does
+	 *  not go stale when a paper is saved while a note is open. */
+	private libraryUri(): URI | undefined {
+		const folder = this.workspaceContextService.getWorkspace().folders[0];
+		return folder ? joinPath(folder.uri, '.qoka', 'references', 'paper-library.json') : undefined;
+	}
+
+	/** Push the citable papers into the webview - it needs them for the reference
+	 *  list, the hover cards, and to know which `[@key]` markers are real. */
+	private async sendPapers(): Promise<void> {
+		let papers: unknown[] = [];
+		try {
+			const state = await this.commandService.executeCommand<{ papers?: unknown[] }>('aria.paperSearch.list');
+			papers = Array.isArray(state?.papers) ? state!.papers! : [];
+		} catch {
+			// Paper library extension not up yet - markers simply stay plain text
+			// until the next refresh.
+		}
+		void this.webview?.postMessage({ type: 'papers:list', papers });
 	}
 
 	private enterReview(proposal: NoteProposal): void {
@@ -291,6 +539,12 @@ export class AriaNoteEditorPane extends EditorPane {
 		if (!proposal || !resource) {
 			return;
 		}
+		// Every citation must be placed or skipped first, so what the user approves
+		// is exactly what gets written.
+		if (proposal.pendingCitations.length) {
+			return;
+		}
+		this.clearStaging();
 		const title = proposal.title || deriveTitle(proposal.blocks);
 		await this.writeNote(resource, title, proposal.blocks);
 		clearNoteProposal(proposal.fileKey);
@@ -310,6 +564,7 @@ export class AriaNoteEditorPane extends EditorPane {
 		if (!proposal) {
 			return;
 		}
+		this.clearStaging();
 		clearNoteProposal(proposal.fileKey);
 		this.reviewing = false;
 		this.activeProposal = undefined;
@@ -482,6 +737,36 @@ function blockSignature(block: unknown): string {
 function withReviewId(block: unknown, id: string): unknown {
 	const b = (block ?? {}) as Record<string, unknown>;
 	return { ...b, id };
+}
+
+/**
+ * Citekeys the note already cites, used to float those papers to the top of the
+ * `/cite` picker. Deliberately loose (any `[@key]` anywhere in the text): this
+ * only affects ordering, so a stray match costs nothing and the exact,
+ * code-aware scan stays in the webview where the reference list is built.
+ */
+function citekeysInBlocks(blocks: unknown[]): string[] {
+	const keys: string[] = [];
+	const walk = (list: unknown[]): void => {
+		for (const raw of list ?? []) {
+			const block = raw as { children?: unknown } | undefined;
+			if (!block || typeof block !== 'object') { continue; }
+			const text = textOf(block);
+			const re = /\[([^\]\n]*)\]/g;
+			let m: RegExpExecArray | null;
+			while ((m = re.exec(text)) !== null) {
+				for (const part of m[1].split(';')) {
+					const at = part.trim().replace(/^-/, '');
+					if (!at.startsWith('@')) { continue; }
+					const key = /^[A-Za-z0-9_][A-Za-z0-9_:.#$%&+?<>~/-]*/.exec(at.slice(1));
+					if (key) { keys.push(key[0]); }
+				}
+			}
+			if (Array.isArray(block.children)) { walk(block.children); }
+		}
+	};
+	walk(blocks);
+	return keys;
 }
 
 function textOf(block: unknown): string {

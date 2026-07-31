@@ -7,6 +7,15 @@
 export interface PaperLibraryEntry {
 	/** Stable identifier - DOI when available, otherwise a hash of URL/title. */
 	id: string;
+	/**
+	 * Key used to cite this paper in a research note, as `[@citekey]` (pandoc
+	 * syntax, the same one the manuscript writer uses). Generated as
+	 * `familyYear` (e.g. `lu2026`) and kept unique across the library; entries
+	 * saved before this field existed are backfilled on the next library read.
+	 * Never regenerated for an existing paper, so citations already written into
+	 * notes keep resolving when its metadata is refreshed.
+	 */
+	citekey: string;
 	title: string;
 	authors: string[];
 	year: number | undefined;

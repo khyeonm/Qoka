@@ -15,7 +15,6 @@ import { IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '.
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { VIEW_CONTAINER } from '../../files/browser/explorerViewlet.js';
 import { AriaChangesView, AriaSnapshotsView, AriaVersionsView } from './ariaVersionsView.js';
-import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 
 /**
  * Versions is folded INTO the Analysis tab (the former Explorer) as TWO separate
@@ -51,9 +50,10 @@ const snapshotsView: IViewDescriptor = {
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([changesView, snapshotsView], VIEW_CONTAINER);
 
-// The "How to use?" link moved off the Changes title bar (which now holds the Save /
-// Refresh actions) onto the Snapshots view; the 'versions' how-to content is unchanged.
-registerAriaTabHelpTitleAction(AriaSnapshotsView.ID, 'versions');
+// No "How to use?" link on either section: Changes and Snapshots are two
+// collapsible sections INSIDE the Analysis tab, so a per-section help link read
+// as belonging to the whole tab. The 'versions' how-to content is still
+// registered and reachable from the help editor.
 
 // --- Changes title-bar actions: Save snapshot + Refresh --------------------
 // These sit inline with the "Changes" view title (right side), instead of a toolbar

@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { deletePaper, listPapers, allTags, updateNote, updateTags } from './library';
+import { notesCiting } from './noteCitations';
 import { AriaPaperLibraryMcpServer } from './mcp/server';
 import { setRevealLibrary } from './mcp/tools';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
@@ -176,9 +177,16 @@ export function activate(context: vscode.ExtensionContext): void {
 			if (!paper) {
 				return;
 			}
+			// Deleting is the one moment a citation silently breaks: the [@citekey]
+			// markers stay in the notes but stop resolving. Name the notes so the
+			// user can decide with the consequence in front of them.
+			const citing = notesCiting(paper.citekey);
+			const detail = citing.length
+				? `This paper is cited in ${citing.length} note(s): ${citing.map(t => `"${truncate(t, 40)}"`).join(', ')}. Those citations will stop resolving and show as plain text.`
+				: undefined;
 			const confirm = await vscode.window.showWarningMessage(
 				`Remove "${truncate(paper.title, 80)}" from your library?`,
-				{ modal: true },
+				{ modal: true, detail },
 				'Delete',
 			);
 			if (confirm !== 'Delete') {

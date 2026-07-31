@@ -59,16 +59,70 @@ export function ensureLibraryFile(): void {
 export function readLibrary(): PaperLibrary {
 	// Read directly; a missing file just means an empty library (do NOT create it
 	// here - see ensureLibraryFile).
+	let lib: PaperLibrary;
 	try {
 		const raw = fs.readFileSync(libraryPath(), 'utf8');
 		const parsed = JSON.parse(raw);
 		if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.papers)) {
 			return { version: SCHEMA_VERSION, papers: [] };
 		}
-		return parsed as PaperLibrary;
+		lib = parsed as PaperLibrary;
 	} catch {
 		return { version: SCHEMA_VERSION, papers: [] };
 	}
+	// One-time backfill: papers saved before citekeys existed get one now, so
+	// every read path can offer them for citation. Persisted immediately (rather
+	// than recomputed per read) because a citekey written into a note must not
+	// change later when other papers are added or removed.
+	if (backfillCitekeys(lib)) {
+		try { writeLibrary(lib); } catch { /* read-only disk - the in-memory keys still work */ }
+	}
+	return lib;
+}
+
+/** ASCII-ish slug of an author's family name, for use inside a citekey. */
+function familySlug(author: string): string {
+	// "Lu, Hao" -> "lu"; "Hao Lu" -> "lu"; "van der Berg" -> "vanderberg".
+	const trimmed = author.trim();
+	const family = trimmed.includes(',') ? trimmed.split(',')[0] : trimmed.split(/\s+/).pop() ?? '';
+	return family
+		.normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // strip diacritics
+		.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** The base citekey (no uniqueness suffix) a paper would get: familyYear. */
+function baseCitekey(input: { authors?: string[]; title: string; year?: number }): string {
+	const family = (input.authors ?? []).map(familySlug).find(Boolean)
+		// No authors: fall back to the first usable word of the title, so the key
+		// still says something about the paper instead of being opaque.
+		?? familySlug((input.title.split(/\s+/).find(w => /[a-zA-Z]/.test(w)) ?? 'ref'));
+	const year = typeof input.year === 'number' && input.year > 0 ? String(input.year) : 'nd';
+	return `${family || 'ref'}${year}`;
+}
+
+/** First free `base`, `basea`, `baseb`, … given the keys already in use. */
+function uniqueCitekey(base: string, used: Set<string>): string {
+	if (!used.has(base)) { return base; }
+	// 'a'..'z', then 'aa', 'ab', … - enough for any realistic collision count.
+	for (let i = 0; ; i++) {
+		let suffix = '', n = i;
+		do { suffix = String.fromCharCode(97 + (n % 26)) + suffix; n = Math.floor(n / 26) - 1; } while (n >= 0);
+		const candidate = `${base}${suffix}`;
+		if (!used.has(candidate)) { return candidate; }
+	}
+}
+
+/** Give every entry a citekey. Returns true when anything changed. */
+function backfillCitekeys(lib: PaperLibrary): boolean {
+	const used = new Set(lib.papers.map(p => p.citekey).filter(Boolean));
+	let changed = false;
+	for (const paper of lib.papers) {
+		if (paper.citekey) { continue; }
+		paper.citekey = uniqueCitekey(baseCitekey(paper), used);
+		used.add(paper.citekey);
+		changed = true;
+	}
+	return changed;
 }
 
 function writeLibrary(lib: PaperLibrary): void {
@@ -111,10 +165,16 @@ export interface SavePaperInput {
 }
 
 /** Build a library entry from an input, preserving an existing entry's user edits
- *  (note + tags) and original savedAt when re-saving. */
-function makeEntry(id: string, input: SavePaperInput, existing: PaperLibraryEntry | undefined, now: string): PaperLibraryEntry {
+ *  (note + tags) and original savedAt when re-saving. `used` collects the citekeys
+ *  already taken so a new entry gets a free one; an existing entry KEEPS its key, so
+ *  refreshing a paper's metadata never breaks `[@citekey]` markers already written
+ *  into notes. */
+function makeEntry(id: string, input: SavePaperInput, existing: PaperLibraryEntry | undefined, now: string, used: Set<string>): PaperLibraryEntry {
+	const citekey = existing?.citekey || uniqueCitekey(baseCitekey(input), used);
+	used.add(citekey);
 	return {
 		id,
+		citekey,
 		title: input.title,
 		authors: input.authors,
 		year: input.year,
@@ -163,10 +223,11 @@ export function savePapers(inputs: SavePaperInput[]): { entry: PaperLibraryEntry
 
 	const results: { entry: PaperLibraryEntry; isNew: boolean }[] = [];
 	const newEntries: PaperLibraryEntry[] = [];
+	const usedCitekeys = new Set(lib.papers.map(p => p.citekey).filter(Boolean));
 	for (const id of order) {
 		const input = byId.get(id)!;
 		const existing = lib.papers.find(p => p.id === id);
-		const entry = makeEntry(id, input, existing, now);
+		const entry = makeEntry(id, input, existing, now, usedCitekeys);
 		if (existing) {
 			lib.papers[lib.papers.indexOf(existing)] = entry;
 			results.push({ entry, isNew: false });

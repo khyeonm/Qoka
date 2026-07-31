@@ -11,11 +11,40 @@ import { SettingsSection } from './settingsSection.js';
 interface SshProfile { id: string; name: string; host: string; username: string; port: number }
 interface ConnectionsStatus { sshProfiles?: SshProfile[]; sshActiveProfileId?: string | null }
 interface Probe { kind?: string; connected?: boolean }
+/** Lifecycle of the built-in server, from `aria.autopipe.vm.status`. */
+interface VmStatus { status?: string; progress?: { message?: string; pct?: number } }
 
 const LOCAL_VM_ID = '__local_vm__';
 
 interface Draft { name: string; host: string; port: string; username: string; password: string; repoPath: string }
 const EMPTY_DRAFT: Draft = { name: '', host: '', port: '22', username: '', password: '', repoPath: '' };
+
+/**
+ * Subtitle for the built-in server row.
+ *
+ * It used to read "built-in", which describes what the row IS and tells the user
+ * nothing about whether their code can actually run there. Report the live state
+ * instead, in the same words the Connections tab uses.
+ *
+ * `reachable` is undefined until the background probe answers, so the row shows
+ * the lifecycle state first and firms up to connected / not connected after.
+ */
+function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable: boolean | undefined): string {
+	if (!active) { return 'Not in use'; }
+	switch (vm?.status ?? 'stopped') {
+		case 'provisioning':
+			return vm?.progress?.pct != null ? `Setting up, ${vm.progress.pct}%…` : 'Setting up…';
+		case 'booting':
+			return 'Starting…';
+		case 'ready':
+			if (reachable === undefined) { return 'Checking connection…'; }
+			return reachable ? 'Connected - running on this computer' : 'Not connected - click to restart';
+		case 'error':
+			return 'Not connected - click to restart';
+		default:
+			return 'Not running - click to start';
+	}
+}
 
 function labelInput(parent: HTMLElement, labelText: string, value: string, placeholder: string, onInput: (v: string) => void): HTMLInputElement {
 	const wrap = append(parent, $('div'));
@@ -63,6 +92,12 @@ export class ConnectionsSection extends SettingsSection {
 	async refresh(): Promise<void> {
 		let status: ConnectionsStatus = {};
 		try { status = (await this.commandService.executeCommand<ConnectionsStatus>('aria.autopipe.getStatus', true)) ?? {}; } catch { /* booting */ }
+		// Fetched up here, with the rest of the state: awaiting after clearNode would
+		// leave the section blank for the duration.
+		let vm: VmStatus | undefined;
+		if (!isLinux) {
+			try { vm = await this.commandService.executeCommand<VmStatus>('aria.autopipe.vm.status'); } catch { /* booting */ }
+		}
 
 		const activeId = status.sshActiveProfileId ?? null;
 		const profiles = status.sshProfiles ?? [];
@@ -79,12 +114,15 @@ export class ConnectionsSection extends SettingsSection {
 
 		let activeDot: HTMLElement | undefined;
 		let activeKind: 'vm' | 'ssh' | undefined;
+		// Kept so the background probe can rewrite the built-in server's subtitle
+		// once it knows whether the thing is actually reachable.
+		let builtinSub: HTMLElement | undefined;
 
 		// Built-in server row (hidden on Linux, where SSH is the norm).
 		if (!isLinux) {
 			const active = activeId === LOCAL_VM_ID;
-			const { row, dot } = this.serverRow('Qoka built-in server', active ? 'built-in' : 'not selected', active);
-			if (active) { activeDot = dot; activeKind = 'vm'; }
+			const { row, dot, sub } = this.serverRow('Qoka built-in server', builtinStatusText(active, vm, undefined), active);
+			if (active) { activeDot = dot; activeKind = 'vm'; builtinSub = sub; }
 			row.onclick = () => { void this.commandService.executeCommand(active ? 'aria.autopipe.connection.restart' : 'aria.autopipe.vm.setup').then(() => this.refresh()); };
 		}
 
@@ -130,11 +168,15 @@ export class ConnectionsSection extends SettingsSection {
 		if (activeDot && activeKind) {
 			const dotEl = activeDot;
 			const kind = activeKind;
+			const subEl = builtinSub;
 			this.commandService.executeCommand<Probe>('aria.autopipe.connection.probe').then(probe => {
 				if (!dotEl.isConnected) { return; }
 				const reachable = kind === 'vm' ? !!probe?.connected : (probe?.kind === 'ssh' && !!probe?.connected);
 				this.paintDot(dotEl, true, reachable);
-			}, () => { /* offline: leave the dot in its pending state */ });
+				// "built-in" said nothing about whether it works. Now that the probe
+				// has answered, say plainly whether it is connected.
+				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, reachable); }
+			}, () => { /* offline: leave the dot and text in their pending state */ });
 		}
 	}
 

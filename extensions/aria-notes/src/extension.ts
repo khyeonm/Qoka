@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { buildTools } from './mcp/tools';
 import { AriaNotesMcpServer } from './mcp/server';
+import { clearStaging, resolveLocation, setFireProposal, skipPending } from './citationStaging';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 
@@ -76,6 +77,34 @@ export function activate(context: vscode.ExtensionContext): void {
 			}
 		})();
 	};
+
+	// Citation staging publishes the same proposal, plus the questions the user
+	// still has to answer (see citationStaging.ts).
+	setFireProposal(payload => {
+		void vscode.commands.executeCommand('aria.notes.workbench.onProposal', payload);
+	});
+
+	// The note editor reports where the user pointed; the splice itself happens in
+	// citationStaging so the placement rules live in exactly one place.
+	context.subscriptions.push(
+		vscode.commands.registerCommand('aria.notes.resolveCitationLocation', async (filePath: unknown, id: unknown, blockId: unknown, offset: unknown) => {
+			if (typeof filePath !== 'string' || typeof id !== 'string' || typeof blockId !== 'string' || typeof offset !== 'number') {
+				return { ok: false, message: 'Bad arguments.', remaining: 0 };
+			}
+			return resolveLocation(filePath, id, blockId, offset);
+		}),
+		vscode.commands.registerCommand('aria.notes.skipCitation', async (filePath: unknown, id: unknown) => {
+			if (typeof filePath !== 'string' || typeof id !== 'string') {
+				return { ok: false, message: 'Bad arguments.', remaining: 0 };
+			}
+			return skipPending(filePath, id);
+		}),
+		// Accept/Reject in the editor ends the staged edit; without this the map
+		// would keep reporting open questions and refuse every later call.
+		vscode.commands.registerCommand('aria.notes.clearCitationStaging', (filePath: unknown) => {
+			if (typeof filePath === 'string') { clearStaging(filePath); }
+		}),
+	);
 
 	const tools = buildTools(propose, openNote);
 	mcpServer = new AriaNotesMcpServer(tools);

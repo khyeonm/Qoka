@@ -85,9 +85,20 @@ A notebook for ideas, experiment logs, and reading notes. Notes are saved as fil
 2. **Write** - type directly in the editor. It **saves automatically** as you go - there's no save button.
 3. **Rename / delete** - use the pencil to rename a note and the trash icon to delete it (it goes to the trash). Click any note in the list to reopen it.
 
+## Citing papers
+Notes can cite the papers in your **Paper Library**, the way a paper does.
+
+1. **Insert a citation** - type \`/cite\` where the citation belongs and pick a paper. Papers you already cited in this note are listed first. It writes a marker like \`[@lu2026]\` into the text.
+2. **See what a citation is** - hover the marker to get the paper's title, authors, and year without leaving the sentence.
+3. **Reference list** - every cited paper is listed at the bottom of the note, numbered in the order it first appears. Citing the same paper again reuses its number, so nothing ever needs renumbering. The list is generated, so don't write one by hand.
+4. **Find the entry** - each row shows the citekey (\`lu2026\`) next to the number, and the row lights up when your cursor is on that citation in the text.
+
+You can also just ask the AI: *"find the 2026 single-cell atlas paper and cite it here"*. It saves the paper to your library and proposes the citation for you to Accept.
+
 ## Working with the AI assistant
 - Ask the AI assistant in the chat to **draft or revise** a note.
-- When it proposes changes, the note opens in review mode - **additions in yellow, removals struck through in red**. Click **Accept** to apply or **Reject** to discard.`,
+- When it proposes changes, the note opens in review mode - **additions in yellow, removals struck through in red**. Click **Accept** to apply or **Reject** to discard.
+- If the AI can't tell exactly where a citation belongs, it asks: the banner says a citation needs a location, and you either **click the spot** in the note or **Skip** it. **Accept** stays disabled until each one is placed or skipped, so what you approve is what gets written.`,
 	},
 	'paper-writer': {
 		title: 'Paper Writing',
@@ -179,7 +190,7 @@ Turn a research idea into a clear, visual plan. Each project has one roadmap; th
 
 ## Steps
 1. **Open a roadmap** - in the **Roadmap** tab, pick a roadmap from the list to open it in the center.
-2. **Start brainstorming** - copy the starter prompt on the canvas, paste it into the AI chat, and fill in what you want to build.
+2. **Start brainstorming** - tell the AI chat on the right what you want to build; it asks one question at a time and fills the canvas as you answer.
 3. **Review the suggestions** - the AI assistant asks one question at a time and proposes steps that appear as **dashed blue cards**. For each, click **✓ Accept**, **✏ Edit**, or **✗ Delete** (or **Accept All Remaining**).
 4. **Edit by hand** - use **+** on the *Goal* column to add a goal, **+** on any card to add a sub-step, click a card to edit its label and description, and the **⋮** menu to mark a step *in progress* / *complete* or delete it.
 

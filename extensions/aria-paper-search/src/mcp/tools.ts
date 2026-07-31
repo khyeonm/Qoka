@@ -117,7 +117,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 					revealLibrary();
 				} catch { /* reveal is optional - the save already succeeded */ }
 			}
-			return textResult(`Saved "${entry.title}" to the Qoka paper library (id: ${entry.id}).`);
+			return textResult(`Saved "${entry.title}" to the Qoka paper library (id: ${entry.id}, citekey: ${entry.citekey}). Cite it in a research note as [@${entry.citekey}].`);
 		},
 	},
 	{
@@ -185,12 +185,13 @@ export const ALL_TOOLS: ToolDefinition[] = [
 			}
 			const parts = [`Saved ${results.length} paper(s) to the Qoka paper library`, `${created} new`, `${refreshed} updated`];
 			if (skipped) { parts.push(`${skipped} skipped for missing title`); }
-			return textResult(`${parts.join(', ')}. They now appear in your Paper Library tab.`);
+			const citekeys = results.map(r => `${r.entry.citekey}: ${r.entry.title}`).join('\n');
+			return textResult(`${parts.join(', ')}. They now appear in your Paper Library tab.\nCitekeys (use as [@citekey] in a research note):\n${citekeys}`);
 		},
 	},
 	{
 		name: 'list_saved_papers',
-		description: 'List the papers in the user\'s Qoka paper library. Optional `query` filters by title, authors, abstract, venue, note, or tag (case-insensitive substring). Returns at most 200 papers in JSON.',
+		description: 'List the papers in the user\'s Qoka paper library. Optional `query` filters by title, authors, abstract, venue, note, or tag (case-insensitive substring). Returns at most 200 papers in JSON. Each entry includes its `citekey` - that is how the paper is cited in a research note, written inline as [@citekey]. This is the ONLY source of valid citekeys: never invent one, and if the paper you want to cite is not listed here, save it with save_paper first (its response returns the new citekey).',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -207,6 +208,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 			}
 			const summary = papers.map(p => ({
 				id: p.id,
+				citekey: p.citekey,
 				title: p.title,
 				authors: p.authors,
 				year: p.year,

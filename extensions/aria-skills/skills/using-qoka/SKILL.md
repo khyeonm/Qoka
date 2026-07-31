@@ -1,6 +1,6 @@
 ---
 name: using-qoka
-description: Do research work using Qoka's built-in tools. Qoka provides MCP tools for writing and revising PAPERS, running and executing CODE and analyses, planning a project ROADMAP, taking NOTES, searching METHODS or HYPOTHESES, and remembering context. For ANY such task you MUST prefer the matching Qoka MCP tool over answering from your own knowledge or running your own shell. Use whenever the user asks to write or revise a paper, peer-review or defend a manuscript, save papers, run or analyze code, make a research plan, take a note, search methods or hypotheses, or recall something. Triggers on "write a paper", "revise/defend a manuscript", "peer review", "save papers", "search literature", "run this code", "analyze", "make a plan", "roadmap", "take a note", "search methods".
+description: Do research work using Qoka's built-in tools. Qoka provides MCP tools for writing and revising PAPERS, running and executing CODE and analyses, planning a project ROADMAP, taking NOTES, citing papers in a note, searching METHODS or HYPOTHESES, and remembering context. For ANY such task you MUST prefer the matching Qoka MCP tool over answering from your own knowledge or running your own shell. Use whenever the user asks to write or revise a paper, peer-review or defend a manuscript, save papers, run or analyze code, make a research plan, take a note, cite a paper in a note, search methods or hypotheses, or recall something. Triggers on "write a paper", "revise/defend a manuscript", "peer review", "save papers", "search literature", "run this code", "analyze", "make a plan", "roadmap", "take a note", "cite this paper", "add a citation", "search methods".
 license: MIT
 metadata:
   version: "1.0"
@@ -22,6 +22,7 @@ Qoka is a research workbench with purpose-built MCP tools for each research task
 | Check whether a package / tool is installed, or its version | run a tiny script via `run_code` (e.g. a python that imports it) - do NOT check your own machine with `python -c` / `pip show` / `which` |
 | Plan a project / build a research ROADMAP | the roadmap tools (`qoka-roadmap`) |
 | Take or organize NOTES | the notes tools (`qoka-notes`) |
+| CITE a paper in a research note | write `[@citekey]` inline via `append_note` / `create_note`, or `insert_citations` (qoka-notes) to add one to text that already exists. Citekeys come from `list_saved_papers`; save the paper first if it is not in the library |
 | Search METHODS for a hypothesis | `qoka-methods-search` |
 | Search / explore HYPOTHESES | `qoka-hypothesis` |
 | Remember or recall context about the user or project | `qoka-memory` |
