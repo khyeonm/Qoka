@@ -169,7 +169,10 @@ export function activate(context: vscode.ExtensionContext): void {
 	// built-in server (shared via VMManager). Registered under its own name/port so
 	// the AI lists it as a separate server. Port range starts at 3760 to stay clear
 	// of autopipe's 3748 fallback band.
-	runServer = new QokaMcpServer({ name: 'qoka-run', tools: RUN_TOOLS, defaultPort: 3760, instructions: RUN_MCP_INSTRUCTIONS });
+	// Distinct base port from qoka-paper-search (which moved off the old shared
+	// 3760). Bases must be unique per server so the first window gets clean,
+	// predictable numbers; a second window falls straight to an OS-assigned port.
+	runServer = new QokaMcpServer({ name: 'qoka-run', tools: RUN_TOOLS, defaultPort: 3752, instructions: RUN_MCP_INSTRUCTIONS });
 	context.subscriptions.push({ dispose: () => { void runServer?.stop(); } });
 
 	// Boot the MCP server only. Registration with the AI clients is NOT done

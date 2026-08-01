@@ -46,7 +46,7 @@ export class AriaHypothesisMcpServer {
 		if (this.httpServer) {
 			return this.port;
 		}
-		const candidates = [DEFAULT_PORT, 3771, 3772, 3773, 0];
+		const candidates = [DEFAULT_PORT, 0]; // clean port, else OS-assigned (multi-window safe)
 		for (const candidate of candidates) {
 			try {
 				const server = await this.tryListen(candidate);

@@ -44,7 +44,7 @@ export class AriaMethodsSearchMcpServer {
 		if (this.httpServer) {
 			return this.port;
 		}
-		const candidates = [DEFAULT_PORT, 3795, 3796, 3797, 3798, 3799, 0];
+		const candidates = [DEFAULT_PORT, 0]; // clean port, else OS-assigned (multi-window safe)
 		for (const candidate of candidates) {
 			try {
 				const server = await this.tryListen(candidate);

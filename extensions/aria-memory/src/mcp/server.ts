@@ -52,7 +52,7 @@ export class AriaMemoryMcpServer {
 
 		// Try the default port first, then fall back through a small range,
 		// finally let the OS assign one.
-		const candidates = [DEFAULT_PORT, 3767, 3768, 3769, 0];
+		const candidates = [DEFAULT_PORT, 0]; // clean port, else OS-assigned (multi-window safe)
 
 		for (const candidate of candidates) {
 			try {

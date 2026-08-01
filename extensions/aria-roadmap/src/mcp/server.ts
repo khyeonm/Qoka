@@ -50,7 +50,7 @@ export class AriaRoadmapMcpServer {
 		// Try the default port first, then fall back through a small range,
 		// finally let the OS assign one. The default is offset from the
 		// autopipe / paper-search ports so Qoka's three MCPs can coexist.
-		const candidates = [DEFAULT_PORT, 3781, 3782, 3783, 3784, 3785, 0];
+		const candidates = [DEFAULT_PORT, 0]; // clean port, else OS-assigned (multi-window safe)
 
 		for (const candidate of candidates) {
 			try {

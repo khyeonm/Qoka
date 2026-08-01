@@ -171,10 +171,15 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		const current = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
 		if (stored === 'easy' || stored === 'advanced') {
 			if (stored !== current) {
-				// Applied live by update() via the config-change listener.
-				// handleDirtyFile:'save' + donotNotifyError so this silent write
-				// never pops the settings.json editor / a save dialog.
-				void this.configurationService.updateValue(ARIA_MODE_SETTING, stored, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
+				// PER-WINDOW: apply this folder's mode as an in-memory (MEMORY)
+				// override, NOT a shared APPLICATION write. Two windows on different
+				// folders each want their OWN mode; writing the shared aria.mode made
+				// them flip-flop it on startup, which cascaded into concurrent
+				// settings.json writes ("File Modified Since") and hung the extension
+				// host (one window then showed no UI). MEMORY is window-scoped, not
+				// persisted, and re-applied every launch from the per-folder store, so
+				// the mode survives across restarts without a shared file write.
+				void this.configurationService.updateValue(ARIA_MODE_SETTING, stored, {}, ConfigurationTarget.MEMORY, { donotNotifyError: true });
 			}
 		} else if (current === 'easy' || current === 'advanced') {
 			savePerFolderMode(this.storageService, this.contextService, current);
@@ -404,14 +409,16 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 			if (this.configurationService.getValue(key) === value) {
 				return;
 			}
-			// `handleDirtyFile: 'save'` - if settings.json is open with unsaved edits,
-			// save it first and then write, instead of throwing "Unable to write into
-			// user settings because the file has unsaved changes" (the config-editing
-			// service shows that as a modal-ish notification we can't catch). This is
-			// exactly what that notification's "Save and retry" action does.
-			// `donotNotifyError: true` - suppress any remaining error popup; mode-switch
-			// writes are best-effort.
-			await this.configurationService.updateValue(key, value, {}, ConfigurationTarget.USER, { handleDirtyFile: 'save', donotNotifyError: true });
+			// PER-WINDOW: apply mode-derived UI (menu bar, command center, theme,
+			// git.enabled, …) as an in-memory (MEMORY) override, NOT a shared USER
+			// settings.json write. Persisting these to the shared file made two windows
+			// (in different modes) race the file - "Unable to write ... File Modified
+			// Since" - which hung the extension host and left one window with no UI.
+			// MEMORY is window-scoped and never touches settings.json, so each window's
+			// chrome follows its own mode with no cross-window contention. update()
+			// re-derives it every launch, so nothing needs to persist.
+			// `donotNotifyError: true` - best-effort; suppress any error popup.
+			await this.configurationService.updateValue(key, value, {}, ConfigurationTarget.MEMORY, { donotNotifyError: true });
 		} catch {
 			// Best-effort: silent on failure (e.g. read-only settings).
 		}
@@ -457,7 +464,12 @@ CommandsRegistry.registerCommand(ARIA_SWITCH_MODE_COMMAND, async (accessor: Serv
 		return;
 	}
 
-	await configurationService.updateValue(ARIA_MODE_SETTING, next, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
+	// PER-WINDOW: MEMORY, not shared APPLICATION - a project window already holds a
+	// MEMORY mode override (see restoreFolderMode), which shadows APPLICATION, so a
+	// shared write would not even take effect here. The onDidChangeConfiguration
+	// listener saves the new mode to this folder's store before the reload, and
+	// restoreFolderMode re-applies it on the next launch.
+	await configurationService.updateValue(ARIA_MODE_SETTING, next, {}, ConfigurationTarget.MEMORY, { donotNotifyError: true });
 	await hostService.reload();
 });
 
@@ -476,5 +488,7 @@ CommandsRegistry.registerCommand(ARIA_SET_MODE_COMMAND, async (accessor: Service
 	// updates immediately, which is enough for `when` clauses and view filters.
 	// (If later we add settings that are only read at startup, we can reload
 	// selectively from those code paths.)
-	await configurationService.updateValue(ARIA_MODE_SETTING, mode, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
+	// PER-WINDOW: MEMORY, not shared APPLICATION (see restoreFolderMode / the switch
+	// command). Window-scoped so a mode change in one window never disturbs another.
+	await configurationService.updateValue(ARIA_MODE_SETTING, mode, {}, ConfigurationTarget.MEMORY, { donotNotifyError: true });
 });

@@ -194,8 +194,43 @@ function writeOverview(data: OverviewData): void {
 	fs.renameSync(tmp, p);
 }
 
-/** Read-modify-write helper. */
+/** File version stamp for optimistic concurrency: the on-disk mtime in ms, or -1
+ *  when the file does not exist yet. Two stamps being equal means no other writer
+ *  touched the file between our read and our write. */
+function overviewVersion(): number {
+	try {
+		return fs.statSync(overviewPath()).mtimeMs;
+	} catch {
+		return -1;
+	}
+}
+
+/**
+ * Read-modify-write with optimistic concurrency, so two Qoka windows open on the
+ * SAME project can both edit the overview without one silently clobbering the
+ * other. Single-window is unaffected: with no competing writer the version never
+ * changes, so this takes the fast path on the first attempt (a plain read → write).
+ *
+ * On a conflict (another window wrote between our read and our write) we re-read
+ * the latest file and re-run `fn` on it. `fn` mutations are additive/idempotent
+ * (set a field, append a task), so re-applying on fresh data merges both windows'
+ * changes instead of dropping one.
+ */
 function mutate<T>(fn: (d: OverviewData) => T): T {
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const before = overviewVersion();
+		const d = readOverview();
+		const r = fn(d);
+		// Only commit if nobody else wrote since we read. The write itself is atomic
+		// (temp + rename), so the remaining race window is just these few lines.
+		if (overviewVersion() === before) {
+			writeOverview(d);
+			return r;
+		}
+		// Someone else won the race - loop, re-read their result, re-apply `fn`.
+	}
+	// Give up gracefully after retries (heavy contention): apply on the freshest
+	// read so the user's action is never lost or hung.
 	const d = readOverview();
 	const r = fn(d);
 	writeOverview(d);

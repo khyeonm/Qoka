@@ -75,11 +75,14 @@ export class QokaMcpServer {
 			return this.port;
 		}
 
-		// Try the default port first, then fall back through a small range.
-		// 3748 is autopipe-app's port - when the user has the Tauri app open
-		// at the same time we'd otherwise crash with EADDRINUSE.
+		// Try the clean default port first (3748 is also autopipe-app's Tauri port,
+		// so a fallback avoids EADDRINUSE when it is open); on ANY collision - a
+		// second Qoka window, or the Tauri app - go straight to an OS-assigned port
+		// (listen(0)), which the kernel guarantees is free. `this.port` is then read
+		// back from server.address(), so the registration records the ACTUAL port.
+		// No hand-maintained fallback range = no cross-server range overlap to babysit.
 		const base = this.opts.defaultPort;
-		const candidates = [base, base + 1, base + 2, base + 3, base + 4, base + 5, 0 /* OS-assigned */];
+		const candidates = [base, 0 /* OS-assigned */];
 
 		for (const candidate of candidates) {
 			try {

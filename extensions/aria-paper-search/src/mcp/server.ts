@@ -9,7 +9,10 @@ import { URL } from 'url';
 import { ALL_TOOLS, findTool } from './tools';
 import { isJsonRpcRequest, jsonRpcSuccess, jsonRpcError, JsonRpcErrorCodes, JsonRpcRequest } from './jsonrpc';
 
-const DEFAULT_PORT = 3760;
+// 3756: distinct base from qoka-run (moved to 3752) and qoka-memory (3766) so the
+// first window gets clean, unique numbers. Both used to default to 3760, which
+// forced one onto a fallback even in a single window.
+const DEFAULT_PORT = 3756;
 const HOST = '127.0.0.1';
 
 interface SseSession {
@@ -45,7 +48,7 @@ export class AriaPaperLibraryMcpServer {
 		if (this.httpServer) {
 			return this.port;
 		}
-		const candidates = [DEFAULT_PORT, 3761, 3762, 3763, 3764, 3765, 0];
+		const candidates = [DEFAULT_PORT, 0]; // clean port, else OS-assigned (multi-window safe)
 		for (const candidate of candidates) {
 			try {
 				const server = await this.tryListen(candidate);

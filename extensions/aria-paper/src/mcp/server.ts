@@ -47,7 +47,7 @@ export class AriaPaperMcpServer {
 		// Default port is offset from autopipe / paper-search / aria-notes so
 		// Qoka's MCP servers can coexist; fall back through a small range, then
 		// let the OS assign one.
-		const candidates = [DEFAULT_PORT, 3791, 3792, 3793, 0];
+		const candidates = [DEFAULT_PORT, 0]; // clean port, else OS-assigned (multi-window safe)
 
 		for (const candidate of candidates) {
 			try {
