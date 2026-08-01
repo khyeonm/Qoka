@@ -18,7 +18,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IAction } from '../../../../base/common/actions.js';
 import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
-import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
+import { IViewPaneOptions, ViewPane, ViewPaneShowActions } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { applyAriaScrollbar } from '../../aria/browser/ariaScrollbar.js';
 import { createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEditor.js';
@@ -93,7 +93,10 @@ export class AriaVersionsView extends ViewPane {
 		@IFileService private readonly fileService: IFileService,
 		@IDialogService private readonly dialogService: IDialogService,
 	) {
-		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
+		// Keep the header actions (Changes: Save + Refresh, Snapshots: Refresh)
+		// always visible instead of only on hover/focus, so the buttons are always
+		// reachable in the Analysis tab.
+		super({ ...options, showActions: ViewPaneShowActions.Always }, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		injectAriaVcsStyles();
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.refresh()));
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => { this.setupFileWatcher(); this.refresh(); }));
