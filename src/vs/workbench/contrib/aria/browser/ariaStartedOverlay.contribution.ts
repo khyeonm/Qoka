@@ -373,6 +373,18 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		this.pickAndDismiss(() => {
 			void this.hostService.openWindow([{ folderUri: recentUri }], { forceReuseWindow: true });
 		});
+		// MULTI-WINDOW SAFETY: openWindow reuses a window to open the folder, BUT if
+		// that project is already open in another Qoka window, the app focuses THAT
+		// window instead of reusing this empty one - leaving this window with its
+		// shell hidden and no folder (a permanent blank window, the "second window
+		// shows nothing" bug). When the reuse DID reload this window, this renderer is
+		// replaced and the timer below never fires. If we're still here after a beat,
+		// the reuse went elsewhere: reveal the picker so the user can open a (possibly
+		// different) project in THIS window rather than staring at a blank shell.
+		setTimeout(() => {
+			pushTrail('decideEmptyWorkbench: still empty after auto-reopen (project already open elsewhere) -> showing picker');
+			this.showOverlayAndWireAuth();
+		}, 2500);
 	}
 
 	/** The most recent recently-opened folder whose directory still exists, or
