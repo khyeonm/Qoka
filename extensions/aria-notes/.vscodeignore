@@ -1,0 +1,49 @@
+# aria-notes ships a single bundled entry point, out/extension.js, produced by
+# build.mjs (esbuild, bundle: true). That bundle already inlines @blocknote,
+# @tiptap, ProseMirror, Yjs, React and the rest of the editor stack, so their
+# node_modules copies are never required at runtime and only bloat the installer
+# (the @blocknote/react tree alone drags in react-icons ~84MB, @emoji-mart ~27MB,
+# react-dom ~7MB - none of which the extension host ever loads).
+#
+# Only `jsdom` stays external (see build.mjs: bundling it breaks its runtime
+# require.resolve('./xhr-sync-worker.js')). So we KEEP jsdom and its whole
+# dependency tree and drop just the bundled UI packages below. This list is
+# safe-by-construction: it names only packages that are (a) inlined in the bundle
+# and (b) NOT in jsdom's dependency closure. Anything left in still ships and
+# still works - a miss costs size, never correctness.
+#
+# VERIFY after release: the Note tab must still open, edit blocks, and convert
+# notes to/from HTML (that path exercises jsdom via @blocknote/server-util).
+
+# Build-time only - out/extension.js is the shipped runtime file.
+src/**
+build.mjs
+tsconfig.json
+package-lock.json
+
+# Bundled editor UI stack - inlined into out/extension.js, not jsdom deps.
+node_modules/@blocknote/**
+node_modules/@tiptap/**
+node_modules/@tanstack/**
+node_modules/@floating-ui/**
+node_modules/@shikijs/**
+node_modules/@handlewithcare/**
+node_modules/@emoji-mart/**
+node_modules/emoji-mart/**
+node_modules/react/**
+node_modules/react-dom/**
+node_modules/react-icons/**
+node_modules/scheduler/**
+node_modules/use-sync-external-store/**
+node_modules/prosemirror-*/**
+node_modules/orderedmap/**
+node_modules/rope-sequence/**
+node_modules/w3c-keyname/**
+node_modules/tabbable/**
+node_modules/yjs/**
+node_modules/y-prosemirror/**
+node_modules/y-protocols/**
+node_modules/lib0/**
+node_modules/isomorphic.js/**
+node_modules/fast-equals/**
+node_modules/lodash.merge/**

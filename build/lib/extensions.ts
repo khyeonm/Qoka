@@ -315,6 +315,56 @@ const excludedExtensions = [
 	'vscode-test-resolver',
 	'ms-vscode.node-debug',
 	'ms-vscode.node-debug2',
+	// Qoka: unused built-in extensions dropped to shrink the installer (fewer
+	// files -> less on-write AV scanning -> faster exe install). Removal only
+	// drops syntax highlighting / theme options for file types Qoka does not use;
+	// no aria feature depends on any of these (only hard edge is git->git-base,
+	// which is kept). Reversible: delete a line to ship one again, or users can
+	// reinstall from the open-vsx marketplace.
+	// Unused language grammars / task runners (no research use, no reference).
+	'clojure',
+	'coffeescript',
+	'csharp',
+	'dart',
+	'fsharp',
+	'groovy',
+	'handlebars',
+	'hlsl',
+	'less',
+	'scss',
+	'lua',
+	'objective-c',
+	'perl',
+	'php',
+	'php-language-features',
+	'powershell',
+	'pug',
+	'razor',
+	'ruby',
+	'rust',
+	'shaderlab',
+	'swift',
+	'vb',
+	'grunt',
+	'gulp',
+	'jake',
+	// Non-default color themes (default + solarized + seti icons stay; the Color
+	// Theme picker itself is core and unaffected).
+	'theme-abyss',
+	'theme-kimbie-dark',
+	'theme-monokai',
+	'theme-monokai-dimmed',
+	'theme-quietlight',
+	'theme-red',
+	'theme-tomorrow-night-blue',
+	// Web-editing language services + grammars: Qoka webviews are prebuilt HTML
+	// rendered by Electron, not Monaco-edited .html/.css files, so these are unused.
+	'css',
+	'css-language-features',
+	'html',
+	'html-language-features',
+	'restructuredtext',
+	'mermaid-markdown-features',
 ];
 
 const marketplaceWebExtensionsExclude = new Set([
