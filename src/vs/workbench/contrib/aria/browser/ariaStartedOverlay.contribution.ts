@@ -13,7 +13,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IWorkspacesService, IRecentlyOpened, isRecentFolder, isRecentWorkspace } from '../../../../platform/workspaces/common/workspaces.js';
-import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
+import { IWorkspaceContextService, WorkbenchState, isSingleFolderWorkspaceIdentifier } from '../../../../platform/workspace/common/workspace.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -23,7 +23,9 @@ import { IAuthenticationService, AuthenticationSession } from '../../../services
 import { ROADMAP_SCHEME } from '../../ariaRoadmapWizard/browser/ariaRoadmapWizardCommon.js';
 import { URI } from '../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { basename } from '../../../../base/common/resources.js';
+import { basename, isEqual } from '../../../../base/common/resources.js';
+import { INativeHostService } from '../../../../platform/native/common/native.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ARIA_MODE_SETTING, ARIA_AI_PROVIDER_SETTING, AriaMode } from '../common/ariaConfiguration.js';
 import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
 import { ConcreteProvider, PROVIDER_EXTENSION_ID, PROVIDER_LABEL, hasPickedAiProvider, markPickedAiProvider, clearPickedAiProvider, providerSettingFor, setPendingInstall } from './ariaAiProviderChoice.js';
@@ -230,6 +232,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		@IAuthenticationService private readonly authService: IAuthenticationService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IExtensionService private readonly extensionService: IExtensionService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 	) {
 		super();
 
@@ -362,6 +365,17 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		const recentUri = await this.mostRecentExistingProject();
 		if (!recentUri) {
 			pushTrail('decideEmptyWorkbench: no reopenable recent project -> showing picker');
+			this.showOverlayAndWireAuth();
+			return;
+		}
+
+		// If that most-recent project is already open in another Qoka window,
+		// reopening it here would only dedup-focus that window and strand THIS one
+		// blank. Skip the reopen and show the picker so the user opens something in
+		// this window instead (this is a fresh empty window, so don't close it).
+		const nativeHost = this.nativeHost();
+		if (nativeHost && await this.findWindowWithFolder(nativeHost, recentUri) !== undefined) {
+			pushTrail('decideEmptyWorkbench: most-recent project already open in another window -> showing picker');
 			this.showOverlayAndWireAuth();
 			return;
 		}
@@ -1359,6 +1373,74 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		);
 	}
 
+	/**
+	 * Open an EXISTING project folder chosen from the picker (Open Project... or a
+	 * recent entry). VS Code identifies a folder with exactly one window: opening a
+	 * folder that is already open elsewhere focuses THAT window and leaves the
+	 * window that triggered the open behind. Because this overlay only ever runs in
+	 * an EMPTY window, that leftover is a blank shell with no folder and no chat
+	 * (the "second window shows nothing" report). So when the folder is already
+	 * open in another Qoka window, focus that window and close this redundant empty
+	 * one - matching VS Code's native "reuse the existing window" behaviour. When
+	 * the folder is not open anywhere, reuse THIS window as before.
+	 */
+	private async openExistingProject(folderUri: URI): Promise<void> {
+		const nativeHost = this.nativeHost();
+		const existingWindowId = nativeHost ? await this.findWindowWithFolder(nativeHost, folderUri) : undefined;
+		if (nativeHost && existingWindowId !== undefined) {
+			pushTrail(`openExistingProject: ${folderUri.fsPath} already open in window ${existingWindowId} -> focus it, close this empty window`);
+			this.notificationService.notify({
+				severity: Severity.Info,
+				message: 'That project is already open in another window. Switched to it.',
+			});
+			try {
+				await nativeHost.focusWindow({ targetWindowId: existingWindowId });
+			} catch {
+				// Best-effort focus; still close this redundant window below.
+			}
+			void this.hostService.close();
+			return;
+		}
+		this.pickAndDismiss(() => {
+			void this.hostService.openWindow([{ folderUri }], { forceReuseWindow: true });
+		});
+	}
+
+	/** The desktop native-host service, or undefined on a build where it isn't
+	 *  registered (e.g. web). Looked up lazily so this common-layer contribution
+	 *  never hard-depends on a desktop-only service. */
+	private nativeHost(): INativeHostService | undefined {
+		return this.instantiationService.invokeFunction(accessor => {
+			try {
+				return accessor.get(INativeHostService);
+			} catch {
+				return undefined;
+			}
+		});
+	}
+
+	/** The id of another main window that already has `folderUri` open as its
+	 *  single-folder workspace, or undefined when none does. */
+	private async findWindowWithFolder(nativeHost: INativeHostService, folderUri: URI): Promise<number | undefined> {
+		let windows: Array<{ readonly id: number; readonly workspace?: unknown }>;
+		try {
+			windows = await nativeHost.getWindows({ includeAuxiliaryWindows: false });
+		} catch {
+			return undefined;
+		}
+		const selfId = nativeHost.windowId;
+		for (const w of windows) {
+			if (w.id === selfId) {
+				continue;
+			}
+			const ws = w.workspace;
+			if (ws && isSingleFolderWorkspaceIdentifier(ws) && isEqual(ws.uri, folderUri)) {
+				return w.id;
+			}
+		}
+		return undefined;
+	}
+
 	private async openFolderPicker(): Promise<void> {
 		const result = await this.fileDialogService.showOpenDialog({
 			canSelectFiles: false,
@@ -1372,9 +1454,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			return;
 		}
 		const folderUri = result[0];
-		this.pickAndDismiss(() => {
-			void this.hostService.openWindow([{ folderUri }], { forceReuseWindow: true });
-		});
+		await this.openExistingProject(folderUri);
 	}
 
 	/**
@@ -1600,9 +1680,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			btn.title = path;
 			btn.onclick = (e) => {
 				e.stopPropagation();
-				this.pickAndDismiss(() => {
-					void this.hostService.openWindow([{ folderUri: uri }], { forceReuseWindow: true });
-				});
+				void this.openExistingProject(uri);
 			};
 
 			list.appendChild(btn);
