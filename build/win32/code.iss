@@ -117,9 +117,16 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; the Sysnative alias; a 64-bit one falls back to System32. `wsl --install`
 ; enables the feature, installs the Ubuntu distro, and requests a reboot; the
 ; user creates their Linux account at Ubuntu's first run after rebooting.
+; The elevated wsl.exe MUST run in a VISIBLE, INTERACTIVE console: `wsl --install
+; -d Ubuntu` only registers the distro once its first-run OOBE ("Create a default
+; Unix user account") completes, and that OOBE needs a real console to type into.
+; Running it hidden/detached (runhidden or a -Wait with no console) makes wsl skip
+; the OOBE, so it downloads the distro but never registers it - `wsl -l -v` stays
+; empty. So: no runhidden, and no -Wait (the console lives on independently while
+; the user finishes the account). The guidance MsgBox then points at that console.
 ; NB: the PowerShell if-body braces MUST be doubled ({{ }}) - Inno Setup treats a
 ; single {...} as a constant reference and fails to compile otherwise.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu' -Verb RunAs -Wait"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended, needs a reboot)"; Flags: postinstall waituntilterminated runhidden skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu' -Verb RunAs"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
 ; Launch Qoka - only when WSL is already installed. If WSL is missing the user must
 ; reboot and create a Linux account first, so launching now would hit a not-ready
@@ -1374,18 +1381,20 @@ begin
   Result := (not WslNotInstalled()) and (not WizardSilent());
 end;
 
-// Modal guidance shown AFTER the WSL install finishes (the install [Run] uses
-// -Wait, so this MsgBox itself IS the "install is done" signal). MB_OK is modal, so
-// it stays until the user clicks OK - it does not vanish on its own. Lays out the
-// reboot -> create-account -> open-Qoka steps the user does by hand.
+// Modal guidance shown right after the elevated wsl install console is launched
+// (the install [Run] no longer uses -Wait, so that console is still running when
+// this appears). MB_OK is modal, so it stays until the user clicks OK. It points
+// the user at that live console and covers both outcomes wsl can produce: an
+// immediate "create a username and password" OOBE, or a "restart your PC" request.
 procedure WslPostInstallMsg();
 begin
   MsgBox(
-    'WSL (Ubuntu) is installed - it powers Qoka''s built-in run environment.' + #13#10 + #13#10 +
-    'To finish, please:' + #13#10 +
-    '1. Restart your PC now.' + #13#10 +
-    '2. After restarting, an "Ubuntu" window will appear - create a username and password. (If it doesn''t appear, search for "Ubuntu" in the Start menu and open it.)' + #13#10 +
-    '3. Then open Qoka - the rest is set up automatically. (This is a one-time step.)',
+    'A console window is now setting up WSL (Ubuntu) for Qoka''s built-in run environment.' + #13#10 + #13#10 +
+    'Please finish the setup IN THAT WINDOW:' + #13#10 +
+    '- If it asks you to create a username and password, type them - that completes the setup.' + #13#10 +
+    '- If it asks you to restart your PC, restart. After restarting, open "Ubuntu" from the Start menu once and create a username and password.' + #13#10 + #13#10 +
+    '(No window? Approve the User Account Control prompt, or search "Ubuntu" in the Start menu and open it.)' + #13#10 + #13#10 +
+    'When that is done, open Qoka - the rest is set up automatically. (This is a one-time step.)',
     mbInformation, MB_OK);
 end;
 
