@@ -172,6 +172,22 @@ export class VMManager {
 		}
 	}
 
+	/** After opening the Ubuntu OOBE window, wait for the user to create their
+	 *  account (the distro's default user flips from `root` to a real name). Polls
+	 *  until it appears, so the server start can continue automatically the moment
+	 *  the account exists - no manual "Set up now" retry. Rejects after a generous
+	 *  timeout so a user who never finishes isn't left waiting forever. */
+	private async waitForUbuntuAccount(distro: string): Promise<string> {
+		const deadline = Date.now() + 15 * 60_000; // 15 minutes
+		while (Date.now() < deadline) {
+			await new Promise(r => setTimeout(r, 3000));
+			let u: string | undefined;
+			try { u = await defaultUser(distro); } catch { continue; }
+			if (u && u !== 'root') { return u; }
+		}
+		throw new Error('Still waiting for the Ubuntu account. Create your username and password in the Ubuntu window, then click "Set up now".');
+	}
+
 	/** Windows boot path: provision a WSL2 Ubuntu distro (openssh-server + docker)
 	 *  and expose it as the built-in run target via a synthetic SshProfile. No
 	 *  QEMU, no REH/resolver - WSL2 localhost forwarding makes the distro's sshd
@@ -209,14 +225,20 @@ export class VMManager {
 		}
 
 		// Ubuntu's first-run account step sets a non-root default user. Until the
-		// user has completed it, the default user is root - open the distro so they
-		// can create the account, then ask them to retry.
-		const user = await defaultUser(distro);
+		// user has completed it, the default user is root. Open the OOBE window and
+		// WAIT for them to create the account, then continue automatically - the
+		// account creation is the trigger that advances us to actually starting the
+		// server. (No throw + manual "Set up now" retry: if the account already
+		// exists this whole branch is skipped and we boot straight away.)
+		let user = await defaultUser(distro);
 		if (!user || user === 'root') {
 			await launchDistroTerminal(distro);
-			throw new Error(`Finish setting up ${distro}: a terminal was opened - create your Linux username and password, then click "Set up now" again.`);
+			this.set('provisioning');
+			progress('Create your Ubuntu username and password in the window that just opened - setup will continue automatically…');
+			user = await this.waitForUbuntuAccount(distro);
 		}
 
+		// WSL + Ubuntu + account are all confirmed now → start the server.
 		this.set('booting');
 		progress('Setting up the WSL run environment (docker, tools)…');
 
