@@ -144,7 +144,14 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		'set -e',
 		'export DEBIAN_FRONTEND=noninteractive',
 		'APT_UPDATED=0',
-		'apt_update_once() { if [ "$APT_UPDATED" = 0 ]; then apt-get update -y || true; APT_UPDATED=1; fi; }',
+		// ALL apt output goes to a log FILE, never to our stdout. runAsRoot reads that
+		// stdout over a WSL->Node pipe; dpkg's install-phase progress (a pty progress
+		// bar) writes so much that the pipe breaks ("E: Write error - write (32:
+		// Broken pipe)"), which kills apt mid-install so nothing gets installed and
+		// sshd never appears. Writing to a file removes the pipe entirely (broken pipe
+		// is then impossible), and -o Dpkg::Use-Pty=0 also drops the pty progress bar.
+		'apt() { command apt-get "$@" -o Dpkg::Use-Pty=0 >>/tmp/qoka-provision.log 2>&1; }',
+		'apt_update_once() { if [ "$APT_UPDATED" = 0 ]; then apt update -y || true; APT_UPDATED=1; fi; }',
 		// `apt-get update` exits 0 even when it only PARTIALLY fetched - it just
 		// warns. On a cold WSL boot that leaves e.g. `main` present but `universe`
 		// missing, so `apt-get install docker.io` (universe) fails with "has no
@@ -155,17 +162,17 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		'apt_install() {',
 		'  apt_update_once',
 		'  for i in 1 2 3; do',
-		'    if apt-get install -y "$@"; then return 0; fi',
+		'    if apt install -y "$@"; then return 0; fi',
 		'    sleep 5',
-		'    apt-get update -y >/dev/null 2>&1 || true',
+		'    apt update -y || true',
 		'  done',
 		'  return 1',
 		'}',
-		// Decide by the REAL artifact, not `command -v`: on a box with Docker
-		// Desktop the injected `docker` CLI makes `command -v docker` succeed while
-		// openssh-server is still absent, so a `command -v sshd` heuristic wrongly
-		// skips the install and sshd can never start.
-		'if [ ! -f /etc/ssh/sshd_config ]; then apt_install openssh-server; fi',
+		// Decide by the REAL artifact the keeper execs - the sshd BINARY at its
+		// absolute path - not `command -v sshd` (a Docker Desktop box injects a docker
+		// CLI but that never puts an sshd on PATH) and not `-f /etc/ssh/sshd_config`
+		// (a base image can ship the config without the openssh-server package).
+		'if [ ! -x /usr/sbin/sshd ]; then apt_install openssh-server; fi',
 		// Install the native docker engine only when NO docker CLI works, leaving a
 		// Docker Desktop WSL integration untouched. `docker.io` installs on a clean
 		// Ubuntu; if it FAILS (e.g. a distro that already carries docker-ce /
@@ -199,6 +206,11 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		// Host keys + run dir so the keeper's foreground sshd can start.
 		'ssh-keygen -A',
 		'mkdir -p /run/sshd',
+		// Verify the one artifact the keeper CANNOT do without: the sshd binary. If it
+		// is missing here the install silently failed (e.g. apt errored), so fail LOUD
+		// with the apt log tail instead of printing QOKA_PROVISION_OK and letting the
+		// keeper crash later with the opaque "VM exited before SSH came up".
+		'if [ ! -x /usr/sbin/sshd ]; then echo "QOKA_PROVISION_ERR: openssh-server (sshd) not installed"; tail -n 40 /tmp/qoka-provision.log 2>/dev/null; exit 1; fi',
 		'echo QOKA_PROVISION_OK',
 	].join('\n');
 }
