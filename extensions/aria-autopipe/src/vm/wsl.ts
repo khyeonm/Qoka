@@ -84,6 +84,22 @@ export function pickDistro(distros: string[]): string | undefined {
 	return distros.find(d => /^ubuntu/i.test(d));
 }
 
+/** Install the Ubuntu distro (download + register only, no first-run OOBE).
+ *
+ *  Used when the WSL ENGINE is present but no Ubuntu is registered - the state a
+ *  fresh machine lands in AFTER the installer enabled the engine and the user
+ *  rebooted (a WSL2 distro can't be registered until the VM platform feature is
+ *  active, i.e. post-reboot). Installing a distro on an already-present engine is
+ *  a per-user action that needs NO elevation, so Qoka can do it itself. --no-launch
+ *  registers it without the interactive account OOBE (the caller opens Ubuntu for
+ *  that). Slow: downloads a few hundred MB, hence the provisioning-length timeout. */
+export async function installUbuntuDistro(): Promise<void> {
+	await execFileAsync(
+		wslExePath(), ['--install', '-d', 'Ubuntu', '--no-launch'],
+		{ windowsHide: true, env: WSL_ENV, timeout: PROVISION_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 },
+	);
+}
+
 /** The distro's default login user (set by Ubuntu's first-run account step).
  *  Returns 'root' when the OOBE account has not been created yet.
  *

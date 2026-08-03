@@ -15,7 +15,7 @@ import { LOCAL_VM_ID, SshProfile, hostVmLimits } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
-import { wslAvailable, listDistros, pickDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath } from './wsl';
+import { wslAvailable, listDistros, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath } from './wsl';
 import { windowsToWsl } from '../common/dockerEnv';
 import { ensureWorkspaceScaffold } from '../common/workspaceSync';
 
@@ -187,13 +187,25 @@ export class VMManager {
 			throw new Error('WSL is not installed. Reinstall Qoka (which installs WSL) or run "wsl --install" in an admin terminal, then reboot.');
 		}
 
-		const distro = pickDistro(await listDistros());
+		let distro = pickDistro(await listDistros());
 		if (!distro) {
 			// The WSL engine is present (wslAvailable passed) but no Ubuntu distro is
-			// registered - either nothing is installed, or only a non-Ubuntu distro is
-			// (Qoka's built-in Run environment is Ubuntu-only). `wsl --version` still
-			// succeeds in this state, which confuses users, so be explicit.
-			throw new Error('WSL is installed but no Ubuntu distribution was found (run "wsl -l -v" to check). Qoka\'s built-in run environment needs Ubuntu: run "wsl --install -d Ubuntu", then open Ubuntu once to set a username and password, and try again.');
+			// registered. This is the state a FRESH machine lands in after the
+			// installer enabled the engine and the user rebooted: the engine's install
+			// needed a reboot before any WSL2 distro could be registered, so the Ubuntu
+			// install falls to HERE, on the first Qoka launch. Do it now (per-user, no
+			// elevation needed) instead of dead-ending on an error, then re-detect.
+			this.set('provisioning');
+			progress('Installing Ubuntu for the built-in run environment (one-time; this can take a few minutes)…');
+			try {
+				await installUbuntuDistro();
+			} catch (e) {
+				throw new Error(`Could not install Ubuntu for the built-in run environment: ${e instanceof Error ? e.message : String(e)}. Check your internet connection, or run "wsl --install -d Ubuntu" in a terminal, then try again.`);
+			}
+			distro = pickDistro(await listDistros());
+			if (!distro) {
+				throw new Error('Ubuntu was installed but is not registered yet. Open "Ubuntu" from the Start menu once, then click "Set up now" again.');
+			}
 		}
 
 		// Ubuntu's first-run account step sets a non-root default user. Until the
