@@ -114,19 +114,20 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; WSL is missing (Check: WslNotInstalled). PrivilegesRequired=lowest means this
 ; installer is NOT elevated, so we self-elevate via PowerShell's Start-Process
 ; -Verb RunAs (triggers UAC). A 32-bit installer reaches the real wsl.exe through
-; the Sysnative alias; a 64-bit one falls back to System32. `wsl --install`
-; enables the feature, installs the Ubuntu distro, and requests a reboot; the
-; user creates their Linux account at Ubuntu's first run after rebooting.
-; The elevated wsl.exe MUST run in a VISIBLE, INTERACTIVE console: `wsl --install
-; -d Ubuntu` only registers the distro once its first-run OOBE ("Create a default
-; Unix user account") completes, and that OOBE needs a real console to type into.
-; Running it hidden/detached (runhidden or a -Wait with no console) makes wsl skip
-; the OOBE, so it downloads the distro but never registers it - `wsl -l -v` stays
-; empty. So: no runhidden, and no -Wait (the console lives on independently while
-; the user finishes the account). The guidance MsgBox then points at that console.
+; the Sysnative alias; a 64-bit one falls back to System32.
+;
+; We pass --no-launch on purpose. `wsl --install -d Ubuntu` (without it) tries to
+; run the distro's first-run OOBE ("Create a default Unix user account") DURING
+; install, but that OOBE needs a genuine interactive terminal. The console
+; Start-Process/-Verb RunAs gives it is not one, so wsl aborts the OOBE and the
+; whole install rolls back - the distro never registers (`wsl -l -v` empty), which
+; is exactly what we saw in testing. With --no-launch, wsl only downloads +
+; registers the distro (no OOBE), which works fine non-interactively and CAN be
+; -Wait'ed. The user then creates the account by opening Ubuntu from the Start menu
+; afterwards (after a reboot if wsl asked for one) - the guidance MsgBox says so.
 ; NB: the PowerShell if-body braces MUST be doubled ({{ }}) - Inno Setup treats a
 ; single {...} as a constant reference and fails to compile otherwise.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu' -Verb RunAs"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu','--no-launch' -Verb RunAs -Wait"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
 ; Launch Qoka - only when WSL is already installed. If WSL is missing the user must
 ; reboot and create a Linux account first, so launching now would hit a not-ready
@@ -1381,20 +1382,20 @@ begin
   Result := (not WslNotInstalled()) and (not WizardSilent());
 end;
 
-// Modal guidance shown right after the elevated wsl install console is launched
-// (the install [Run] no longer uses -Wait, so that console is still running when
-// this appears). MB_OK is modal, so it stays until the user clicks OK. It points
-// the user at that live console and covers both outcomes wsl can produce: an
-// immediate "create a username and password" OOBE, or a "restart your PC" request.
+// Modal guidance shown after the (--no-launch) install finishes: the distro is
+// downloaded and registered, but has NO account yet, so the user must open Ubuntu
+// once to create it. MB_OK is modal, so it stays until the user clicks OK. Covers
+// both the reboot-needed (WSL was absent) and no-reboot (engine already present)
+// cases with the same "restart if asked, then open Ubuntu" steps.
 procedure WslPostInstallMsg();
 begin
   MsgBox(
-    'A console window is now setting up WSL (Ubuntu) for Qoka''s built-in run environment.' + #13#10 + #13#10 +
-    'Please finish the setup IN THAT WINDOW:' + #13#10 +
-    '- If it asks you to create a username and password, type them - that completes the setup.' + #13#10 +
-    '- If it asks you to restart your PC, restart. After restarting, open "Ubuntu" from the Start menu once and create a username and password.' + #13#10 + #13#10 +
-    '(No window? Approve the User Account Control prompt, or search "Ubuntu" in the Start menu and open it.)' + #13#10 + #13#10 +
-    'When that is done, open Qoka - the rest is set up automatically. (This is a one-time step.)',
+    'WSL (Ubuntu) has been installed for Qoka''s built-in run environment.' + #13#10 + #13#10 +
+    'One quick step is left - create your Ubuntu account:' + #13#10 +
+    '1. If Windows asked you to restart your PC, restart first.' + #13#10 +
+    '2. Open "Ubuntu" from the Start menu (search for "Ubuntu").' + #13#10 +
+    '3. When it opens, type a username and password to finish the setup.' + #13#10 + #13#10 +
+    'Then open Qoka - the rest is set up automatically. (This is a one-time step.)',
     mbInformation, MB_OK);
 end;
 
