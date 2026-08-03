@@ -11,7 +11,7 @@ import { services } from '../../common/services';
 import { workspacePathsFor } from '../../common/types';
 import { shellEscape } from '../../common/roCrate';
 import { windowsToWsl } from '../../common/dockerEnv';
-import { workspaceFolderPath, mirrorPipelineFileLocally, writeInputManifest } from '../../common/workspaceSync';
+import { workspaceFolderPath, mirrorPipelineFileLocally } from '../../common/workspaceSync';
 
 /**
  * File tools - faithful ports of create_symlink, remove_symlink, list_files,
@@ -336,9 +336,9 @@ export const FILE_TOOLS: ToolDefinition[] = [
 					{ timeoutMs: 60000 },
 				);
 				if (ln.exitCode === 0) {
-					// Input data just staged - record a manifest (list + sizes, no bytes)
-					// in the project folder. Best-effort.
-					try { await writeInputManifest(profile, 'inputs'); } catch { /* best-effort */ }
+					// No manifest at staging time: there is no run name yet, and writing
+					// one here created a stray data/inputs/ folder. The per-run input
+					// manifest is written to data/<run-name>/ when results are saved.
 					return textResult(`Linked: ${linkPath} -> ${sourceTranslated}\nUse as input_dir: ${destDir}`);
 				}
 				return errorResult(
@@ -519,9 +519,9 @@ export const FILE_TOOLS: ToolDefinition[] = [
 					}
 				}
 
-				// User just provided input data - record a manifest (file list + sizes,
-				// no bytes) in the project folder. Best-effort.
-				try { await writeInputManifest(profile, 'inputs'); } catch { /* best-effort */ }
+				// No manifest at staging time (no run name yet, and it created a stray
+				// data/inputs/ folder). The per-run input manifest is written to
+				// data/<run-name>/ when results are saved.
 
 				const lines = [
 					`Uploaded ${uploaded}/${files.length} file(s) into ${destDir}.`,

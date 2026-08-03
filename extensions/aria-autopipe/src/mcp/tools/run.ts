@@ -151,6 +151,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				language: { type: 'string', description: 'Interpreter to run the code with. Python runs via uv.', enum: ['bash', 'python', 'node'] },
 					label: { type: 'string', description: 'REQUIRED in practice: a SHORT kebab-case summary of what this run does, used as the result folder name (e.g. "rna-velocity-umap", "scanpy-qc", "check-scanpy-version"). Summarise the USER\'s request in 2-5 English words; lowercase letters, digits and hyphens only. This keeps results/ and analysis/ readable instead of a wall of timestamps. If the name is already taken it gets -2, -3, … automatically, so never add a date, time or counter yourself. Omitting this falls back to an ugly timestamp folder.' },
 				code: { type: 'string', description: 'The full script source to run. It executes with its working directory set to the run folder, so relative output paths land in results/<run-name>/.' },
+					retain: { type: 'string', enum: ['discard', 'scratch', 'keep'], description: 'What to do with the run AFTERWARDS. Choose deliberately. "discard" (DEFAULT): a throwaway run - a version/install check, or code written just to reproduce or debug an error. The ENTIRE run (script, logs, outputs) is DELETED right after it finishes, no trace. Use for anything the user did not ask to keep. "keep": the user asked for something substantial ("write code that does X and show me the result"), an analysis whose OUTPUTS matter, or a notebook. Script saved in analysis/<run-name>/, outputs in results/<run-name>/. "scratch": ambiguous - the user asked but it probably will not be reused. Script saved in .qoka/analysis/<run-name>/, outputs in results/<run-name>/. If you write a Jupyter notebook (.ipynb), use "keep". When unsure between discard and keep, prefer keep so results are not lost.' },
 				dependencies: { type: 'array', description: 'Python packages to install for this run (e.g. ["scanpy", "leidenalg"]). Installed automatically via uv before the code runs. Python only; ignored for bash/node. Alternatively put a PEP 723 `# /// script` block in the code itself.', items: { type: 'string' } },
 				timeout_s: { type: 'integer', description: 'Max seconds to allow the script to run (default 300, max 900). SET THIS TO 900 whenever the run may install anything: the FIRST Python run downloads the interpreter plus every requested package, and a scientific stack (scanpy, anndata, scvi-tools, a conda/bioconda env) routinely needs more than the 300s default. Exceeding it kills the run mid-install and looks to the user like the code failed. Later runs reuse the cache and are fast, so this costs nothing when it is not needed.' },
 			},
@@ -226,12 +227,20 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// installs them. Other languages run the source as-is.
 				const source = language === 'python' ? injectPep723(code, deps) : code;
 
-				// The script SOURCE is already in hand, so write it straight into the
-				// project's analysis/<id>/ (CODE) on the user's disk - no copy-back
-				// needed. Outputs land in results/<id>/. Best-effort: needs an open folder.
-				if (wsRoot) {
+				// Where the CODE is saved. Logs + outputs always land in results/<id>/;
+				// the script is placed apart based on `retain`:
+				//   keep    -> analysis/<id>/        (real code / a notebook)
+				//   scratch -> .qoka/analysis/<id>/  (asked for, but low value)
+				//   discard -> nowhere; the whole run is deleted when it finishes.
+				const retain: 'discard' | 'scratch' | 'keep' =
+					args.retain === 'keep' ? 'keep' : args.retain === 'scratch' ? 'scratch' : 'discard';
+				let codeDir: string | undefined;
+				if (wsRoot && retain === 'keep') { codeDir = path.join(wsRoot, 'analysis', id); }
+				else if (wsRoot && retain === 'scratch') { codeDir = path.join(wsRoot, '.qoka', 'analysis', id); }
+				// The script SOURCE is already in hand, so write it straight to disk - no
+				// copy-back needed. Best-effort: needs an open folder and a kept run.
+				if (codeDir) {
 					try {
-						const codeDir = path.join(wsRoot, 'analysis', id);
 						fs.mkdirSync(codeDir, { recursive: true });
 						fs.writeFileSync(path.join(codeDir, spec.file), source, 'utf8');
 					} catch { /* best-effort - the run still proceeds */ }
@@ -303,6 +312,22 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// What is ACTUALLY on disk now, recursively. The remote `ls` above only
 				// sees the run dir's top level, so a script that writes into figures/
 				// or tables/ had those files copied but never reported or opened.
+				// Code / log split + throwaway cleanup.
+				if (retain === 'discard') {
+					// Throwaway run (version/install check, or debug repro): delete the
+					// WHOLE run - script, logs and outputs - so it leaves no trace. The
+					// stdout captured above is still returned to the AI.
+					for (const d of [savedTo, localDir]) {
+						if (d) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best-effort */ } }
+					}
+					savedTo = undefined;
+				} else if (savedTo) {
+					// keep/scratch: the CODE lives in analysis/ (or .qoka/analysis/), so
+					// drop the script copy the run left in results/ - results then holds
+					// only the logs (stdout.log / stderr.log) and the outputs.
+					try { fs.rmSync(path.join(savedTo, spec.file), { force: true }); } catch { /* best-effort */ }
+				}
+
 				const savedFiles = savedTo ? listLocalFiles(savedTo) : [];
 				// Show the results, don't just say where they are.
 				const shown = savedTo ? await openResultsInEditor(savedTo, savedFiles) : { opened: [], remaining: [] };
@@ -318,7 +343,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					if (subdirs.length) {
 						lines.push(`Result files are in these subfolders of that run folder: ${subdirs.map(d => `${d}/`).join(', ')}. Name the subfolder when you tell the user where something is - do not just say "the results folder".`);
 					}
-					lines.push(`The script for this run is saved as CODE in analysis/${id}/ (results are separate, in results/${id}/).`);
+					lines.push(`The script for this run is saved as CODE in ${retain === 'keep' ? `analysis/${id}/` : `.qoka/analysis/${id}/`} (results are separate, in results/${id}/).`);
 					lines.push('When you tell the user where results are, give them this full path, not a bare folder name.');
 					lines.push('Do NOT read these files off the server and write them again yourself - they are already local.');
 					lines.push(...describeOpenedResults(shown));
@@ -327,6 +352,8 @@ export const RUN_TOOLS: ToolDefinition[] = [
 							+ ` You MUST tell the user about them and ASK whether to download them - do not decide for them, and do not stay silent about them.`
 							+ ` If they say yes, use download_results (qoka-autopipe MCP) with the run directory ${resolvedDir || 'reported above'}; it may take a while for a large file.`);
 					}
+				} else if (retain === "discard") {
+					lines.push('', 'This was a throwaway run (retain=discard): the script, logs and outputs were deleted afterwards, leaving no trace. Only the stdout above remains. If the user actually wanted the code or results kept, re-run with retain=keep.');
 				} else if (!wsRoot) {
 					lines.push('', `No project folder is open, so results could NOT be saved locally; they are on the run target at ${resolvedDir || 'the run directory'}. Ask the user to open a folder so results are saved into results/ automatically.`);
 				}

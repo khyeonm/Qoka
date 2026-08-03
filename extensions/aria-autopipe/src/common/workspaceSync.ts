@@ -139,20 +139,26 @@ export function ensureWorkspaceScaffold(root?: string): void {
 		} catch { /* best-effort */ }
 	}
 	try {
-		const readme = path.join(folder, 'analysis', 'README.md');
-		if (!fs.existsSync(readme)) { fs.writeFileSync(readme, ANALYSIS_README, 'utf8'); }
+		const readme = path.join(folder, 'README.md');
+		if (!fs.existsSync(readme)) { fs.writeFileSync(readme, PROJECT_README, 'utf8'); }
 	} catch { /* best-effort */ }
 }
 
-const ANALYSIS_README = [
-	'# analysis',
+const PROJECT_README = [
+	'# Qoka project',
 	'',
-	'Analysis CODE lives here: `run_code` scripts (one folder per run, named after',
-	'what you asked for - `analysis/rna-velocity-umap/`) and autopipe pipeline code',
-	'(one folder per pipeline - `analysis/<pipeline-name>/`).',
+	'This project uses three top-level folders:',
 	'',
-	'Result files land in `results/<run-name>/`; input data in `data/`.',
-	'A few results from each run open automatically as editor tabs (plots first).',
+	'- **`data/`** - input data. Put your datasets here (or Qoka links them in when a',
+	'  run uses them). Per-run input summaries are written to `data/<run-name>/`.',
+	'- **`analysis/`** - the CODE. `run_code` scripts you asked to keep, notebooks',
+	'  (`.ipynb`), and autopipe pipeline code (one folder per pipeline). Quick',
+	'  throwaway checks are not kept here; low-value scratch code goes under',
+	'  `.qoka/analysis/`.',
+	'- **`results/`** - the OUTPUTS. Every run\'s result files and logs land in',
+	'  `results/<run-name>/`. A few open automatically as editor tabs (plots first).',
+	'',
+	'You drive all of this from the chat - Qoka fills these folders for you.',
 	'',
 ].join('\n');
 

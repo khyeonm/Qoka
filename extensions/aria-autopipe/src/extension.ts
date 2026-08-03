@@ -20,7 +20,7 @@ import { registerSetupCommands } from './commands/setupCommands';
 import { PluginService, DEFAULT_PLUGIN_NAMES } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
-import { migrateProjectLayout } from './common/workspaceSync';
+import { ensureWorkspaceScaffold } from './common/workspaceSync';
 
 let mcpServer: QokaMcpServer | undefined;
 // Second MCP server ("qoka-run"): quick one-off code execution on the same
@@ -47,11 +47,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
 	extensionContext = context;
 
-	// One-time, best-effort migration of any existing project from the old
-	// autopipe/ + mixed layout to the unified data/analysis/results tree. Runs on
-	// every activation (idempotent, never overwrites) so remote-only users - who
-	// may never start the built-in VM - still get migrated.
-	try { migrateProjectLayout(); } catch { /* best-effort */ }
+	// On every activation (idempotent, best-effort): migrate any old autopipe/ +
+	// mixed layout to the unified data/analysis/results tree AND make sure those
+	// three dirs + the README exist, so a freshly opened project always shows
+	// them - even for remote-only users who never start the built-in VM.
+	try { ensureWorkspaceScaffold(); } catch { /* best-effort */ }
 
 	// Wire up the shared service container so MCP tool handlers can reach
 	// config / ssh / hub / github without each of them tracking the
