@@ -1317,30 +1317,58 @@ Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\
 
 [Code]
 // Qoka's built-in Run environment uses WSL2 (Ubuntu) on Windows. Offer to install
-// it on the finish page when it isn't already present. `wsl.exe` lives in the
-// real System32; a 32-bit installer sees it through the SysWOW64 redirector, so
-// disable redirection before probing. Returns True when WSL is NOT installed
-// (so the finish-page item + its elevated install command only show then).
-function WslNotInstalled(): Boolean;
+// it on the finish page unless a real Ubuntu distro is already present. `wsl.exe`
+// lives in the real System32; a 32-bit installer sees it through the SysWOW64
+// redirector, so disable redirection before probing.
+//
+// "Present" is checked in two steps, WITHOUT booting a distro:
+//   1. `wsl --status` exits 0        -> the WSL engine responds.
+//   2. `wsl --list --quiet` lists a  -> a real Ubuntu distro is registered.
+//      distro whose name starts Ubuntu
+// A half-removed / leftover WSL (the "engine shell" case) passes step 1 but has an
+// EMPTY distro list, so step 2 catches it and we still offer the install. We use
+// PowerShell for step 2 so we can force UTF-8 output (WSL_UTF8) and strip stray
+// characters - wsl.exe otherwise prints UTF-16, which is painful to parse in Inno.
+// We deliberately do NOT verify that Ubuntu actually boots (no `wsl -d Ubuntu ...`
+// probe): a registered-but-corrupted Ubuntu is a rare edge left to the runtime.
+function WslUsable(): Boolean;
 var
   ResultCode: Integer;
   OldRedir: Boolean;
+  PsArgs: String;
 begin
+  Result := False;
   OldRedir := EnableFsRedirection(False);
   try
+    // 1) Engine responds at all (does not spin up the lightweight VM).
     if not Exec(ExpandConstant('{sys}\wsl.exe'), '--status', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-      Result := True
-    else
-      Result := ResultCode <> 0;
+      Exit;
+    if ResultCode <> 0 then
+      Exit;
+    // 2) A real Ubuntu distro is registered (engine can enumerate + Ubuntu present).
+    //    Registration only, no boot. Exit 0 => an Ubuntu-family distro is listed.
+    PsArgs := '-NoProfile -ExecutionPolicy Bypass -Command "$env:WSL_UTF8=''1''; $m = (wsl.exe --list --quiet 2>$null) | ForEach-Object { $_ -replace ''\W'','''' } | Where-Object { $_ -imatch ''^Ubuntu'' }; if ($m) { exit 0 } else { exit 1 }"';
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), PsArgs, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Exit;
+    Result := ResultCode = 0;
   finally
     EnableFsRedirection(OldRedir);
   end;
 end;
 
+// Returns True when a usable Ubuntu is NOT present (so the finish-page install item
+// + its elevated install command only show then). True for the leftover-shell case
+// too, so a half-removed WSL is offered a fresh install rather than silently skipped.
+function WslNotInstalled(): Boolean;
+begin
+  Result := not WslUsable();
+end;
+
 // The general "Launch Qoka" finish-page item shows ONLY when WSL is present: with
 // WSL missing the user must reboot and create a Linux account first, so launching
-// now would just hit a not-ready built-in server. (WslNotInstalled runs a quick
-// `wsl --status`; the finish page evaluates it a couple of times, which is fine.)
+// now would just hit a not-ready built-in server. (WslNotInstalled probes the
+// engine + an Ubuntu registration; the finish page evaluates it a couple of times,
+// which is fine - neither probe boots a distro.)
 function WslInstalledAndNotSilent(): Boolean;
 begin
   Result := (not WslNotInstalled()) and (not WizardSilent());

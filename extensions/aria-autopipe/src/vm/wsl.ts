@@ -76,10 +76,12 @@ export async function listDistros(): Promise<string[]> {
 	}
 }
 
-/** Pick the distro Qoka should run in: prefer an Ubuntu, else the first real
- *  distro. Returns undefined when none is installed (needs `wsl --install`). */
+/** Pick the distro Qoka should run in. Qoka's built-in Run environment is
+ *  Ubuntu-only, so we accept ONLY an Ubuntu-family distro (Ubuntu, Ubuntu-22.04,
+ *  …) and ignore any other distro the user may have. Returns undefined when no
+ *  Ubuntu is registered (needs `wsl --install -d Ubuntu`). */
 export function pickDistro(distros: string[]): string | undefined {
-	return distros.find(d => /^ubuntu/i.test(d)) ?? distros[0];
+	return distros.find(d => /^ubuntu/i.test(d));
 }
 
 /** The distro's default login user (set by Ubuntu's first-run account step).
