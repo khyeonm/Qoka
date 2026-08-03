@@ -124,10 +124,20 @@ export async function defaultUser(distro: string): Promise<string> {
 	throw lastErr instanceof Error ? lastErr : new Error('Could not read the WSL default user.');
 }
 
-/** Run a script inside the distro as root (no sudo password needed). */
+/** Run a script inside the distro as root (no sudo password needed).
+ *
+ *  The script is passed BASE64-ENCODED, not inline. A complex `bash -lc <script>`
+ *  argument does not survive the Windows->wsl.exe->Linux hop: wsl.exe re-parses the
+ *  Windows command line and strips/mangles the script's shell quoting, so things
+ *  like `apt "$@"` lose their arguments (`apt-get "" -o …` -> "E: Invalid
+ *  operation") and redirects break ("$1: ambiguous redirect") - which silently
+ *  corrupts provisioning so nothing installs. base64 is pure [A-Za-z0-9+/=] with no
+ *  shell metacharacters, so it passes through untouched; we decode it on the Linux
+ *  side and pipe the exact original bytes into bash, which then sees correct quoting. */
 export async function runAsRoot(distro: string, script: string): Promise<string> {
+	const b64 = Buffer.from(script, 'utf8').toString('base64');
 	const { stdout } = await execFileAsync(
-		wslExePath(), ['-d', distro, '-u', 'root', '--', 'bash', '-lc', script],
+		wslExePath(), ['-d', distro, '-u', 'root', '--', 'bash', '-lc', `echo ${b64} | base64 -d | bash`],
 		{ windowsHide: true, env: WSL_ENV, timeout: PROVISION_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 },
 	);
 	return stripNuls(stdout);

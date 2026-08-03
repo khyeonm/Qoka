@@ -120,12 +120,12 @@ const PROJECT_TEMPLATE_README = `# Qoka project
 
 This folder was created by Qoka. Here is what each folder is for:
 
-- data/        Datasets and analysis inputs.
-- analysis/    Results from quick code runs, one folder per run.
-- autopipe/    Pipelines and their results.
-    pipelines/         Pipeline code saved from the run environment.
-    pipelines_input/   Input manifests (file lists, not the data itself).
-    pipelines_output/  Results from each pipeline run.
+- data/        Input data. Put your datasets here. Per-run input summaries
+               (for data kept on a server) go under data/<run-name>/.
+- analysis/    The CODE: code you asked to keep and notebooks (.ipynb), plus
+               autopipe pipeline code (one folder per pipeline). Quick throwaway
+               checks are not kept; low-value scratch code goes to .qoka/analysis/.
+- results/     The OUTPUTS: each run's result files and logs, in results/<run-name>/.
 - .qoka/       Qoka's own files - edit these through the app, not by hand:
     manuscript/draft/   Papers you write in the Manuscript tab.
     manuscript/review/  Results from the Manuscript tab's reviews.
@@ -1520,8 +1520,8 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 	/**
 	 * Create the default project folder layout inside a freshly created New
-	 * Project folder. The top level holds only the user-facing analysis files
-	 * (data/, analysis/, autopipe/); everything Qoka manages for you
+	 * Project folder. The top level holds only the user-facing files
+	 * (data/, analysis/, results/); everything Qoka manages for you
 	 * - the manuscripts you write, their reviews, the papers you save, and the
 	 * notebook - lives under `.qoka/` so it never clutters the analysis view.
 	 * Those `.qoka/` subfolders (manuscript/draft, manuscript/review,
@@ -1530,14 +1530,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 * failure here must never prevent the project from opening.
 	 */
 	private async scaffoldProjectTemplate(folderUri: URI): Promise<void> {
-		// `autopipe/` holds pipeline artifacts copied back from the run environment:
-		// the pipeline CODE, an input manifest, and run OUTPUTS (see aria-autopipe's
-		// project-sync). Scaffolded up front so the layout is there before the first run.
-		// Keep this list and PROJECT_TEMPLATE_README in step with aria-autopipe's
-		// ensureWorkspaceScaffold: both create the run/pipeline folders, and a folder
-		// present in one but not the other shows up (or fails to) depending on which
-		// ran first. `analysis/` was missing here, so a brand-new project had no sign
-		// of where run_code results would land until the extension got around to it.
+		// The unified layout: data/ (inputs), analysis/ (code + pipeline code),
+		// results/ (outputs). Scaffolded up front so the folders are there before the
+		// first run. Keep this list and PROJECT_TEMPLATE_README in step with
+		// aria-autopipe's ensureWorkspaceScaffold (both create the same three dirs).
 		// 'notes' is intentionally NOT scaffolded: research notes now live inside the
 		// Notebook tab at .qoka/notebook/notes, so a top-level notes/ folder would be
 		// a confusing empty duplicate.
