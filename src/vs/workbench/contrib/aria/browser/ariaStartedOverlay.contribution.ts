@@ -1541,8 +1541,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// 'notes' is intentionally NOT scaffolded: research notes now live inside the
 		// Notebook tab at .qoka/notebook/notes, so a top-level notes/ folder would be
 		// a confusing empty duplicate.
-		const dirs = ['data', 'analysis', '.qoka',
-			'autopipe', 'autopipe/pipelines', 'autopipe/pipelines_input', 'autopipe/pipelines_output'];
+		const dirs = ['data', 'analysis', 'results', '.qoka'];
 		for (const dir of dirs) {
 			try {
 				await this.fileService.createFolder(URI.joinPath(folderUri, dir));

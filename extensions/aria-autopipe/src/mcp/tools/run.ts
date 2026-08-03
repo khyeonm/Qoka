@@ -10,7 +10,7 @@ import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
 import { resolveRunTarget } from '../../runtime/builtinServer';
 import { windowsToWsl } from '../../common/dockerEnv';
-import { workspaceFolderPath, copyRemoteDirToLocal, listLocalFiles } from '../../common/workspaceSync';
+import { workspaceFolderPath, copyRemoteDirToLocal, listLocalFiles, uniqueRunName } from '../../common/workspaceSync';
 import { humanSize } from '../../common/workspaceSync';
 import { openResultsInEditor, describeOpenedResults } from '../../common/openResults';
 
@@ -20,12 +20,12 @@ import { openResultsInEditor, describeOpenedResults } from '../../common/openRes
  * one-off tasks. Distinct from autopipe, which builds reproducible multi-step
  * pipelines.
  *
- * Results ALWAYS land in the project's `analysis/<run-id>/` folder, whichever
+ * Results land in the project's `results/<run-name>/` folder (the script in `analysis/<run-name>/`), whichever
  * target ran them. On Windows the built-in server is WSL, so the run dir IS the
  * project's analysis dir seen through the /mnt mount - the code writes straight
  * to local disk, no copy. Everywhere else (Mac/Linux built-in VM, and ANY remote
  * SSH server) the run dir lives on the server and is SFTP-copied back into
- * analysis/<run-id>/ before this tool returns, so the AI never has to read the
+ * results/<run-name>/ before this tool returns, so the AI never has to read the
  * files over SSH and re-write them locally by hand.
  */
 
@@ -133,43 +133,24 @@ function slugify(label: string): string {
 		.replace(/-+$/g, '');
 }
 
-/**
- * Folder name for this run: the caller's label in kebab-case, so analysis/ reads
- * as a list of what was actually done instead of a wall of timestamps. A name
- * that is already taken gets -2, -3, … so re-running the same analysis never
- * mixes its outputs into the previous run's folder. Falls back to a timestamp
- * when there is no usable label (e.g. it slugged away to nothing).
- */
-function runDirName(label: string | undefined, analysisDir: string | undefined): string {
-	const slug = slugify(label ?? '');
-	if (!slug) { return timestampId(); }
-	if (!analysisDir) { return slug; }
-	let name = slug;
-	let n = 2;
-	while (n < 1000 && fs.existsSync(path.join(analysisDir, name))) {
-		name = `${slug}-${n++}`;
-	}
-	return name;
-}
-
 export const RUN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'run_code',
 		description:
-			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the qoka-autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (qoka-autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Settings tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work (analysis/rna-velocity-umap/) instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
+			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the qoka-autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (qoka-autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Settings tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work: results/rna-velocity-umap/ for outputs, analysis/rna-velocity-umap/ for the script instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
 			+ 'And pass timeout_s: 900 on that call - the first Python run pulls the interpreter and all dependencies, which overruns the 300s default for anything like scanpy/anndata and aborts the install halfway, looking to the user like the code failed. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (qoka-autopipe MCP) for that instead. '
-			+ 'Files the code writes are saved AUTOMATICALLY under the project `analysis/<run-id>/` folder on the user\'s own disk - written directly on Windows/WSL, SFTP-copied back for a VM or a remote SSH server. The result says where. Never read those files back off the server and re-write them locally yourself; they are already there. '
-			+ 'stdout is returned here (truncated if very large). Result files the editor can display (plots, tables, reports) are OPENED AUTOMATICALLY as editor tabs, and the result lists which ones - so tell the user to look at the editor rather than instructing them to open anything, and never paste a file\'s contents into chat to "show" it. Anything not opened (too large, or a format the editor cannot display) stays in `analysis/<run-id>/` for them to handle from the Analysis tab.',
+			+ 'Files the code writes are saved AUTOMATICALLY under the project `results/<run-name>/` folder on the user\'s own disk (the script itself is saved under `analysis/<run-name>/`) - written directly on Windows/WSL, SFTP-copied back for a VM or a remote SSH server. The result says where. Never read those files back off the server and re-write them locally yourself; they are already there. '
+			+ 'stdout is returned here (truncated if very large). Result files the editor can display (plots, tables, reports) are OPENED AUTOMATICALLY as editor tabs, and the result lists which ones - so tell the user to look at the editor rather than instructing them to open anything, and never paste a file\'s contents into chat to "show" it. Anything not opened (too large, or a format the editor cannot display) stays in `results/<run-name>/` for them to handle from the Analysis tab.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				language: { type: 'string', description: 'Interpreter to run the code with. Python runs via uv.', enum: ['bash', 'python', 'node'] },
-					label: { type: 'string', description: 'REQUIRED in practice: a SHORT kebab-case summary of what this run does, used as the result folder name (e.g. "rna-velocity-umap", "scanpy-qc", "check-scanpy-version"). Summarise the USER\'s request in 2-5 English words; lowercase letters, digits and hyphens only. This keeps analysis/ readable instead of a wall of timestamps. If the name is already taken it gets -2, -3, … automatically, so never add a date, time or counter yourself. Omitting this falls back to an ugly timestamp folder.' },
-				code: { type: 'string', description: 'The full script source to run. It executes with its working directory set to the run folder, so relative output paths land in analysis/<run-id>/.' },
+					label: { type: 'string', description: 'REQUIRED in practice: a SHORT kebab-case summary of what this run does, used as the result folder name (e.g. "rna-velocity-umap", "scanpy-qc", "check-scanpy-version"). Summarise the USER\'s request in 2-5 English words; lowercase letters, digits and hyphens only. This keeps results/ and analysis/ readable instead of a wall of timestamps. If the name is already taken it gets -2, -3, … automatically, so never add a date, time or counter yourself. Omitting this falls back to an ugly timestamp folder.' },
+				code: { type: 'string', description: 'The full script source to run. It executes with its working directory set to the run folder, so relative output paths land in results/<run-name>/.' },
 				dependencies: { type: 'array', description: 'Python packages to install for this run (e.g. ["scanpy", "leidenalg"]). Installed automatically via uv before the code runs. Python only; ignored for bash/node. Alternatively put a PEP 723 `# /// script` block in the code itself.', items: { type: 'string' } },
 				timeout_s: { type: 'integer', description: 'Max seconds to allow the script to run (default 300, max 900). SET THIS TO 900 whenever the run may install anything: the FIRST Python run downloads the interpreter plus every requested package, and a scientific stack (scanpy, anndata, scvi-tools, a conda/bioconda env) routinely needs more than the 300s default. Exceeding it kills the run mid-install and looks to the user like the code failed. Later runs reuse the cache and are fast, so this costs nothing when it is not needed.' },
 			},
@@ -201,10 +182,11 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// wsRoot first: the name is de-duplicated against the project's existing
 				// analysis/ folders so a repeat run never lands in the previous one.
 				const wsRoot = workspaceFolderPath();
-				const id = runDirName(
-					typeof args.label === 'string' ? args.label : undefined,
-					wsRoot ? path.join(wsRoot, 'analysis') : undefined,
-				);
+				// One run name, kept free across analysis/, results/ and data/ so this
+				// run's script, outputs and input links never land in a previous run's
+				// folder. Falls back to a timestamp when there is no usable label.
+				const baseSlug = slugify(typeof args.label === 'string' ? args.label : '') || timestampId();
+				const id = uniqueRunName(baseSlug);
 
 				// Decide where the run dir lives. On Windows the built-in server is WSL,
 				// so write straight into analysis/<id>/ through the /mnt mount (outputs
@@ -219,7 +201,10 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				let runDirExpr: string;
 				let localDir: string | undefined;
 				if (mounted && wsRoot) {
-					localDir = path.join(wsRoot, 'analysis', id);
+					// Mounted (WSL): the run dir IS the project dir via /mnt. Outputs go
+					// to results/<id>/; the script source is written separately into
+					// analysis/<id>/ below (CODE and OUTPUTS kept apart).
+					localDir = path.join(wsRoot, 'results', id);
 					fs.mkdirSync(localDir, { recursive: true });
 					runDirExpr = `'${windowsToWsl(localDir)}'`;
 				} else if (!isBuiltIn) {
@@ -240,6 +225,17 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// Python: inject the requested deps as PEP 723 metadata so `uv run`
 				// installs them. Other languages run the source as-is.
 				const source = language === 'python' ? injectPep723(code, deps) : code;
+
+				// The script SOURCE is already in hand, so write it straight into the
+				// project's analysis/<id>/ (CODE) on the user's disk - no copy-back
+				// needed. Outputs land in results/<id>/. Best-effort: needs an open folder.
+				if (wsRoot) {
+					try {
+						const codeDir = path.join(wsRoot, 'analysis', id);
+						fs.mkdirSync(codeDir, { recursive: true });
+						fs.writeFileSync(path.join(codeDir, spec.file), source, 'utf8');
+					} catch { /* best-effort - the run still proceeds */ }
+				}
 				const encoded = Buffer.from(source, 'utf8').toString('base64');
 				const ensure = language === 'python' ? `${ENSURE_UV}; ` : '';
 				// ONE login for the whole run: mkdir + write the script + execute +
@@ -277,7 +273,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				if (mounted && localDir) {
 					savedTo = localDir;
 				} else if (wsRoot && resolvedDir) {
-					const dest = path.join(wsRoot, 'analysis', id);
+					const dest = path.join(wsRoot, 'results', id);
 					try {
 						const summary = await copyRemoteDirToLocal(ep, resolvedDir, dest, { maxFileBytes: MAX_COPY_BYTES });
 						savedTo = dest;
@@ -317,11 +313,12 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					// Spell out that the last path segment is THIS run's folder. Without a
 					// label it is a bare timestamp, which reads like noise rather than a
 					// name the user can look for in the Analysis tab.
-					lines.push(`Inside the open project that is analysis/${id}/, where "${id}" is the folder for THIS run.`
+					lines.push(`Inside the open project that is results/${id}/, where "${id}" is the folder for THIS run.`
 						+ (mounted ? '' : ' The files were copied back from the run target, so they are already local.'));
 					if (subdirs.length) {
-						lines.push(`Result files are in these subfolders of that run folder: ${subdirs.map(d => `${d}/`).join(', ')}. Name the subfolder when you tell the user where something is - do not just say "the analysis folder".`);
+						lines.push(`Result files are in these subfolders of that run folder: ${subdirs.map(d => `${d}/`).join(', ')}. Name the subfolder when you tell the user where something is - do not just say "the results folder".`);
 					}
+					lines.push(`The script for this run is saved as CODE in analysis/${id}/ (results are separate, in results/${id}/).`);
 					lines.push('When you tell the user where results are, give them this full path, not a bare folder name.');
 					lines.push('Do NOT read these files off the server and write them again yourself - they are already local.');
 					lines.push(...describeOpenedResults(shown));
@@ -331,7 +328,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 							+ ` If they say yes, use download_results (qoka-autopipe MCP) with the run directory ${resolvedDir || 'reported above'}; it may take a while for a large file.`);
 					}
 				} else if (!wsRoot) {
-					lines.push('', `No project folder is open, so results could NOT be saved locally; they are on the run target at ${resolvedDir || 'the run directory'}. Ask the user to open a folder so results are saved into analysis/ automatically.`);
+					lines.push('', `No project folder is open, so results could NOT be saved locally; they are on the run target at ${resolvedDir || 'the run directory'}. Ask the user to open a folder so results are saved into results/ automatically.`);
 				}
 				if (copyNote) {
 					lines.push('', copyNote);
@@ -396,7 +393,7 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'Say it is a ONE-TIME setup and later runs are cached and fast, and pass timeout_s: 900 on ANY run that may install - not just large conda/bioconda environments. The FIRST Python run on a fresh machine downloads the interpreter plus every dependency, and a stack like scanpy or anndata regularly exceeds the 300s default; when it does, the run is killed part-way through the install and the user is told the code failed. Raising the timeout costs nothing on a cached run.',
 	'If nothing new needs installing (already cached), no setup message is needed - just run it.',
 	'',
-	'Results: run_code saves each run under the project\'s analysis/<run-id>/ folder on the user\'s LOCAL disk, automatically - including runs on a remote SSH server, whose outputs are copied back before the tool returns. stdout is returned in chat.',
+	'Results: run_code saves each run\'s outputs under the project\'s results/<run-name>/ folder (and its script under analysis/<run-name>/) on the user\'s LOCAL disk, automatically - including runs on a remote SSH server, whose outputs are copied back before the tool returns. stdout is returned in chat.',
 	'Files the editor can display (plots, tables, reports) are then OPENED FOR THE USER as editor tabs, and the tool result names them. So when a run produces a figure or a table, say it is now open in the editor and describe what it shows - do NOT tell the user to go find and open it, and do NOT dump the file contents into chat. Only files that were too large or in a format the editor cannot display are left for the Analysis tab.',
-	'Do NOT hand-copy results: never chain read_file on the server + write_file locally to "bring back" an output. The copy already happened. Read from the LOCAL analysis/<run-id>/ path if you need the contents. The only exception is a file the result explicitly says was left on the server for being over the auto-copy size limit.',
+	'Do NOT hand-copy results: never chain read_file on the server + write_file locally to "bring back" an output. The copy already happened. Read from the LOCAL results/<run-name>/ path if you need the contents. The only exception is a file the result explicitly says was left on the server for being over the auto-copy size limit.',
 ].join('\n');

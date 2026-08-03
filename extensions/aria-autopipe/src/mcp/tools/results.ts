@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
 // The in-app Autopipe Viewer is disabled: results are inspected in the Analysis tab
-// under `autopipe/pipelines_output/<run>/` instead. Kept as a comment so the
+// under `results/<run>/` instead. Kept as a comment so the
 // viewer can be re-enabled later without re-deriving the wiring.
 // import { openViewerForDirectory } from '../../viewer/viewerPanel';
 import { shellEscape } from '../../common/roCrate';
@@ -111,7 +111,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'show_results',
-		description: "List the result files at a remote path and tell the user where to open them. There is NO in-app viewer: saved pipeline results live in the project's Analysis tab under `autopipe/pipelines_output/<run_name>/` (put there by save_results_to_project). This tool reports the files present so you can summarise them; then direct the user to open them from the Analysis tab file tree (autopipe/pipelines_output/<run_name>/). Never tell the user to open a browser, a 127.0.0.1 URL, or an in-app viewer panel. Pass a DIRECTORY path to list its files, or a single FILE path to report just that file.",
+		description: "List the result files at a remote path and tell the user where to open them. There is NO in-app viewer: saved pipeline results live in the project's Analysis tab under `results/<run_name>/` (put there by save_results_to_project). This tool reports the files present so you can summarise them; then direct the user to open them from the Analysis tab file tree (results/<run_name>/). Never tell the user to open a browser, a 127.0.0.1 URL, or an in-app viewer panel. Pass a DIRECTORY path to list its files, or a single FILE path to report just that file.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -146,7 +146,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 					// await openViewerForDirectory(parent, target);
 					return textResult([
 						`${path.basename(target)} is ready.`,
-						`Open it from the Analysis tab under autopipe/pipelines_output/<run_name>/ (after the results are saved to the project with save_results_to_project).`,
+						`Open it from the Analysis tab under results/<run_name>/ (after the results are saved to the project with save_results_to_project).`,
 					].join('\n'));
 				}
 
@@ -165,7 +165,7 @@ export const RESULT_TOOLS: ToolDefinition[] = [
 					lines.push(`  ${name}`);
 				}
 				lines.push('');
-				lines.push('Tell the user these results open in the Analysis tab under autopipe/pipelines_output/<run_name>/ (save them there first with save_results_to_project if not done yet).');
+				lines.push('Tell the user these results open in the Analysis tab under results/<run_name>/ (save them there first with save_results_to_project if not done yet).');
 				return textResult(lines.join('\n'));
 			} catch (err) {
 				return errorResult((err as Error).message);

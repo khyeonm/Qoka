@@ -40,8 +40,18 @@ import { isMouseEvent } from '../../../../base/browser/dom.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 
 // Qoka renames this tab to "Analysis" (where run_code / autopipe results land) and
-// uses a code glyph (</>) to signal it holds analysis code and outputs.
+// uses a code glyph (</>) to signal it holds analysis code and outputs - but ONLY
+// in Easy mode. Advanced mode keeps the standard "Explorer" name and files glyph
+// (and its own Source Control / GitHub tab), so power users get the familiar VS
+// Code layout. AriaModeManager pushes the active mode here on every switch via
+// setAriaExplorerAdvanced(); the container title/icon below are getters so the
+// activity bar, sidebar header and Easy-mode flyout all follow the mode.
 const explorerViewIcon = registerIcon('explorer-view-icon', Codicon.code, localize('explorerViewIcon', 'View icon of the analysis view.'));
+const explorerAdvancedViewIcon = registerIcon('explorer-view-icon-advanced', Codicon.files, localize('explorerViewIconAdvanced', 'View icon of the file explorer.'));
+let ariaExplorerAdvanced = false;
+/** Called by AriaModeManager when the mode changes, BEFORE the aria.mode context
+ *  key flips, so the container title/icon recompute to the right mode. */
+export function setAriaExplorerAdvanced(advanced: boolean): void { ariaExplorerAdvanced = advanced; }
 const openEditorsViewIcon = registerIcon('open-editors-view-icon', Codicon.book, localize('openEditorsIcon', 'View icon of the open editors view.'));
 
 export class ExplorerViewletViewsContribution extends Disposable implements IWorkbenchContribution {
@@ -258,10 +268,10 @@ const viewContainerRegistry = Registry.as<IViewContainersRegistry>(Extensions.Vi
  */
 export const VIEW_CONTAINER: ViewContainer = viewContainerRegistry.registerViewContainer({
 	id: VIEWLET_ID,
-	title: localize2('explore', "Analysis"),
+	get title() { return ariaExplorerAdvanced ? localize2('exploreAdvanced', "Explorer") : localize2('explore', "Analysis"); },
 	ctorDescriptor: new SyncDescriptor(ExplorerViewPaneContainer),
 	storageId: 'workbench.explorer.views.state',
-	icon: explorerViewIcon,
+	get icon() { return ariaExplorerAdvanced ? explorerAdvancedViewIcon : explorerViewIcon; },
 	alwaysUseContainerInfo: true,
 	hideIfEmpty: true,
 	order: 0,

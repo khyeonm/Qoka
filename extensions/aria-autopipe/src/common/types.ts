@@ -119,6 +119,21 @@ export interface WorkspacePaths {
 export function workspacePathsFor(profile: SshProfile): WorkspacePaths {
 	const trim = (s: string) => s.replace(/\/+$/, '');
 	const repo = trim(profile.repo_path);
+	// Built-in mounted target (repo is `/mnt/<drive>/…`): the "server" paths ARE
+	// the project folder on the user's disk, so they follow Qoka's unified project
+	// layout - code in analysis/, outputs in results/, inputs in data/. A REMOTE
+	// SSH server keeps autopipe's original pipelines/ convention (users' remote
+	// dirs are theirs; nothing there changes).
+	if (/^\/mnt\/[a-z]\//i.test(repo)) {
+		return {
+			repo_path: repo,
+			pipelines_dir: `${repo}/analysis`,
+			input_dir: `${repo}/data`,
+			output_dir: `${repo}/results`,
+			log_dir: `${repo}/results/.aria_logs`,
+			plugins_dir: `${repo}/.aria_plugins`,
+		};
+	}
 	return {
 		repo_path: repo,
 		pipelines_dir: `${repo}/pipelines`,

@@ -103,7 +103,7 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 	{
 		name: 'save_results_to_project',
 		description:
-			"Durably SAVE a completed run into the user's open project folder (<workspaceFolder>/autopipe/). Results under the auto-copy size limit are ALREADY saved automatically when check_status sees the run finish, so use this for the exceptions: a file left behind for being too large, a copy that failed, or a re-save the user asks for. Never use it (or read_file + write_file) to hand-copy results that were already saved. "
+			"Durably SAVE a completed run into the user's open project (results/<run_name>/ for outputs, analysis/ for code). Results under the auto-copy size limit are ALREADY saved automatically when check_status sees the run finish, so use this for the exceptions: a file left behind for being too large, a copy that failed, or a re-save the user asks for. Never use it (or read_file + write_file) to hand-copy results that were already saved. "
 			+ 'ALWAYS: (1) copies the pipeline CODE, and (2) writes an input MANIFEST (file list + sizes, NOT the input bytes). '
 			+ 'OUTPUT files are copied only when you pass `files` (relative paths from list_run_outputs); omit `files` to save just code + manifest. '
 			+ 'Recommended flow: call list_run_outputs first, ASK the user which files to save, then call this. Do NOT ask about pipeline code - it is always saved. '
@@ -207,7 +207,7 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 				}
 				// After a successful output save, tell the user where the files landed.
 				if (result.outputsCopied > 0) {
-					lines.push('', `Tell the user the results were saved and can be opened from the Analysis tab under autopipe/pipelines_output/${runName}/.`);
+					lines.push('', `Tell the user the results were saved and can be opened from the Analysis tab under results/${runName}/.`);
 				}
 				return textResult(lines.join('\n'));
 			} catch (err) {

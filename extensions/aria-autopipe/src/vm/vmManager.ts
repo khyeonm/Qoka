@@ -220,7 +220,10 @@ export class VMManager {
 		let repo: string;
 		if (wsRoot) {
 			ensureWorkspaceScaffold(wsRoot);
-			repo = windowsToWsl(path.join(wsRoot, 'autopipe'));
+			// The project folder itself is the mounted repo: workspacePathsFor maps a
+			// mounted repo to the unified data/analysis/results layout, so the guest
+			// writes pipeline code into analysis/ and outputs into results/ directly.
+			repo = windowsToWsl(wsRoot);
 		} else {
 			repo = `/home/${user}/aria`;
 		}

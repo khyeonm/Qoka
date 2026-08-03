@@ -158,7 +158,18 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				const baseDir = args.output_dir
 					? windowsToWsl(String(args.output_dir))
 					: workspacePathsFor(profile).pipelines_dir;
-				const dir = `${baseDir.replace(/\/+$/, '')}/${pipeline.name}`;
+				const baseTrim = baseDir.replace(/\/+$/, '');
+				// Never clobber an existing pipeline of the same name: if the target
+				// folder already exists, download into <name>-2, <name>-3, … instead.
+				// (A same-name autopipe RUN still resumes by run name - this only guards
+				//  the pipeline CODE folder created at download time.)
+				let dirName = pipeline.name;
+				for (let n = 2; n < 10000; n++) {
+					const probe = await ssh.run(profile, `test -e '${shellEscape(`${baseTrim}/${dirName}`)}' && echo yes || echo no`);
+					if (probe.exitCode === 0 && probe.stdout.includes('no')) { break; }
+					dirName = `${pipeline.name}-${n}`;
+				}
+				const dir = `${baseTrim}/${dirName}`;
 
 				const mkdir = await ssh.run(profile, `mkdir -p '${shellEscape(dir)}'`);
 				if (mkdir.exitCode !== 0) {
@@ -267,13 +278,16 @@ export const PIPELINE_TOOLS: ToolDefinition[] = [
 				}
 
 				// Mirror the freshly downloaded pipeline code into the open project
-				// folder (autopipe/pipelines/<name>/), like write_file does for edits.
+				// folder (analysis/<name>/), like write_file does for edits. Uses the
+				// de-duplicated folder name so a same-name download lands in its own
+				// analysis/<name>-2/ rather than overwriting the existing pipeline.
 				// Best-effort - never fail the download over the mirror.
-				try { await savePipelineCodeToProject(profile, pipeline.name); } catch { /* best-effort */ }
+				try { await savePipelineCodeToProject(profile, dirName); } catch { /* best-effort */ }
 
 				const fileCount = fileList.split('\n').filter(l => l.length > 0).length;
+				const renamed = dirName !== pipeline.name ? ` (folder named '${dirName}' to avoid overwriting an existing pipeline of the same name)` : '';
 				return textResult([
-					`Downloaded pipeline '${pipeline.name}' to ${dir} (remote server)`,
+					`Downloaded pipeline '${pipeline.name}' to ${dir} (remote server)${renamed}`,
 					`Files (${fileCount}):`,
 					fileList,
 				].join('\n'));

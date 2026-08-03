@@ -20,6 +20,7 @@ import { IHostService } from '../../../services/host/browser/host.js';
 import { localize } from '../../../../nls.js';
 import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
+import { setAriaExplorerAdvanced } from '../../files/browser/explorerViewlet.js';
 
 // In easy mode the bottom panel (Terminal / Problems / Output …) is removed as
 // developer tooling, so its toggle shortcut Ctrl+` should do nothing instead of
@@ -218,6 +219,12 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 
 	private update(animate: boolean): void {
 		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
+		// Keep the Explorer container's name/icon in sync BEFORE flipping the context
+		// key: Advanced mode shows the standard "Explorer" (files glyph) + Source
+		// Control, Easy mode shows the "Analysis" tab (code glyph). Setting this first
+		// means the container-info recompute triggered by the aria.mode change reads
+		// the new mode.
+		setAriaExplorerAdvanced(mode === 'advanced');
 		this.modeKey.set(mode); // context key only - no visual change.
 
 		// Every visual change of a mode switch, grouped so the animated path can run

@@ -632,6 +632,13 @@ export class ViewContainerModel extends Disposable implements IViewContainerMode
 			}
 		}
 		this.broadCastAddedVisibleViewDescriptors(addedVisibleDescriptors);
+
+		// A container's title/icon can depend on the same context keys as its views'
+		// `when` clauses (Qoka flips the Explorer tab between "Explorer" and
+		// "Analysis" by aria.mode). Recompute them here too, so the header updates
+		// even when no view visibility actually toggled (e.g. entering Advanced mode
+		// where the mode-gated views were never visible). No-ops if nothing changed.
+		this.updateContainerInfo();
 	}
 
 	private broadCastAddedVisibleViewDescriptors(added: IAddedViewDescriptorRef[]): void {

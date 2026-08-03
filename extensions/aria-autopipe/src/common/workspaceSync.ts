@@ -23,19 +23,25 @@ import { services } from './services';
  * throwing. File copies decode straight to disk (see SshService.downloadFilesBase64)
  * so large genomic outputs never buffer in memory.
  *
- * Local layout mirrors the remote convention (workspacePathsFor):
- *   <workspaceFolder>/autopipe/pipelines/<name>/       pipeline code
- *   <workspaceFolder>/autopipe/pipelines_input/*.manifest.json   input manifests (no bytes)
- *   <workspaceFolder>/autopipe/pipelines_output/<run>/  saved result files
+ * Unified project layout (data / analysis / results):
+ *   <workspaceFolder>/analysis/<pipeline_name>/   pipeline code (working copy, by pipeline name)
+ *   <workspaceFolder>/analysis/<run_name>/        run_code scripts (by run name)
+ *   <workspaceFolder>/results/<run_name>/         saved result files (run_code + autopipe)
+ *   <workspaceFolder>/data/<run_name>/manifest.json   input manifest (no bytes)
+ *   <workspaceFolder>/data/<run_name>/            local input links (hardlink/junction)
  */
 
 const LOG_PREFIX = '[aria-autopipe] workspaceSync';
 
 export interface LocalAutopipePaths {
+	/** The open workspace folder. */
 	base: string;
-	pipelines: string;
-	input: string;
-	output: string;
+	/** `<workspaceFolder>/analysis` - code (autopipe by pipeline name, run_code by run name). */
+	analysis: string;
+	/** `<workspaceFolder>/results` - outputs, per run name. */
+	results: string;
+	/** `<workspaceFolder>/data` - inputs + per-run manifests/links. */
+	data: string;
 }
 
 /** First workspace folder's fsPath, or undefined when no folder is open. */
@@ -44,21 +50,20 @@ export function workspaceFolderPath(): string | undefined {
 }
 
 /**
- * Resolve the local `<workspaceFolder>/autopipe/` base and its subdirs, or
- * undefined when no workspace folder is open. Does NOT create anything - call
- * `ensureLocalDir` at copy time so we never scaffold an empty tree.
+ * Resolve the project's `data` / `analysis` / `results` dirs, or undefined when
+ * no workspace folder is open. Does NOT create anything - call `ensureLocalDir`
+ * at copy time so we never scaffold an empty tree.
  */
 export function localAutopipePaths(): LocalAutopipePaths | undefined {
 	const folder = workspaceFolderPath();
 	if (!folder) {
 		return undefined;
 	}
-	const base = path.join(folder, 'autopipe');
 	return {
-		base,
-		pipelines: path.join(base, 'pipelines'),
-		input: path.join(base, 'pipelines_input'),
-		output: path.join(base, 'pipelines_output'),
+		base: folder,
+		analysis: path.join(folder, 'analysis'),
+		results: path.join(folder, 'results'),
+		data: path.join(folder, 'data'),
 	};
 }
 
@@ -67,10 +72,30 @@ export function ensureLocalDir(dir: string): void {
 	fs.mkdirSync(dir, { recursive: true });
 }
 
-/** Local `analysis/` dir (quick run_code outputs), or undefined with no folder. */
+/** Local `analysis/` dir (run_code scripts), or undefined with no folder. */
 export function localAnalysisDir(): string | undefined {
 	const folder = workspaceFolderPath();
 	return folder ? path.join(folder, 'analysis') : undefined;
+}
+
+/**
+ * A run name that is free across ALL of the project dirs that key by run name
+ * (analysis/, results/, data/), so a single name owns the matching folder in
+ * each. Used by run_code so its script (analysis/<name>/), outputs
+ * (results/<name>/) and input links (data/<name>/) share one collision-free name.
+ */
+export function uniqueRunName(base: string): string {
+	const folder = workspaceFolderPath();
+	const slug = (base || 'run').trim() || 'run';
+	if (!folder) { return slug; }
+	const dirs = [path.join(folder, 'analysis'), path.join(folder, 'results'), path.join(folder, 'data')];
+	const taken = (name: string) => dirs.some(d => fs.existsSync(path.join(d, name)));
+	if (!taken(slug)) { return slug; }
+	for (let n = 2; n < 10000; n++) {
+		const candidate = `${slug}-${n}`;
+		if (!taken(candidate)) { return candidate; }
+	}
+	return slug;
 }
 
 /**
@@ -85,11 +110,11 @@ export function isMountedRepo(profile: SshProfile): boolean {
 
 /**
  * Create Qoka's local project scaffold on first launch:
- *   <workspaceFolder>/autopipe/{pipelines,pipelines_input,pipelines_output}/
- *   <workspaceFolder>/analysis/
+ *   <workspaceFolder>/{data,analysis,results}/
  * so the mounted run environment has the dirs it writes into and the Analysis tab
- * shows them. Idempotent, and never removes anything: an existing folder is left
- * exactly as it is. No-ops without an open folder.
+ * shows them. Runs the one-time old-layout migration first. Idempotent, and never
+ * removes anything: an existing folder is left exactly as it is. No-ops without an
+ * open folder.
  *
  * These used to get a `.gitkeep` so the empty tree survived git. Dropped: the
  * moment a run writes a result the folder appears in git by itself, Qoka recreates
@@ -100,12 +125,13 @@ export function isMountedRepo(profile: SshProfile): boolean {
 export function ensureWorkspaceScaffold(root?: string): void {
 	const folder = root ?? workspaceFolderPath();
 	if (!folder) { return; }
-	const base = path.join(folder, 'autopipe');
+	// Run the one-time migration from the old autopipe/ + mixed layout FIRST, then
+	// make sure the three unified dirs exist.
+	migrateProjectLayout(folder);
 	const dirs = [
-		path.join(base, 'pipelines'),
-		path.join(base, 'pipelines_input'),
-		path.join(base, 'pipelines_output'),
+		path.join(folder, 'data'),
 		path.join(folder, 'analysis'),
+		path.join(folder, 'results'),
 	];
 	for (const d of dirs) {
 		try {
@@ -121,14 +147,67 @@ export function ensureWorkspaceScaffold(root?: string): void {
 const ANALYSIS_README = [
 	'# analysis',
 	'',
-	'Results from quick one-off code runs (the **qoka-run** `run_code` tool) land',
-	'here, one folder per run, named after what you asked for -',
-	'`analysis/rna-velocity-umap/` rather than a timestamp.',
+	'Analysis CODE lives here: `run_code` scripts (one folder per run, named after',
+	'what you asked for - `analysis/rna-velocity-umap/`) and autopipe pipeline code',
+	'(one folder per pipeline - `analysis/<pipeline-name>/`).',
 	'',
-	'A few files from each run open automatically as editor tabs (plots first).',
-	'Everything else stays here - open it from the Analysis tab.',
+	'Result files land in `results/<run-name>/`; input data in `data/`.',
+	'A few results from each run open automatically as editor tabs (plots first).',
 	'',
 ].join('\n');
+
+/**
+ * One-time migration from the old split layout to the unified data/analysis/results
+ * tree. Idempotent and best-effort (never throws, never overwrites an existing
+ * destination):
+ *   autopipe/pipelines/<name>/            -> analysis/<name>/     (code, by pipeline name)
+ *   autopipe/pipelines_output/<run>/      -> results/<run>/       (outputs, by run name)
+ *   autopipe/pipelines_input/<n>.manifest.json -> data/<n>/manifest.json
+ * The old run_code `analysis/<id>/` folders (code + outputs mixed) are LEFT in
+ * place - they already live under analysis/ and cannot be split retroactively.
+ * The emptied `autopipe/` dir is removed at the end.
+ */
+export function migrateProjectLayout(root?: string): void {
+	const folder = root ?? workspaceFolderPath();
+	if (!folder) { return; }
+	const oldBase = path.join(folder, 'autopipe');
+	if (!fs.existsSync(oldBase)) { return; }
+	const moveChildren = (fromDir: string, toDir: string, transform?: (name: string) => string) => {
+		if (!fs.existsSync(fromDir)) { return; }
+		try {
+			for (const entry of fs.readdirSync(fromDir, { withFileTypes: true })) {
+				const from = path.join(fromDir, entry.name);
+				const to = path.join(toDir, transform ? transform(entry.name) : entry.name);
+				if (fs.existsSync(to)) { continue; } // never clobber an already-migrated dest
+				try { ensureLocalDir(path.dirname(to)); fs.renameSync(from, to); }
+				catch { /* leave it; best-effort */ }
+			}
+		} catch { /* best-effort */ }
+	};
+	try {
+		moveChildren(path.join(oldBase, 'pipelines'), path.join(folder, 'analysis'));
+		moveChildren(path.join(oldBase, 'pipelines_output'), path.join(folder, 'results'));
+		// Input manifests: `<name>.manifest.json` -> `data/<name>/manifest.json`.
+		const oldInput = path.join(oldBase, 'pipelines_input');
+		if (fs.existsSync(oldInput)) {
+			for (const entry of fs.readdirSync(oldInput, { withFileTypes: true })) {
+				if (!entry.isFile() || !entry.name.endsWith('.manifest.json')) { continue; }
+				const name = entry.name.replace(/\.manifest\.json$/, '');
+				const to = path.join(folder, 'data', name, 'manifest.json');
+				if (fs.existsSync(to)) { continue; }
+				try { ensureLocalDir(path.dirname(to)); fs.renameSync(path.join(oldInput, entry.name), to); }
+				catch { /* best-effort */ }
+			}
+		}
+		// Remove the now-empty autopipe/ tree (rmSync no-ops if non-empty leftovers
+		// remain - we only want to clear a fully-migrated tree).
+		try { fs.rmSync(oldBase, { recursive: true, force: false }); }
+		catch { /* something left behind - leave the dir for the user to inspect */ }
+		console.log(`${LOG_PREFIX}: migrated old autopipe/ layout to data/analysis/results in ${folder}`);
+	} catch (err) {
+		console.warn(`${LOG_PREFIX}: layout migration skipped:`, (err as Error).message);
+	}
+}
 
 /** Human-readable byte size, e.g. `1.4 GB`. */
 export function humanSize(bytes: number): string {
@@ -341,9 +420,9 @@ export interface StepResult {
 
 /**
  * Copy pipeline CODE (`{pipelines_dir}/<name>`) from the target into
- * `<workspaceFolder>/autopipe/pipelines/<name>/`. Code is small, so this is
- * always safe to run without prompting. No-ops with a clear message when there
- * is no workspace folder. Never throws.
+ * `<workspaceFolder>/analysis/<name>/` (by pipeline name - the working copy).
+ * Code is small, so this is always safe to run without prompting. No-ops with a
+ * clear message when there is no workspace folder. Never throws.
  */
 export async function savePipelineCodeToProject(profile: SshProfile, pipelineName: string): Promise<StepResult> {
 	try {
@@ -364,7 +443,7 @@ export async function savePipelineCodeToProject(profile: SshProfile, pipelineNam
 		if (!(probe.exitCode === 0 && probe.stdout.includes('yes'))) {
 			return { ok: false, message: `Pipeline code directory not found on target: ${remoteDir}` };
 		}
-		const dest = path.join(local.pipelines, pipelineName);
+		const dest = path.join(local.analysis, pipelineName);
 		const summary = await copyRemoteDirInternal(profile, remoteDir, dest);
 		return { ok: summary.ok, message: `Pipeline code '${pipelineName}': ${summary.message}${summary.failed ? ` (${summary.failed} failed)` : ''}` };
 	} catch (err) {
@@ -390,8 +469,8 @@ export async function autoSavePipelineCodeOnCompletion(profile: SshProfile, imag
 /**
  * Mirror a single just-written pipeline file to the project folder. When
  * `remotePath` is inside the target's pipelines dir, write the same `content` to
- * <workspaceFolder>/autopipe/pipelines/<relative>. Called on every write_file so
- * pipeline CODE stays synced in the project as it is CREATED and EDITED - not
+ * <workspaceFolder>/analysis/<pipeline-name>/<relative>. Called on every write_file
+ * so pipeline CODE stays synced in the project as it is CREATED and EDITED - not
  * only at run completion - without the user asking. Best-effort: no workspace
  * folder, a path outside the pipelines dir, or a write error all no-op. The
  * content is already in hand, so there is no SFTP round-trip.
@@ -405,7 +484,7 @@ export function mirrorPipelineFileLocally(profile: SshProfile, remotePath: strin
 		if (remotePath !== pipelinesDir && !remotePath.startsWith(pipelinesDir + '/')) { return; }
 		const rel = remoteRelative(pipelinesDir, remotePath);
 		if (!rel || rel === '.') { return; }
-		const localFile = localJoin(local.pipelines, rel);
+		const localFile = localJoin(local.analysis, rel);
 		ensureLocalDir(path.dirname(localFile));
 		fs.writeFileSync(localFile, content, 'utf8');
 	} catch { /* best-effort mirror */ }
@@ -426,9 +505,10 @@ export interface InputManifest {
 /**
  * Write a manifest DESCRIBING the run's input files (paths + sizes), WITHOUT
  * copying any bytes, to
- * `<workspaceFolder>/autopipe/pipelines_input/<name>.manifest.json`. Input
- * data can be huge and is intentionally left on the target - the manifest is
- * the durable record of what was fed in. Never throws.
+ * `<workspaceFolder>/data/<name>/manifest.json`. Input data can be huge and is
+ * intentionally left on the target - the manifest is the durable record of what
+ * was fed in. `name` is the run name at save time, or "inputs" at staging time
+ * (before a run name exists). Never throws.
  */
 export async function writeInputManifest(profile: SshProfile, name: string): Promise<StepResult> {
 	try {
@@ -448,9 +528,10 @@ export async function writeInputManifest(profile: SshProfile, name: string): Pro
 			input_dir: paths.input_dir,
 			files,
 		};
-		ensureLocalDir(local.input);
 		const safeName = (name || 'inputs').replace(/[\\/:*?"<>|]/g, '_');
-		const dest = path.join(local.input, `${safeName}.manifest.json`);
+		const runDataDir = path.join(local.data, safeName);
+		ensureLocalDir(runDataDir);
+		const dest = path.join(runDataDir, 'manifest.json');
 		fs.writeFileSync(dest, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 		return { ok: true, message: `Wrote input manifest (${files.length} file(s), not the bytes) to ${dest}` };
 	} catch (err) {
@@ -512,7 +593,7 @@ export function listLocalFiles(dir: string, prefix = ''): string[] {
 export const AUTO_SAVE_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 /**
- * Copy a completed run's outputs into `<workspaceFolder>/autopipe/pipelines_output/<run>/`
+ * Copy a completed run's outputs into `<workspaceFolder>/results/<run>/`
  * automatically, so results are on the user's disk the moment the pipeline
  * finishes instead of waiting for someone to ask. No-ops (successfully) for a
  * mounted run environment, where the guest already wrote into the project.
@@ -524,7 +605,7 @@ export async function autoSaveRunOutputsOnCompletion(profile: SshProfile, runNam
 		if (!local) {
 			return { ok: false, message: 'No workspace folder is open - results could not be saved locally.', copied: 0, failed: 0, errors: [], skipped: [], copiedFiles: [] };
 		}
-		const localOutputDir = path.join(local.output, runName);
+		const localOutputDir = path.join(local.results, runName);
 		if (isMountedRepo(profile)) {
 			return { ok: true, message: 'Mounted run environment - outputs are already in the project (no copy needed).', copied: 0, failed: 0, errors: [], skipped: [], copiedFiles: listLocalFiles(localOutputDir), localDir: localOutputDir };
 		}
@@ -572,7 +653,7 @@ export async function saveResultsToProject(
 	// nothing to copy - and an SFTP copy here would read and write the same file.
 	// Report success and point at where they already are.
 	if (isMountedRepo(profile)) {
-		const localOutputDir = path.join(local.output, runName);
+		const localOutputDir = path.join(local.results, runName);
 		steps.push({ ok: true, message: 'Mounted run environment - pipeline code and outputs are already saved in the project (no copy needed).' });
 		return { ok: true, steps, outputsCopied: 0, outputsFailed: 0, outputErrors: [], localOutputDir };
 	}
@@ -587,7 +668,7 @@ export async function saveResultsToProject(
 
 	// 3) Selected output files (optional).
 	const outputDir = resolveOutputDir(profile, runName);
-	const localOutputDir = path.join(local.output, runName);
+	const localOutputDir = path.join(local.results, runName);
 	if (files && files.length > 0) {
 		const { ssh } = services();
 		ensureLocalDir(localOutputDir);
