@@ -260,7 +260,7 @@ export class VMManager {
 
 		// WSL + Ubuntu + account are all confirmed now → start the server.
 		this.set('booting');
-		progress('Setting up the WSL run environment (docker, tools)…');
+		progress('Setting up the WSL run environment…');
 
 		const key = await this.ensureKey();
 		const pub = fs.readFileSync(key + '.pub', 'utf8').trim();

@@ -98,6 +98,7 @@ export class ConnectionsSection extends SettingsSection {
 	private editTitleEl: HTMLElement | undefined;
 	private editSubEl: HTMLElement | undefined;
 	private editFormEl: HTMLElement | undefined;
+	private pollTimer: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(body: HTMLElement, commandService: ICommandService, header?: HTMLElement) {
 		super(body, commandService, header);
@@ -112,6 +113,9 @@ export class ConnectionsSection extends SettingsSection {
 	}
 
 	async refresh(): Promise<void> {
+		// A re-render supersedes any in-flight live poll (a new one is armed below if
+		// the built-in server is still setting up).
+		this.stopBuiltinPoll();
 		let status: ConnectionsStatus = {};
 		try { status = (await this.commandService.executeCommand<ConnectionsStatus>('aria.autopipe.getStatus', true)) ?? {}; } catch { /* booting */ }
 		// Fetched up here, with the rest of the state: awaiting after clearNode would
@@ -146,13 +150,16 @@ export class ConnectionsSection extends SettingsSection {
 			const { row, dot, sub } = this.serverRow('Qoka built-in server', builtinStatusText(active, vm, undefined), active);
 			if (active) { activeDot = dot; activeKind = 'vm'; builtinSub = sub; }
 			row.onclick = () => {
-				// Clicking the built-in row is an explicit "set it up / use it" intent, so
-				// clear any earlier "continue without" opt-out. Restart only when it's
-				// already running; otherwise run setup (which also clears the opt-out and
-				// activates + starts it).
 				try { localStorage.removeItem('aria.autopipe.wslSetupSkipped'); } catch { /* ignore */ }
-				const ready = active && vm?.status === 'ready';
-				void this.commandService.executeCommand(ready ? 'aria.autopipe.connection.restart' : 'aria.autopipe.vm.setup').then(() => this.refresh());
+				if (active && vm?.status === 'ready') {
+					// Already running - do NOT tear it down. A stray click used to restart a
+					// working server back into "Setting up"; now it just re-checks status.
+					void this.refresh();
+				} else {
+					// Not ready (or after the poll gave up) - (re)run setup, then refresh,
+					// which resumes the live poll until it turns green.
+					void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh());
+				}
 			};
 		}
 
@@ -212,6 +219,47 @@ export class ConnectionsSection extends SettingsSection {
 				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, settingUp ? undefined : reachable); }
 			}, () => { /* offline: leave the dot and text in their pending state */ });
 		}
+
+		// If the built-in server is still setting up, live-update its dot until it's
+		// ready (then it turns green on its own - no click needed). Bounded poll.
+		if (activeDot && activeKind === 'vm' && (vm?.status === 'provisioning' || vm?.status === 'booting')) {
+			this.startBuiltinPoll(activeDot, builtinSub);
+		}
+	}
+
+	private stopBuiltinPoll(): void {
+		if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = undefined; }
+	}
+
+	/**
+	 * While the built-in server is setting up, poll its status (cheap) every 3s and
+	 * repaint the dot/text in place, so it flips to green the moment it's ready -
+	 * without the user clicking. Deliberately NOT a permanent live view: it stops as
+	 * soon as the server leaves the transitional state, when the row leaves the DOM
+	 * (settings closed / re-rendered), or after a 5-minute cap. After the cap the row
+	 * simply stays as-is; clicking it re-runs setup, which arms a fresh poll.
+	 */
+	private startBuiltinPoll(dotEl: HTMLElement, subEl: HTMLElement | undefined): void {
+		this.stopBuiltinPoll();
+		const deadline = Date.now() + 5 * 60 * 1000; // 5-minute cap
+		const tick = async (): Promise<void> => {
+			this.pollTimer = undefined;
+			if (!dotEl.isConnected || Date.now() >= deadline) { return; }
+			let vm: VmStatus | undefined;
+			try { vm = await this.commandService.executeCommand<VmStatus>('aria.autopipe.vm.status'); } catch { /* keep waiting */ }
+			if (!dotEl.isConnected) { return; }
+			if (vm?.status === 'provisioning' || vm?.status === 'booting') {
+				// Still setting up: neutral dot, live text, check again shortly.
+				this.paintDot(dotEl, true, undefined);
+				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, undefined); }
+				this.pollTimer = setTimeout(() => void tick(), 3000);
+			} else {
+				// Left the transitional state (ready/error/stopped): a full refresh paints
+				// the final state (probing SSH for the green/red verdict) and won't re-arm.
+				void this.refresh();
+			}
+		};
+		this.pollTimer = setTimeout(() => void tick(), 3000);
 	}
 
 	/** A selectable server row: a radio dot + title/sub. The dot starts in a neutral
