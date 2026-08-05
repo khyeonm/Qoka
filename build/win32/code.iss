@@ -116,16 +116,16 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; -Verb RunAs (triggers UAC). A 32-bit installer reaches the real wsl.exe through
 ; the Sysnative alias; a 64-bit one falls back to System32.
 ;
-; Install the WSL ENGINE ONLY (--no-distribution): enabling the Windows feature
-; needs admin + a reboot, which only the installer can do. The Ubuntu distro, its
-; account, and provisioning are all done by Qoka on first launch (per-user, no
-; admin) - so we deliberately do NOT install a distro here. `wsl --install
-; -d Ubuntu` from this non-interactive elevated console also aborted the distro's
-; OOBE and rolled the install back in testing; keeping the distro out of the
-; installer avoids that entirely.
+; Install WSL via `wsl --install -d Ubuntu --no-launch` (elevated). This is what
+; reliably enables the WSL engine on a fresh machine - `wsl --install
+; --no-distribution` did NOT actually install the engine in testing (`wsl --status`
+; still reported "no subsystem" after a reboot). It also stages the Ubuntu distro;
+; --no-launch skips the interactive OOBE (which aborts in this non-interactive
+; elevated console). After the reboot, Qoka finishes the rest on first launch:
+; completing/registering Ubuntu, opening the account window, and provisioning.
 ; NB: the PowerShell if-body braces MUST be doubled ({{ }}) - Inno Setup treats a
 ; single {...} as a constant reference and fails to compile otherwise.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','--no-distribution' -Verb RunAs -Wait"""; Description: "Install WSL for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu','--no-launch' -Verb RunAs -Wait"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
 ; Launch Qoka - only when WSL is already installed. If WSL is missing the user must
 ; reboot and create a Linux account first, so launching now would hit a not-ready
@@ -1369,10 +1369,10 @@ end;
 procedure WslPostInstallMsg();
 begin
   MsgBox(
-    'The WSL engine has been installed for Qoka''s built-in run environment.' + #13#10 + #13#10 +
+    'WSL and Ubuntu are being installed for Qoka''s built-in run environment.' + #13#10 + #13#10 +
     'To finish:' + #13#10 +
     '1. Restart your PC now.' + #13#10 +
-    '2. After restarting, open Qoka - it installs Ubuntu and guides you through the rest automatically.' + #13#10 + #13#10 +
+    '2. After restarting, open Qoka - it completes the setup and prompts you to create an Ubuntu account.' + #13#10 + #13#10 +
     '(This is a one-time step.)',
     mbInformation, MB_OK);
 end;

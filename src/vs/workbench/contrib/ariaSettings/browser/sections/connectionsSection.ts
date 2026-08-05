@@ -34,7 +34,14 @@ const EMPTY_DRAFT: Draft = { name: '', host: '', port: '22', username: '', passw
 // without the run environment" during first-run setup) the row should say so. This
 // only appears in the not-ready states: once WSL + Ubuntu are installed and the
 // server is 'ready', the row reads "Connected", never this.
-const WSL_NEEDED_TEXT = 'WSL and Ubuntu must be installed to use the built-in server - click to set up';
+const WSL_NEEDED_TEXT = 'WSL and Ubuntu must be installed to use the built-in server. See qoka.org for setup instructions.';
+
+/** Did the user press "Continue without the run environment" during setup? A
+ *  skipped user who is now 'stopped' means WSL/Ubuntu was never set up (a ready
+ *  environment would have auto-started), so the row should point them at setup. */
+function wslSetupSkipped(): boolean {
+	try { return localStorage.getItem('aria.autopipe.wslSetupSkipped') === '1'; } catch { return false; }
+}
 
 function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable: boolean | undefined): string {
 	if (!active) { return 'Not in use'; }
@@ -53,8 +60,10 @@ function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable:
 			return isWindows ? WSL_NEEDED_TEXT : 'Not connected - click to restart';
 		default:
 			// 'stopped' is ambiguous - WSL may well be installed, the server just isn't
-			// running - so keep the neutral start prompt rather than claiming WSL is
-			// missing (which would be wrong for an installed-but-stopped environment).
+			// running. But if the user SKIPPED setup, a stopped state means WSL/Ubuntu
+			// was never installed (a ready one would have auto-started), so point them
+			// at setup. Otherwise keep the neutral start prompt.
+			if (isWindows && wslSetupSkipped()) { return WSL_NEEDED_TEXT; }
 			return 'Not running - click to start';
 	}
 }
@@ -136,7 +145,15 @@ export class ConnectionsSection extends SettingsSection {
 			const active = activeId === LOCAL_VM_ID;
 			const { row, dot, sub } = this.serverRow('Qoka built-in server', builtinStatusText(active, vm, undefined), active);
 			if (active) { activeDot = dot; activeKind = 'vm'; builtinSub = sub; }
-			row.onclick = () => { void this.commandService.executeCommand(active ? 'aria.autopipe.connection.restart' : 'aria.autopipe.vm.setup').then(() => this.refresh()); };
+			row.onclick = () => {
+				// Clicking the built-in row is an explicit "set it up / use it" intent, so
+				// clear any earlier "continue without" opt-out. Restart only when it's
+				// already running; otherwise run setup (which also clears the opt-out and
+				// activates + starts it).
+				try { localStorage.removeItem('aria.autopipe.wslSetupSkipped'); } catch { /* ignore */ }
+				const ready = active && vm?.status === 'ready';
+				void this.commandService.executeCommand(ready ? 'aria.autopipe.connection.restart' : 'aria.autopipe.vm.setup').then(() => this.refresh());
+			};
 		}
 
 		// Saved SSH servers.

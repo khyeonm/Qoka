@@ -81,6 +81,24 @@ export class VMManager {
 	lastError(): string | undefined { return this._error; }
 	progress(): { message: string; pct?: number } | undefined { return this._progress; }
 
+	/** Windows: is the WSL built-in environment already set up (engine + a registered
+	 *  Ubuntu + a created account)? A quick, INSTALL-FREE probe. Used to decide whether
+	 *  to auto-start for a user who previously skipped setup - we start only when it is
+	 *  already usable, and never install/gate them again. Non-Windows returns false
+	 *  (skip is Windows-only). */
+	async isWslReady(): Promise<boolean> {
+		if (process.platform !== 'win32') { return false; }
+		try {
+			if (!await wslAvailable()) { return false; }
+			const distro = pickDistro(await listDistros());
+			if (!distro) { return false; }
+			const user = await defaultUser(distro);
+			return !!user && user !== 'root';
+		} catch {
+			return false;
+		}
+	}
+
 	private set(status: VmStatus, error?: string): void {
 		this._status = status; this._error = error;
 		this._onDidChange.fire(status);

@@ -540,6 +540,14 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		if (!isWindows) {
 			return;
 		}
+		// The user opted out of the run environment on a previous launch - never gate
+		// them again. (The extension likewise won't auto-install; it only starts when
+		// WSL/Ubuntu is already set up.)
+		try {
+			if (localStorage.getItem('aria.autopipe.wslSetupSkipped') === '1') {
+				return;
+			}
+		} catch { /* storage unavailable - fall through and gate as normal */ }
 		const deadline = Date.now() + 20 * 60 * 1000; // 20 min - matches the overlay cap
 		const graceUntil = Date.now() + 8000;         // let vm.start() begin
 		const escapeAt = Date.now() + 12000;          // offer an escape after a short wait
@@ -567,7 +575,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					setText(msg);
 				}
 				if (!escapeShown && Date.now() >= escapeAt) {
-					showEscape('Continue without the run environment', () => { escaped = true; });
+					showEscape('Continue without the run environment', () => {
+						escaped = true;
+						// Remember the opt-out: skip the gate next launch (here) and tell the
+						// extension to stop auto-installing/gating (globalState + stop the vm).
+						try { localStorage.setItem('aria.autopipe.wslSetupSkipped', '1'); } catch { /* ignore */ }
+						void this.commandService.executeCommand('aria.autopipe.vm.skipSetup');
+					});
 					escapeShown = true;
 				}
 			} else {

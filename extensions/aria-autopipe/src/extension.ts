@@ -43,6 +43,11 @@ let lastRunRegistration: { claude: ClientRegistration; codex: ClientRegistration
 // reload prompt, and it runs outside activate()'s scope.
 let extensionContext: vscode.ExtensionContext | undefined;
 
+// globalState flag: the user pressed "Continue without the run environment" during
+// first-run WSL/Ubuntu setup. While set, we don't auto-install or gate on launch -
+// only auto-start when the environment is already ready. Cleared on explicit setup.
+const WSL_SKIP_KEY = 'aria.autopipe.wslSetupSkipped';
+
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
 	extensionContext = context;
@@ -88,15 +93,37 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Bring the VM up if it's the active target (dev: eager start; production
 	// lazy-start-on-first-pipeline lands in M4). Fire-and-forget.
 	if (config.isLocalVmActive()) {
-		startBuiltinVmTracked(vm);
+		if (process.platform === 'win32' && context.globalState.get<boolean>(WSL_SKIP_KEY)) {
+			// The user previously chose "Continue without the run environment". Don't
+			// gate or install again - only auto-start when WSL/Ubuntu is ALREADY set up
+			// (they may have installed it since), and clear the flag once it is so the
+			// normal experience resumes.
+			void vm.isWslReady().then(ready => {
+				if (ready) {
+					void context.globalState.update(WSL_SKIP_KEY, false);
+					startBuiltinVmTracked(vm);
+				}
+			});
+		} else {
+			startBuiltinVmTracked(vm);
+		}
 	}
 	context.subscriptions.push(
 		vscode.commands.registerCommand('aria.autopipe.vm.setActive', () => config.activateLocalVm()),
 		vscode.commands.registerCommand('aria.autopipe.vm.start', () => vm.start()),
 		vscode.commands.registerCommand('aria.autopipe.vm.stop', () => vm.stop()),
+		// The user pressed "Continue without the run environment": remember it so we
+		// stop auto-installing/gating on every launch. On-demand setup (vm.setup) or an
+		// already-ready environment clears it again.
+		vscode.commands.registerCommand('aria.autopipe.vm.skipSetup', () => {
+			void context.globalState.update(WSL_SKIP_KEY, true);
+			void vm.stop();
+		}),
 		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress() })),
 		// "Set up now": make the built-in VM active and provision+boot it.
 		vscode.commands.registerCommand('aria.autopipe.vm.setup', async () => {
+			// User explicitly asked to set up - undo any earlier "continue without" opt-out.
+			await context.globalState.update(WSL_SKIP_KEY, false);
 			await config.activateLocalVm();
 			// Fire-and-forget: vm.start() blocks up to 3 min waiting for SSH. The
 			// panel polls vm.status() for progress, so don't await it here or the
