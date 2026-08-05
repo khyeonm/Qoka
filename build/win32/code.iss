@@ -113,23 +113,22 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; Install WSL2 (Ubuntu) for Qoka's built-in Run environment. Only offered when
 ; WSL is missing (Check: WslNotInstalled). PrivilegesRequired=lowest means this
 ; installer is NOT elevated, so we self-elevate via PowerShell's Start-Process
-; -Verb RunAs (triggers UAC). A 32-bit installer reaches the real wsl.exe through
-; the Sysnative alias; a 64-bit one falls back to System32.
+; -Verb RunAs (triggers UAC).
 ;
-; We run the install inside a VISIBLE, elevated cmd console (cmd /c "wsl ... &
-; pause") rather than launching wsl.exe directly. Directly (Start-Process wsl.exe
-; -Verb RunAs) the elevated wsl gets a detached console and exits before the
-; --web-download install finishes - the window just flashes and closes, so nothing
-; is installed. Running it in an interactive cmd console reproduces the working
-; manual run: wsl blocks and shows progress, and the trailing `& pause` holds the
-; window ("Press any key to continue") until the install has actually completed, so
-; the user sees it finish before rebooting instead of the reboot cutting it off.
-; --web-download fetches the WSL app from GitHub (the Store path never installs from
-; this context); -d Ubuntu stages the distro; --no-launch skips the OOBE (Qoka does
-; the account + provisioning on first launch).
-; NB: the PowerShell if-body braces MUST be doubled ({{ }}) - Inno Setup treats a
-; single {...} as a constant reference and fails to compile otherwise.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process cmd.exe -ArgumentList '/c',($w+' --install --web-download -d Ubuntu --no-launch & pause') -Verb RunAs -Wait"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
+; This runs the EXACT command verified to work by hand:
+;   Start-Process cmd.exe -ArgumentList '/c','wsl --install --web-download -d Ubuntu --no-launch & pause' -Verb RunAs -Wait
+; Two things make it work where earlier attempts flash-closed with a red error:
+;  1) {sysnative} launches the 64-BIT PowerShell, so the elevated cmd it spawns is
+;     also 64-bit and a bare `wsl` resolves to the real System32 wsl.exe. A 32-bit
+;     PowerShell here computed a `Sysnative\wsl.exe` path that was invalid in the
+;     elevated cmd ("path not found" -> cmd exits before `pause` -> flash close).
+;  2) We pass a bare `wsl` (not a precomputed path) inside an INTERACTIVE cmd
+;     console: wsl blocks and shows progress, and the trailing `& pause` holds the
+;     window until the install actually finishes, so a reboot can't cut it off.
+; --web-download fetches WSL from GitHub (the Store path never installs from this
+; context); -d Ubuntu installs the distro; --no-launch skips the OOBE - Qoka opens
+; Ubuntu for the account + does provisioning on first launch.
+Filename: "{sysnative}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Start-Process cmd.exe -ArgumentList '/c','wsl --install --web-download -d Ubuntu --no-launch & pause' -Verb RunAs -Wait"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
 ; Launch Qoka - only when WSL is already installed. If WSL is missing the user must
 ; reboot and create a Linux account first, so launching now would hit a not-ready
