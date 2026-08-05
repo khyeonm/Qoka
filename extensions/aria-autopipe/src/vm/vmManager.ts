@@ -200,7 +200,9 @@ export class VMManager {
 	 *  and is idempotent, so it converges on repeated launches. */
 	private async startWsl(progress: ProgressFn): Promise<void> {
 		if (!await wslAvailable()) {
-			throw new Error('WSL is not installed. Reinstall Qoka (which installs WSL) or run "wsl --install" in an admin terminal, then reboot.');
+			// The installer enables the WSL engine but it only activates after a reboot,
+			// so "not available" here almost always means "installed, needs a restart".
+			throw new Error('WSL is not ready yet. If you just installed Qoka, restart your PC to finish enabling WSL, then reopen Qoka. (To install WSL manually: run "wsl --install" in an admin terminal, then reboot.)');
 		}
 
 		let distro = pickDistro(await listDistros());

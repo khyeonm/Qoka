@@ -69,6 +69,18 @@ const MIN_DURATION_AFTER_FIRST_TRACK_MS = 5000;
  */
 const MAX_DURATION_AFTER_FIRST_TRACK_MS = 60000;
 
+/**
+ * Much longer cap that applies only while the Windows WSL/Ubuntu setup tracker
+ * (`aria-wsl-setup`, opened by aria-autopipe) is still in flight. Installing
+ * Ubuntu, waiting for the user to create their account in the Ubuntu window, and
+ * provisioning (docker + openssh + tools) can legitimately take several minutes -
+ * far past the normal MCP-registration cap. Keeping the overlay up that long is
+ * the whole point (don't reveal a half-ready workbench), and this ceiling doubles
+ * as the escape hatch: if setup never completes, the overlay still clears here so
+ * the user is never trapped on the loading screen.
+ */
+const WSL_SETUP_MAX_DURATION_MS = 20 * 60 * 1000; // 20 minutes
+
 /** localStorage key for summaries that completed while the Started
  *  overlay was up. Setup runs in the background during Started, but
  *  the workbench-hide stylesheet that locks the screen also hides the
@@ -350,8 +362,13 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// MAX_DURATION_AFTER_FIRST_TRACK_MS, dispatch what we have so a
 		// buggy extension that begins but never completes can't strand
 		// the user on the loading screen.
+		// While the WSL/Ubuntu setup tracker is open, hold the overlay far longer -
+		// that setup is minutes-long and user-interactive, unlike MCP registration.
+		const cap = this.tracking.has('aria-wsl-setup')
+			? WSL_SETUP_MAX_DURATION_MS
+			: MAX_DURATION_AFTER_FIRST_TRACK_MS;
 		const expired = this.firstTrackAt !== undefined
-			&& (Date.now() - this.firstTrackAt) >= MAX_DURATION_AFTER_FIRST_TRACK_MS;
+			&& (Date.now() - this.firstTrackAt) >= cap;
 		if (!expired && (this.knownPending.size > 0 || this.tracking.size > 0)) {
 			if (this.settleTimer) {
 				clearTimeout(this.settleTimer);

@@ -116,18 +116,16 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; -Verb RunAs (triggers UAC). A 32-bit installer reaches the real wsl.exe through
 ; the Sysnative alias; a 64-bit one falls back to System32.
 ;
-; We pass --no-launch on purpose. `wsl --install -d Ubuntu` (without it) tries to
-; run the distro's first-run OOBE ("Create a default Unix user account") DURING
-; install, but that OOBE needs a genuine interactive terminal. The console
-; Start-Process/-Verb RunAs gives it is not one, so wsl aborts the OOBE and the
-; whole install rolls back - the distro never registers (`wsl -l -v` empty), which
-; is exactly what we saw in testing. With --no-launch, wsl only downloads +
-; registers the distro (no OOBE), which works fine non-interactively and CAN be
-; -Wait'ed. The user then creates the account by opening Ubuntu from the Start menu
-; afterwards (after a reboot if wsl asked for one) - the guidance MsgBox says so.
+; Install the WSL ENGINE ONLY (--no-distribution): enabling the Windows feature
+; needs admin + a reboot, which only the installer can do. The Ubuntu distro, its
+; account, and provisioning are all done by Qoka on first launch (per-user, no
+; admin) - so we deliberately do NOT install a distro here. `wsl --install
+; -d Ubuntu` from this non-interactive elevated console also aborted the distro's
+; OOBE and rolled the install back in testing; keeping the distro out of the
+; installer avoids that entirely.
 ; NB: the PowerShell if-body braces MUST be doubled ({{ }}) - Inno Setup treats a
 ; single {...} as a constant reference and fails to compile otherwise.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','-d','Ubuntu','--no-launch' -Verb RunAs -Wait"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$w=$env:windir+'\Sysnative\wsl.exe'; if(-not(Test-Path $w)){{$w=$env:windir+'\System32\wsl.exe'}}; Start-Process -FilePath $w -ArgumentList '--install','--no-distribution' -Verb RunAs -Wait"""; Description: "Install WSL for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
 ; Launch Qoka - only when WSL is already installed. If WSL is missing the user must
 ; reboot and create a Linux account first, so launching now would hit a not-ready
@@ -1324,78 +1322,58 @@ Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\
 Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#ApplicationName}.exe"; ValueType: none; ValueName: "Path"; Flags: deletevalue
 
 [Code]
-// Qoka's built-in Run environment uses WSL2 (Ubuntu) on Windows. Offer to install
-// it on the finish page unless a real Ubuntu distro is already present. `wsl.exe`
-// lives in the real System32; a 32-bit installer sees it through the SysWOW64
-// redirector, so disable redirection before probing.
+// Qoka's built-in Run environment uses WSL2 (Ubuntu) on Windows. The installer's
+// only job here is the WSL ENGINE: enabling it needs admin rights + a reboot, which
+// only the installer can do. The Ubuntu distro, its account and provisioning are all
+// handled by Qoka itself on first launch (per-user, no admin, no reboot) - so the
+// finish-page item installs the engine ONLY (`wsl --install --no-distribution`).
 //
-// "Present" is checked in two steps, WITHOUT booting a distro:
-//   1. `wsl --status` exits 0        -> the WSL engine responds.
-//   2. `wsl --list --quiet` lists a  -> a real Ubuntu distro is registered.
-//      distro whose name starts Ubuntu
-// A half-removed / leftover WSL (the "engine shell" case) passes step 1 but has an
-// EMPTY distro list, so step 2 catches it and we still offer the install. We use
-// PowerShell for step 2 so we can force UTF-8 output (WSL_UTF8) and strip stray
-// characters - wsl.exe otherwise prints UTF-16, which is painful to parse in Inno.
-// We deliberately do NOT verify that Ubuntu actually boots (no `wsl -d Ubuntu ...`
-// probe): a registered-but-corrupted Ubuntu is a rare edge left to the runtime.
-function WslUsable(): Boolean;
+// So detection here is just "is the WSL engine present?" via `wsl --status` (exit 0).
+// `wsl.exe` lives in the real System32; a 32-bit installer sees it through the
+// SysWOW64 redirector, so disable redirection before probing. We do NOT check for a
+// distro (Qoka installs Ubuntu). Returns True when the engine is MISSING.
+function WslEngineMissing(): Boolean;
 var
   ResultCode: Integer;
   OldRedir: Boolean;
-  PsArgs: String;
 begin
-  Result := False;
   OldRedir := EnableFsRedirection(False);
   try
-    // 1) Engine responds at all (does not spin up the lightweight VM).
     if not Exec(ExpandConstant('{sys}\wsl.exe'), '--status', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-      Exit;
-    if ResultCode <> 0 then
-      Exit;
-    // 2) A real Ubuntu distro is registered (engine can enumerate + Ubuntu present).
-    //    Registration only, no boot. Exit 0 => an Ubuntu-family distro is listed.
-    PsArgs := '-NoProfile -ExecutionPolicy Bypass -Command "$env:WSL_UTF8=''1''; $m = (wsl.exe --list --quiet 2>$null) | ForEach-Object { $_ -replace ''\W'','''' } | Where-Object { $_ -imatch ''^Ubuntu'' }; if ($m) { exit 0 } else { exit 1 }"';
-    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), PsArgs, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-      Exit;
-    Result := ResultCode = 0;
+      Result := True
+    else
+      Result := ResultCode <> 0;
   finally
     EnableFsRedirection(OldRedir);
   end;
 end;
 
-// Returns True when a usable Ubuntu is NOT present (so the finish-page install item
-// + its elevated install command only show then). True for the leftover-shell case
-// too, so a half-removed WSL is offered a fresh install rather than silently skipped.
+// Kept for compatibility with the [Run] Check clauses. "WSL not installed" == the
+// engine is missing (the only thing the installer installs).
 function WslNotInstalled(): Boolean;
 begin
-  Result := not WslUsable();
+  Result := WslEngineMissing();
 end;
 
-// The general "Launch Qoka" finish-page item shows ONLY when WSL is present: with
-// WSL missing the user must reboot and create a Linux account first, so launching
-// now would just hit a not-ready built-in server. (WslNotInstalled probes the
-// engine + an Ubuntu registration; the finish page evaluates it a couple of times,
-// which is fine - neither probe boots a distro.)
+// The general "Launch Qoka" finish-page item shows ONLY when the engine is already
+// present: then no reboot is needed and Qoka installs Ubuntu on launch. When the
+// engine is missing, the user must reboot first, so we offer "Install WSL" instead.
 function WslInstalledAndNotSilent(): Boolean;
 begin
-  Result := (not WslNotInstalled()) and (not WizardSilent());
+  Result := (not WslEngineMissing()) and (not WizardSilent());
 end;
 
-// Modal guidance shown after the (--no-launch) install finishes: the distro is
-// downloaded and registered, but has NO account yet, so the user must open Ubuntu
-// once to create it. MB_OK is modal, so it stays until the user clicks OK. Covers
-// both the reboot-needed (WSL was absent) and no-reboot (engine already present)
-// cases with the same "restart if asked, then open Ubuntu" steps.
+// Modal guidance shown after the engine install finishes. The engine was just
+// enabled, so a reboot is required to activate it; after rebooting, Qoka installs
+// Ubuntu and guides the account creation. MB_OK is modal, so it stays until OK.
 procedure WslPostInstallMsg();
 begin
   MsgBox(
-    'WSL (Ubuntu) has been installed for Qoka''s built-in run environment.' + #13#10 + #13#10 +
-    'One quick step is left - create your Ubuntu account:' + #13#10 +
-    '1. If Windows asked you to restart your PC, restart first.' + #13#10 +
-    '2. Open "Ubuntu" from the Start menu (search for "Ubuntu").' + #13#10 +
-    '3. When it opens, type a username and password to finish the setup.' + #13#10 + #13#10 +
-    'Then open Qoka - the rest is set up automatically. (This is a one-time step.)',
+    'The WSL engine has been installed for Qoka''s built-in run environment.' + #13#10 + #13#10 +
+    'To finish:' + #13#10 +
+    '1. Restart your PC now.' + #13#10 +
+    '2. After restarting, open Qoka - it installs Ubuntu and guides you through the rest automatically.' + #13#10 + #13#10 +
+    '(This is a one-time step.)',
     mbInformation, MB_OK);
 end;
 

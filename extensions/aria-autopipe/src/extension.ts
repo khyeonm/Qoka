@@ -88,7 +88,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Bring the VM up if it's the active target (dev: eager start; production
 	// lazy-start-on-first-pipeline lands in M4). Fire-and-forget.
 	if (config.isLocalVmActive()) {
-		void vm.start().catch(err => console.error('[aria-autopipe] built-in VM start failed:', err));
+		startBuiltinVmTracked(vm);
 	}
 	context.subscriptions.push(
 		vscode.commands.registerCommand('aria.autopipe.vm.setActive', () => config.activateLocalVm()),
@@ -383,6 +383,41 @@ export function activate(context: vscode.ExtensionContext): void {
 			}
 		}),
 	);
+}
+
+/**
+ * Start the built-in run environment and, on Windows, hold the first-run
+ * "Setting up Qoka" overlay while it sets up - so the WSL/Ubuntu install +
+ * account creation + provisioning run alongside the CLI/MCP setup instead of
+ * behind a half-ready workbench. We announce ourselves as a startup tracker
+ * (aria.startup.beginTracking), stream vm progress into the overlay subtitle,
+ * and markComplete once the environment is ready (or setup ends), which lets the
+ * overlay clear. Windows-only: Mac/Linux use vfkit/QEMU with no account step, so
+ * they keep the plain fire-and-forget start.
+ */
+function startBuiltinVmTracked(vm: VMManager): void {
+	if (process.platform !== 'win32') {
+		void vm.start().catch(err => console.error('[aria-autopipe] built-in VM start failed:', err));
+		return;
+	}
+	const TRACKER = 'aria-wsl-setup';
+	void vscode.commands.executeCommand('aria.startup.beginTracking', TRACKER);
+	const progSub = vm.onProgress(p => {
+		if (p?.message) {
+			void vscode.commands.executeCommand('aria.firstRun.updateOverlay', p.message);
+		}
+	});
+	void vm.start()
+		.then(
+			() => vscode.commands.executeCommand('aria.startup.markComplete', TRACKER, 'Run environment ready', true),
+			err => {
+				console.error('[aria-autopipe] built-in VM start failed:', err);
+				// markComplete even on failure so the overlay never hangs; the error
+				// surfaces in the connections panel and the user can retry "Set up now".
+				return vscode.commands.executeCommand('aria.startup.markComplete', TRACKER, '', false);
+			},
+		)
+		.finally(() => progSub.dispose());
 }
 
 /**

@@ -14,6 +14,7 @@ import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/w
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { timeout } from '../../../../base/common/async.js';
+import { isWindows } from '../../../../base/common/platform.js';
 import { revealAiProviderChat } from './aiProviderChat.js';
 import { whenAriaSetupReady } from './ariaSetupReady.js';
 import { ConcreteProvider, hasPickedAiProvider, takePendingInstall, PROVIDER_EXTENSION_ID, PROVIDER_LABEL } from './ariaAiProviderChoice.js';
@@ -91,7 +92,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 
 		// Cover the window IMMEDIATELY (synchronously, at window load) so the bare
 		// workbench never flashes, then decide once we can read the live state.
-		const hideLoading = this._showLoadingOverlay('Preparing Qoka…');
+		const { hide: hideLoading, setText: setLoadingText, showEscape: showLoadingEscape } = this._showLoadingOverlay('Preparing Qoka…');
 		// Drain the stale one-shot; the decision below is made from LIVE state.
 		takePendingInstall();
 		void (async () => {
@@ -139,6 +140,12 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			// was skipped (a straggler that hadn't bound). Otherwise the old aria-*
 			// entries linger beside the new qoka-* ones and every tool shows twice.
 			try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+			// On Windows, ALSO hold the loader until the built-in run environment (WSL +
+			// Ubuntu) is set up: installing Ubuntu, creating the account in the Ubuntu
+			// window, and provisioning happen here, driven by aria-autopipe. Without this
+			// the workbench would appear mid-setup with a red "starting" connection. We
+			// poll the vm status and stream its progress into the loader text.
+			await this._waitForBuiltinRunEnv(setLoadingText, showLoadingEscape);
 			this._setupGateDone = true;
 			hideLoading();
 
@@ -334,7 +341,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	private async _installProviderInteractive(provider: unknown): Promise<void> {
 		const p: ConcreteProvider | undefined = provider === 'claude' || provider === 'codex' ? provider : undefined;
 		if (!p) { return; }
-		const hideLoading = this._showLoadingOverlay(`Setting up ${PROVIDER_LABEL[p]}…`);
+		const { hide: hideLoading } = this._showLoadingOverlay(`Setting up ${PROVIDER_LABEL[p]}…`);
 		try {
 			// aria-skills owns installProviderCli; make sure it's active first.
 			try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
@@ -452,7 +459,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 
 	/** Full-viewport loading page shown while the Extensions install view opens
 	 *  and loads. Returns a function that fades it out and removes it. */
-	private _showLoadingOverlay(title: string): () => void {
+	private _showLoadingOverlay(title: string): { hide: () => void; setText: (s: string) => void; showEscape: (label: string, onClick: () => void) => void } {
 		const overlay = document.createElement('div');
 		overlay.id = 'aria-install-loading-overlay';
 		Object.assign(overlay.style, {
@@ -488,13 +495,91 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		Object.assign(text.style, { fontSize: '14px', opacity: '0.9' });
 		overlay.appendChild(text);
 
+		// Optional escape button, hidden until showEscape() reveals it (used only by
+		// the Windows built-in-run-env wait, which can be long). It MUST be marked
+		// no-drag: the overlay itself is an -webkit-app-region: drag surface (so the
+		// title bar stays draggable while it covers the window), and a child inside a
+		// drag region does not receive clicks unless it opts out.
+		const escapeBtn = document.createElement('button');
+		Object.assign(escapeBtn.style, {
+			display: 'none', marginTop: '6px', padding: '6px 14px',
+			fontSize: '12px', color: '#fff', cursor: 'pointer',
+			background: 'transparent', border: '1px solid rgba(255, 255, 255, 0.35)',
+			borderRadius: '6px', fontFamily: 'inherit',
+		});
+		(escapeBtn.style as unknown as Record<string, string>).webkitAppRegion = 'no-drag';
+		overlay.appendChild(escapeBtn);
+
 		document.body.appendChild(overlay);
 		requestAnimationFrame(() => { overlay.style.opacity = '1'; });
 
-		return () => {
-			overlay.style.opacity = '0';
-			setTimeout(() => overlay.remove(), 200);
+		return {
+			hide: () => {
+				overlay.style.opacity = '0';
+				setTimeout(() => overlay.remove(), 200);
+			},
+			setText: (s: string) => { if (s) { text.textContent = s; } },
+			showEscape: (label: string, onClick: () => void) => {
+				escapeBtn.textContent = label;
+				escapeBtn.onclick = onClick;
+				escapeBtn.style.display = 'block';
+			},
 		};
+	}
+
+	/**
+	 * Windows only: hold the loader until the built-in run environment (WSL + Ubuntu)
+	 * finishes setting up. aria-autopipe's vm status moves provisioning -> booting ->
+	 * ready (or error); we wait while it is still setting up and stream its progress
+	 * message ("Installing Ubuntu…", "Create your Ubuntu username…", …) into the
+	 * loader text. A generous cap matches the overlay's WSL ceiling so a stuck setup
+	 * can never trap the user. A short initial grace lets vm.start() (fired at
+	 * activation) move off 'stopped' before we decide the built-in target is idle.
+	 */
+	private async _waitForBuiltinRunEnv(setText: (s: string) => void, showEscape: (label: string, onClick: () => void) => void): Promise<void> {
+		if (!isWindows) {
+			return;
+		}
+		const deadline = Date.now() + 20 * 60 * 1000; // 20 min - matches the overlay cap
+		const graceUntil = Date.now() + 8000;         // let vm.start() begin
+		const escapeAt = Date.now() + 12000;          // offer an escape after a short wait
+		let seenActive = false;
+		let escaped = false;
+		let escapeShown = false;
+		while (Date.now() < deadline) {
+			if (escaped) {
+				// User chose to continue without the run environment. Leave setup running
+				// in the background (the connections panel reflects its progress) and let
+				// the loader clear so the workbench is usable now.
+				return;
+			}
+			let st: { status?: string; progress?: { message?: string } } | undefined;
+			try {
+				st = await this.commandService.executeCommand('aria.autopipe.vm.status');
+			} catch {
+				return; // command missing / extension not up - never block on it
+			}
+			const s = st?.status;
+			if (s === 'provisioning' || s === 'booting') {
+				seenActive = true;
+				const msg = st?.progress?.message;
+				if (msg) {
+					setText(msg);
+				}
+				if (!escapeShown && Date.now() >= escapeAt) {
+					showEscape('Continue without the run environment', () => { escaped = true; });
+					escapeShown = true;
+				}
+			} else {
+				// ready | error | stopped | unknown. Stop - unless we're still in the
+				// initial grace and haven't seen setup begin (the built-in start is
+				// async, so 'stopped' here may just mean "not started yet").
+				if (seenActive || Date.now() >= graceUntil) {
+					return;
+				}
+			}
+			await timeout(1500);
+		}
 	}
 
 	/** Reveal the provider chat as soon as one of `providers` becomes installed

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { $, append, clearNode } from '../../../../../base/browser/dom.js';
-import { isLinux } from '../../../../../base/common/platform.js';
+import { isLinux, isWindows } from '../../../../../base/common/platform.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { SettingsSection } from './settingsSection.js';
 
@@ -29,10 +29,18 @@ const EMPTY_DRAFT: Draft = { name: '', host: '', port: '22', username: '', passw
  * `reachable` is undefined until the background probe answers, so the row shows
  * the lifecycle state first and firms up to connected / not connected after.
  */
+// On Windows the built-in server IS a WSL2 Ubuntu distro, so when it isn't set up
+// yet (error, or stopped without ever coming up - e.g. the user pressed "Continue
+// without the run environment" during first-run setup) the row should say so. This
+// only appears in the not-ready states: once WSL + Ubuntu are installed and the
+// server is 'ready', the row reads "Connected", never this.
+const WSL_NEEDED_TEXT = 'WSL and Ubuntu must be installed to use the built-in server - click to set up';
+
 function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable: boolean | undefined): string {
 	if (!active) { return 'Not in use'; }
 	switch (vm?.status ?? 'stopped') {
 		case 'provisioning':
+			if (isWindows) { return 'Setting up WSL and Ubuntu…'; }
 			return vm?.progress?.pct != null ? `Setting up, ${vm.progress.pct}%…` : 'Setting up…';
 		case 'booting':
 			return 'Starting…';
@@ -40,8 +48,13 @@ function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable:
 			if (reachable === undefined) { return 'Checking connection…'; }
 			return reachable ? 'Connected - running on this computer' : 'Not connected - click to restart';
 		case 'error':
-			return 'Not connected - click to restart';
+			// On Windows a start error almost always means WSL/Ubuntu isn't set up yet
+			// (wslAvailable() failed, or the Ubuntu install/account step didn't finish).
+			return isWindows ? WSL_NEEDED_TEXT : 'Not connected - click to restart';
 		default:
+			// 'stopped' is ambiguous - WSL may well be installed, the server just isn't
+			// running - so keep the neutral start prompt rather than claiming WSL is
+			// missing (which would be wrong for an installed-but-stopped environment).
 			return 'Not running - click to start';
 	}
 }
@@ -171,11 +184,15 @@ export class ConnectionsSection extends SettingsSection {
 			const subEl = builtinSub;
 			this.commandService.executeCommand<Probe>('aria.autopipe.connection.probe').then(probe => {
 				if (!dotEl.isConnected) { return; }
+				// While the built-in server is still setting up (provisioning/booting),
+				// keep the dot NEUTRAL rather than red - it isn't a failure, it's mid-
+				// setup (this is the "red while starting" the settings row used to show).
+				const settingUp = kind === 'vm' && (vm?.status === 'provisioning' || vm?.status === 'booting');
 				const reachable = kind === 'vm' ? !!probe?.connected : (probe?.kind === 'ssh' && !!probe?.connected);
-				this.paintDot(dotEl, true, reachable);
+				this.paintDot(dotEl, true, settingUp ? undefined : reachable);
 				// "built-in" said nothing about whether it works. Now that the probe
 				// has answered, say plainly whether it is connected.
-				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, reachable); }
+				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, settingUp ? undefined : reachable); }
 			}, () => { /* offline: leave the dot and text in their pending state */ });
 		}
 	}
