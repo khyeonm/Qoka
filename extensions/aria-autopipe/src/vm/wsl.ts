@@ -94,8 +94,11 @@ export function pickDistro(distros: string[]): string | undefined {
  *  registers it without the interactive account OOBE (the caller opens Ubuntu for
  *  that). Slow: downloads a few hundred MB, hence the provisioning-length timeout. */
 export async function installUbuntuDistro(): Promise<void> {
+	// --web-download: fetch from GitHub, not the Microsoft Store. The Store path is
+	// unreliable on some machines (the same reason the installer uses --web-download
+	// for the engine), so the distro download goes the same route for consistency.
 	await execFileAsync(
-		wslExePath(), ['--install', '-d', 'Ubuntu', '--no-launch'],
+		wslExePath(), ['--install', '--web-download', '-d', 'Ubuntu', '--no-launch'],
 		{ windowsHide: true, env: WSL_ENV, timeout: PROVISION_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 },
 	);
 }
