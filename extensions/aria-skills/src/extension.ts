@@ -83,8 +83,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Put Qoka's Node + ~/.local/bin on the shared extension-host PATH so every
 	// extension (autopipe, paper, …) can run the codex CLI - an npm script that
-	// needs `node` - even when the machine has no system Node.
-	ensureQokaBinsOnPath();
+	// needs `node` - even when the machine has no system Node. The open workspace
+	// keys Codex's PER-WINDOW config home so multiple windows don't share one MCP
+	// registration or leak chat history.
+	ensureQokaBinsOnPath(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 
 	// Touch ~/.env on startup so "Open ~/.env" always opens something.
 	ensureEnvFile();

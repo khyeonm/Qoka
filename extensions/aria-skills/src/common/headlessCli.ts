@@ -21,6 +21,7 @@
 
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -50,13 +51,56 @@ export const QOKA_BIN_DIR = path.join(QOKA_HOME, 'bin');
 export const QOKA_CODEX_HOME = path.join(QOKA_HOME, 'codex');
 export const QOKA_CLAUDE_CONFIG_DIR = path.join(QOKA_HOME, 'claude');
 
+/** Per-window Codex home for `workspacePath` = `~/.qoka/codex/ws/<hash>`. Codex has
+ *  NO per-project config scope and keeps its MCP registration + chat sessions in
+ *  CODEX_HOME, so two windows sharing one CODEX_HOME clobber each other's MCP port
+ *  and leak chat history. Each window's extension host has its OWN process.env, and
+ *  the bundled codex the openai.chatgpt extension spawns inherits it, so a per-window
+ *  CODEX_HOME here reaches that window's codex. Shared home when no workspace. */
+export function codexHomeFor(workspacePath: string | undefined): string {
+	if (!workspacePath) { return QOKA_CODEX_HOME; }
+	const key = crypto.createHash('sha256').update(workspacePath).digest('hex').slice(0, 12);
+	return path.join(QOKA_CODEX_HOME, 'ws', key);
+}
+
+/** Point a per-window Codex home's login (auth.json) at the ONE shared login so a
+ *  single sign-in serves every project. Best-effort, cross-platform: symlink where
+ *  allowed, copy on Windows without Developer Mode; promote a window's real login to
+ *  the shared home so other windows pick it up. */
+function linkSharedCodexLogin(codexHome: string): void {
+	const shared = path.join(QOKA_CODEX_HOME, 'auth.json');
+	const link = path.join(codexHome, 'auth.json');
+	try {
+		const st = fs.lstatSync(link);
+		if (!st.isSymbolicLink()) {
+			try { fs.mkdirSync(QOKA_CODEX_HOME, { recursive: true }); fs.copyFileSync(link, shared); } catch { /* best-effort */ }
+			return;
+		}
+		if (fs.readlinkSync(link) === shared) { return; }
+		fs.rmSync(link, { force: true });
+	} catch { /* no login here yet */ }
+	if (!fs.existsSync(shared)) { return; }
+	try { fs.symlinkSync(shared, link); }
+	catch { try { fs.copyFileSync(shared, link); } catch { /* best-effort */ } }
+}
+
+/** Diagnostic: append what CODEX_HOME we set, for which workspace, and when, to
+ *  ~/.qoka/codex-home-set.log. Cross-referenced with where codex actually writes its
+ *  sessions, this tells us conclusively whether the per-window value reaches codex. */
+function logCodexHome(workspacePath: string | undefined, codexHome: string): void {
+	try {
+		fs.appendFileSync(path.join(QOKA_HOME, 'codex-home-set.log'),
+			JSON.stringify({ ts: new Date().toISOString(), pid: process.pid, workspacePath: workspacePath ?? null, codexHome }) + '\n');
+	} catch { /* best-effort */ }
+}
+
 /** Put Qoka's provisioned bins on THIS process's PATH so every extension in the
  *  shared extension host - not just aria-skills - can spawn the provider CLIs and
  *  the Node they need. Codex is an npm script whose `#!/usr/bin/env node` shebang
  *  needs `node`; a non-developer machine often has none, so we prepend Qoka's
  *  portable Node (~/.aria/node/bin) plus ~/.local/bin (where claude/codex land).
  *  Idempotent - safe to call from multiple extensions' activate(). */
-export function ensureQokaBinsOnPath(): void {
+export function ensureQokaBinsOnPath(workspacePath?: string): void {
 	// Self-heal: an earlier build mirrored codex's npm launcher into ~/.qoka/bin,
 	// where its %~dp0 / node_modules resolution breaks so codex never runs (no
 	// login). Remove it before anything resolves a CLI, so discovery falls through
@@ -84,8 +128,19 @@ export function ensureQokaBinsOnPath(): void {
 	// host process, so every extension that spawns the CLI (and the CLI's own
 	// children) inherits them - the login the user does inside Qoka is stored here
 	// and the system login is never read or written.
-	process.env.CODEX_HOME = QOKA_CODEX_HOME;
+	// Codex home is PER-WINDOW (keyed by the open project) so multiple windows don't
+	// share one MCP registration or leak chat history; login is symlinked to the
+	// shared home. Each window's extension host has its own process.env, and codex
+	// inherits it. When no workspace is given, keep an already-set per-window value or
+	// fall back to the shared home. Claude stays on the ONE home (separates by project
+	// itself). Logged so we can confirm the value actually reaches codex.
+	const codexHome = workspacePath ? codexHomeFor(workspacePath) : (process.env.CODEX_HOME || QOKA_CODEX_HOME);
+	if (codexHome !== QOKA_CODEX_HOME) {
+		try { fs.mkdirSync(codexHome, { recursive: true }); linkSharedCodexLogin(codexHome); } catch { /* best-effort */ }
+	}
+	process.env.CODEX_HOME = codexHome;
 	process.env.CLAUDE_CONFIG_DIR = QOKA_CLAUDE_CONFIG_DIR;
+	logCodexHome(workspacePath, codexHome);
 }
 
 /** Directory holding the portable `node`/`npm` binaries, or undefined when Qoka
