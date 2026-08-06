@@ -57,6 +57,40 @@ interface PaperLibraryState {
 	tags: string[];
 }
 
+// --- PDF <-> library cross-linking ------------------------------------------
+// The save-paper-pdf skill names files `<short-title>-<first-author>.pdf`. We link
+// a file to a library entry by comparing that stem against a normalized key built
+// from the entry's title (first words) + first author's last name. Best-effort: an
+// unmatched PDF still shows in the "Downloaded PDFs" section as a standalone file.
+
+function normKey(s: string): string {
+	return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function pdfFileKey(name: string): string {
+	return normKey(name.replace(/\.[^.]*$/, ''));
+}
+
+function libraryEntryKey(p: PaperLibraryEntry): string {
+	const titleWords = p.title.split(/\s+/).filter(Boolean).slice(0, 6).join(' ');
+	const first = (p.authors[0] ?? '').trim();
+	const last = first.split(/\s+/).filter(Boolean).pop() ?? '';
+	return normKey(titleWords) + normKey(last);
+}
+
+function keysMatch(fileKey: string, entryKey: string): boolean {
+	// Guard against trivial matches on very short keys.
+	if (entryKey.length < 8 || fileKey.length < 8) {
+		return false;
+	}
+	return fileKey === entryKey || fileKey.startsWith(entryKey) || entryKey.startsWith(fileKey);
+}
+
+/** A human-readable title for a PDF file with no matching library entry. */
+function prettyPdfName(name: string): string {
+	return name.replace(/\.pdf$/i, '').replace(/[-_]+/g, ' ').trim();
+}
+
 export class AriaPaperSearchView extends ViewPane {
 
 	static readonly ID = 'aria.paperSearch.main';
@@ -73,6 +107,15 @@ export class AriaPaperSearchView extends ViewPane {
 	/** True once the extension command has returned a real state at least
 	 *  once. Used to stop the cold-start activation-race retry loop. */
 	private loadedOnce = false;
+
+	// "Downloaded PDFs" section - the actual PDF files under
+	// <workspace>/.qoka/references/pdfs/ (written by the save-paper-pdf skill),
+	// cross-linked to library entries by the filename convention.
+	private pdfListContainer: HTMLElement | undefined;
+	private pdfStatsEl: HTMLElement | undefined;
+	private pdfFiles: { name: string; uri: URI }[] = [];
+	/** Library entry id -> its downloaded PDF, for the "Open PDF" link on a card. */
+	private pdfByEntryId = new Map<string, URI>();
 
 	constructor(
 		options: IViewPaneOptions,
@@ -118,10 +161,15 @@ export class AriaPaperSearchView extends ViewPane {
 				? URI.joinPath(folder.uri, '.qoka', 'references')
 				: URI.joinPath(await this.pathService.userHome(), '.config', 'aria');
 			const libUri = URI.joinPath(dirUri, 'paper-library.json');
+			const pdfsUri = URI.joinPath(dirUri, 'pdfs');
 			this._register(this.fileService.watch(dirUri));
+			this._register(this.fileService.watch(pdfsUri));
 			this._register(this.fileService.onDidFilesChange(e => {
 				if (e.contains(libUri)) {
 					void this.refresh();
+				} else if (e.affects(pdfsUri)) {
+					// A PDF was added/removed by the save-paper-pdf skill.
+					void this.refreshPdfs();
 				}
 			}));
 		} catch { /* watching is best-effort */ }
@@ -207,6 +255,32 @@ export class AriaPaperSearchView extends ViewPane {
 		list.style.gap = '8px';
 		this.listContainer = list;
 
+		// "Downloaded PDFs" section - a separate collection of the actual PDF files,
+		// distinct from the saved-paper metadata list above.
+		const pdfHeader = append(root, $('div'));
+		pdfHeader.style.display = 'flex';
+		pdfHeader.style.alignItems = 'center';
+		pdfHeader.style.gap = '6px';
+		pdfHeader.style.margin = '18px 0 6px';
+		const pdfTitle = append(pdfHeader, $('div'));
+		pdfTitle.textContent = 'Downloaded PDFs';
+		pdfTitle.style.fontSize = '11px';
+		pdfTitle.style.fontWeight = '700';
+		pdfTitle.style.textTransform = 'uppercase';
+		pdfTitle.style.letterSpacing = '0.05em';
+		pdfTitle.style.opacity = '0.7';
+		pdfTitle.style.flex = '1';
+		const pdfStats = append(pdfHeader, $('div'));
+		pdfStats.style.fontSize = '11px';
+		pdfStats.style.opacity = '0.6';
+		this.pdfStatsEl = pdfStats;
+
+		const pdfList = append(root, $('div'));
+		pdfList.style.display = 'flex';
+		pdfList.style.flexDirection = 'column';
+		pdfList.style.gap = '6px';
+		this.pdfListContainer = pdfList;
+
 		void this.refresh();
 	}
 
@@ -235,6 +309,104 @@ export class AriaPaperSearchView extends ViewPane {
 		}
 		this.syncTagOptions();
 		this.renderList();
+		void this.refreshPdfs();
+	}
+
+	/** The <workspace>/.qoka/references/pdfs directory, or undefined off-disk. */
+	private pdfsDirUri(): URI | undefined {
+		const folder = this.workspaceContextService.getWorkspace().folders[0];
+		if (!folder || folder.uri.scheme !== 'file') {
+			return undefined;
+		}
+		return URI.joinPath(folder.uri, '.qoka', 'references', 'pdfs');
+	}
+
+	/** Scan the PDFs folder, cross-link to library entries, and repaint both the
+	 *  "Downloaded PDFs" section and the paper cards (for their "Open PDF" link). */
+	private async refreshPdfs(): Promise<void> {
+		const dir = this.pdfsDirUri();
+		const files: { name: string; uri: URI }[] = [];
+		if (dir) {
+			try {
+				const stat = await this.fileService.resolve(dir);
+				for (const child of stat.children ?? []) {
+					if (!child.isDirectory && child.name.toLowerCase().endsWith('.pdf')) {
+						files.push({ name: child.name, uri: child.resource });
+					}
+				}
+			} catch { /* folder may not exist yet - no PDFs */ }
+		}
+		files.sort((a, b) => a.name.localeCompare(b.name));
+		this.pdfFiles = files;
+
+		// Cross-link: map each PDF to a library entry (if the filename matches).
+		this.pdfByEntryId = new Map();
+		const fileToEntry = new Map<string, PaperLibraryEntry>();
+		for (const f of files) {
+			const fk = pdfFileKey(f.name);
+			const entry = this.latestState.papers.find(p => keysMatch(fk, libraryEntryKey(p)));
+			if (entry) {
+				this.pdfByEntryId.set(entry.id, f.uri);
+				fileToEntry.set(f.uri.toString(), entry);
+			}
+		}
+
+		this.renderPdfList(fileToEntry);
+		// Repaint cards so linked papers show their "Open PDF" link.
+		this.renderList();
+	}
+
+	private renderPdfList(fileToEntry: Map<string, PaperLibraryEntry>): void {
+		const container = this.pdfListContainer;
+		if (!container) {
+			return;
+		}
+		clearNode(container);
+		if (this.pdfStatsEl) {
+			this.pdfStatsEl.textContent = this.pdfFiles.length ? `${this.pdfFiles.length} PDF(s)` : '';
+		}
+		if (!this.pdfFiles.length) {
+			const empty = append(container, $('div'));
+			empty.textContent = 'No PDFs downloaded yet.';
+			empty.style.fontSize = '11.5px';
+			empty.style.opacity = '0.55';
+			empty.style.padding = '4px 2px';
+			return;
+		}
+		for (const f of this.pdfFiles) {
+			const entry = fileToEntry.get(f.uri.toString());
+			const row = append(container, $('div'));
+			row.style.display = 'flex';
+			row.style.alignItems = 'center';
+			row.style.gap = '8px';
+			row.style.padding = '6px 8px';
+			row.style.borderRadius = '4px';
+			row.style.cursor = 'pointer';
+			row.style.background = 'var(--vscode-editorWidget-background, rgba(127,127,127,0.06))';
+			row.style.border = '1px solid var(--vscode-panel-border, rgba(127,127,127,0.18))';
+
+			const icon = append(row, $('span.codicon.codicon-file')) as HTMLElement;
+			icon.style.opacity = '0.7';
+			icon.style.flexShrink = '0';
+
+			const name = append(row, $('div'));
+			name.textContent = entry ? entry.title : prettyPdfName(f.name);
+			name.style.flex = '1';
+			name.style.minWidth = '0';
+			name.style.overflow = 'hidden';
+			name.style.textOverflow = 'ellipsis';
+			name.style.whiteSpace = 'nowrap';
+			name.style.fontSize = '12px';
+
+			const badge = append(row, $('span'));
+			badge.textContent = entry ? 'in library' : 'PDF only';
+			badge.style.fontSize = '10px';
+			badge.style.opacity = '0.55';
+			badge.style.flexShrink = '0';
+
+			row.title = 'Open PDF';
+			row.onclick = () => { void this.openerService.open(f.uri, { openExternal: true }); };
+		}
 	}
 
 	private syncTagOptions(): void {
@@ -349,6 +521,18 @@ export class AriaPaperSearchView extends ViewPane {
 			}
 			this.renderList();
 		};
+
+		// Cross-link: if a downloaded PDF matches this paper, offer to open it.
+		const pdfUri = this.pdfByEntryId.get(paper.id);
+		if (pdfUri) {
+			const openPdf = append(card, $('a')) as HTMLElement;
+			openPdf.textContent = 'Open PDF';
+			openPdf.style.fontSize = '11px';
+			openPdf.style.color = 'var(--vscode-textLink-foreground)';
+			openPdf.style.cursor = 'pointer';
+			openPdf.style.width = 'fit-content';
+			openPdf.onclick = (e) => { e.stopPropagation(); void this.openerService.open(pdfUri, { openExternal: true }); };
+		}
 
 		// Meta line - Authors et al. · Venue · Year.
 		const meta = append(card, $('div'));
