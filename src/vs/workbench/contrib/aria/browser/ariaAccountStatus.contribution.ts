@@ -179,7 +179,11 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 			ariaLabel: localize('aria.signin.text', "$(account) Sign in"),
 			tooltip: localize('aria.signin.tooltip', "Sign in to Qoka (optional)"),
 			command: SIGN_IN_COMMAND,
-		}, 'aria.signin', StatusbarAlignment.RIGHT, 98);
+			// FRESH id (not 'aria.signin'): an earlier build's 'aria.signin' entry ended
+			// up in the persisted `workbench.statusbar.hidden` set and stayed display:none
+			// (same failure as 'aria.changeProject' -> 'aria.switchProject' below). A new
+			// id is visible by default.
+		}, 'aria.accountSignIn', StatusbarAlignment.RIGHT, 98);
 	}
 
 	private paint(label: string): void {

@@ -16,7 +16,7 @@ import {
 	IViewDescriptor,
 } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { AriaPaperSearchView } from './ariaPaperSearchView.js';
+import { AriaPaperSearchView, AriaDownloadedPdfsView } from './ariaPaperSearchView.js';
 import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 
 const ARIA_PAPER_SEARCH_CONTAINER_ID = 'workbench.view.ariaPaperSearch';
@@ -73,7 +73,7 @@ const viewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewCo
 
 const paperSearchView: IViewDescriptor = {
 	id: AriaPaperSearchView.ID,
-	name: localize2('aria.paperSearch.viewName', "Paper Library"),
+	name: localize2('aria.paperSearch.viewName', "Saved Papers"),
 	containerIcon: paperSearchIcon,
 	ctorDescriptor: new SyncDescriptor(AriaPaperSearchView),
 	canToggleVisibility: false,
@@ -81,7 +81,19 @@ const paperSearchView: IViewDescriptor = {
 	order: 1,
 };
 
-Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([paperSearchView], viewContainer);
+// Second, separate section (like the Analysis tab's Changes / Snapshots): a real
+// collapsible + drag-resizable pane listing the downloaded PDF files.
+const downloadedPdfsView: IViewDescriptor = {
+	id: AriaDownloadedPdfsView.ID,
+	name: localize2('aria.downloadedPdfs.viewName', "Downloaded PDFs"),
+	containerIcon: paperSearchIcon,
+	ctorDescriptor: new SyncDescriptor(AriaDownloadedPdfsView),
+	canToggleVisibility: true,
+	canMoveView: false,
+	order: 2,
+};
+
+Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([paperSearchView, downloadedPdfsView], viewContainer);
 
 // "How to use?" link in the view's title bar (right of the "PAPER LIBRARY" title).
 registerAriaTabHelpTitleAction(AriaPaperSearchView.ID, 'paper-library');

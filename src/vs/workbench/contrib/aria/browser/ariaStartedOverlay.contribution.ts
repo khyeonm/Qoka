@@ -1158,7 +1158,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		parent.appendChild(title);
 
 		const sub = document.createElement('p');
-		sub.textContent = 'When you sign in, Qoka remembers your preferences and research across all projects to help you better. Signing in is optional, you can do it later in Settings.';
+		sub.textContent = 'When you sign in, Qoka remembers your preferences and research across all projects to help you better. You can do it later in Settings.';
 		sub.style.fontSize = '14px';
 		sub.style.opacity = '0.7';
 		sub.style.margin = '0 0 28px 0';
