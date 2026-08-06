@@ -95,6 +95,15 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 		envVars: [],
 	},
 	{
+		name: 'save-paper-pdf',
+		bundledPath: 'skills/save-paper-pdf',
+		category: 'Literature',
+		description: "Download a paper's full-text PDF into the project's saved/ folder, or report that it can't be downloaded.",
+		// Qoka-native skill (not K-Dense). No keys required - it reuses paper-lookup's
+		// open-access routes and the user's own institutional access.
+		envVars: [],
+	},
+	{
 		name: 'scanpy',
 		bundledPath: 'skills/scanpy',
 		category: 'Single-cell',
