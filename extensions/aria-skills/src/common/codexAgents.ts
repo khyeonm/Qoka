@@ -24,9 +24,7 @@ import { QOKA_CODEX_HOME } from './headlessCli';
 
 // Isolated: Codex reads its global AGENTS.md from CODEX_HOME, which Qoka points
 // at ~/.qoka/codex - so write there, not the user's system ~/.codex.
-/** Path to the ACTIVE Codex AGENTS.md - per-window via CODEX_HOME (set by
- *  aria-skills' ensureQokaBinsOnPath), so each open project carries Qoka's rules. */
-function codexAgentsPath(): string { return path.join(process.env.CODEX_HOME || QOKA_CODEX_HOME, 'AGENTS.md'); }
+const CODEX_AGENTS_PATH = path.join(QOKA_CODEX_HOME, 'AGENTS.md');
 const BEGIN_MARKER = '<!-- QOKA:BEGIN - managed by Qoka; edits inside this block are overwritten -->';
 const END_MARKER = '<!-- QOKA:END -->';
 
@@ -104,7 +102,7 @@ export function ensureCodexAgentsMd(): void {
 	try {
 		let existing = '';
 		try {
-			existing = fs.readFileSync(codexAgentsPath(), 'utf8');
+			existing = fs.readFileSync(CODEX_AGENTS_PATH, 'utf8');
 		} catch {
 			// No file yet - we'll create one containing just our block.
 		}
@@ -125,10 +123,10 @@ export function ensureCodexAgentsMd(): void {
 		if (next === existing) {
 			return;
 		}
-		fs.mkdirSync(path.dirname(codexAgentsPath()), { recursive: true });
-		const tmp = `${codexAgentsPath()}.tmp`;
+		fs.mkdirSync(path.dirname(CODEX_AGENTS_PATH), { recursive: true });
+		const tmp = `${CODEX_AGENTS_PATH}.tmp`;
 		fs.writeFileSync(tmp, next);
-		fs.renameSync(tmp, codexAgentsPath());
+		fs.renameSync(tmp, CODEX_AGENTS_PATH);
 		console.log('[aria-skills] refreshed Qoka rules in ~/.codex/AGENTS.md');
 	} catch (e) {
 		console.warn(`[aria-skills] could not update ~/.codex/AGENTS.md: ${(e as Error).message}`);
