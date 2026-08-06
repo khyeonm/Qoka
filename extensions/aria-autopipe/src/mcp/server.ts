@@ -5,9 +5,6 @@
 
 import * as http from 'http';
 import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import { URL } from 'url';
 import { ToolDefinition } from './tools';
 import { isJsonRpcRequest, jsonRpcSuccess, jsonRpcError, JsonRpcErrorCodes, JsonRpcRequest } from './jsonrpc';
@@ -328,18 +325,6 @@ export class QokaMcpServer {
 	private async invoke(req: JsonRpcRequest): Promise<unknown> {
 		switch (req.method) {
 			case 'initialize': {
-				// DIAGNOSTIC (temporary): record the client's initialize params - its
-				// `capabilities` (which is where a `roots` capability would appear) and
-				// `clientInfo` - to ~/.qoka/mcp-client-init.log. This tells us whether
-				// Codex advertises MCP `roots` (its workspace), which a single shared
-				// server would need to route run_code to the right window in multi-window.
-				// Best-effort: never blocks or fails the handshake.
-				try {
-					const dir = path.join(os.homedir(), '.qoka');
-					fs.mkdirSync(dir, { recursive: true });
-					fs.appendFileSync(path.join(dir, 'mcp-client-init.log'),
-						JSON.stringify({ ts: new Date().toISOString(), server: this.opts.name, params: req.params }) + '\n');
-				} catch { /* best-effort diagnostic */ }
 				// Echo the client's requested protocol version if it is one
 				// we support. Claude Code sends 2024-11-05 over HTTP+SSE;
 				// Codex sends 2025-03-26 over Streamable HTTP. We speak
