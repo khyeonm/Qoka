@@ -13,6 +13,9 @@ interface ConnectionsStatus { sshProfiles?: SshProfile[]; sshActiveProfileId?: s
 interface Probe { kind?: string; connected?: boolean }
 /** Lifecycle of the built-in server, from `aria.autopipe.vm.status`. */
 interface VmStatus { status?: string; progress?: { message?: string; pct?: number } }
+/** From `aria.autopipe.vm.wslProbe`: whether the WSL engine and an Ubuntu distro are
+ *  actually installed, so a not-connected row can say "install" vs "not connected". */
+interface WslProbe { wsl?: boolean; ubuntu?: boolean }
 
 const LOCAL_VM_ID = '__local_vm__';
 
@@ -47,7 +50,17 @@ function wslSetupSkipped(): boolean {
 	try { return localStorage.getItem('aria.autopipe.wslSetupSkipped') === '1'; } catch { return false; }
 }
 
-function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable: boolean | undefined): string {
+/** The not-connected message on Windows, split by what is actually installed. The
+ *  dot stays red for all of these (only the wording changes): the user needs to know
+ *  whether to INSTALL something or just RECONNECT. `undefined` = probe still running. */
+function wslNeededText(wsl: WslProbe | undefined): string {
+	if (!wsl) { return 'Not connected - checking WSL and Ubuntu…'; }
+	if (!wsl.wsl) { return WSL_NEEDED_TEXT; }
+	if (!wsl.ubuntu) { return 'WSL is installed, but Ubuntu isn\'t. Install Ubuntu to use Local (WSL). See qoka.org for setup instructions.'; }
+	return 'WSL and Ubuntu are installed but not connected. Click to restart.';
+}
+
+function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable: boolean | undefined, wsl?: WslProbe): string {
 	if (!active) { return 'Not in use'; }
 	switch (vm?.status ?? 'stopped') {
 		case 'provisioning':
@@ -59,15 +72,14 @@ function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable:
 			if (reachable === undefined) { return 'Checking connection…'; }
 			return reachable ? 'Connected - running on this computer' : 'Not connected - click to restart';
 		case 'error':
-			// On Windows a start error almost always means WSL/Ubuntu isn't set up yet
-			// (wslAvailable() failed, or the Ubuntu install/account step didn't finish).
-			return isWindows ? WSL_NEEDED_TEXT : 'Not connected - click to restart';
+			// A start error may be "WSL/Ubuntu not installed" OR "installed but not
+			// connected" - the wslProbe tells them apart (see wslNeededText).
+			return isWindows ? wslNeededText(wsl) : 'Not connected - click to restart';
 		default:
 			// 'stopped' is ambiguous - WSL may well be installed, the server just isn't
-			// running. But if the user SKIPPED setup, a stopped state means WSL/Ubuntu
-			// was never installed (a ready one would have auto-started), so point them
-			// at setup. Otherwise keep the neutral start prompt.
-			if (isWindows && wslSetupSkipped()) { return WSL_NEEDED_TEXT; }
+			// running. If the user SKIPPED setup, use the install-aware message; otherwise
+			// keep the neutral start prompt.
+			if (isWindows && wslSetupSkipped()) { return wslNeededText(wsl); }
 			return 'Not running - click to start';
 	}
 }
@@ -103,6 +115,9 @@ export class ConnectionsSection extends SettingsSection {
 	private editSubEl: HTMLElement | undefined;
 	private editFormEl: HTMLElement | undefined;
 	private pollTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Cached WSL/Ubuntu install probe, so the not-connected message can distinguish
+	 *  "not installed" from "installed but not connected" (see wslNeededText). */
+	private wslProbe: WslProbe | undefined;
 
 	constructor(body: HTMLElement, commandService: ICommandService, header?: HTMLElement) {
 		super(body, commandService, header);
@@ -151,7 +166,7 @@ export class ConnectionsSection extends SettingsSection {
 		// Built-in server row (hidden on Linux, where SSH is the norm).
 		if (!isLinux) {
 			const active = activeId === LOCAL_VM_ID;
-			const { row, dot, sub } = this.serverRow(BUILTIN_LABEL, builtinStatusText(active, vm, undefined), active);
+			const { row, dot, sub } = this.serverRow(BUILTIN_LABEL, builtinStatusText(active, vm, undefined, this.wslProbe), active);
 			if (active) { activeDot = dot; activeKind = 'vm'; builtinSub = sub; }
 			row.onclick = () => {
 				try { localStorage.removeItem('aria.autopipe.wslSetupSkipped'); } catch { /* ignore */ }
@@ -220,8 +235,24 @@ export class ConnectionsSection extends SettingsSection {
 				this.paintDot(dotEl, true, settingUp ? undefined : reachable);
 				// "built-in" said nothing about whether it works. Now that the probe
 				// has answered, say plainly whether it is connected.
-				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, settingUp ? undefined : reachable); }
+				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, settingUp ? undefined : reachable, this.wslProbe); }
 			}, () => { /* offline: leave the dot and text in their pending state */ });
+		}
+
+		// On Windows, when the built-in server isn't connected, probe whether WSL and
+		// Ubuntu are actually installed so the message can say "install" vs "not
+		// connected". Slow (wsl --status/--list), so done in the background and cached.
+		if (isWindows && builtinSub) {
+			const st = vm?.status ?? 'stopped';
+			const needsProbe = st === 'error' || (st === 'stopped' && wslSetupSkipped());
+			if (needsProbe) {
+				const subEl = builtinSub;
+				const vmSnapshot = vm;
+				this.commandService.executeCommand<WslProbe>('aria.autopipe.vm.wslProbe').then(p => {
+					if (p) { this.wslProbe = p; }
+					if (subEl.isConnected) { subEl.textContent = builtinStatusText(true, vmSnapshot, false, this.wslProbe); }
+				}, () => { /* leave the pending text as-is */ });
+			}
 		}
 
 		// If the built-in server is still setting up, live-update its dot until it's
@@ -255,7 +286,7 @@ export class ConnectionsSection extends SettingsSection {
 			if (vm?.status === 'provisioning' || vm?.status === 'booting') {
 				// Still setting up: neutral dot, live text, check again shortly.
 				this.paintDot(dotEl, true, undefined);
-				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, undefined); }
+				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, undefined, this.wslProbe); }
 				this.pollTimer = setTimeout(() => void tick(), 3000);
 			} else {
 				// Left the transitional state (ready/error/stopped): a full refresh paints

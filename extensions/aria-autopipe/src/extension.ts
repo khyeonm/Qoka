@@ -13,6 +13,7 @@ import { registerWithCodex } from './registration/codexMcp';
 import { ConfigService } from './config/configService';
 import { SshService } from './ssh/sshService';
 import { VMManager } from './vm/vmManager';
+import { wslAvailable, listDistros, pickDistro } from './vm/wsl';
 import { HubApiClient } from './hub/apiClient';
 import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
@@ -120,6 +121,13 @@ export function activate(context: vscode.ExtensionContext): void {
 			void vm.stop();
 		}),
 		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress() })),
+		// Distinguish "WSL/Ubuntu not installed" from "installed but not connected" for
+		// the Connections section. On non-Windows these probes harmlessly return false/[].
+		vscode.commands.registerCommand('aria.autopipe.vm.wslProbe', async () => {
+			const wsl = await wslAvailable();
+			const ubuntu = wsl && pickDistro(await listDistros()) !== undefined;
+			return { wsl, ubuntu };
+		}),
 		// "Set up now": make the built-in VM active and provision+boot it.
 		vscode.commands.registerCommand('aria.autopipe.vm.setup', async () => {
 			// User explicitly asked to set up - undo any earlier "continue without" opt-out.
