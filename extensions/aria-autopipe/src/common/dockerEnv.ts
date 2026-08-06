@@ -19,6 +19,15 @@ import { shellEscape, cleanContent } from './roCrate';
  * WSL form (`/mnt/c/foo/bar`). Conservative: only rewrites paths that
  * really look like a Windows absolute path. Mirrors `windows_to_wsl`.
  */
+/** Human label for the built-in local run target, by platform: WSL on Windows,
+ *  vfkit on Mac, a QEMU VM elsewhere. Used in model-facing result strings so the
+ *  target is named the way the UI shows it (e.g. "Local (WSL)"), not "local VM". */
+export function builtInLabel(): string {
+	return process.platform === 'win32' ? 'Local (WSL)'
+		: process.platform === 'darwin' ? 'Local (vfkit)'
+			: 'Local (VM)';
+}
+
 export function windowsToWsl(path: string): string {
 	if (!path) {
 		return path;

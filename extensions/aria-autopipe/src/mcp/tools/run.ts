@@ -10,7 +10,7 @@ import * as path from 'path';
 import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
 import { resolveRunTarget } from '../../runtime/builtinServer';
-import { windowsToWsl } from '../../common/dockerEnv';
+import { windowsToWsl, builtInLabel } from '../../common/dockerEnv';
 import { workspaceFolderPath, copyRemoteDirToLocal, listLocalFiles, uniqueRunName } from '../../common/workspaceSync';
 import { humanSize } from '../../common/workspaceSync';
 import { openResultsInEditor, describeOpenedResults } from '../../common/openResults';
@@ -143,13 +143,6 @@ function projectSandboxKey(root: string): string {
 	const base = slugify(path.basename(root)) || 'project';
 	const hash = crypto.createHash('sha256').update(root).digest('hex').slice(0, 8);
 	return `${base}-${hash}`;
-}
-
-/** Human label for the built-in run target, by platform. */
-function builtInLabel(): string {
-	return process.platform === 'win32' ? 'Local (WSL)'
-		: process.platform === 'darwin' ? 'Local (vfkit)'
-			: 'Local (VM)';
 }
 
 export const RUN_TOOLS: ToolDefinition[] = [
@@ -479,6 +472,8 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'If the user already made the intent clear (e.g. "just run this quickly"), do NOT ask - run it.',
 	'',
 	'Installing packages/tools - always pick the RIGHT manager, and install the manager itself first if it is missing:',
+	'',
+	'CRITICAL - a MISSING package is NEVER a reason to stop, to refuse, or to tell the user something "is not installed". run_code INSTALLS whatever the code needs, ON DEMAND, before it runs. So when the user asks to run something that needs a package: ADD the package (Python -> list it in `dependencies`; other tools -> install it in the bash script) and RUN IT immediately. Do NOT check first and then refuse, do NOT report "X is not installed" as a blocker, and do NOT ask the user to install anything - the run environment self-installs, that is the entire point of this tool. If a first run reported a package missing, that means you must ADD it and re-run, not give up.',
 	'',
 	'1) PYTHON packages -> ALWAYS uv. Never pip-install into the system Python. run_code already runs Python through uv, so just pass the packages in `dependencies` (e.g. ["scanpy"]) or put a PEP 723 `# /// script` block in the code - they install automatically. So "run this with scanpy" works directly.',
 	'',

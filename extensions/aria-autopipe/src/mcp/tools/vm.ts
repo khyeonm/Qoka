@@ -86,7 +86,7 @@ export const VM_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'get_vm_resources',
-		description: 'Read the local run environment (local VM) resource allocation - memory (MB), CPU cores, disk (GB). Only relevant when the local run environment is the ACTIVE run environment (not an SSH server). Call this to check capacity before running a heavy pipeline, or when a run fails with an out-of-memory error.',
+		description: 'Read the local run environment resource allocation - memory (MB), CPU cores, disk (GB). Only relevant when the local run environment is the ACTIVE run environment (not an SSH server). Call this to check capacity before running a heavy pipeline, or when a run fails with an out-of-memory error.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config } = services();
@@ -104,7 +104,7 @@ export const VM_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'set_vm_resources',
-		description: "Change the local run environment (local VM) memory (memoryMB) and/or CPU cores (cpus). ONLY for the local run environment, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the local run environment restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the local run environment. The local run environment is HARD-CAPPED by this computer's physical RAM/CPU (this tool reports the cap when you hit it). If a run needs MORE than that maximum, do NOT keep bumping memoryMB and do NOT tell the user to use an SSH server - simply tell them the run ran out of memory on the local run environment.",
+		description: "Change the local run environment memory (memoryMB) and/or CPU cores (cpus). ONLY for the local run environment, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the local run environment restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the local run environment. The local run environment is HARD-CAPPED by this computer's physical RAM/CPU (this tool reports the cap when you hit it). If a run needs MORE than that maximum, do NOT keep bumping memoryMB and do NOT tell the user to use an SSH server - simply tell them the run ran out of memory on the local run environment.",
 		inputSchema: {
 			type: 'object',
 			properties: {

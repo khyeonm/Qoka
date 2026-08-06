@@ -6,6 +6,7 @@
 import { ToolDefinition, textResult } from './types';
 import { services } from '../../common/services';
 import { workspacePathsFor } from '../../common/types';
+import { builtInLabel } from '../../common/dockerEnv';
 import { lastKnownReachable } from '../../runtime/builtinServer';
 import {
 	SNAKEFILE_TEMPLATE, DOCKERFILE_TEMPLATE, CONFIG_YAML_TEMPLATE,
@@ -40,7 +41,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				if (config.isLocalVmActive()) {
 					const vm = cfg.local_vm;
 					return textResult([
-						'Run environment: the Qoka local run environment (local VM) is selected, but it is NOT running yet, so there is no reachable endpoint right now.',
+						`Run environment: ${builtInLabel()} is selected, but it is NOT running yet, so there is no reachable endpoint right now.`,
 						'Do NOT ask the user to add an SSH server, and do NOT tell them to press a button - that is not the flow.',
 						'If it is not running, call the start_server tool to start AND verify it (it restarts and re-checks the connection, and on Windows tells you to check WSL/Ubuntu if it keeps failing). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again and retry. If it is already downloading/booting, just wait and retry.',
 						`Configured resources (apply on start): memory ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores ${vm.cpus}, disk ${vm.diskGB} GB.`,
@@ -79,7 +80,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				`SSH: ${profile.username}@${profile.host}:${profile.port}`,
 				`Connection: ${reachable ? 'reachable (checked moments ago)' : 'not verified just now - just run; if it cannot connect the run will say so, and start_server can re-establish it'}`,
 				config.isLocalVmActive()
-					? `Run environment: Qoka local run environment (local VM) - memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`
+					? `Run environment: ${builtInLabel()} - memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`
 					: 'Run environment: user-provided SSH server.',
 				`Repo path: ${paths.repo_path}`,
 				`Pipelines: ${paths.pipelines_dir}`,
