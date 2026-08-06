@@ -222,15 +222,33 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 */
 	private async _registerMcpFast(providers: ConcreteProvider[]): Promise<boolean> {
 		try {
-			const infos = await Promise.all(this._mcpInfoCommands.map(cmd =>
-				Promise.resolve(this.commandService.executeCommand<unknown>(cmd)).then(r => r, () => undefined)));
-			const servers = infos.filter((r): r is { name: string; port: number } =>
-				!!r && typeof r === 'object'
-				&& typeof (r as { name?: unknown }).name === 'string'
-				&& typeof (r as { port?: unknown }).port === 'number');
-			// Only trust the fast path when every server reported; otherwise fall
-			// back so a straggler that hasn't bound yet still gets registered.
-			if (servers.length === this._mcpInfoCommands.length) {
+			// Collect each server's { name, port }. Retry briefly so a server that
+			// binds a beat late still lands in the ONE batched, port-healing write
+			// below - instead of being left to the fragile per-extension CLI path
+			// (concurrent `codex mcp add` writes to a single file, and it skips a
+			// name that's already present, so it leaves a DEAD port in place).
+			let servers: { name: string; port: number }[] = [];
+			for (let pass = 0; pass < 4; pass++) {
+				const infos = await Promise.all(this._mcpInfoCommands.map(cmd =>
+					Promise.resolve(this.commandService.executeCommand<unknown>(cmd)).then(r => r, () => undefined)));
+				servers = infos.filter((r): r is { name: string; port: number } =>
+					!!r && typeof r === 'object'
+					&& typeof (r as { name?: unknown }).name === 'string'
+					&& typeof (r as { port?: unknown }).port === 'number');
+				if (servers.length === this._mcpInfoCommands.length) { break; }
+				if (pass < 3) { await timeout(1000); }
+			}
+			// Heal ports on EVERY launch: applyConfig upserts each reported server
+			// with its CURRENT live port, OVERWRITING a stale/dead one a past session
+			// or window left behind. A dead port is why Codex/Claude `/mcp` shows
+			// nothing even though the entry "exists" - the config points at a port
+			// nobody is listening on. Run this for WHATEVER servers reported, NOT only
+			// when all did: requiring all ~10 to have bound at this exact instant
+			// almost never holds, so we'd otherwise skip straight to the CLI reconcile
+			// path (which does not fix a stale port). Passing a partial list is safe -
+			// writeCodex/writeClaude prune only legacy names, never a current server
+			// that just hasn't bound yet; those stragglers are caught by the fallback.
+			if (servers.length > 0) {
 				// Pass THIS window's workspace so Claude MCP is also written into its
 				// per-project local scope (projects.<ws>.mcpServers) - each window then
 				// routes run_code to its own project's server (correct multi-window
@@ -238,7 +256,9 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				const workspacePath = this.workspaceContextService.getWorkspace().folders[0]?.uri.fsPath;
 				const res = await this.commandService.executeCommand<{ allRegistered?: boolean }>(
 					'aria.mcp.applyConfig', { providers, servers, workspacePath });
-				if (res && res.allRegistered === true) {
+				// Done only when the FULL set reported AND all registered; otherwise
+				// still run the fallback to catch servers that had not bound yet.
+				if (res && res.allRegistered === true && servers.length === this._mcpInfoCommands.length) {
 					return true;
 				}
 			}
