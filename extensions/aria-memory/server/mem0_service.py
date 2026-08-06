@@ -144,3 +144,16 @@ class DeleteRequest(BaseModel):
 def delete(req: DeleteRequest):
     memory.delete(memory_id=req.memory_id)
     return {"deleted": req.memory_id}
+
+
+class UpdateRequest(BaseModel):
+    memory_id: str
+    # The new memory text. mem0.update re-embeds it (via the gemma embedder above)
+    # and rewrites that row, so the vector stays consistent with the edited text -
+    # this is why a Memory-tab edit must go through here, never raw SQL.
+    data: str
+
+
+@app.post("/update")
+def update(req: UpdateRequest):
+    return memory.update(memory_id=req.memory_id, data=req.data)

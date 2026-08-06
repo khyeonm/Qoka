@@ -10,27 +10,15 @@ import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as 
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { IAuthenticationService } from '../../../services/authentication/common/authentication.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
 
 /**
  * Login guard for folder windows.
  *
- * Sign-in lives in the Qoka "Started" overlay, which is shown for an EMPTY
- * workbench and presents login → account banner → project picker as one surface.
- * That overlay only exists when no folder is open, so this guard covers the
- * other case:
- *
- *   - EMPTY workbench   → do nothing; the Started overlay owns login + picker.
- *   - folder open, session present → nothing; use the workbench normally.
- *   - folder open, NO session      → close the folder, which reloads into an
- *                                    empty workbench where the Started overlay
- *                                    shows login (recovers "signed out in a
- *                                    project").
- *
- * No pre-paint workbench hide: on the common path (a restored project with a
- * valid session) the workbench should just load normally, with no artificial
- * black screen. A signed-out folder window briefly shows before it closes -
- * an acceptable, rare cost.
+ * Sign-in is OPTIONAL: the Qoka "Started" overlay (shown for an EMPTY workbench)
+ * offers "Continue without signing in", and features that need the server identity
+ * (e.g. global memory) gate themselves. So this guard no longer forces sign-in - it
+ * never closes a signed-out folder window. It is kept as a thin hook (and to consume
+ * the one-shot skip flag) in case per-window auth handling is needed later.
  */
 
 const AUTH_ID = 'aria';
@@ -49,7 +37,6 @@ class AriaLoginGateContribution extends Disposable implements IWorkbenchContribu
 	constructor(
 		@IAuthenticationService private readonly authService: IAuthenticationService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
-		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super();
 
@@ -101,14 +88,11 @@ class AriaLoginGateContribution extends Disposable implements IWorkbenchContribu
 			await timeout(500);
 		}
 
-		// Genuinely signed out after retries → close the folder. VS Code reloads
-		// into an empty workbench, where the Started overlay shows the login
-		// surface (login → AI picker → project - the intended first-run order).
-		try {
-			await this.commandService.executeCommand('workbench.action.closeFolder');
-		} catch {
-			/* ignore */
-		}
+		// Signed out after retries. Sign-in is OPTIONAL now, so we do NOT close the
+		// folder - a guest (or a user who chose "Continue without signing in") works
+		// in the project normally. Features that genuinely need the server identity
+		// (e.g. global memory) gate themselves individually with a "Sign in" prompt.
+		return;
 	}
 }
 

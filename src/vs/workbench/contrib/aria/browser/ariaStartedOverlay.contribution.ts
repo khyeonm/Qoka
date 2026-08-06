@@ -97,6 +97,11 @@ const JUST_PICKED_FLAG = 'aria.started.justPicked';
  *  not silently auto-reopen the project they just left. localStorage (not
  *  sessionStorage) so it survives the closeFolder reload; consumed on first read. */
 const WANT_PICKER_FLAG = 'aria.started.wantPicker';
+/** Set (localStorage, value = '1') when the user chooses "Continue without signing
+ *  in" on the login screen. Makes sign-in optional: once skipped, later launches go
+ *  straight to the picker/project instead of the login gate. Cleared when the user
+ *  actually signs in. The user can still sign in anytime from Settings. */
+const LOGIN_SKIPPED_FLAG = 'aria.login.skipped';
 
 /** Per-window-session guard so an auto-reopen that somehow lands back on an EMPTY
  *  workbench (e.g. the recent folder was deleted) can't spin in a reopen loop.
@@ -206,6 +211,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	private ariaProvider: string | undefined;
 	private authChecked = false;
 	private authLoading = false;
+	// True once the user chose "Continue without signing in" (this window), OR the
+	// persisted LOGIN_SKIPPED_FLAG is set. Lets the overlay skip the login screen and
+	// go to the picker/project without a session. Sign-in stays available in Settings.
+	private guestMode = false;
 	private cycleTimer: ReturnType<typeof setInterval> | undefined;
 
 	// AI-provider picker step (shown after sign-in, before the mode/project
@@ -355,8 +364,12 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// back through the AI picker.
 		const providerSetting = this.configurationService.getValue<string>('aria.aiProvider');
 		const pickedAi = hasPickedAiProvider() || providerSetting === 'claude' || providerSetting === 'codex';
-		if (!hasSession || !pickedAi) {
-			pushTrail(`decideEmptyWorkbench: hasSession=${hasSession}, pickedAi=${pickedAi} -> showing sign-in/picker`);
+		// Sign-in is optional: a guest who already skipped login (and picked an AI)
+		// is treated like a signed-in user for auto-reopen, so they aren't sent back
+		// to the login screen every launch.
+		const mayProceed = hasSession || this.loginSkipped();
+		if (!mayProceed || !pickedAi) {
+			pushTrail(`decideEmptyWorkbench: hasSession=${hasSession}, loginSkipped=${this.loginSkipped()}, pickedAi=${pickedAi} -> showing sign-in/picker`);
 			this.showOverlayAndWireAuth();
 			return;
 		}
@@ -482,6 +495,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			// The provider hint is passed as the scope; the aria-authentication
 			// extension reads it to skip its own provider QuickPick.
 			await this.authService.createSession(AUTH_ID, [provider]);
+			// Actually signed in now: drop any "skipped sign-in" guest state so the
+			// signed-in experience takes over.
+			try { localStorage.removeItem(LOGIN_SKIPPED_FLAG); } catch { /* ignore */ }
+			this.guestMode = false;
 			// Success fires onDidChangeSessions → refreshAuth → banner + picker.
 			console.log(`[aria] sign-in via ${provider} succeeded`);
 		} catch (e) {
@@ -908,7 +925,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			this.renderLoadingSection(content, this.authLoading);
 			return;
 		}
-		if (!this.ariaSession) {
+		if (!this.ariaSession && !this.guestMode && !this.loginSkipped()) {
 			this.renderLoginSection(content);
 			return;
 		}
@@ -1109,17 +1126,19 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		parent.style.minHeight = '70vh';
 
 		const title = document.createElement('h1');
-		title.textContent = 'Qoka';
-		title.style.fontSize = '32px';
+		title.textContent = 'Sign in to make Qoka yours';
+		title.style.fontSize = '30px';
 		title.style.fontWeight = '300';
-		title.style.margin = '0 0 8px 0';
+		title.style.margin = '0 0 12px 0';
 		parent.appendChild(title);
 
 		const sub = document.createElement('p');
-		sub.textContent = 'Sign in with ORCID or Google to continue.';
+		sub.textContent = 'When you sign in, Qoka remembers your preferences and research across all projects to help you better. Signing in is optional, you can do it later in Settings.';
 		sub.style.fontSize = '14px';
 		sub.style.opacity = '0.7';
 		sub.style.margin = '0 0 28px 0';
+		sub.style.maxWidth = '440px';
+		sub.style.lineHeight = '1.5';
 		parent.appendChild(sub);
 
 		const box = document.createElement('div');
@@ -1131,6 +1150,38 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		box.appendChild(this.makeLoginButton('Sign in with ORCID', () => void this.signIn('orcid')));
 		box.appendChild(this.makeLoginButton('Sign in with Google', () => void this.signIn('google')));
+
+		// Sign-in is optional: continue as a guest. Rendered as a quiet text link
+		// below the buttons so it doesn't compete with signing in.
+		const skip = document.createElement('button');
+		skip.textContent = 'Continue without signing in';
+		skip.style.marginTop = '18px';
+		skip.style.background = 'transparent';
+		skip.style.border = 'none';
+		skip.style.cursor = 'pointer';
+		skip.style.fontSize = '13px';
+		skip.style.opacity = '0.65';
+		skip.style.color = 'var(--vscode-foreground, #cccccc)';
+		skip.style.fontFamily = 'inherit';
+		skip.style.textDecoration = 'underline';
+		skip.onmouseenter = () => { skip.style.opacity = '0.95'; };
+		skip.onmouseleave = () => { skip.style.opacity = '0.65'; };
+		skip.onclick = (e) => { e.stopPropagation(); this.continueWithoutSignIn(); };
+		parent.appendChild(skip);
+	}
+
+	/** Persisted "the user opted to skip sign-in" flag. Read defensively so a
+	 *  storage failure just means "not skipped". */
+	private loginSkipped(): boolean {
+		try { return localStorage.getItem(LOGIN_SKIPPED_FLAG) === '1'; } catch { return false; }
+	}
+
+	/** "Continue without signing in": remember the choice and re-render so the
+	 *  overlay proceeds to the AI/mode/project picker without a session. */
+	private continueWithoutSignIn(): void {
+		try { localStorage.setItem(LOGIN_SKIPPED_FLAG, '1'); } catch { /* ignore */ }
+		this.guestMode = true;
+		this.rerender();
 	}
 
 	private makeLoginButton(text: string, onClick: () => void): HTMLButtonElement {
@@ -1156,6 +1207,45 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	private renderSignedInBanner(parent: HTMLElement): void {
 		const s = this.ariaSession;
 		if (!s) {
+			// Guest (chose "Continue without signing in"): a quiet banner that offers
+			// to sign in, which returns to the login screen.
+			const guest = document.createElement('div');
+			guest.style.display = 'flex';
+			guest.style.alignItems = 'center';
+			guest.style.gap = '12px';
+			guest.style.padding = '14px 18px';
+			guest.style.marginBottom = '28px';
+			guest.style.border = '1px solid rgba(127, 127, 127, 0.2)';
+			guest.style.borderRadius = '6px';
+			guest.style.background = 'rgba(127, 127, 127, 0.06)';
+
+			const label = document.createElement('div');
+			label.textContent = 'Using Qoka without signing in';
+			label.style.fontSize = '13px';
+			label.style.opacity = '0.7';
+			guest.appendChild(label);
+
+			const signIn = document.createElement('button');
+			signIn.textContent = 'Sign in';
+			signIn.style.marginLeft = 'auto';
+			signIn.style.fontSize = '12.5px';
+			signIn.style.padding = '6px 12px';
+			signIn.style.cursor = 'pointer';
+			signIn.style.borderRadius = '7px';
+			signIn.style.border = '1px solid rgba(127, 127, 127, 0.35)';
+			signIn.style.background = 'transparent';
+			signIn.style.color = 'var(--vscode-foreground, #cccccc)';
+			signIn.style.fontFamily = 'inherit';
+			signIn.onclick = (e) => {
+				e.stopPropagation();
+				// Leave guest mode and forget the skip so the login screen shows.
+				try { localStorage.removeItem(LOGIN_SKIPPED_FLAG); } catch { /* ignore */ }
+				this.guestMode = false;
+				this.rerender();
+			};
+			guest.appendChild(signIn);
+
+			parent.appendChild(guest);
 			return;
 		}
 		// Show the provider (google / orcid) after the name - the session itself has

@@ -9,6 +9,7 @@ import { AriaMemoryMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 import { ensureNativeMemoryDisabled } from './nativeMemory';
+import { registerMemoryTabCommands } from './memoryTab';
 
 let mcpServer: AriaMemoryMcpServer | undefined;
 
@@ -63,6 +64,9 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeWorkspaceFolders(() => ensureNativeMemoryDisabled()),
 	);
+
+	// Commands backing the workbench Memory tab (project wiki + global mem0).
+	registerMemoryTabCommands(context);
 
 	const tools = buildTools();
 	mcpServer = new AriaMemoryMcpServer(tools);

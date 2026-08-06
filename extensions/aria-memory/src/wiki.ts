@@ -178,6 +178,32 @@ export function resolvePage(ref: string): PageInfo | undefined {
 		?? pages.find(p => p.title.toLowerCase().includes(arg));
 }
 
+export interface PageDetail {
+	slug: string;
+	title: string;
+	type: string;
+	body: string;
+	links: string[];
+	created?: string;
+	updated?: string;
+}
+
+/** Parsed page (title/type/body/timestamps) for the Memory tab UI, or undefined. */
+export function readPageDetail(slug: string): PageDetail | undefined {
+	const raw = readPageRaw(slug);
+	if (raw === undefined) { return undefined; }
+	const { frontmatter, body } = parsePage(raw);
+	return {
+		slug,
+		title: frontmatter.title || slug,
+		type: frontmatter.type || 'other',
+		body,
+		links: frontmatter.links ?? [],
+		created: frontmatter.created,
+		updated: frontmatter.updated,
+	};
+}
+
 /** Full raw markdown (frontmatter + body) of a page, or undefined. */
 export function readPageRaw(slug: string): string | undefined {
 	const root = wikiRoot();

@@ -390,6 +390,7 @@ import './contrib/ariaAutopipe/browser/ariaAutopipe.contribution.js';
 import './contrib/ariaConnections/browser/ariaConnections.contribution.js';
 import './contrib/ariaSkills/browser/ariaSkills.contribution.js';
 import './contrib/ariaSettings/browser/ariaSettings.contribution.js';
+import './contrib/ariaMemory/browser/ariaMemory.contribution.js';
 import './contrib/ariaPaperSearch/browser/ariaPaperSearch.contribution.js';
 import './contrib/ariaFirstRunOverlay/browser/ariaFirstRunOverlay.contribution.js';
 import './contrib/ariaLoginGate/browser/ariaLoginGate.contribution.js';

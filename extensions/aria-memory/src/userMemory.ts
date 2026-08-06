@@ -100,3 +100,72 @@ export async function recallUser(query: string, limit = 5): Promise<Array<{ memo
 	}
 	return res.results ?? [];
 }
+
+/** True if the user has a Qoka session (cross-project memory needs sign-in). */
+export async function isSignedIn(): Promise<boolean> {
+	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
+	return !!session;
+}
+
+function getJson(path: string, token: string, timeoutMs = 20000): Promise<unknown> {
+	return new Promise((resolve, reject) => {
+		const url = new URL(path, SERVER_URL);
+		const isHttps = url.protocol === 'https:';
+		const lib = isHttps ? https : http;
+		const options: https.RequestOptions = {
+			method: 'GET',
+			headers: { 'authorization': `Bearer ${token}` },
+			timeout: timeoutMs,
+		};
+		if (isHttps && ALLOW_SELF_SIGNED) {
+			options.rejectUnauthorized = false;
+		}
+		const req = lib.request(url, options, res => {
+			let data = '';
+			res.on('data', c => { data += c; });
+			res.on('end', () => {
+				const code = res.statusCode ?? 0;
+				if (code < 200 || code >= 300) {
+					reject(new Error(`Qoka memory ${code}: ${data.slice(0, 300)}`));
+					return;
+				}
+				try { resolve(JSON.parse(data || '{}')); } catch { resolve({ raw: data }); }
+			});
+		});
+		req.on('error', reject);
+		req.on('timeout', () => { req.destroy(new Error('Qoka memory server timeout')); });
+		req.end();
+	});
+}
+
+export interface UserMemoryItem {
+	id: string;
+	memory: string;
+	created_at?: string;
+	updated_at?: string;
+	metadata?: Record<string, unknown>;
+}
+
+/** List all of the signed-in user's cross-project memories (for the Memory tab).
+ *  The server derives the user from the JWT, so no user_id is sent. */
+export async function listUser(): Promise<UserMemoryItem[]> {
+	const token = await authToken();
+	const res = await getJson('/api/memory/list', token) as
+		| { results?: UserMemoryItem[] }
+		| UserMemoryItem[];
+	const items = Array.isArray(res) ? res : (res.results ?? []);
+	return items.filter(i => i && typeof i.id === 'string');
+}
+
+/** Edit one memory. The server re-embeds the new text (mem0 update), so the vector
+ *  stays consistent. `infer: false` stores the user's text verbatim. */
+export async function updateUser(id: string, content: string): Promise<unknown> {
+	const token = await authToken();
+	return postJson('/api/memory/update', { memory_id: id, content, infer: false }, token);
+}
+
+/** Delete one memory by id. */
+export async function deleteUser(id: string): Promise<unknown> {
+	const token = await authToken();
+	return postJson('/api/memory/delete', { memory_id: id }, token);
+}

@@ -11,6 +11,7 @@ import { IStorageService } from '../../../../platform/storage/common/storage.js'
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IAuthenticationService } from '../../../services/authentication/common/authentication.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
@@ -48,6 +49,7 @@ export class AriaSettingsEditorPane extends EditorPane {
 		@IThemeService themeService: IThemeService,
 		@IStorageService storageService: IStorageService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IAuthenticationService private readonly authenticationService: IAuthenticationService,
 	) {
 		super(AriaSettingsEditorPane.ID, group, telemetryService, themeService, storageService);
 	}
@@ -126,11 +128,12 @@ export class AriaSettingsEditorPane extends EditorPane {
 		// The extension refreshes the Skills UI through aria.skills.requestRefresh.
 		this.sectionStore.add(onDidRequestSkillsRefresh(() => void skills.refresh()));
 
-		this.buildFooter(column);
+		void this.buildFooter(column);
 	}
 
-	/** Account actions at the very bottom of the settings page. */
-	private buildFooter(column: HTMLElement): void {
+	/** Account actions at the very bottom of the settings page. Auth-aware: shows
+	 *  Sign out when signed in, Sign in when signed out (sign-in is optional). */
+	private async buildFooter(column: HTMLElement): Promise<void> {
 		const foot = append(column, $('div'));
 		Object.assign(foot.style, {
 			display: 'flex', gap: '10px', marginTop: '30px', paddingTop: '18px',
@@ -148,8 +151,18 @@ export class AriaSettingsEditorPane extends EditorPane {
 			});
 			btn.onclick = () => { void this.commandService.executeCommand(command); };
 		};
+		let signedIn = false;
+		try {
+			const sessions = await this.authenticationService.getSessions('aria', undefined, undefined, true);
+			signedIn = sessions.length > 0;
+		} catch { /* treat as signed out */ }
+		if (!this.column) { return; } // editor cleared while awaiting
 		button('Change project', 'aria.account.changeProject');
-		button('Sign out', 'aria.account.signOut');
+		if (signedIn) {
+			button('Sign out', 'aria.account.signOut');
+		} else {
+			button('Sign in', 'aria.account.signIn');
+		}
 	}
 
 	override clearInput(): void {

@@ -18,6 +18,7 @@ import { ARIA_MODE_SETTING } from '../common/ariaConfiguration.js';
 
 const AUTH_ID = 'aria';
 const SIGN_OUT_COMMAND = 'aria.account.signOut';
+const SIGN_IN_COMMAND = 'aria.account.signIn';
 const CHANGE_PROJECT_COMMAND = 'aria.account.changeProject';
 const ACCOUNT_MENU_COMMAND = 'aria.account.menu';
 // Cached display label of the last signed-in account, so easy mode can paint the
@@ -39,6 +40,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	private accountEntry: IStatusbarEntryAccessor | undefined;
 	private changeProjectEntry: IStatusbarEntryAccessor | undefined;
 	private signOutEntry: IStatusbarEntryAccessor | undefined;
+	private signInEntry: IStatusbarEntryAccessor | undefined;
 	private session: AuthenticationSession | undefined;
 	private provider: string | undefined;
 
@@ -53,6 +55,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		super();
 
 		this._register(CommandsRegistry.registerCommand(SIGN_OUT_COMMAND, () => this.signOut()));
+		this._register(CommandsRegistry.registerCommand(SIGN_IN_COMMAND, () => this.signIn()));
 		this._register(CommandsRegistry.registerCommand(ACCOUNT_MENU_COMMAND, () => this.showAccountMenu()));
 		this._register(CommandsRegistry.registerCommand(CHANGE_PROJECT_COMMAND, () => this.changeProject()));
 
@@ -100,6 +103,8 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		this.changeProjectEntry = undefined;
 		this.signOutEntry?.dispose();
 		this.signOutEntry = undefined;
+		this.signInEntry?.dispose();
+		this.signInEntry = undefined;
 	}
 
 	private cachedLabel(): string | undefined {
@@ -139,8 +144,22 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		if (cached) {
 			this.paint(cached);
 		} else {
-			this.disposeEntries();
+			// Genuinely signed out (guest): offer a Sign in entry, since sign-in is
+			// optional and can be done at any time.
+			this.paintSignedOut();
 		}
+	}
+
+	/** Signed-out state: a single "Sign in" item at the bottom-right. */
+	private paintSignedOut(): void {
+		this.disposeEntries();
+		this.signInEntry = this.statusbarService.addEntry({
+			name: localize('aria.signin.name', "Sign in"),
+			text: localize('aria.signin.text', "$(account) Sign in"),
+			ariaLabel: localize('aria.signin.text', "$(account) Sign in"),
+			tooltip: localize('aria.signin.tooltip', "Sign in to Qoka (optional)"),
+			command: SIGN_IN_COMMAND,
+		}, 'aria.signin', StatusbarAlignment.RIGHT, 100);
 	}
 
 	private paint(label: string): void {
@@ -213,46 +232,44 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		});
 	}
 
-	private async signOut(): Promise<void> {
-		console.log('[aria] sign out triggered');
-		if (!this.session) {
-			// Painted from the cached label but the live session object isn't set
-			// (auth ext still restoring). The button then appears to do nothing.
-			// Actively remove ANY lingering Qoka session so the reloaded empty
-			// workbench sees no session and lands on sign-in - otherwise the
-			// overlay's auto-reopen would treat this as a normal launch and reopen
-			// the project we're trying to sign out of.
-			console.log('[aria] sign out: no live session object - removing all Qoka sessions, then closing folder');
-			try {
-				const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
-				for (const s of sessions) {
-					try { await this.authService.removeSession(AUTH_ID, s.id); } catch { /* ignore */ }
-				}
-			} catch { /* ignore - best-effort */ }
-			this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION);
-			try { await this.commandService.executeCommand('workbench.action.closeFolder'); } catch { /* ignore */ }
+	/** Sign in from within a project (Settings / status bar). Runs the auth flow,
+	 *  then reloads THIS window so auth-dependent services (global memory, MCP) pick
+	 *  up the session while staying in the same project. Passing no scope lets the
+	 *  aria-authentication extension show its ORCID/Google picker. */
+	private async signIn(): Promise<void> {
+		console.log('[aria] sign in triggered');
+		try {
+			await this.authService.createSession(AUTH_ID, []);
+		} catch (e) {
+			// Cancelled / failed: onDidChangeSessions won't fire, so nothing to do.
+			console.log('[aria] sign in cancelled/failed:', (e as Error)?.message);
 			return;
 		}
+		// Forget any "skipped sign-in" guest flag so the app treats us as signed in.
+		try { localStorage.removeItem('aria.login.skipped'); } catch { /* ignore */ }
 		try {
-			await this.authService.removeSession(AUTH_ID, this.session.id);
+			await this.commandService.executeCommand('workbench.action.reloadWindow');
 		} catch {
-			// ignore - onDidChangeSessions will refresh regardless.
+			// Reload unavailable: at least repaint from the new session.
+			void this.refresh();
 		}
-		// Explicit sign-out: forget the cached account so the bar clears now and
-		// doesn't optimistically repaint it.
+	}
+
+	private async signOut(): Promise<void> {
+		console.log('[aria] sign out triggered');
+		// Sign-in is optional, so signing out KEEPS the project open (no folder close).
+		// Remove the session, clear the cached account, and repaint to the signed-out
+		// "Sign in" entry. Features needing the server identity gate themselves.
+		try {
+			const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
+			for (const s of sessions) {
+				try { await this.authService.removeSession(AUTH_ID, s.id); } catch { /* ignore */ }
+			}
+		} catch { /* ignore - best-effort */ }
 		this.session = undefined;
 		this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION);
 		this.reconcile();
-		console.log('[aria] sign out: session removed, closing folder to return to the sign-in screen');
-
-		// The login gate only checks at startup, so signing out inside a project
-		// window won't return us to the login screen on its own. Close the folder
-		// (same as the gate) - VS Code reopens as an empty workbench where the
-		// Started overlay shows the login surface.
-		try {
-			await this.commandService.executeCommand('workbench.action.closeFolder');
-		} catch {
-			// ignore - e.g. already an empty workbench.
-		}
+		return;
 	}
+
 }
