@@ -66,13 +66,15 @@ function quoteArg(s: string): string { return `"${s.replace(/"/g, '\\"')}"`; }
 
 /** Upsert every server into ~/.claude.json's root `mcpServers`, preserving all
  *  other entries. Writes only when something changed (verify-first). */
-function writeClaude(servers: McpServerInfo[]): void {
+function writeClaude(servers: McpServerInfo[], workspacePath?: string): void {
 	let obj: Record<string, unknown> = {};
 	try {
 		obj = JSON.parse(fs.readFileSync(CLAUDE_JSON, 'utf8')) as Record<string, unknown>;
 	} catch {
 		obj = {}; // missing / unreadable - start fresh
 	}
+	// Root (user) scope: kept as a fallback so run_code always works even if the
+	// per-project key below doesn't exactly match Claude's cwd.
 	const mcp = (obj.mcpServers && typeof obj.mcpServers === 'object' ? obj.mcpServers : {}) as Record<string, unknown>;
 	let changed = pruneClaudeLegacy(mcp, new Set(servers.map(s => s.name)));
 	for (const s of servers) {
@@ -83,8 +85,30 @@ function writeClaude(servers: McpServerInfo[]): void {
 			changed = true;
 		}
 	}
-	if (!changed) { return; }
 	obj.mcpServers = mcp;
+	// PER-WINDOW: also write Claude's LOCAL scope for THIS workspace
+	// (projects.<cwd>.mcpServers), which Claude Code reads keyed by the CLI's cwd.
+	// With several windows open, each writes its OWN section pointing at ITS OWN live
+	// port, so a window's Claude connects to ITS project's server (correct run_code +
+	// per-project bwrap). Local scope overrides the root entry for the same name, so
+	// the root above is only a fallback. Keyed by the workspace path the CLI runs in.
+	if (workspacePath) {
+		const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, { mcpServers?: Record<string, unknown> }>;
+		const proj = (projects[workspacePath] && typeof projects[workspacePath] === 'object' ? projects[workspacePath] : {});
+		const pmcp = (proj.mcpServers && typeof proj.mcpServers === 'object' ? proj.mcpServers : {}) as Record<string, unknown>;
+		for (const s of servers) {
+			const url = claudeUrl(s.port);
+			const cur = pmcp[s.name] as { type?: string; url?: string } | undefined;
+			if (!cur || cur.type !== 'sse' || cur.url !== url) {
+				pmcp[s.name] = { type: 'sse', url };
+				changed = true;
+			}
+		}
+		proj.mcpServers = pmcp;
+		projects[workspacePath] = proj;
+		obj.projects = projects;
+	}
+	if (!changed) { return; }
 	atomicWrite(CLAUDE_JSON, JSON.stringify(obj, null, 2) + '\n');
 }
 
@@ -332,7 +356,7 @@ async function cliAdd(provider: HeadlessProvider, name: string, port: number): P
  * stragglers. Returns whether everything registered - the caller ends the loader
  * regardless, so Qoka stays usable even if some server could not connect.
  */
-export async function applyMcpConfig(providers: HeadlessProvider[], servers: McpServerInfo[]): Promise<ApplyResult> {
+export async function applyMcpConfig(providers: HeadlessProvider[], servers: McpServerInfo[], workspacePath?: string): Promise<ApplyResult> {
 	const wantClaude = providers.includes('claude');
 	const wantCodex = providers.includes('codex');
 	if (servers.length === 0 || (!wantClaude && !wantCodex)) {
@@ -340,8 +364,10 @@ export async function applyMcpConfig(providers: HeadlessProvider[], servers: Mcp
 	}
 
 	// 1) Batch write both config files in parallel (different files, no contention).
+	// Claude ALSO gets a per-workspace local-scope entry so multiple windows route
+	// run_code to their own project's server (Codex has no equivalent - global only).
 	await Promise.all([
-		wantClaude ? Promise.resolve().then(() => writeClaude(servers)) : Promise.resolve(),
+		wantClaude ? Promise.resolve().then(() => writeClaude(servers, workspacePath)) : Promise.resolve(),
 		wantCodex ? Promise.resolve().then(() => writeCodex(servers)) : Promise.resolve(),
 	]);
 

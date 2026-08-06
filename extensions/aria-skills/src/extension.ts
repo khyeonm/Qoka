@@ -142,13 +142,14 @@ export function activate(context: vscode.ExtensionContext): void {
 		// files directly (parallel, single writer - no CLI-add race), verify, and
 		// CLI-retry only stragglers. Replaces ~100 sequential `mcp add` spawns.
 		vscode.commands.registerCommand('aria.mcp.applyConfig', async (arg: unknown) => {
-			const a = (arg && typeof arg === 'object' ? arg : {}) as { providers?: unknown; servers?: unknown };
+			const a = (arg && typeof arg === 'object' ? arg : {}) as { providers?: unknown; servers?: unknown; workspacePath?: unknown };
 			const providers = (Array.isArray(a.providers) ? a.providers : [])
 				.filter((p): p is HeadlessProvider => p === 'claude' || p === 'codex');
 			const servers = (Array.isArray(a.servers) ? a.servers : [])
 				.filter((s): s is McpServerInfo => !!s && typeof s === 'object'
 					&& typeof (s as McpServerInfo).name === 'string' && typeof (s as McpServerInfo).port === 'number');
-			return applyMcpConfig(providers, servers);
+			const workspacePath = typeof a.workspacePath === 'string' ? a.workspacePath : undefined;
+			return applyMcpConfig(providers, servers, workspacePath);
 		}),
 
 		// Prune pre-rename duplicate MCP entries, ALWAYS - not only on the fast path.

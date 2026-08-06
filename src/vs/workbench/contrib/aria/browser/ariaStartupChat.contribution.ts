@@ -231,8 +231,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			// Only trust the fast path when every server reported; otherwise fall
 			// back so a straggler that hasn't bound yet still gets registered.
 			if (servers.length === this._mcpInfoCommands.length) {
+				// Pass THIS window's workspace so Claude MCP is also written into its
+				// per-project local scope (projects.<ws>.mcpServers) - each window then
+				// routes run_code to its own project's server (correct multi-window
+				// run_code + per-project bwrap). Codex has no per-project scope.
+				const workspacePath = this.workspaceContextService.getWorkspace().folders[0]?.uri.fsPath;
 				const res = await this.commandService.executeCommand<{ allRegistered?: boolean }>(
-					'aria.mcp.applyConfig', { providers, servers });
+					'aria.mcp.applyConfig', { providers, servers, workspacePath });
 				if (res && res.allRegistered === true) {
 					return true;
 				}
