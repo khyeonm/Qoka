@@ -48,7 +48,10 @@ export interface ApplyResult {
 // read via CODEX_HOME / CLAUDE_CONFIG_DIR (see headlessCli). The user's system
 // ~/.codex/config.toml and ~/.claude.json are never touched.
 const CLAUDE_JSON = path.join(QOKA_CLAUDE_CONFIG_DIR, '.claude.json');
-const CODEX_TOML = path.join(QOKA_CODEX_HOME, 'config.toml');
+/** Path to the ACTIVE Codex config.toml. Reads CODEX_HOME from the env, which
+ *  aria-skills sets PER-WINDOW (see codexHomeFor), so each window writes/reads its
+ *  own file and windows never clobber each other's MCP port. Shared home fallback. */
+function codexTomlPath(): string { return path.join(process.env.CODEX_HOME || QOKA_CODEX_HOME, 'config.toml'); }
 
 function claudeUrl(port: number): string { return `http://127.0.0.1:${port}/sse`; }
 function codexUrl(port: number): string { return `http://127.0.0.1:${port}/mcp`; }
@@ -212,7 +215,7 @@ const LEGACY_SERVER_NAMES = [
 function writeCodex(servers: McpServerInfo[]): void {
 	let text = '';
 	try {
-		text = fs.readFileSync(CODEX_TOML, 'utf8');
+		text = fs.readFileSync(codexTomlPath(), 'utf8');
 	} catch {
 		text = '';
 	}
@@ -226,7 +229,7 @@ function writeCodex(servers: McpServerInfo[]): void {
 		text = r.text;
 		if (r.changed) { changed = true; }
 	}
-	if (changed) { atomicWrite(CODEX_TOML, text); }
+	if (changed) { atomicWrite(codexTomlPath(), text); }
 }
 
 /** Remove our own leftover legacy blocks from a Codex TOML string. A name still
@@ -269,9 +272,9 @@ export function pruneLegacyMcp(providers: HeadlessProvider[], currentNames: stri
 	const current = new Set(currentNames);
 	if (providers.includes('codex')) {
 		try {
-			const text = fs.readFileSync(CODEX_TOML, 'utf8');
+			const text = fs.readFileSync(codexTomlPath(), 'utf8');
 			const r = pruneCodexLegacy(text, current);
-			if (r.changed) { atomicWrite(CODEX_TOML, r.text); }
+			if (r.changed) { atomicWrite(codexTomlPath(), r.text); }
 		} catch { /* no file yet - nothing to prune */ }
 	}
 	if (providers.includes('claude')) {
@@ -290,7 +293,7 @@ export function pruneLegacyMcp(providers: HeadlessProvider[], currentNames: stri
 function codexRegistered(servers: McpServerInfo[]): Set<string> {
 	const ok = new Set<string>();
 	let text = '';
-	try { text = fs.readFileSync(CODEX_TOML, 'utf8'); } catch { return ok; }
+	try { text = fs.readFileSync(codexTomlPath(), 'utf8'); } catch { return ok; }
 	for (const s of servers) {
 		const header = `[mcp_servers.${s.name}]`;
 		const idx = text.indexOf(header);
