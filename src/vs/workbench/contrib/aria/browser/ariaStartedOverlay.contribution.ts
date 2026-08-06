@@ -106,6 +106,9 @@ const LOGIN_SKIPPED_FLAG = 'aria.login.skipped';
  *  user back to the login screen. Value = the project's folder URI. After a
  *  successful login the overlay consumes it and reopens that project. */
 const SIGNIN_RETURN_TO = 'aria.signin.returnTo';
+/** Set (localStorage) when the user explicitly clicks a Mode card. Until then the
+ *  picker shows NEITHER mode selected (rather than the config default). */
+const MODE_CHOSEN_FLAG = 'aria.mode.chosen';
 
 /** Per-window-session guard so an auto-reopen that somehow lands back on an EMPTY
  *  workbench (e.g. the recent folder was deleted) can't spin in a reopen loop.
@@ -1198,6 +1201,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		try { return localStorage.getItem(LOGIN_SKIPPED_FLAG) === '1'; } catch { return false; }
 	}
 
+	/** Whether the user has explicitly picked a Mode (vs. the config default). */
+	private modeExplicitlyChosen(): boolean {
+		try { return localStorage.getItem(MODE_CHOSEN_FLAG) === '1'; } catch { return false; }
+	}
+
 	/** "Continue without signing in": remember the choice and re-render so the
 	 *  overlay proceeds to the AI/mode/project picker without a session. */
 	private continueWithoutSignIn(): void {
@@ -1297,7 +1305,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		who.appendChild(nameEl);
 
 		const status = document.createElement('div');
-		status.textContent = '✓ Signed in';
+		status.textContent = 'Signed in';
 		status.style.fontSize = '12px';
 		status.style.opacity = '0.6';
 		who.appendChild(status);
@@ -1334,7 +1342,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		grid.style.marginBottom = '12px';
 		parent.appendChild(grid);
 
-		const makeCard = (mode: 'easy' | 'advanced', icon: string, label: string, detail: string): void => {
+		const makeCard = (mode: 'easy' | 'advanced', label: string, detail: string): void => {
+			// Only highlight a card once the user has EXPLICITLY chosen a mode - not
+			// from the config default - so the first-run picker starts with neither
+			// mode selected.
+			const selected = this.modeExplicitlyChosen() && currentMode === mode;
 			const card = document.createElement('button');
 			card.style.display = 'flex';
 			card.style.flexDirection = 'column';
@@ -1342,41 +1354,21 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			card.style.padding = '16px 18px';
 			card.style.border = '1px solid rgba(127, 127, 127, 0.2)';
 			card.style.borderRadius = '6px';
-			card.style.background = currentMode === mode
+			card.style.background = selected
 				? 'var(--vscode-button-background, rgba(0, 122, 204, 0.9))'
 				: 'rgba(127, 127, 127, 0.06)';
-			card.style.color = currentMode === mode
+			card.style.color = selected
 				? 'var(--vscode-button-foreground, #fff)'
 				: 'var(--vscode-foreground, #cccccc)';
 			card.style.cursor = 'pointer';
 			card.style.fontFamily = 'inherit';
 			card.style.textAlign = 'left';
 
-			const head = document.createElement('div');
-			head.style.display = 'flex';
-			head.style.alignItems = 'center';
-			head.style.gap = '8px';
-
-			const iconEl = document.createElement('span');
-			iconEl.textContent = icon;
-			iconEl.style.fontSize = '20px';
-			head.appendChild(iconEl);
-
-			const titleEl = document.createElement('span');
+			const titleEl = document.createElement('div');
 			titleEl.textContent = label;
 			titleEl.style.fontSize = '16px';
 			titleEl.style.fontWeight = '600';
-			titleEl.style.flex = '1';
-			head.appendChild(titleEl);
-
-			if (currentMode === mode) {
-				const check = document.createElement('span');
-				check.textContent = '✓';
-				check.style.fontWeight = '700';
-				head.appendChild(check);
-			}
-
-			card.appendChild(head);
+			card.appendChild(titleEl);
 
 			const detailEl = document.createElement('span');
 			detailEl.textContent = detail;
@@ -1386,24 +1378,15 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 			card.onclick = (e) => {
 				e.stopPropagation();
+				try { localStorage.setItem(MODE_CHOSEN_FLAG, '1'); } catch { /* ignore */ }
 				void this.commandService.executeCommand(ARIA_SET_MODE_COMMAND, mode);
 			};
 
 			grid.appendChild(card);
 		};
 
-		makeCard(
-			'easy',
-			'🌱',
-			'Easy',
-			'Simplified UI focused on chat and the research side panels.',
-		);
-		makeCard(
-			'advanced',
-			'⚙️',
-			'Advanced',
-			'Full IDE layout with drag-and-resize panels and every VS Code feature.',
-		);
+		makeCard('easy', 'Easy', 'Simplified UI focused on chat and the research side panels.');
+		makeCard('advanced', 'Advanced', 'Full IDE layout with drag-and-resize panels and every VS Code feature.');
 	}
 
 	private renderStartSection(parent: HTMLElement): void {
@@ -1422,7 +1405,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		row.style.marginBottom = '24px';
 		parent.appendChild(row);
 
-		const makeCard = (icon: string, label: string, detail: string, onclick: () => void): void => {
+		const makeCard = (label: string, detail: string, onclick: () => void): void => {
 			const card = document.createElement('button');
 			card.style.display = 'flex';
 			card.style.flexDirection = 'column';
@@ -1435,11 +1418,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			card.style.cursor = 'pointer';
 			card.style.fontFamily = 'inherit';
 			card.style.textAlign = 'left';
-
-			const iconEl = document.createElement('span');
-			iconEl.textContent = icon;
-			iconEl.style.fontSize = '22px';
-			card.appendChild(iconEl);
 
 			const titleEl = document.createElement('span');
 			titleEl.textContent = label;
@@ -1461,7 +1439,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		};
 
 		makeCard(
-			'⊕',
 			'New Project',
 			'Pick a location and name, then draft the roadmap in the new project.',
 			() => {
@@ -1472,7 +1449,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		);
 
 		makeCard(
-			'📁',
 			'Open Project...',
 			'Browse for a folder on your machine.',
 			() => {
@@ -1764,10 +1740,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			btn.style.fontSize = '13px';
 			btn.style.textAlign = 'left';
 			btn.style.borderRadius = '4px';
-
-			const folder = document.createElement('span');
-			folder.textContent = '📁';
-			btn.appendChild(folder);
 
 			const nameEl = document.createElement('span');
 			nameEl.textContent = name;

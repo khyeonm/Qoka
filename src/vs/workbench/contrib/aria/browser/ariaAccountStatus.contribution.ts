@@ -44,6 +44,10 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	private signInEntry: IStatusbarEntryAccessor | undefined;
 	private session: AuthenticationSession | undefined;
 	private provider: string | undefined;
+	/** False until the first getSessions resolves. Before that we may show the cached
+	 *  account to avoid a blank/flip during the restore race; after, a missing session
+	 *  is a genuine sign-out and we show "Sign in". */
+	private authChecked = false;
 
 	constructor(
 		@IStatusbarService private readonly statusbarService: IStatusbarService,
@@ -86,6 +90,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		} catch {
 			this.session = undefined;
 		}
+		this.authChecked = true;
 		if (this.session) {
 			// The session carries no provider (scopes are []); the extension exposes it.
 			try {
@@ -141,15 +146,17 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 			this.paint(label);
 			return;
 		}
-		// Session not known yet: keep the last-known account rather than blank.
+		// No live session. Before the first auth check resolves, keep the last-known
+		// account rather than blanking/flipping during the restore race. Once auth IS
+		// checked, a missing session is a genuine sign-out: drop the stale cache and
+		// show "Sign in" (never a stale account + Sign out).
 		const cached = this.cachedLabel();
-		if (cached) {
+		if (!this.authChecked && cached) {
 			this.paint(cached);
-		} else {
-			// Genuinely signed out (guest): offer a Sign in entry, since sign-in is
-			// optional and can be done at any time.
-			this.paintSignedOut();
+			return;
 		}
+		if (cached) { this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION); }
+		this.paintSignedOut();
 	}
 
 	/** Signed-out state: "Change project" + "Sign in" at the bottom-right, no account

@@ -113,6 +113,7 @@ export class AriaPaperSearchView extends ViewPane {
 	// cross-linked to library entries by the filename convention.
 	private pdfListContainer: HTMLElement | undefined;
 	private pdfStatsEl: HTMLElement | undefined;
+	private pdfCollapsed = false;
 	private pdfFiles: { name: string; uri: URI }[] = [];
 	/** Library entry id -> its downloaded PDF, for the "Open PDF" link on a card. */
 	private pdfByEntryId = new Map<string, URI>();
@@ -255,31 +256,52 @@ export class AriaPaperSearchView extends ViewPane {
 		list.style.gap = '8px';
 		this.listContainer = list;
 
-		// "Downloaded PDFs" section - a separate collection of the actual PDF files,
-		// distinct from the saved-paper metadata list above.
-		const pdfHeader = append(root, $('div'));
+		// "Downloaded PDFs" - a distinct, collapsible section (like the Analysis tab's
+		// Changes/Snapshots), visually separated from the saved-paper list above by a
+		// divider and its own collapsible header.
+		const pdfSection = append(root, $('div'));
+		pdfSection.style.marginTop = '18px';
+		pdfSection.style.borderTop = '1px solid var(--vscode-panel-border, rgba(127,127,127,0.25))';
+		pdfSection.style.paddingTop = '10px';
+
+		const pdfHeader = append(pdfSection, $('div'));
 		pdfHeader.style.display = 'flex';
 		pdfHeader.style.alignItems = 'center';
 		pdfHeader.style.gap = '6px';
-		pdfHeader.style.margin = '18px 0 6px';
+		pdfHeader.style.cursor = 'pointer';
+		pdfHeader.style.userSelect = 'none';
+		pdfHeader.style.marginBottom = '6px';
+
+		const chevron = append(pdfHeader, $('span.codicon.codicon-chevron-down')) as HTMLElement;
+		chevron.style.opacity = '0.7';
+		chevron.style.fontSize = '14px';
+
 		const pdfTitle = append(pdfHeader, $('div'));
 		pdfTitle.textContent = 'Downloaded PDFs';
 		pdfTitle.style.fontSize = '11px';
 		pdfTitle.style.fontWeight = '700';
 		pdfTitle.style.textTransform = 'uppercase';
 		pdfTitle.style.letterSpacing = '0.05em';
-		pdfTitle.style.opacity = '0.7';
+		pdfTitle.style.opacity = '0.85';
 		pdfTitle.style.flex = '1';
+
 		const pdfStats = append(pdfHeader, $('div'));
 		pdfStats.style.fontSize = '11px';
 		pdfStats.style.opacity = '0.6';
 		this.pdfStatsEl = pdfStats;
 
-		const pdfList = append(root, $('div'));
+		const pdfList = append(pdfSection, $('div'));
 		pdfList.style.display = 'flex';
 		pdfList.style.flexDirection = 'column';
 		pdfList.style.gap = '6px';
 		this.pdfListContainer = pdfList;
+
+		pdfHeader.onclick = () => {
+			this.pdfCollapsed = !this.pdfCollapsed;
+			chevron.classList.toggle('codicon-chevron-down', !this.pdfCollapsed);
+			chevron.classList.toggle('codicon-chevron-right', this.pdfCollapsed);
+			pdfList.style.display = this.pdfCollapsed ? 'none' : 'flex';
+		};
 
 		void this.refresh();
 	}

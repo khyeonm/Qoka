@@ -95,12 +95,12 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'remember_project_memory',
-			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). Only for project-scoped facts - cross-project user preferences belong in user memory. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
+			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). Only for project-scoped facts - cross-project user preferences belong in user memory. ALWAYS write the title and content in ENGLISH, regardless of the conversation language. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
 			inputSchema: {
 				type: 'object',
 				properties: {
-					title: { type: 'string', description: 'Short page title. Reusing an existing title updates that page.' },
-					content: { type: 'string', description: 'The knowledge to store, in Markdown. Be self-contained and specific.' },
+					title: { type: 'string', description: 'Short page title, in English. Reusing an existing title updates that page.' },
+					content: { type: 'string', description: 'The knowledge to store, in English Markdown. Be self-contained and specific.' },
 					type: {
 						type: 'string',
 						description: 'Category for grouping in the index, e.g. decision | entity | experiment | constraint | reference.',
