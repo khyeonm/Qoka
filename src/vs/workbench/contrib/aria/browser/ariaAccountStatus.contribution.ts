@@ -9,6 +9,7 @@ import { localize } from '../../../../nls.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { AuthenticationSession, IAuthenticationService } from '../../../services/authentication/common/authentication.js';
@@ -51,6 +52,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		@ICommandService private readonly commandService: ICommandService,
 		@IStorageService private readonly storageService: IStorageService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
+		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 	) {
 		super();
 
@@ -150,16 +152,27 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		}
 	}
 
-	/** Signed-out state: a single "Sign in" item at the bottom-right. */
+	/** Signed-out state: "Change project" + "Sign in" at the bottom-right, no account
+	 *  label (there is no signed-in user to name). Change project stays because it
+	 *  works without a session; Sign in replaces the account + Sign out entries. */
 	private paintSignedOut(): void {
 		this.disposeEntries();
+
+		this.changeProjectEntry = this.statusbarService.addEntry({
+			name: localize('aria.changeProject.name', "Change project"),
+			text: localize('aria.changeProject.text', "Change project"),
+			ariaLabel: localize('aria.changeProject.ariaLabel', "Change project"),
+			tooltip: localize('aria.changeProject.tooltip', "Open a different project"),
+			command: CHANGE_PROJECT_COMMAND,
+		}, 'aria.switchProject', StatusbarAlignment.RIGHT, 99);
+
 		this.signInEntry = this.statusbarService.addEntry({
 			name: localize('aria.signin.name', "Sign in"),
 			text: localize('aria.signin.text', "$(account) Sign in"),
 			ariaLabel: localize('aria.signin.text', "$(account) Sign in"),
 			tooltip: localize('aria.signin.tooltip', "Sign in to Qoka (optional)"),
 			command: SIGN_IN_COMMAND,
-		}, 'aria.signin', StatusbarAlignment.RIGHT, 100);
+		}, 'aria.signin', StatusbarAlignment.RIGHT, 98);
 	}
 
 	private paint(label: string): void {
@@ -232,26 +245,25 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		});
 	}
 
-	/** Sign in from within a project (Settings / status bar). Runs the auth flow,
-	 *  then reloads THIS window so auth-dependent services (global memory, MCP) pick
-	 *  up the session while staying in the same project. Passing no scope lets the
-	 *  aria-authentication extension show its ORCID/Google picker. */
+	/** Sign in from within a project (Settings / status bar). Returns to the initial
+	 *  login screen (with its guidance copy) rather than an inline popup: remember the
+	 *  current project so we can reopen it after login, drop any "skipped" guest flag
+	 *  so the login screen shows, then close the folder -> empty workbench -> the
+	 *  Started overlay shows login. After a successful login the overlay reopens the
+	 *  remembered project (see SIGNIN_RETURN_TO in ariaStartedOverlay). */
 	private async signIn(): Promise<void> {
 		console.log('[aria] sign in triggered');
 		try {
-			await this.authService.createSession(AUTH_ID, []);
-		} catch (e) {
-			// Cancelled / failed: onDidChangeSessions won't fire, so nothing to do.
-			console.log('[aria] sign in cancelled/failed:', (e as Error)?.message);
-			return;
-		}
-		// Forget any "skipped sign-in" guest flag so the app treats us as signed in.
+			const folder = this.contextService.getWorkspace().folders[0];
+			if (folder) {
+				localStorage.setItem('aria.signin.returnTo', folder.uri.toString());
+			}
+		} catch { /* ignore - no folder to remember */ }
 		try { localStorage.removeItem('aria.login.skipped'); } catch { /* ignore */ }
 		try {
-			await this.commandService.executeCommand('workbench.action.reloadWindow');
+			await this.commandService.executeCommand('workbench.action.closeFolder');
 		} catch {
-			// Reload unavailable: at least repaint from the new session.
-			void this.refresh();
+			// Already an empty workbench: the overlay's login screen is (or will be) up.
 		}
 	}
 

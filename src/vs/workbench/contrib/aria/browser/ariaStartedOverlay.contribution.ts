@@ -102,6 +102,10 @@ const WANT_PICKER_FLAG = 'aria.started.wantPicker';
  *  straight to the picker/project instead of the login gate. Cleared when the user
  *  actually signs in. The user can still sign in anytime from Settings. */
 const LOGIN_SKIPPED_FLAG = 'aria.login.skipped';
+/** Set (localStorage) by the "Sign in" action when it closes a project to send the
+ *  user back to the login screen. Value = the project's folder URI. After a
+ *  successful login the overlay consumes it and reopens that project. */
+const SIGNIN_RETURN_TO = 'aria.signin.returnTo';
 
 /** Per-window-session guard so an auto-reopen that somehow lands back on an EMPTY
  *  workbench (e.g. the recent folder was deleted) can't spin in a reopen loop.
@@ -941,6 +945,24 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// First-run AI-assistant step: signed in but hasn't chosen an AI yet.
 		// Blocks the mode/project picker until a provider is chosen (and at
 		// least one chosen provider is installed).
+		// Post sign-in return: a "Sign in" action (status bar / Settings) closed the
+		// project and sent us to the login screen. Now that we are authenticated,
+		// reopen the project we left - straight to it, skipping the AI re-picker (an
+		// already-onboarded user is the only one who can reach this).
+		if (this.ariaSession) {
+			let signinReturnTo: string | null = null;
+			try { signinReturnTo = localStorage.getItem(SIGNIN_RETURN_TO); } catch { /* ignore */ }
+			if (signinReturnTo) {
+				try { localStorage.removeItem(SIGNIN_RETURN_TO); } catch { /* ignore */ }
+				pushTrail(`render: sign-in return -> reopening ${signinReturnTo}`);
+				const uri = URI.parse(signinReturnTo);
+				this.pickAndDismiss(() => {
+					void this.hostService.openWindow([{ folderUri: uri }], { forceReuseWindow: true });
+				});
+				return;
+			}
+		}
+
 		if (!hasPickedAiProvider()) {
 			this.renderAiProviderSection(content);
 			return;

@@ -13,6 +13,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IAuthenticationService } from '../../../services/authentication/common/authentication.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
@@ -50,6 +51,7 @@ export class AriaMemoryEditorPane extends EditorPane {
 		@ICommandService private readonly commandService: ICommandService,
 		@IDialogService private readonly dialogService: IDialogService,
 		@INotificationService private readonly notificationService: INotificationService,
+		@IAuthenticationService private readonly authenticationService: IAuthenticationService,
 	) {
 		super(AriaMemoryEditorPane.ID, group, telemetryService, themeService, storageService);
 	}
@@ -92,9 +94,10 @@ export class AriaMemoryEditorPane extends EditorPane {
 
 	// --- shared UI helpers --------------------------------------------------
 
-	/** A section shell: a header row (title left, Refresh right), a one-line
-	 *  explainer, and an empty body element the caller fills. Returns the body. */
-	private makeSection(column: HTMLElement, title: string, explainer: string, first: boolean, onRefresh: () => void): HTMLElement {
+	/** A section shell: a header row (title left; an add "+" and a refresh icon at the
+	 *  right end, like the Paper Library), a one-line explainer, and an empty body
+	 *  element the caller fills. Returns the body. */
+	private makeSection(column: HTMLElement, title: string, explainer: string, first: boolean, onAdd: () => void, onRefresh: () => void): HTMLElement {
 		const wrap = append(column, $('div'));
 		if (!first) {
 			Object.assign(wrap.style, {
@@ -103,15 +106,14 @@ export class AriaMemoryEditorPane extends EditorPane {
 			});
 		}
 		const head = append(wrap, $('div'));
-		Object.assign(head.style, { display: 'flex', alignItems: 'center', gap: '10px', minHeight: '22px' });
+		Object.assign(head.style, { display: 'flex', alignItems: 'center', gap: '12px', minHeight: '22px' });
 		const titleEl = append(head, $('div'));
 		titleEl.textContent = title;
 		Object.assign(titleEl.style, { fontSize: '15px', fontWeight: '700', flex: '1 1 auto' });
-		const refresh = append(head, $('button')) as HTMLButtonElement;
-		refresh.textContent = 'Refresh';
-		this.styleSecondaryButton(refresh);
-		refresh.title = 'Reload this list';
-		refresh.onclick = () => onRefresh();
+		const addBtn = this.iconButton(head, 'add', 'Add a memory');
+		addBtn.onclick = () => onAdd();
+		const refreshBtn = this.iconButton(head, 'refresh', 'Reload this list');
+		refreshBtn.onclick = () => onRefresh();
 
 		const sub = append(wrap, $('div'));
 		sub.textContent = explainer;
@@ -182,8 +184,21 @@ export class AriaMemoryEditorPane extends EditorPane {
 			renderList();
 		};
 
-		const body = this.makeSection(column, 'This project', 'Memory used only in this project.', first, () => void refresh());
-		const addHost = append(body, $('div'));
+		const ctx: { addHost?: HTMLElement } = {};
+		const showAdd = () => {
+			const host = ctx.addHost;
+			if (!host) { return; }
+			const form = this.buildProjectForm(undefined, async (data) => {
+				await this.commandService.executeCommand('aria.memory.tab.projectSave', data);
+				clearNode(host);
+				await refresh();
+			}, () => clearNode(host));
+			clearNode(host);
+			host.appendChild(form);
+		};
+
+		const body = this.makeSection(column, 'This project', 'Memory used only in this project.', first, showAdd, () => void refresh());
+		ctx.addHost = append(body, $('div'));
 		this.makeSearch(body, q => { query = q; renderList(); });
 		const list = append(body, $('div'));
 
@@ -200,25 +215,7 @@ export class AriaMemoryEditorPane extends EditorPane {
 			}
 		};
 
-		this.renderProjectAdd(addHost, refresh);
 		void refresh();
-	}
-
-	private renderProjectAdd(host: HTMLElement, refresh: () => Promise<void>): void {
-		clearNode(host);
-		const addBtn = append(host, $('button')) as HTMLButtonElement;
-		addBtn.textContent = '+ Add';
-		this.styleSecondaryButton(addBtn);
-		addBtn.style.marginBottom = '12px';
-		addBtn.onclick = () => {
-			const form = this.buildProjectForm(undefined, async (data) => {
-				await this.commandService.executeCommand('aria.memory.tab.projectSave', data);
-				await refresh();
-				this.renderProjectAdd(host, refresh);
-			}, () => this.renderProjectAdd(host, refresh));
-			clearNode(host);
-			host.appendChild(form);
-		};
 	}
 
 	private buildProjectForm(existing: ProjectMemory | undefined, onSave: (data: { title: string; type: string; body: string; originalSlug?: string }) => Promise<void>, onCancel: () => void): HTMLElement {
@@ -313,22 +310,42 @@ export class AriaMemoryEditorPane extends EditorPane {
 			render();
 		};
 
-		const body = this.makeSection(column, 'Global', 'Things Qoka remembers about you across all your projects.', first, () => void refresh());
+		const ctx: { addHost?: HTMLElement } = {};
+		const showAdd = () => {
+			const host = ctx.addHost;
+			if (!host) { return; } // signed out: nothing to add to
+			const form = $('div');
+			Object.assign(form.style, { display: 'flex', flexDirection: 'column', gap: '8px', margin: '4px 0 14px', padding: '10px', borderRadius: '6px', border: '1px solid var(--vscode-editorWidget-border, rgba(127,127,127,0.25))' });
+			const area = append(form, $('textarea')) as HTMLTextAreaElement;
+			area.placeholder = 'Something Qoka should remember about you (e.g. your field, how you like to work)';
+			area.rows = 2;
+			this.styleField(area);
+			area.style.resize = 'vertical';
+			this.formButtons(form,
+				async () => {
+					if (!area.value.trim()) { return; }
+					await this.commandService.executeCommand('aria.memory.tab.globalAdd', area.value.trim());
+					clearNode(host);
+					await refresh();
+				},
+				() => clearNode(host));
+			clearNode(host);
+			host.appendChild(form);
+		};
+
+		const body = this.makeSection(column, 'Global', 'Things Qoka remembers about you across all your projects.', first, showAdd, () => void refresh());
 		const container = append(body, $('div'));
 
 		const render = () => {
 			clearNode(container);
+			ctx.addHost = undefined;
 			if (!signedIn) {
 				const note = append(container, $('div'));
-				note.textContent = 'Sign in to let Qoka remember you across projects.';
-				Object.assign(note.style, { fontSize: '13px', opacity: '0.75', marginBottom: '12px' });
-				const signInBtn = append(container, $('button')) as HTMLButtonElement;
-				signInBtn.textContent = 'Sign in';
-				this.stylePrimaryButton(signInBtn);
-				signInBtn.onclick = () => { void this.commandService.executeCommand('aria.account.signIn'); };
+				note.textContent = 'Sign in to let Qoka remember you across all your projects.';
+				Object.assign(note.style, { fontSize: '13px', opacity: '0.75' });
 				return;
 			}
-			const addHost = append(container, $('div'));
+			ctx.addHost = append(container, $('div'));
 			this.makeSearch(container, q => { query = q; renderList(); });
 			const list = append(container, $('div'));
 
@@ -342,37 +359,17 @@ export class AriaMemoryEditorPane extends EditorPane {
 				for (const item of filtered) { this.renderGlobalItem(list, item, refresh); }
 			};
 
-			this.renderGlobalAdd(addHost, refresh);
 			renderList();
 		};
 
-		void refresh();
-	}
+		// Keep the global section honest across sign in / sign out: a session change
+		// (e.g. Sign out from the status bar) must re-check and clear the list, so
+		// signed-out never shows the previously-loaded memories.
+		this.sectionStore.add(this.authenticationService.onDidChangeSessions(e => {
+			if (e.providerId === 'aria') { void refresh(); }
+		}));
 
-	private renderGlobalAdd(host: HTMLElement, refresh: () => Promise<void>): void {
-		clearNode(host);
-		const addBtn = append(host, $('button')) as HTMLButtonElement;
-		addBtn.textContent = '+ Add';
-		this.styleSecondaryButton(addBtn);
-		addBtn.style.marginBottom = '12px';
-		addBtn.onclick = () => {
-			const form = $('div');
-			Object.assign(form.style, { display: 'flex', flexDirection: 'column', gap: '8px', margin: '4px 0 14px', padding: '10px', borderRadius: '6px', border: '1px solid var(--vscode-editorWidget-border, rgba(127,127,127,0.25))' });
-			const area = append(form, $('textarea')) as HTMLTextAreaElement;
-			area.placeholder = 'Something Qoka should remember about you (e.g. your field, how you like to work)';
-			area.rows = 2;
-			this.styleField(area);
-			area.style.resize = 'vertical';
-			this.formButtons(form,
-				async () => {
-					if (!area.value.trim()) { return; }
-					await this.commandService.executeCommand('aria.memory.tab.globalAdd', area.value.trim());
-					await refresh();
-				},
-				() => this.renderGlobalAdd(host, refresh));
-			clearNode(host);
-			host.appendChild(form);
-		};
+		void refresh();
 	}
 
 	private renderGlobalItem(list: HTMLElement, item: GlobalMemory, refresh: () => Promise<void>): void {
@@ -438,7 +435,7 @@ export class AriaMemoryEditorPane extends EditorPane {
 		});
 	}
 
-	private iconButton(parent: HTMLElement, codicon: 'edit' | 'trash', title: string): HTMLElement {
+	private iconButton(parent: HTMLElement, codicon: 'edit' | 'trash' | 'add' | 'refresh', title: string): HTMLElement {
 		const btn = append(parent, $(`a.codicon.codicon-${codicon}`));
 		Object.assign(btn.style, { cursor: 'pointer', opacity: '0.7', fontSize: '15px' });
 		btn.title = title;
