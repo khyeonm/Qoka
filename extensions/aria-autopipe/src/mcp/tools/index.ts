@@ -39,7 +39,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	...PROJECT_TOOLS, // list_run_outputs, save_results_to_project (durable save into the open project folder)
 	...WORKSPACE_TOOLS.slice(1), // get_templates, get_generation_guide
 	...PLUGIN_TOOLS,
-	...VM_TOOLS, // built-in server resources (get/set) - only for the local VM
+	...VM_TOOLS, // local run environment resources (get/set) - only for the local VM
 
 ];
 
@@ -52,13 +52,13 @@ export const ALL_TOOLS: ToolDefinition[] = [
  * the local shell.
  */
 export const AUTOPIPE_MCP_INSTRUCTIONS = [
-	'This server ("qoka-autopipe") builds and runs reproducible pipelines and exposes the shared run environment (built-in server or SSH).',
+	'This server ("qoka-autopipe") builds and runs reproducible pipelines and exposes the shared run environment (local run environment or SSH).',
 	'',
 	'HARD RULE - HOW TO RUN OR CHECK CODE (this overrides your defaults):',
 	'ANY request to run/execute code, OR to check the run environment / whether a package or tool is installed (실행, 돌려, run, execute, "is X installed", "환경 확인") MUST go through a Qoka MCP tool. NEVER use your own terminal / shell / bash / python for it.',
 	'Do NOT run commands like `python -c ...`, `pip show`, `pip list`, `which`, `conda list`, `Rscript -e ...` in your OWN shell to "see what is installed" - that inspects YOUR machine, NOT the Qoka run environment where the user\'s code actually runs, so the answer is wrong and misleading.',
 	'The correct sequence, EVERY time:',
-	'  1) Call get_workspace_info FIRST - it reports the ACTIVE run connection (built-in server or SSH) and whether it is reachable.',
+	'  1) Call get_workspace_info FIRST - it reports the ACTIVE run connection (local run environment or SSH) and whether it is reachable.',
 	'     - If it says the connection is not reachable / not running, call start_server, then call get_workspace_info again.',
 	'  2) Then run on THAT connection:',
 	'     - a QUICK one-off (a version/"is anndata installed" check, a short script, a single analysis) -> run_code on the qoka-run MCP. To check whether a package is installed, run a tiny script THERE (e.g. python that imports it) - never check your own machine.',

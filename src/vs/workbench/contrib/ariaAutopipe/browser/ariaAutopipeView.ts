@@ -12,7 +12,10 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
-import { isLinux } from '../../../../base/common/platform.js';
+import { isLinux, isWindows } from '../../../../base/common/platform.js';
+
+/** User-facing name for the built-in local run target, by platform (row hidden on Linux). */
+const BUILTIN_LABEL = isWindows ? 'Local (WSL)' : 'Local (vfkit)';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -290,7 +293,7 @@ export class AriaAutopipeView extends ViewPane {
 		desc.style.marginBottom = '8px';
 		desc.textContent = isLinux
 			? 'The AI builds and runs your pipelines and shows results. Press + to connect your lab server.'
-			: 'The AI builds and runs your pipelines and shows results. Uses the built-in server, or press + to connect your own lab server.';
+			: `The AI builds and runs your pipelines and shows results. Uses ${BUILTIN_LABEL}, or press + to connect your own lab server.`;
 
 		const profiles = status.sshProfiles ?? [];
 		const activeId = status.sshActiveProfileId ?? null;
@@ -364,7 +367,7 @@ export class AriaAutopipeView extends ViewPane {
 		const text = append(row, $('div'));
 		text.style.flex = '1';
 		const title = append(text, $('div'));
-		title.textContent = 'Qoka built-in server';
+		title.textContent = BUILTIN_LABEL;
 		title.style.fontSize = '12px';
 		// Subtitle carries the live status instead of a separate button: idle, or
 		// downloading / starting / running / error while it's the active target.
@@ -387,7 +390,7 @@ export class AriaAutopipeView extends ViewPane {
 		// Gear on the right → simple resource settings (memory / CPU) for the
 		// built-in server. Stops propagation so it doesn't also toggle the row.
 		const gear = append(row, $('span.codicon.codicon-settings-gear')) as HTMLElement;
-		gear.title = 'Built-in server settings (memory, CPU)';
+		gear.title = `${BUILTIN_LABEL} settings (memory, CPU)`;
 		Object.assign(gear.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
 		gear.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.vm.editResources').then(() => this.refresh()); };
 

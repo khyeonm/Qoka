@@ -17,8 +17,8 @@ import {
 
 /**
  * Durable-save tools: copy autopipe pipeline CODE and selected RESULTS from the
- * run target (the built-in VM or a remote SSH host - both are SshProfiles) into
- * the user's open VS Code workspace folder. The built-in VM's disk is scratch
+ * run target (the local VM or a remote SSH host - both are SshProfiles) into
+ * the user's open VS Code workspace folder. The local VM's disk is scratch
  * (wiped on base-image updates), so the project folder is the only durable home.
  *
  * Conversational flow the assistant should follow (encoded in the descriptions
@@ -40,7 +40,7 @@ function requireProfile() {
 }
 
 // "This copy will take a while" thresholds - profile-aware, because transfer
-// speed differs by an order of magnitude. The built-in VM is a 127.0.0.1 loopback
+// speed differs by an order of magnitude. The local VM is a 127.0.0.1 loopback
 // (hundreds of MB/s), so even several GB copy in seconds - only warn when it's
 // genuinely huge. A remote SSH host is a real network where ~1 GB already takes
 // minutes on a typical connection. The gate only WARNS (needs confirm_large); it
@@ -48,7 +48,7 @@ function requireProfile() {
 function largeCopyThresholds(profile: SshProfile): { total: number; single: number } {
 	const GB = 1024 * 1024 * 1024;
 	return profile.id === LOCAL_VM_ID
-		? { total: 5 * GB, single: 5 * GB }   // built-in VM (loopback): only very large
+		? { total: 5 * GB, single: 5 * GB }   // local VM (loopback): only very large
 		: { total: 1 * GB, single: 1 * GB };  // remote SSH: ~1 GB starts to drag
 }
 
@@ -107,7 +107,7 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
 			+ 'ALWAYS: (1) copies the pipeline CODE, and (2) writes an input MANIFEST (file list + sizes, NOT the input bytes). '
 			+ 'OUTPUT files are copied only when you pass `files` (relative paths from list_run_outputs); omit `files` to save just code + manifest. '
 			+ 'Recommended flow: call list_run_outputs first, ASK the user which files to save, then call this. Do NOT ask about pipeline code - it is always saved. '
-			+ 'SIZE GATE: if the selection is big enough to take a while to transfer (~1 GB+ on a remote host; only much larger on the fast built-in VM), this tool does NOT copy - it returns a warning with the total size. When that happens, tell the user it may take a while, get their OK, then call again with the SAME files and confirm_large: true. '
+			+ 'SIZE GATE: if the selection is big enough to take a while to transfer (~1 GB+ on a remote host; only much larger on the fast local VM), this tool does NOT copy - it returns a warning with the total size. When that happens, tell the user it may take a while, get their OK, then call again with the SAME files and confirm_large: true. '
 			+ 'Copies stream over SFTP (memory-safe for multi-GB files). Returns a per-file success/failure summary; if a file fails, tell the user it can be listed with list_files. '
 			+ 'No-ops with a clear message if no project folder is open.',
 		inputSchema: {

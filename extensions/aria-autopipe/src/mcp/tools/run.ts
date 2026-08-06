@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -15,15 +16,15 @@ import { humanSize } from '../../common/workspaceSync';
 import { openResultsInEditor, describeOpenedResults } from '../../common/openResults';
 
 /**
- * qoka-run MCP: run a short, self-contained script on the Qoka built-in server
+ * qoka-run MCP: run a short, self-contained script on the Qoka local run environment
  * (the SAME WSL distro / VM autopipe uses - shared via VMManager) for quick,
  * one-off tasks. Distinct from autopipe, which builds reproducible multi-step
  * pipelines.
  *
  * Results land in the project's `results/<run-name>/` folder (the script in `analysis/<run-name>/`), whichever
- * target ran them. On Windows the built-in server is WSL, so the run dir IS the
+ * target ran them. On Windows the local run environment is WSL, so the run dir IS the
  * project's analysis dir seen through the /mnt mount - the code writes straight
- * to local disk, no copy. Everywhere else (Mac/Linux built-in VM, and ANY remote
+ * to local disk, no copy. Everywhere else (Mac/Linux local VM, and ANY remote
  * SSH server) the run dir lives on the server and is SFTP-copied back into
  * results/<run-name>/ before this tool returns, so the AI never has to read the
  * files over SSH and re-write them locally by hand.
@@ -31,7 +32,7 @@ import { openResultsInEditor, describeOpenedResults } from '../../common/openRes
 
 type Lang = 'bash' | 'python' | 'node';
 
-// How each language is executed on the built-in server. Python ALWAYS runs via
+// How each language is executed on the local run environment. Python ALWAYS runs via
 // `uv run` so third-party packages (scanpy, numpy, …) resolve automatically from
 // the script's inline dependency metadata. `--no-project` keeps uv from adopting
 // a pyproject.toml that happens to sit above the analysis dir - the run stays a
@@ -133,11 +134,29 @@ function slugify(label: string): string {
 		.replace(/-+$/g, '');
 }
 
+/** Stable per-project key for the WSL bubblewrap sandbox home
+ *  (`~/.qoka/sandboxes/<key>`). Derived from the OPEN workspace's absolute path so
+ *  the SAME project always maps to the SAME sandbox (its installs/venvs persist and
+ *  are reused), while two different folders - even same-named - get distinct keys
+ *  via the path hash. Readable folder-name prefix + short hash for uniqueness. */
+function projectSandboxKey(root: string): string {
+	const base = slugify(path.basename(root)) || 'project';
+	const hash = crypto.createHash('sha256').update(root).digest('hex').slice(0, 8);
+	return `${base}-${hash}`;
+}
+
+/** Human label for the built-in run target, by platform. */
+function builtInLabel(): string {
+	return process.platform === 'win32' ? 'Local (WSL)'
+		: process.platform === 'darwin' ? 'Local (vfkit)'
+			: 'Local (VM)';
+}
+
 export const RUN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'run_code',
 		description:
-			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the qoka-autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (qoka-autopipe MCP) first to confirm the ACTIVE connection - the built-in server OR the SSH server selected in the Settings tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work: results/rna-velocity-umap/ for outputs, analysis/rna-velocity-umap/ for the script instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
+			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the qoka-autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (qoka-autopipe MCP) first to confirm the ACTIVE connection - the local run environment OR the SSH server selected in the Settings tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work: results/rna-velocity-umap/ for outputs, analysis/rna-velocity-umap/ for the script instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
@@ -172,10 +191,10 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const deps = Array.isArray(args.dependencies) ? args.dependencies.map(d => String(d)).filter(Boolean) : [];
 				const timeoutMs = Math.max(1000, Math.min(900_000, Math.round(Number(args.timeout_s ?? 300) * 1000)));
 
-				// Run on the ACTIVE connection (built-in server or an SSH server),
+				// Run on the ACTIVE connection (local run environment or an SSH server),
 				// chosen in the Settings tab - shared with autopipe.
 				const { profile: ep, isBuiltIn } = await resolveRunTarget();
-				target = isBuiltIn ? 'the built-in server' : `the SSH server ${ep.username}@${ep.host}:${ep.port}`;
+				target = isBuiltIn ? builtInLabel() : `the SSH server ${ep.username}@${ep.host}:${ep.port}`;
 				const { ssh } = services();
 				const spec = LANGS[language];
 				const file = spec.file;
@@ -189,12 +208,16 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const baseSlug = slugify(typeof args.label === 'string' ? args.label : '') || timestampId();
 				const id = uniqueRunName(baseSlug);
 
-				// Decide where the run dir lives. On Windows the built-in server is WSL,
+				// Decide where the run dir lives. On Windows the local run environment is WSL,
 				// so write straight into analysis/<id>/ through the /mnt mount (outputs
-				// are then already local). Elsewhere - Mac/Linux built-in VM, or ANY
+				// are then already local). Elsewhere - Mac/Linux local VM, or ANY
 				// remote SSH host, neither of which can see the local /mnt path - the
 				// run dir lives on the server and is SFTP-copied back below.
-				const mounted = isBuiltIn && process.platform === 'win32' && !!wsRoot;
+				const isWslBuiltin = isBuiltIn && process.platform === 'win32';
+				const mounted = isWslBuiltin && !!wsRoot;
+				// Per-project sandbox key (WSL bubblewrap home). Falls back to a shared
+				// scratch sandbox when no project is open.
+				const projectKey = wsRoot ? projectSandboxKey(wsRoot) : '_scratch';
 				// Shell EXPRESSION for the run dir, evaluated by the remote shell. The
 				// non-mounted form must stay unquoted-$HOME so the shell expands it:
 				// quoting it (or handing the literal to SFTP) creates a directory
@@ -218,7 +241,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					const repo = (ep.repo_path ?? '').trim().replace(/\/+$/, '').replace(/^~(?=\/|$)/, '$HOME');
 					runDirExpr = repo ? `"${repo}/analysis/${id}"` : `"$HOME/qoka-analysis/${id}"`;
 				} else {
-					// Built-in VM (Mac/Linux): a scratch guest whose results are copied
+					// Local VM (Mac/Linux): a scratch guest whose results are copied
 					// back into the project, so its own home is fine.
 					runDirExpr = `"$HOME/qoka-analysis/${id}"`;
 				}
@@ -246,18 +269,75 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					} catch { /* best-effort - the run still proceeds */ }
 				}
 				const encoded = Buffer.from(source, 'utf8').toString('base64');
-				const ensure = language === 'python' ? `${ENSURE_UV}; ` : '';
-				// ONE login for the whole run: mkdir + write the script + execute +
-				// report the resolved dir and the files produced. This used to be four
-				// separate connections, and servers that rate-limit rapid logins started
-				// refusing them partway through ("All configured authentication methods
-				// failed"). It also gets us the ABSOLUTE run dir ($HOME expanded by the
-				// remote shell), which the SFTP copy-back needs.
+				const ensure = language === 'python' ? `${ENSURE_UV}\n` : '';
+				const runCmd = spec.run(file);
+				// The block that runs the user's code and writes stdout.log / stderr.log into
+				// the run dir. On the WSL local run environment it runs inside a PER-PROJECT
+				// bubblewrap sandbox so the code - and anything it installs - can only touch
+				// this project's sandbox home (mounted as HOME) + its run/data dirs; the rest
+				// of WSL and all of Windows are simply absent inside. Every other target (an
+				// SSH server, the Mac/Linux VM) already isolates the run and executes directly.
+				let execBlock: string;
+				if (isWslBuiltin) {
+					// Per-project env on the ext4 side (fast; off /mnt so venvs skip the drvfs
+					// penalty). Mounted as HOME=/home/qoka inside the sandbox (a FIXED inside
+					// path, so venv shebangs stay valid across runs AND the real ~/.qoka tree is
+					// never visible - a run can't see or reach sibling projects). uv/micromamba/
+					// pip therefore install into THIS project's dir, never the WSL user's home.
+					const sbx = `"$HOME/.qoka/sandboxes/${projectKey}"`;
+					// Runner carries PATH + install + run, base64-fed to a file in the sandbox
+					// home so its own quoting can't collide with the outer shell AND $HOME
+					// resolves to the sandbox (bwrap --setenv), not the WSL user home.
+					const runnerB64 = Buffer.from(
+						`export PATH="/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"\n${ensure}${runCmd}\n`,
+						'utf8').toString('base64');
+					const dataDir = mounted && wsRoot ? path.join(wsRoot, 'data') : undefined;
+					const dataBind = dataDir && fs.existsSync(dataDir)
+						? `--ro-bind '${windowsToWsl(dataDir)}' '${windowsToWsl(dataDir)}' `
+						: '';
+					execBlock = [
+						// bwrap missing (not yet provisioned) -> run directly with a VISIBLE
+						// warning rather than hard-failing mid-rollout; provisioning installs
+						// bubblewrap on the next Qoka launch.
+						'if command -v bwrap >/dev/null 2>&1; then',
+						`  mkdir -p ${sbx}`,
+						`  printf '%s' '${runnerB64}' | base64 -d > ${sbx}/.qoka-run.sh`,
+						// /etc/resolv.conf on WSL is a SYMLINK (usually -> /mnt/wsl/resolv.conf), so
+						// binding /etc alone leaves a DANGLING link inside and DNS fails. Bind the
+						// symlink's REAL target at its own path so the link resolves - this exposes
+						// only that single resolv.conf file, never the rest of /mnt (/mnt/c stays
+						// invisible). When resolv.conf is a regular file this binds it over itself.
+						'  QOKA_RESOLV="$(readlink -f /etc/resolv.conf 2>/dev/null || echo /etc/resolv.conf)"',
+						'  bwrap \\',
+						'    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind-try /sbin /sbin \\',
+						'    --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\',
+						'    --ro-bind /etc /etc --ro-bind-try "$QOKA_RESOLV" "$QOKA_RESOLV" \\',
+						'    --proc /proc --dev /dev --tmpfs /tmp \\',
+						`    --bind ${sbx} /home/qoka \\`,
+						`    --bind ${runDirExpr} ${runDirExpr} \\`,
+						`    ${dataBind}--chdir ${runDirExpr} --setenv HOME /home/qoka \\`,
+						'    --unshare-all --share-net --die-with-parent \\',
+						'    bash /home/qoka/.qoka-run.sh > stdout.log 2> stderr.log',
+						'else',
+						'  echo "[qoka] bubblewrap not installed in the run environment - running WITHOUT sandbox isolation. Restart Qoka to finish setup." >&2',
+						'  export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
+						`  ${ensure}${runCmd} > stdout.log 2> stderr.log`,
+						'fi',
+					].join('\n');
+				} else {
+					execBlock = 'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"\n'
+						+ `${ensure}${runCmd} > stdout.log 2> stderr.log`;
+				}
+				// ONE login for the whole run: mkdir + write the script + execute + report
+				// the resolved dir and the files produced. Kept to a single connection
+				// because servers that rate-limit rapid logins refuse a burst partway
+				// through; it also yields the ABSOLUTE run dir ($HOME expanded remotely),
+				// which the SFTP copy-back needs.
 				const script = [
 					'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
 					`mkdir -p ${runDirExpr} && cd ${runDirExpr} || exit 97`,
 					`echo '${encoded}' | base64 -d > '${file}'`,
-					`${ensure}${spec.run(file)} > stdout.log 2> stderr.log`,
+					execBlock,
 					'__rc=$?',
 					'cat stdout.log',
 					'cat stderr.log >&2',
@@ -298,7 +378,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				}
 
 				const lines: string[] = [];
-				const targetLabel = isBuiltIn ? 'the built-in server' : `the SSH server ${ep.username}@${ep.host}:${ep.port}`;
+				const targetLabel = isBuiltIn ? builtInLabel() : `the SSH server ${ep.username}@${ep.host}:${ep.port}`;
 				lines.push(`Ran ${language} on ${targetLabel} (exit ${r.exitCode}).`);
 				lines.push('');
 				lines.push('stdout:');
@@ -389,7 +469,7 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'Sequence, every time: (1) call get_workspace_info (qoka-autopipe MCP) to confirm the ACTIVE run connection is reachable - if not, call start_server then re-check; (2) then run_code here (quick) or execute_pipeline on autopipe (pipeline).',
 	'FALLBACK: if you ever run something in your own terminal and it errors or looks wrong, STOP - that was the wrong tool. Call get_workspace_info to find the run environment and redo it with run_code.',
 	'',
-	'WHERE it runs: run_code executes on the ACTIVE Qoka connection - the built-in server OR the SSH server the user selected in the Settings tab - the SAME target autopipe pipelines use. They are NOT separate servers: whichever connection is active runs BOTH quick code (run_code) AND autopipe pipelines. So run_code CAN run on an SSH server, and autopipe CAN run on the built-in server. The run_code result states which target it actually used - relay that to the user so they know where it ran.',
+	'WHERE it runs: run_code executes on the ACTIVE Qoka connection - the local run environment OR the SSH server the user selected in the Settings tab - the SAME target autopipe pipelines use. They are NOT separate servers: whichever connection is active runs BOTH quick code (run_code) AND autopipe pipelines. So run_code CAN run on an SSH server, and autopipe CAN run on the local run environment. The run_code result states which target it actually used - relay that to the user so they know where it ran.',
 	'',
 	'NEVER run the user\'s code in your own terminal/shell. To run/execute code (실행/돌려) you MUST call a Qoka MCP tool: run_code (this server) for a quick one-off script, or the qoka-autopipe MCP for a reproducible multi-step pipeline. Falling back to the local terminal is WRONG - it bypasses the Qoka run environment.',
 	'',

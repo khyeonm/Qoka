@@ -231,6 +231,12 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		// server, which autopipe uses without uv. UV_NO_MODIFY_PATH stops the
 		// installer editing shell profiles (the dir is already on PATH).
 		'if ! command -v curl >/dev/null 2>&1; then apt_install curl; fi',
+		// bubblewrap (bwrap): the sandbox qoka-run's run_code wraps every execution in,
+		// so code (and anything it installs) can only touch its per-project sandbox home
+		// + run/data dirs, never the rest of WSL or Windows. Best-effort (|| true): a
+		// bwrap install failure must NOT block the built-in server; run_code then falls
+		// back to a visible unsandboxed warning until the next launch reprovisions.
+		'if ! command -v bwrap >/dev/null 2>&1; then apt_install bubblewrap || true; fi',
 		'if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh || true; fi',
 		// Host keys + run dir so the keeper's foreground sshd can start.
 		'ssh-keygen -A',

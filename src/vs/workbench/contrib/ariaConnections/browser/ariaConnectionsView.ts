@@ -12,7 +12,10 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
-import { isLinux } from '../../../../base/common/platform.js';
+import { isLinux, isWindows } from '../../../../base/common/platform.js';
+
+/** User-facing name for the built-in local run target, by platform (row hidden on Linux). */
+const BUILTIN_LABEL = isWindows ? 'Local (WSL)' : 'Local (vfkit)';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -201,7 +204,7 @@ export class AriaConnectionsView extends ViewPane {
 		desc.style.marginBottom = '8px';
 		desc.textContent = isLinux
 			? 'Manage where your code runs. Press + to connect an SSH server to run there.'
-			: 'Manage where your code runs. Use the built-in server, or connect an SSH server to run there.';
+			: `Manage where your code runs. Use ${BUILTIN_LABEL}, or connect an SSH server to run there.`;
 
 		const profiles = status.sshProfiles ?? [];
 		const activeId = status.sshActiveProfileId ?? null;
@@ -307,7 +310,7 @@ export class AriaConnectionsView extends ViewPane {
 		const text = append(row, $('div'));
 		text.style.flex = '1';
 		const title = append(text, $('div'));
-		title.textContent = 'Qoka built-in server';
+		title.textContent = BUILTIN_LABEL;
 		title.style.fontSize = '12px';
 		const sub = append(text, $('div'));
 		// When it isn't the selected target, say so plainly ("Not in use") rather than
@@ -330,7 +333,7 @@ export class AriaConnectionsView extends ViewPane {
 		Object.assign(sub.style, { fontSize: '10.5px', opacity: '0.6' });
 
 		const gear = append(row, $('span.codicon.codicon-settings-gear')) as HTMLElement;
-		gear.title = 'Built-in server settings (memory, CPU)';
+		gear.title = `${BUILTIN_LABEL} settings (memory, CPU)`;
 		Object.assign(gear.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
 		gear.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('aria.autopipe.vm.editResources').then(() => this.refresh()); };
 

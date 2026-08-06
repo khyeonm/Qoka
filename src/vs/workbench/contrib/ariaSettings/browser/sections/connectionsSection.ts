@@ -16,6 +16,10 @@ interface VmStatus { status?: string; progress?: { message?: string; pct?: numbe
 
 const LOCAL_VM_ID = '__local_vm__';
 
+/** User-facing name for the built-in local run target, by platform. The row is
+ *  hidden on Linux, so only Windows (WSL) and Mac (vfkit) are shown. */
+const BUILTIN_LABEL = isWindows ? 'Local (WSL)' : 'Local (vfkit)';
+
 interface Draft { name: string; host: string; port: string; username: string; password: string; repoPath: string }
 const EMPTY_DRAFT: Draft = { name: '', host: '', port: '22', username: '', password: '', repoPath: '' };
 
@@ -34,7 +38,7 @@ const EMPTY_DRAFT: Draft = { name: '', host: '', port: '22', username: '', passw
 // without the run environment" during first-run setup) the row should say so. This
 // only appears in the not-ready states: once WSL + Ubuntu are installed and the
 // server is 'ready', the row reads "Connected", never this.
-const WSL_NEEDED_TEXT = 'WSL and Ubuntu must be installed to use the built-in server. See qoka.org for setup instructions.';
+const WSL_NEEDED_TEXT = 'WSL and Ubuntu must be installed to use Local (WSL). See qoka.org for setup instructions.';
 
 /** Did the user press "Continue without the run environment" during setup? A
  *  skipped user who is now 'stopped' means WSL/Ubuntu was never set up (a ready
@@ -135,7 +139,7 @@ export class ConnectionsSection extends SettingsSection {
 		clearNode(this.body);
 
 		const desc = append(this.body, $('div'));
-		desc.textContent = 'Choose where your code runs. Add an SSH server, or use the built-in server.';
+		desc.textContent = `Choose where your code runs. Add an SSH server, or use ${BUILTIN_LABEL}.`;
 		Object.assign(desc.style, { fontSize: '11px', opacity: '0.7', marginBottom: '10px' });
 
 		let activeDot: HTMLElement | undefined;
@@ -147,7 +151,7 @@ export class ConnectionsSection extends SettingsSection {
 		// Built-in server row (hidden on Linux, where SSH is the norm).
 		if (!isLinux) {
 			const active = activeId === LOCAL_VM_ID;
-			const { row, dot, sub } = this.serverRow('Qoka built-in server', builtinStatusText(active, vm, undefined), active);
+			const { row, dot, sub } = this.serverRow(BUILTIN_LABEL, builtinStatusText(active, vm, undefined), active);
 			if (active) { activeDot = dot; activeKind = 'vm'; builtinSub = sub; }
 			row.onclick = () => {
 				try { localStorage.removeItem('aria.autopipe.wslSetupSkipped'); } catch { /* ignore */ }

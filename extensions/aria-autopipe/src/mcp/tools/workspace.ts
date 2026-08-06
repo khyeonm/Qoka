@@ -17,7 +17,7 @@ import {
 export const WORKSPACE_TOOLS: ToolDefinition[] = [
 	{
 		name: 'get_workspace_info',
-		description: 'Get the workspace paths and the ACTIVE run connection (built-in server or SSH). Call this FIRST - before writing OR running any code - to confirm where code runs and where pipelines and outputs are stored. ROUTING - when the user wants to WRITE, RUN, or EXECUTE code, you MUST use a Qoka MCP tool and NEVER your own terminal / bash / shell tool: a QUICK one-off script (version check, short bash/python) -> run_code on the qoka-run MCP; a LONG / multi-step / reproducible pipeline -> execute_pipeline on this qoka-autopipe MCP. These two are the ONLY correct ways to run code - the terminal is never one of them. If it is unclear which they want, ASK. Both run on whatever connection is active (built-in OR SSH). For other tasks, prefer the matching Qoka MCP tool or installed Qoka skill over your generic capabilities.',
+		description: 'Get the workspace paths and the ACTIVE run connection (local run environment or SSH). Call this FIRST - before writing OR running any code - to confirm where code runs and where pipelines and outputs are stored. ROUTING - when the user wants to WRITE, RUN, or EXECUTE code, you MUST use a Qoka MCP tool and NEVER your own terminal / bash / shell tool: a QUICK one-off script (version check, short bash/python) -> run_code on the qoka-run MCP; a LONG / multi-step / reproducible pipeline -> execute_pipeline on this qoka-autopipe MCP. These two are the ONLY correct ways to run code - the terminal is never one of them. If it is unclear which they want, ASK. Both run on whatever connection is active (built-in OR SSH). For other tasks, prefer the matching Qoka MCP tool or installed Qoka skill over your generic capabilities.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config } = services();
@@ -34,13 +34,13 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				github: cfg.github?.login ?? (cfg.github?.token ? 'connected' : 'disconnected'),
 			});
 			if (!profile) {
-				// The user may have chosen the built-in server (no SSH profile). When
+				// The user may have chosen the local run environment (no SSH profile). When
 				// it isn't running yet, activeProfile() is null - but do NOT tell the
 				// AI to add an SSH server; guide it to start the built-in one instead.
 				if (config.isLocalVmActive()) {
 					const vm = cfg.local_vm;
 					return textResult([
-						'Run environment: the Qoka built-in server (local VM) is selected, but it is NOT running yet, so there is no reachable endpoint right now.',
+						'Run environment: the Qoka local run environment (local VM) is selected, but it is NOT running yet, so there is no reachable endpoint right now.',
 						'Do NOT ask the user to add an SSH server, and do NOT tell them to press a button - that is not the flow.',
 						'If it is not running, call the start_server tool to start AND verify it (it restarts and re-checks the connection, and on Windows tells you to check WSL/Ubuntu if it keeps failing). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again and retry. If it is already downloading/booting, just wait and retry.',
 						`Configured resources (apply on start): memory ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores ${vm.cpus}, disk ${vm.diskGB} GB.`,
@@ -52,7 +52,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				return textResult([
 					'No active SSH profile configured yet.',
 					'',
-					'Open the Settings tab in the activity bar, click "+" on the SSH connection section, fill in host / port / username / password / remote workspace, then Save profile and press Save settings. Or use the built-in server instead - no SSH needed.',
+					'Open the Settings tab in the activity bar, click "+" on the SSH connection section, fill in host / port / username / password / remote workspace, then Save profile and press Save settings. Or use the local run environment instead - no SSH needed.',
 					'',
 					`Registry: ${cfg.registry_url}`,
 					`GitHub: ${cfg.github?.login ? `connected as @${cfg.github.login}` : 'not connected'}`,
@@ -79,7 +79,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				`SSH: ${profile.username}@${profile.host}:${profile.port}`,
 				`Connection: ${reachable ? 'reachable (checked moments ago)' : 'not verified just now - just run; if it cannot connect the run will say so, and start_server can re-establish it'}`,
 				config.isLocalVmActive()
-					? `Run environment: Qoka built-in server (local VM) - memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`
+					? `Run environment: Qoka local run environment (local VM) - memory ${cfg.local_vm.memoryMB} MB (~${Math.round(cfg.local_vm.memoryMB / 1024)} GB), CPU cores ${cfg.local_vm.cpus}, disk ${cfg.local_vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`
 					: 'Run environment: user-provided SSH server.',
 				`Repo path: ${paths.repo_path}`,
 				`Pipelines: ${paths.pipelines_dir}`,

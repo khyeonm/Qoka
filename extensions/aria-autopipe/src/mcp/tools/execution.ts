@@ -225,7 +225,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'execute_pipeline',
-		description: 'Use this to RUN CODE that is a reproducible, multi-step pipeline (LONG / multi-step code, tracked inputs & outputs) in the background on the active run target (built-in server or SSH) via SSH. ROUTING - when the user asks to run / write / execute code, DECIDE which tool: a reproducible multi-step pipeline (inputs, outputs, several steps) -> this tool (execute_pipeline, autopipe); a QUICK one-off script (version check, short bash/python) -> run_code on the qoka-run MCP instead. run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. If it is unclear which the user wants, ASK them. NEVER run the code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG. Before running ANY code, ALWAYS call get_workspace_info first to confirm the active run connection (built-in server or SSH) where it will run, and tell the user. Outputs are stored at {configured_output_dir}/{run_name}/. Logs are written to {output_dir}/{run_name}/pipeline.log. This tool monitors the first ~90 seconds for early failures before returning. Snakemake automatically skips completed steps, so if a pipeline fails you can fix the code and re-run with the SAME run_name - only the failed and downstream steps will re-execute. Do NOT call cleanup_failed after execution failures; instead fix the Snakefile and re-run. Tell the user they can check progress later with list_running_pipelines, even from a new conversation session. When a run COMPLETES, the pipeline code is auto-saved into the open project folder (analysis/); then OFFER to save results durably: call list_run_outputs to show output files with sizes, ASK the user which to save (warn before copying large files), and call save_results_to_project. The run target (built-in VM) is a scratch disk, so results only persist once saved to the project. Multi-client note: this AutoPipe instance may be shared by multiple AI clients (Claude Desktop, Cursor, Codex, etc.); avoid running pipelines with the same run_name simultaneously from different clients - only one execution per run_name at a time.',
+		description: 'Use this to RUN CODE that is a reproducible, multi-step pipeline (LONG / multi-step code, tracked inputs & outputs) in the background on the active run target (local run environment or SSH) via SSH. ROUTING - when the user asks to run / write / execute code, DECIDE which tool: a reproducible multi-step pipeline (inputs, outputs, several steps) -> this tool (execute_pipeline, autopipe); a QUICK one-off script (version check, short bash/python) -> run_code on the qoka-run MCP instead. run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. If it is unclear which the user wants, ASK them. NEVER run the code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG. Before running ANY code, ALWAYS call get_workspace_info first to confirm the active run connection (local run environment or SSH) where it will run, and tell the user. Outputs are stored at {configured_output_dir}/{run_name}/. Logs are written to {output_dir}/{run_name}/pipeline.log. This tool monitors the first ~90 seconds for early failures before returning. Snakemake automatically skips completed steps, so if a pipeline fails you can fix the code and re-run with the SAME run_name - only the failed and downstream steps will re-execute. Do NOT call cleanup_failed after execution failures; instead fix the Snakefile and re-run. Tell the user they can check progress later with list_running_pipelines, even from a new conversation session. When a run COMPLETES, the pipeline code is auto-saved into the open project folder (analysis/); then OFFER to save results durably: call list_run_outputs to show output files with sizes, ASK the user which to save (warn before copying large files), and call save_results_to_project. The run target (local run environment) is a scratch disk, so results only persist once saved to the project. Multi-client note: this AutoPipe instance may be shared by multiple AI clients (Claude Desktop, Cursor, Codex, etc.); avoid running pipelines with the same run_name simultaneously from different clients - only one execution per run_name at a time.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -295,7 +295,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 				try { await ssh.writeFile(profile, metaPath, runMeta); } catch { /* best-effort */ }
 
 				// Run the container as the server-side user (computed on the server)
-				// so result files land user-owned - important for the built-in VM,
+				// so result files land user-owned - important for the local VM,
 				// whose workspace is a 9p share back to the host: otherwise root-owned
 				// outputs would be awkward for the user to open/delete. Skipped for the
 				// docker-socket (nextflow) path, which needs root to drive the socket.
@@ -328,7 +328,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 						const completedOk = logTail.includes('steps (100%) done') || logTail.includes('Nothing to be done');
 						if (completedOk) {
 							// Best-effort: durably copy the (small) pipeline code into the
-							// open project folder. The built-in VM's disk is scratch, so
+							// open project folder. The local VM's disk is scratch, so
 							// this is the code's only durable home. Never fails the run.
 							try {
 								await autoSavePipelineCodeOnCompletion(profile, imageName);
@@ -338,7 +338,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 								+ `Output directory: ${outputDir}\n`
 								+ `Log: ${logPath}\n\n${logTail}\n\n`
 								+ `Pipeline code was auto-saved to the project folder (analysis/). `
-								+ `The results are in results/${runName}/. Built-in run environment: they are ALREADY there (the environment writes directly via the local mount) - just tell the user to open that folder in the Analysis tab, no save needed. Remote SSH server: ASK whether to save the results; if yes, call list_run_outputs for run '${runName}' then save_results_to_project (it warns before large copies), then tell the user to open results/${runName}/.`,
+								+ `The results are in results/${runName}/. Local run environment: they are ALREADY there (the environment writes directly via the local mount) - just tell the user to open that folder in the Analysis tab, no save needed. Remote SSH server: ASK whether to save the results; if yes, call list_run_outputs for run '${runName}' then save_results_to_project (it warns before large copies), then tell the user to open results/${runName}/.`,
 							);
 						}
 						if (hasError) {
