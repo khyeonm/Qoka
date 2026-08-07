@@ -15,7 +15,7 @@ import {
 	resolveSymlinkTargets,
 	findPipelineDir,
 } from '../../common/dockerEnv';
-import { autoSavePipelineCodeOnCompletion, autoSaveRunOutputsOnCompletion, AUTO_SAVE_MAX_FILE_BYTES, humanSize } from '../../common/workspaceSync';
+import { autoSavePipelineCodeOnCompletion, autoSaveRunOutputsOnCompletion, AUTO_SAVE_MAX_FILE_BYTES, humanSize, writePipelineMarker } from '../../common/workspaceSync';
 import { openResultsInEditor, describeOpenedResults } from '../../common/openResults';
 
 /**
@@ -293,6 +293,11 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 				});
 				const metaPath = `${outputDir.replace(/\/+$/, '')}/.autopipe-run.json`;
 				try { await ssh.writeFile(profile, metaPath, runMeta); } catch { /* best-effort */ }
+
+				// Mark the local results/<run>/ folder as a pipeline output so the
+				// result viewer can offer a dedicated pipeline-type plugin for it.
+				// The pipeline identity is its docker image name. Best-effort.
+				writePipelineMarker(runName, imageName);
 
 				// Run the container as the server-side user (computed on the server)
 				// so result files land user-owned - important for the local VM,

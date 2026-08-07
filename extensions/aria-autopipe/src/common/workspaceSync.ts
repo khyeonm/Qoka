@@ -72,6 +72,31 @@ export function ensureLocalDir(dir: string): void {
 	fs.mkdirSync(dir, { recursive: true });
 }
 
+/**
+ * Drop a `.qoka-pipeline.json` marker into the local `results/<run_name>/`
+ * folder recording which pipeline produced it. The pipeline result viewer
+ * reads this to offer a dedicated pipeline-type plugin for the whole folder
+ * (see PluginService.findForPipeline). Best-effort: no workspace open, or a
+ * write failure, is silently ignored - run_code results simply have no marker.
+ */
+export function writePipelineMarker(runName: string, pipelineName: string): void {
+	const folder = workspaceFolderPath();
+	if (!folder || !runName || !pipelineName) {
+		return;
+	}
+	try {
+		const dir = path.join(folder, 'results', runName);
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, '.qoka-pipeline.json'),
+			JSON.stringify({ pipeline: pipelineName, run_name: runName }, null, 2),
+			'utf8',
+		);
+	} catch {
+		/* best-effort */
+	}
+}
+
 /** Local `analysis/` dir (run_code scripts), or undefined with no folder. */
 export function localAnalysisDir(): string | undefined {
 	const folder = workspaceFolderPath();

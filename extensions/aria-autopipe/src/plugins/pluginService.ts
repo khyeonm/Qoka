@@ -25,6 +25,16 @@ export interface DataSourceCommands {
 	fallback?: DataSourceCommands[];
 }
 
+/** When a plugin viewer claims a whole pipeline result DIRECTORY (rather than
+ *  a single file extension). A `results/<run>/` folder carries a
+ *  `.qoka-pipeline.json` marker naming the pipeline that produced it; a
+ *  pipeline-type plugin whose `names` list includes that name renders the
+ *  folder as one dashboard. Mirrors autopipe's `pipeline_match`. */
+export interface PipelineMatch {
+	names?: string[];
+	required_files?: string[];
+}
+
 export interface PluginManifest {
 	name: string;
 	version: string;
@@ -33,6 +43,10 @@ export interface PluginManifest {
 	entry: string;
 	style?: string | null;
 	data_source?: DataSourceCommands;
+	/** 'file' (default) matches by extension; 'pipeline' claims a whole
+	 *  result directory via `pipeline_match`. */
+	plugin_type?: 'file' | 'pipeline';
+	pipeline_match?: PipelineMatch;
 }
 
 export interface InstalledPlugin {
@@ -115,7 +129,44 @@ export class PluginService {
 	findForExtension(ext: string): InstalledPlugin | null {
 		const wanted = ext.toLowerCase().replace(/^\./, '');
 		for (const p of this.listInstalled()) {
+			// A pipeline-type plugin claims directories, not file extensions -
+			// don't let it shadow a real file viewer.
+			if (p.manifest.plugin_type === 'pipeline') {
+				continue;
+			}
 			if (p.manifest.extensions.some(e => e.toLowerCase() === wanted)) {
+				return p;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Find a pipeline-type plugin that claims a whole result directory. A
+	 * match needs the folder's marker `pipelineName` to appear in the
+	 * plugin's `pipeline_match.names`, and every `required_files` entry (if
+	 * any) to be present in `dirFiles`. Returns null when nothing matches -
+	 * the caller then falls back to the per-file viewer.
+	 */
+	findForPipeline(pipelineName: string, dirFiles: string[]): InstalledPlugin | null {
+		const wanted = pipelineName.trim().toLowerCase();
+		if (!wanted) {
+			return null;
+		}
+		const present = new Set(dirFiles.map(f => f.toLowerCase()));
+		for (const p of this.listInstalled()) {
+			if (p.manifest.plugin_type !== 'pipeline') {
+				continue;
+			}
+			const match = p.manifest.pipeline_match;
+			if (!match || !Array.isArray(match.names)) {
+				continue;
+			}
+			if (!match.names.some(n => String(n).trim().toLowerCase() === wanted)) {
+				continue;
+			}
+			const required = Array.isArray(match.required_files) ? match.required_files : [];
+			if (required.every(f => present.has(String(f).toLowerCase()))) {
 				return p;
 			}
 		}
@@ -217,6 +268,8 @@ export class PluginService {
 					// Pass through the data_source block verbatim; the
 					// viewer's pagination handler inspects it directly.
 					data_source: raw.data_source as DataSourceCommands | undefined,
+					plugin_type: raw.plugin_type === 'pipeline' ? 'pipeline' : 'file',
+					pipeline_match: raw.pipeline_match as PipelineMatch | undefined,
 				};
 			}
 		} catch (err) {

@@ -6,250 +6,283 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn } from 'child_process';
 import { services } from '../common/services';
 import { InstalledPlugin, DataSourceCommands } from '../plugins/pluginService';
+import { windowsToWsl } from '../common/dockerEnv';
 
 /**
- * Location of the bundled PDF.js library files. Resolved off `__dirname`
- * (out/viewer at runtime) so the lookup works whether the extension is
- * loaded from the source tree or a built VSIX. The two files are:
+ * The Autopipe Viewer renders pipeline result files with the installed
+ * AutoPipe plugins (CSV tables, images, PDFs, and genomics formats).
  *
- *   media/pdfjs/pdf.mjs         - main API (window.pdfjsLib)
- *   media/pdfjs/pdf.worker.mjs  - Web Worker that does the parsing
+ * MODEL (2026-08-07): results always live in the LOCAL `results/<run>/`
+ * folder (written directly on Windows/WSL, SFTP-copied back for a VM or a
+ * remote SSH server). So the viewer reads files with the extension host's
+ * own `fs` - no SSH round trip - and renders ONE file at a time. The
+ * Analysis tree is the file browser: "Open in viewer" on a `results/<run>/`
+ * folder opens a viewer tab bound to that folder (a "scope"), and clicking a
+ * file inside the scope routes the click into that tab (see the core
+ * ariaViewerScope wiring). Several scopes can be open at once, each its own
+ * tab.
  *
- * We don't bundle them through tsc - they're large ES modules pulled
- * verbatim from Mozilla's release. The webview loads them via
- * `asWebviewUri` so the strict CSP can include the cspSource.
+ * Plugins expose `window.AutoPipePlugin.render(container, fileUrl, filename)`.
+ * Small files are handed a `blob:` URL built from the bytes we read. Big
+ * paginated formats (BAM/CRAM/h5ad) instead call `fetch("/data/{filename}")`;
+ * we intercept that and run the plugin's `data_source` shell/`docker`
+ * commands locally (`sh -c` on posix, `wsl.exe sh -c` on Windows) so the
+ * plugin never has to hold the whole file in memory.
  */
+
+/** Bundled PDF.js library files (media/pdfjs/pdf.mjs + pdf.worker.mjs),
+ *  resolved off `__dirname` (out/viewer at runtime) so the lookup works from
+ *  the source tree or a built VSIX. */
 function pdfjsDir(): string {
 	return path.join(__dirname, '..', '..', 'media', 'pdfjs');
 }
 
-/**
- * Single shared "Autopipe Viewer" tab. Subsequent show_results calls
- * retarget the same panel instead of stacking new tabs.
- *
- * The viewer hosts the AutoPipe plugins the user installed via Hub. Each
- * plugin exposes a `window.AutoPipePlugin.render(container, fileUrl,
- * filename)` API; we satisfy that contract by giving the plugin a blob:
- * URL pointing at the bytes we just streamed over SSH.
- *
- * Navigation is locked to the RUN-NAME directory (the segment just below an
- * autopipe output dir - see detectRunDir): the user can browse freely WITHIN
- * that run, but cannot walk up to sibling runs or above the output directory.
- * (If show_results targets the output dir itself, the ceiling is that output
- * dir so the run list is browsable.)
- */
-let activePanel: vscode.WebviewPanel | undefined;
-let activeRootDir: string | undefined;
-
-interface DirEntry {
-	name: string;
-	path: string;
-	is_dir: boolean;
+interface ViewerScope {
+	/** The folder the viewer tab is bound to, as an absolute local path. */
+	folder: string;
+	panel: vscode.WebviewPanel;
 }
 
+/** Open viewer tabs keyed by their normalized folder path. */
+const scopePanels = new Map<string, ViewerScope>();
+/** The folder whose viewer tab was focused most recently - the routing
+ *  fallback when a file is not inside any open scope. */
+let lastActiveFolder: string | undefined;
+
 /**
- * Files the user has opened in this viewer session. Plugins call
- * `fetch("/data/{filename}?page=...")`; the webview routes the call to
- * the extension, which uses this registry to map `filename` back to the
- * remote path on the SSH host. Caches per-file row-count + best
- * data-source candidate so repeat page requests don't re-probe.
+ * Files currently mounted in a viewer. Plugins fetch
+ * `"/data/{filename}?page=..."`; we map `filename` back to its local path
+ * and the plugin that owns it. Row-count and the winning data-source
+ * candidate are cached so repeat page requests don't re-probe.
  */
 interface RegisteredFile {
-	remotePath: string;
+	localPath: string;
 	plugin: InstalledPlugin;
 	totalRows?: number;
 	chosenDataSource?: DataSourceCommands;
 }
-const remoteFiles = new Map<string, RegisteredFile>();
+const localFiles = new Map<string, RegisteredFile>();
 
-function parentOf(p: string): string {
-	if (!p || p === '/') {
-		return '/';
+/** Normalize a path for use as a scope key: absolute, and case-folded on
+ *  Windows so `C:\R` and `c:\r` are the same scope. */
+function normKey(p: string): string {
+	const abs = path.resolve(p);
+	return process.platform === 'win32' ? abs.toLowerCase() : abs;
+}
+
+/** True when `child` is `parent` or lives underneath it. */
+function isEqualOrUnder(child: string, parent: string): boolean {
+	const c = normKey(child);
+	const p = normKey(parent);
+	if (c === p) {
+		return true;
 	}
-	const cleaned = p.replace(/\/+$/, '');
-	const idx = cleaned.lastIndexOf('/');
-	if (idx <= 0) {
-		return '/';
-	}
-	return cleaned.slice(0, idx);
+	const withSep = p.endsWith(path.sep) ? p : p + path.sep;
+	return c.startsWith(withSep) || (process.platform === 'win32' && c.startsWith(p + '/'));
 }
 
 /**
- * Pick the upper bound for viewer navigation. Walks the path looking for
- * the run-name directory just below an autopipe output dir
- * (`pipelines_output`, `outputs`, or `output`) and uses that as the
- * navigation ceiling - so the user can move freely WITHIN the run but
- * can't step over to sibling runs or above the output dir.
- *
- * Examples (run-name segments in CAPS):
- *   /auto_test/outputs/RUN-1/nf/star_salmon/rseqc/bed -> /auto_test/outputs/run-1
- *   /home/x/aria/pipelines_output/RUN-A/sub/foo       -> /home/x/aria/pipelines_output/run-a
- *   /loose/path/file.csv (no output dir in path)      -> /loose/path  (fallback to parent)
- *   /auto_test/outputs (output dir itself, no run)    -> /auto_test/outputs (allow listing)
+ * Open (or reveal) a viewer tab bound to `folderPath` and mark it as a scope
+ * in the Analysis tree. Auto-renders the first viewable file so the tab is
+ * never blank; further files arrive via `viewFileInViewer` as the user
+ * clicks them in the highlighted folder.
  */
-function detectRunDir(p: string): string {
-	const cleaned = (p || '').replace(/\/+$/, '');
-	const segs = cleaned.split('/');
-	const OUTPUT_DIRS = new Set(['pipelines_output', 'outputs', 'output']);
-	for (let i = segs.length - 1; i >= 0; i--) {
-		if (OUTPUT_DIRS.has(segs[i])) {
-			// Found the output dir at index i. The run-name directory is
-			// segs[i+1] - if it exists we lock to it, otherwise the user
-			// passed the output dir itself and we fall back to listing
-			// the runs at that level.
-			if (i + 1 < segs.length) {
-				return segs.slice(0, i + 2).join('/');
-			}
-			return cleaned;
-		}
-	}
-	return parentOf(cleaned);
-}
+export async function openResultsViewer(folderPath: string): Promise<void> {
+	const folder = path.resolve(folderPath);
+	const key = normKey(folder);
 
-/**
- * Open (or focus) the Autopipe Viewer tab targeted at `initialDir`. The
- * upper-bound for navigation is the parent of `initialDir`: that's the
- * run-name's parent (= the output directory in the autopipe convention).
- */
-export async function openViewerForDirectory(initialDir: string, initialFile?: string): Promise<void> {
-	// Lock navigation to the run-name directory if the path contains an
-	// autopipe output dir - the user can browse INTO subdirectories of
-	// the run, but never up to sibling runs or above the output dir.
-	const rootDir = detectRunDir(initialDir);
-	activeRootDir = rootDir;
-	console.log(`[aria-autopipe] openViewerForDirectory: initialDir=${initialDir} rootDir=${rootDir} initialFile=${initialFile ?? '(none)'}`);
-
-	if (activePanel) {
-		activePanel.reveal(vscode.ViewColumn.Active);
-		activePanel.webview.postMessage({
-			type: 'aria.viewer.setDirectory',
-			directory: initialDir,
-			rootDir,
-			initialFile: initialFile ?? null,
-		});
+	const existing = scopePanels.get(key);
+	if (existing) {
+		existing.panel.reveal(vscode.ViewColumn.Active);
+		lastActiveFolder = folder;
+		void vscode.commands.executeCommand('aria.viewer.setScopeActive', folder, true);
 		return;
 	}
 
 	const panel = vscode.window.createWebviewPanel(
 		'aria.autopipe.viewer',
-		'Autopipe Viewer',
+		path.basename(folder) || 'Viewer',
 		vscode.ViewColumn.Active,
 		{
 			enableScripts: true,
 			retainContextWhenHidden: true,
-			// The PDF.js bundle lives under media/pdfjs. Webviews refuse to
-			// load resources from anywhere outside `localResourceRoots`, so
-			// we explicitly allow that directory here. Plugin install dirs
-			// (~/.aria-autopipe-plugins) are intentionally NOT listed -
-			// their JS is injected inline so the file paths themselves
+			// Only the bundled PDF.js needs to be reachable by URI; plugin JS
+			// and file bytes are injected inline / as blobs, so their paths
 			// never appear on the webview side.
 			localResourceRoots: [vscode.Uri.file(pdfjsDir())],
 		},
 	);
-	activePanel = panel;
-	panel.onDidDispose(() => { activePanel = undefined; activeRootDir = undefined; });
+	scopePanels.set(key, { folder, panel });
+	lastActiveFolder = folder;
 
 	panel.webview.html = renderShellHtml(panel.webview);
 
-	panel.webview.onDidReceiveMessage(async (msg: { type?: string; directory?: string; filePath?: string }) => {
+	panel.webview.onDidReceiveMessage(async (msg: { type?: string; reqId?: number; url?: string }) => {
 		try {
 			if (msg?.type === 'aria.viewer.ready') {
-				panel.webview.postMessage({
-					type: 'aria.viewer.setDirectory',
-					directory: initialDir,
-					rootDir: activeRootDir,
-					initialFile: initialFile ?? null,
-				});
-			} else if (msg?.type === 'aria.viewer.list' && msg.directory) {
-				// Guard against navigation attempts above the root dir.
-				if (activeRootDir && !isWithinRoot(msg.directory, activeRootDir)) {
-					panel.webview.postMessage({ type: 'aria.viewer.error', error: 'Navigation blocked: outside the allowed output directory.' });
-					return;
+				// A `results/<run>/` folder produced by a pipeline carries a
+				// `.qoka-pipeline.json` marker. If a pipeline-type plugin
+				// claims it, render the whole folder as one dashboard;
+				// otherwise land on the first viewable file.
+				const marker = readPipelineMarker(folder);
+				const names = marker ? listLocalFileNames(folder) : [];
+				const pipePlugin = marker ? services().plugins.findForPipeline(marker, names) : null;
+				if (pipePlugin && marker) {
+					renderPipelineDashboard(panel, folder, pipePlugin, marker, names);
+				} else {
+					await openFirstFileInFolder(panel, folder);
 				}
-				const entries = await listDirectory(msg.directory);
-				panel.webview.postMessage({ type: 'aria.viewer.list.ok', directory: msg.directory, entries });
-			} else if (msg?.type === 'aria.viewer.open' && msg.filePath) {
-				await openFileInPanel(panel, msg.filePath);
-			} else if (msg?.type === 'aria.viewer.fetchData') {
-				const m = msg as { type?: string; reqId?: number; url?: string };
-				if (typeof m.reqId === 'number' && typeof m.url === 'string') {
-					const result = await handleDataFetch(m.url);
-					panel.webview.postMessage({ type: 'aria.viewer.fetchData.response', reqId: m.reqId, data: result });
-				}
+			} else if (msg?.type === 'aria.viewer.fetchData' && typeof msg.reqId === 'number' && typeof msg.url === 'string') {
+				const result = await handleDataFetch(msg.url);
+				panel.webview.postMessage({ type: 'aria.viewer.fetchData.response', reqId: msg.reqId, data: result });
 			}
 		} catch (err) {
 			console.error('[aria-autopipe] viewer message handling failed', err);
 			panel.webview.postMessage({ type: 'aria.viewer.error', error: (err as Error).message });
 		}
 	});
-}
 
-/** Convenience: file-input variant. Opens the viewer on the file's parent
- *  directory and pre-selects the file. Used by show_results when the AI
- *  passes a single file path instead of a run directory. */
-export async function openViewerForFile(filePath: string, plugin: InstalledPlugin): Promise<void> {
-	void plugin; // selection-by-extension happens inside the panel
-	const parent = parentOf(filePath);
-	await openViewerForDirectory(parent, filePath);
-}
-
-function isWithinRoot(targetPath: string, rootDir: string): boolean {
-	if (targetPath === rootDir) {
-		return true;
-	}
-	const normalised = targetPath.replace(/\/+$/, '');
-	const rootNormalised = rootDir.replace(/\/+$/, '');
-	return normalised === rootNormalised || normalised.startsWith(rootNormalised + '/');
-}
-
-async function listDirectory(dirPath: string): Promise<DirEntry[]> {
-	const profile = services().config.activeProfile();
-	if (!profile) {
-		throw new Error('No active SSH profile.');
-	}
-	// `-1p` lists one per line and appends `/` to directories so we can
-	// classify each entry in a single round trip. No `-A` so dotfiles stay
-	// hidden - autopipe writes its bookkeeping into `.autopipe-run.json`
-	// and the user shouldn't have to scroll past those.
-	const cmd = `ls -1p -- ${shellQuote(dirPath)}`;
-	const { stdout, exitCode, stderr } = await services().ssh.run(profile, cmd);
-	if (exitCode !== 0) {
-		throw new Error(`ls ${dirPath} failed: ${stderr.trim() || stdout.trim()}`);
-	}
-	const out: DirEntry[] = [];
-	for (const rawLine of stdout.split('\n')) {
-		const line = rawLine.trimEnd();
-		if (!line) {
-			continue;
+	panel.onDidChangeViewState(() => {
+		if (panel.active) {
+			lastActiveFolder = folder;
 		}
-		const isDir = line.endsWith('/');
-		const name = isDir ? line.slice(0, -1) : line;
-		if (name.startsWith('.')) {
-			// belt-and-braces dotfile filter - `ls` already hides them,
-			// but if the user later flips on `-A` for debugging this
-			// guard keeps the UI consistent.
-			continue;
-		}
-		out.push({ name, path: joinRemote(dirPath, name), is_dir: isDir });
-	}
-	out.sort((a, b) => {
-		if (a.is_dir !== b.is_dir) {
-			return a.is_dir ? -1 : 1;
-		}
-		return a.name.localeCompare(b.name);
+		void vscode.commands.executeCommand('aria.viewer.setScopeActive', folder, panel.active);
 	});
-	return out;
+
+	panel.onDidDispose(() => {
+		scopePanels.delete(key);
+		if (lastActiveFolder && normKey(lastActiveFolder) === key) {
+			lastActiveFolder = undefined;
+		}
+		void vscode.commands.executeCommand('aria.viewer.clearScope', folder);
+	});
+
+	// Draw the scope highlight box in the Analysis tree.
+	void vscode.commands.executeCommand('aria.viewer.setScope', folder);
 }
 
-async function openFileInPanel(panel: vscode.WebviewPanel, filePath: string): Promise<void> {
-	const { plugins, ssh, config } = services();
-	const profile = config.activeProfile();
-	if (!profile) {
-		panel.webview.postMessage({ type: 'aria.viewer.fileError', filePath, error: 'No active SSH profile.' });
+/**
+ * Render `filePath` in the viewer tab whose scope contains it (innermost when
+ * scopes nest). Falls back to the most-recently-focused viewer, and finally
+ * to opening a fresh scope on the file's parent directory.
+ */
+export async function viewFileInViewer(filePath: string): Promise<void> {
+	const file = path.resolve(filePath);
+
+	// Innermost containing scope wins so a nested `results/<run>/sub` viewer
+	// takes precedence over one opened on `results/<run>`.
+	let target: ViewerScope | undefined;
+	for (const scope of scopePanels.values()) {
+		if (isEqualOrUnder(file, scope.folder)) {
+			if (!target || scope.folder.length > target.folder.length) {
+				target = scope;
+			}
+		}
+	}
+	if (!target && lastActiveFolder) {
+		target = scopePanels.get(normKey(lastActiveFolder));
+	}
+	if (!target) {
+		const first = scopePanels.values().next().value as ViewerScope | undefined;
+		target = first;
+	}
+
+	if (!target) {
+		// No viewer open yet: open one on the file's parent and let its
+		// ready-handler render this file directly.
+		await openResultsViewer(path.dirname(file));
+		const opened = scopePanels.get(normKey(path.dirname(file)));
+		if (opened) {
+			await renderFileInPanel(opened.panel, file);
+			opened.panel.reveal(vscode.ViewColumn.Active);
+		}
 		return;
 	}
+
+	target.panel.reveal(vscode.ViewColumn.Active);
+	await renderFileInPanel(target.panel, file);
+}
+
+/** Pick the first file in `folder` that a plugin can render and show it, so
+ *  a freshly opened viewer tab lands on content instead of a blank pane. */
+async function openFirstFileInFolder(panel: vscode.WebviewPanel, folder: string): Promise<void> {
+	const { plugins } = services();
+	let entries: fs.Dirent[];
+	try {
+		entries = fs.readdirSync(folder, { withFileTypes: true });
+	} catch (err) {
+		panel.webview.postMessage({ type: 'aria.viewer.placeholder', text: `Could not read ${folder}: ${(err as Error).message}` });
+		return;
+	}
+	const files = entries
+		.filter(e => e.isFile() && !e.name.startsWith('.'))
+		.map(e => e.name)
+		.sort((a, b) => a.localeCompare(b));
+	for (const name of files) {
+		const ext = path.extname(name);
+		if (ext && plugins.findForExtension(ext)) {
+			await renderFileInPanel(panel, path.join(folder, name));
+			return;
+		}
+	}
+	panel.webview.postMessage({
+		type: 'aria.viewer.placeholder',
+		text: 'Click a file in the highlighted folder to view it here.',
+	});
+}
+
+/** Read the pipeline name from a `results/<run>/.qoka-pipeline.json` marker,
+ *  or null when the folder has none (e.g. a run_code result). */
+function readPipelineMarker(folder: string): string | null {
+	try {
+		const raw = JSON.parse(fs.readFileSync(path.join(folder, '.qoka-pipeline.json'), 'utf8'));
+		return typeof raw?.pipeline === 'string' && raw.pipeline.trim() ? String(raw.pipeline).trim() : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Names of the visible files (not dirs, not dotfiles) directly in `folder`. */
+function listLocalFileNames(folder: string): string[] {
+	try {
+		return fs.readdirSync(folder, { withFileTypes: true })
+			.filter(e => e.isFile() && !e.name.startsWith('.'))
+			.map(e => e.name);
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Render a whole result folder with a pipeline-type plugin (one dashboard for
+ * the run). Every file is pre-registered so the plugin can pull any of them
+ * through `/data/{filename}` using the plugin's own data_source.
+ */
+function renderPipelineDashboard(panel: vscode.WebviewPanel, folder: string, plugin: InstalledPlugin, pipelineName: string, fileNames: string[]): void {
+	for (const name of fileNames) {
+		localFiles.set(name, { localPath: path.join(folder, name), plugin });
+	}
+	const entryPath = path.join(plugin.dir, plugin.manifest.entry);
+	const stylePath = plugin.manifest.style ? path.join(plugin.dir, plugin.manifest.style) : null;
+	panel.webview.postMessage({
+		type: 'aria.viewer.pipelineLoaded',
+		pipeline: pipelineName,
+		folderName: path.basename(folder),
+		files: fileNames,
+		plugin: {
+			name: plugin.manifest.name,
+			version: plugin.manifest.version,
+			entryJs: readFileOrEmpty(entryPath),
+			styleCss: stylePath ? readFileOrEmpty(stylePath) : '',
+		},
+	});
+}
+
+async function renderFileInPanel(panel: vscode.WebviewPanel, filePath: string): Promise<void> {
+	const { plugins } = services();
 	const ext = path.extname(filePath);
 	const plugin = ext ? plugins.findForExtension(ext) : null;
 	if (!plugin) {
@@ -261,23 +294,21 @@ async function openFileInPanel(panel: vscode.WebviewPanel, filePath: string): Pr
 		return;
 	}
 
-	// Register the file for plugin's `/data/{filename}` fetches before we
-	// stream any bytes; this lets plugins that issue their first metadata
-	// request from inside render() find the lookup entry immediately.
 	const filename = path.basename(filePath);
-	remoteFiles.set(filename, { remotePath: filePath, plugin });
+	// Register before streaming any bytes so a plugin that issues its first
+	// /data/ request from inside render() finds the lookup entry immediately.
+	localFiles.set(filename, { localPath: filePath, plugin });
 
-	// Big binary formats (BAM, CRAM, h5ad, ...) are paginated via the
-	// /data/ endpoint - their plugin never touches the blob URL. Reading
-	// the full file just to hand it a blob URL is a great way to crash
-	// the extension host on multi-GB inputs (the user saw this with BAM).
-	// Skip the blob read when the plugin declares a data_source.
+	// Paginated formats (BAM, CRAM, h5ad, ...) declare a data_source and pull
+	// their content page-by-page through /data/ - never touching the blob
+	// URL. Reading a multi-GB file just to hand it a blob would crash the
+	// extension host, so skip the blob read when a data_source exists.
 	const hasDataSource = !!plugin.manifest.data_source;
 	let bytesBase64 = '';
 	let byteLength = 0;
 	if (!hasDataSource) {
 		try {
-			const buffer = await ssh.readFile(profile, filePath);
+			const buffer = fs.readFileSync(filePath);
 			bytesBase64 = buffer.toString('base64');
 			byteLength = buffer.length;
 		} catch (err) {
@@ -308,11 +339,11 @@ async function openFileInPanel(panel: vscode.WebviewPanel, filePath: string): Pr
 }
 
 /**
- * Plugin's `fetch("/data/{filename}?page=N&page_size=K")` lands here.
- * Ports autopipe-app's `data_handler` (Rust) so the plugins (text-viewer,
- * csv-viewer, hdf5-viewer, etc.) work unchanged. The shape of the JSON
- * response - `{rows, total, page, page_size, meta?, header?, refs?,
- * col_headers?}` - matches what the plugins parse.
+ * Plugin's `fetch("/data/{filename}?page=N&page_size=K")` lands here. Ports
+ * autopipe-app's `data_handler`: runs the plugin's data_source template
+ * against the LOCAL file (via `sh -c`, or `wsl.exe sh -c` on Windows) and
+ * returns `{rows, total, page, page_size, meta?, header?, refs?,
+ * col_headers?}` - the shape the plugins parse.
  */
 async function handleDataFetch(url: string): Promise<unknown> {
 	const parsed = parseDataUrl(url);
@@ -322,21 +353,18 @@ async function handleDataFetch(url: string): Promise<unknown> {
 	const { filename, page, pageSize } = parsed;
 	console.log(`[aria-autopipe] /data/ request: filename=${filename} page=${page} size=${pageSize}`);
 
-	const entry = remoteFiles.get(filename);
+	const entry = localFiles.get(filename);
 	if (!entry) {
 		return { error: `File not registered: ${filename}` };
 	}
-
 	const ds = entry.plugin.manifest.data_source;
 	if (!ds) {
 		return { error: `Plugin "${entry.plugin.manifest.name}" has no data_source.` };
 	}
 
-	const profile = services().config.activeProfile();
-	if (!profile) {
-		return { error: 'No active SSH profile.' };
-	}
-	const { ssh } = services();
+	// The data_source shell templates are POSIX; on Windows they run inside
+	// WSL, so the file path they substitute must be the WSL mount path.
+	const dataPath = process.platform === 'win32' ? windowsToWsl(entry.localPath) : entry.localPath;
 
 	const start = page * pageSize + 1; // sed is 1-indexed
 	const end = start + pageSize - 1;
@@ -344,10 +372,8 @@ async function handleDataFetch(url: string): Promise<unknown> {
 	const candidates: DataSourceCommands[] = [ds, ...(ds.fallback ?? [])];
 	let active: DataSourceCommands | undefined = entry.chosenDataSource;
 
-	// Docker-based plugins (samtools, bcftools, h5py images) pay a one-off
-	// pull cost the first time. The 60s probe budget the original code
-	// used was eating that pull and surfacing as a phantom timeout. Push
-	// docker timeouts to 5 minutes and leave text at 1 minute.
+	// Docker-based plugins (samtools, bcftools, h5py) pay a one-off image
+	// pull the first time; give docker probes a 5-minute budget and text 1.
 	const probeTimeoutFor = (c: DataSourceCommands) => c.type === 'docker' ? 300000 : 60000;
 	const rowsTimeoutFor = (c: DataSourceCommands) => c.type === 'docker' ? 600000 : 120000;
 
@@ -357,10 +383,10 @@ async function handleDataFetch(url: string): Promise<unknown> {
 				active = candidate;
 				break;
 			}
-			const probeCmd = buildDataCmd(candidate, candidate.row_count, entry.remotePath, 0, 0);
+			const probeCmd = buildDataCmd(candidate, candidate.row_count, dataPath, 0, 0);
 			console.log(`[aria-autopipe] data probe (${candidate.type}): ${probeCmd}`);
 			try {
-				const probeResult = await ssh.run(profile, probeCmd, { timeoutMs: probeTimeoutFor(candidate) });
+				const probeResult = await localRun(probeCmd, probeTimeoutFor(candidate));
 				console.log(`[aria-autopipe] probe exit=${probeResult.exitCode} stdout="${probeResult.stdout.slice(0, 200)}" stderr="${probeResult.stderr.slice(0, 200)}"`);
 				if ((probeResult.exitCode === 0 || candidate.allow_nonzero_exit) && /^\d+/.test(probeResult.stdout.trim())) {
 					active = candidate;
@@ -383,11 +409,10 @@ async function handleDataFetch(url: string): Promise<unknown> {
 	// 1) Row count - cached.
 	let total = entry.totalRows;
 	if (total === undefined && active.row_count) {
-		const countCmd = buildDataCmd(active, active.row_count, entry.remotePath, 0, 0);
+		const countCmd = buildDataCmd(active, active.row_count, dataPath, 0, 0);
 		console.log(`[aria-autopipe] row_count cmd: ${countCmd}`);
 		try {
-			const countResult = await ssh.run(profile, countCmd, { timeoutMs: probeTimeoutFor(active) });
-			console.log(`[aria-autopipe] row_count exit=${countResult.exitCode} stdout="${countResult.stdout.slice(0, 200)}" stderr="${countResult.stderr.slice(0, 200)}"`);
+			const countResult = await localRun(countCmd, probeTimeoutFor(active));
 			if (countResult.exitCode === 0 || active.allow_nonzero_exit) {
 				const n = parseInt(countResult.stdout.trim(), 10);
 				if (Number.isFinite(n)) {
@@ -407,11 +432,9 @@ async function handleDataFetch(url: string): Promise<unknown> {
 	let colHeaders: string[] = active.col_headers ? [...active.col_headers] : [];
 
 	if (page === 0 && active.metadata) {
-		const metaCmd = buildDataCmd(active, active.metadata, entry.remotePath, 0, 0);
-		console.log(`[aria-autopipe] metadata cmd: ${metaCmd.slice(0, 500)}${metaCmd.length > 500 ? '…' : ''}`);
+		const metaCmd = buildDataCmd(active, active.metadata, dataPath, 0, 0);
 		try {
-			const metaResult = await ssh.run(profile, metaCmd, { timeoutMs: 300000 });
-			console.log(`[aria-autopipe] metadata exit=${metaResult.exitCode} stdout_len=${metaResult.stdout.length} stderr="${metaResult.stderr.slice(0, 400)}"`);
+			const metaResult = await localRun(metaCmd, 300000);
 			if (metaResult.exitCode === 0 || active.allow_nonzero_exit) {
 				const m = metaResult.stdout.trim();
 				const parseMode = active.meta_parse ?? 'none';
@@ -453,14 +476,8 @@ async function handleDataFetch(url: string): Promise<unknown> {
 				} else if (m.length > 0) {
 					meta = m;
 				}
-			} else {
-				// Metadata is best-effort - many formats don't have any
-				// (the GTF the user hit just has no `#` comment lines, so
-				// grep exits 1 without writing anything to stderr). Don't
-				// fail the whole request; let the rows phase still run.
-				if (metaResult.stderr.trim()) {
-					console.warn(`[aria-autopipe] metadata exit ${metaResult.exitCode}: ${metaResult.stderr.trim()}`);
-				}
+			} else if (metaResult.stderr.trim()) {
+				console.warn(`[aria-autopipe] metadata exit ${metaResult.exitCode}: ${metaResult.stderr.trim()}`);
 			}
 		} catch (err) {
 			console.warn(`[aria-autopipe] metadata failed:`, err);
@@ -470,11 +487,9 @@ async function handleDataFetch(url: string): Promise<unknown> {
 	// 3) Data rows.
 	let rows: string[][] = [];
 	if (active.rows && active.rows !== 'true') {
-		const rowsCmd = buildDataCmd(active, active.rows, entry.remotePath, start, end);
-		console.log(`[aria-autopipe] rows cmd: ${rowsCmd}`);
+		const rowsCmd = buildDataCmd(active, active.rows, dataPath, start, end);
 		try {
-			const rowsResult = await ssh.run(profile, rowsCmd, { timeoutMs: rowsTimeoutFor(active) });
-			console.log(`[aria-autopipe] rows exit=${rowsResult.exitCode} stdout_len=${rowsResult.stdout.length} stderr="${rowsResult.stderr.slice(0, 200)}"`);
+			const rowsResult = await localRun(rowsCmd, rowsTimeoutFor(active));
 			if (rowsResult.exitCode !== 0 && !active.allow_nonzero_exit) {
 				return { error: rowsResult.stderr.trim() || rowsResult.stdout.trim() };
 			}
@@ -495,6 +510,47 @@ async function handleDataFetch(url: string): Promise<unknown> {
 	if (refs !== null) { result.refs = refs; }
 	if (colHeaders.length > 0) { result.col_headers = colHeaders; }
 	return result;
+}
+
+/** Run a data_source shell command against the local disk. POSIX hosts run
+ *  it with `sh -c`; on Windows the data lives under the WSL mount and the
+ *  commands (sed/awk/docker) are POSIX, so they run inside WSL via
+ *  `wsl.exe -e sh -c`. */
+function localRun(cmd: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+	return new Promise((resolve) => {
+		const child = process.platform === 'win32'
+			? spawn('wsl.exe', ['-e', 'sh', '-c', cmd])
+			: spawn('sh', ['-c', cmd]);
+		let stdout = '';
+		let stderr = '';
+		let settled = false;
+		const timer = setTimeout(() => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			try { child.kill('SIGKILL'); } catch { /* ignore */ }
+			resolve({ stdout, stderr: stderr + `\n[timed out after ${timeoutMs}ms]`, exitCode: 124 });
+		}, timeoutMs);
+		child.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+		child.stderr.on('data', (c) => { stderr += c.toString('utf8'); });
+		child.on('error', (err) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			clearTimeout(timer);
+			resolve({ stdout, stderr: (err as Error).message, exitCode: 127 });
+		});
+		child.on('close', (code) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			clearTimeout(timer);
+			resolve({ stdout, stderr, exitCode: code ?? 0 });
+		});
+	});
 }
 
 function parseDataUrl(url: string): { filename: string; page: number; pageSize: number } | null {
@@ -519,70 +575,39 @@ function parseDataUrl(url: string): { filename: string; page: number; pageSize: 
 }
 
 /**
- * Substitute the placeholders in a data_source template and wrap docker
- * commands in `docker run --rm -v $dir:/data:ro $image sh -c "..."`. Text
- * commands run as-is with `{file}` set to the remote absolute path.
+ * Substitute the placeholders in a data_source template. `docker` commands
+ * are wrapped in `docker run --rm -v $dir:/data:ro $image sh -c "..."`; text
+ * commands run as-is with `{file}` set to the local (WSL, on Windows) path.
  */
-function buildDataCmd(ds: DataSourceCommands, template: string, remotePath: string, start: number, end: number): string {
+function buildDataCmd(ds: DataSourceCommands, template: string, filePath: string, start: number, end: number): string {
 	if (ds.type === 'docker') {
-		const dir = remotePath.replace(/\/[^/]*$/, '') || '/';
-		const file = remotePath.split('/').pop() ?? '';
+		const dir = filePath.replace(/\/[^/]*$/, '') || '/';
+		const file = filePath.split('/').pop() ?? '';
 		const inner = template
 			.replace(/\{file\}/g, `/data/${file}`)
 			.replace(/\{start\}/g, String(start))
 			.replace(/\{end\}/g, String(end));
-		// We don't drop docker's stderr here even though autopipe-app does.
-		// Letting it through lets the plugin (and the user) see why an image
-		// pull / Python execution actually failed - silent failure was the
-		// reason h5ad showed "Server returned no structure" with no clue.
 		return `docker run --rm -v "${dir}:/data:ro" ${ds.image ?? ''} sh -c "${inner}"`;
 	}
 	return template
-		.replace(/\{file\}/g, remotePath)
+		.replace(/\{file\}/g, filePath)
 		.replace(/\{start\}/g, String(start))
 		.replace(/\{end\}/g, String(end));
 }
 
-/** Minimal MIME-type guesser - enough for blob-URL plugins (PDF/image
- *  rendering needs the right Content-Type to feed into embed/img tags).
- *  Everything else falls back to octet-stream and plugins handle parsing
- *  themselves. */
+/** Minimal MIME-type guesser - enough for blob-URL plugins (PDF/image need
+ *  the right Content-Type). Everything else is octet-stream and plugins
+ *  parse it themselves. */
 function guessMimeType(filePath: string): string {
 	const ext = path.extname(filePath).toLowerCase().replace(/^\./, '');
 	const map: Record<string, string> = {
 		pdf: 'application/pdf',
-		png: 'image/png',
-		jpg: 'image/jpeg',
-		jpeg: 'image/jpeg',
-		gif: 'image/gif',
-		svg: 'image/svg+xml',
-		tiff: 'image/tiff',
-		bmp: 'image/bmp',
-		webp: 'image/webp',
-		json: 'application/json',
-		txt: 'text/plain',
-		log: 'text/plain',
-		csv: 'text/csv',
-		yaml: 'text/yaml',
-		yml: 'text/yaml',
-		toml: 'text/plain',
-		md: 'text/markdown',
+		png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+		svg: 'image/svg+xml', tiff: 'image/tiff', bmp: 'image/bmp', webp: 'image/webp',
+		json: 'application/json', txt: 'text/plain', log: 'text/plain', csv: 'text/csv',
+		yaml: 'text/yaml', yml: 'text/yaml', toml: 'text/plain', md: 'text/markdown',
 	};
 	return map[ext] ?? 'application/octet-stream';
-}
-
-function joinRemote(dir: string, name: string): string {
-	if (dir === '/' || dir === '') {
-		return `/${name}`;
-	}
-	return `${dir.replace(/\/+$/, '')}/${name}`;
-}
-
-function shellQuote(s: string): string {
-	if (/^[A-Za-z0-9_./@:+,=-]+$/.test(s)) {
-		return s;
-	}
-	return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 function readFileOrEmpty(p: string): string {
@@ -604,16 +629,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 		`media-src ${cspSource} data: blob:`,
 		`font-src ${cspSource} data:`,
 		`script-src ${cspSource} 'unsafe-inline' 'unsafe-eval'`,
-		// PDF.js spawns a Web Worker; the worker URL must be allowed here.
-		// We allow both the extension's cspSource (for the static .mjs we
-		// bundled) and blob: (PDF.js sometimes wraps the worker source in
-		// a blob URL internally).
 		`worker-src ${cspSource} blob:`,
-		// frame/object covers <iframe>/<embed>/<object>. The pdf-viewer
-		// plugin still emits <embed src="blob:..."> - Qoka intercepts
-		// those before they actually try to load anything, but allowing
-		// blob: here keeps the DOM from spewing CSP warnings while the
-		// MutationObserver swaps them out.
 		`frame-src ${cspSource} blob: data:`,
 		`object-src ${cspSource} blob: data:`,
 		`child-src ${cspSource} blob: data:`,
@@ -628,85 +644,20 @@ function renderShellHtml(webview: vscode.Webview): string {
 	<title>Autopipe Viewer</title>
 	<style>
 		html, body { margin: 0; padding: 0; height: 100%; background: var(--vscode-editor-background); color: var(--vscode-editor-foreground); font-family: var(--vscode-font-family); }
-		.shell { display: flex; height: 100vh; padding: 12px; gap: 0; box-sizing: border-box; }
-		.left {
-			width: 300px;
-			flex-shrink: 0;
-			min-width: 180px;
-			display: flex;
-			flex-direction: column;
-			border: 1px solid var(--vscode-widget-border, transparent);
-			border-radius: 4px;
-			background: var(--vscode-editorWidget-background);
-			overflow: hidden;
-		}
-		.gutter { flex: 0 0 8px; cursor: ew-resize; position: relative; }
-		.gutter::after {
-			content: '';
-			position: absolute;
-			left: 50%;
-			top: 0;
-			bottom: 0;
-			width: 1px;
-			background: var(--vscode-widget-border, transparent);
-			opacity: 0.6;
-		}
-		.gutter:hover::after { opacity: 1; }
-		.left .header { padding: 10px 12px; border-bottom: 1px solid var(--vscode-widget-border, transparent); font-size: 12px; font-weight: 600; }
-		.left .path { padding: 6px 12px; font-size: 10.5px; opacity: 0.7; word-break: break-all; border-bottom: 1px solid var(--vscode-widget-border, transparent); }
-		.left .breadcrumbs { padding: 6px 12px; font-size: 11px; display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--vscode-widget-border, transparent); }
-		.left .breadcrumbs .crumb { cursor: pointer; opacity: 0.8; }
-		.left .breadcrumbs .crumb:hover { opacity: 1; text-decoration: underline; }
-		.left .breadcrumbs .sep { opacity: 0.4; }
-		.left .listing { flex: 1; overflow-y: auto; padding: 6px 0; }
-		.entry {
-			padding: 4px 12px;
-			font-size: 12px;
-			cursor: pointer;
-			display: flex;
-			align-items: center;
-			gap: 6px;
-			white-space: nowrap;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			user-select: none;
-		}
-		.entry:hover { background: var(--vscode-list-hoverBackground); }
-		.entry.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
-		.entry .icon { width: 14px; text-align: center; flex-shrink: 0; }
-
-		.right {
-			flex: 1;
-			min-width: 0;
-			border: 1px solid var(--vscode-widget-border, transparent);
-			border-radius: 4px;
-			background: var(--vscode-editor-background);
-			overflow: hidden;
-			display: flex;
-			flex-direction: column;
-		}
-		.right .header { padding: 10px 14px; border-bottom: 1px solid var(--vscode-widget-border, transparent); font-size: 12px; display: flex; gap: 8px; align-items: baseline; }
-		.right .header .name { font-weight: 600; }
-		.right .header .meta { opacity: 0.7; font-size: 11px; }
+		.wrap { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
+		.header { padding: 8px 14px; border-bottom: 1px solid var(--vscode-widget-border, transparent); font-size: 12px; display: flex; gap: 8px; align-items: baseline; flex-shrink: 0; }
+		.header .name { font-weight: 600; }
+		.header .meta { opacity: 0.7; font-size: 11px; }
 		.viewer-host { flex: 1; overflow: auto; position: relative; }
 		.placeholder { padding: 32px; text-align: center; opacity: 0.6; font-size: 12px; }
 		.err { padding: 12px; background: var(--vscode-inputValidation-errorBackground, #fee); color: var(--vscode-inputValidation-errorForeground, #c44); border: 1px solid var(--vscode-inputValidation-errorBorder, #c44); border-radius: 3px; margin: 12px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 	</style>
 </head>
 <body>
-	<div class="shell">
-		<div class="left">
-			<div class="header">Files</div>
-			<div class="path" id="path">(loading)</div>
-			<div class="breadcrumbs" id="breadcrumbs"></div>
-			<div class="listing" id="listing"></div>
-		</div>
-		<div class="gutter" id="gutter"></div>
-		<div class="right">
-			<div class="header" id="right-header"><span class="meta">No file selected</span></div>
-			<div class="viewer-host" id="viewer-host">
-				<div class="placeholder">Pick a file in the list to render it with the matching viewer plugin.</div>
-			</div>
+	<div class="wrap">
+		<div class="header" id="right-header"><span class="meta">No file selected</span></div>
+		<div class="viewer-host" id="viewer-host">
+			<div class="placeholder">Click a file in the highlighted folder to view it here.</div>
 		</div>
 	</div>
 	<script>
@@ -715,10 +666,8 @@ function renderShellHtml(webview: vscode.Webview): string {
 		const escapeHtml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 		// Plugins call \`fetch("/data/{filename}?...")\` expecting an HTTP
-		// endpoint. autopipe-app actually serves that endpoint; we don't.
-		// Instead, we intercept the call, ask the extension to do the SSH
-		// work, and hand the plugin back a Response-shaped object whose
-		// .json()/.text() yields the data we got back.
+		// endpoint. We intercept, ask the extension to run the data_source
+		// command locally, and hand back a Response-shaped object.
 		const _fetchPending = {};
 		let _fetchSeq = 0;
 		const _origFetch = window.fetch.bind(window);
@@ -744,147 +693,9 @@ function renderShellHtml(webview: vscode.Webview): string {
 			return _origFetch(input, opts);
 		};
 
-		// Emoji palette - unified per the user's brief:
-		//   log / txt  → 📜 (same)
-		//   csv / json → 📋 (same)
-		//   images (the "plots" bucket) → 📊 (chart)
-		//   pdf / genomics / hdf5 keep distinctive marks
-		const fileIcon = (name) => {
-			const ext = (name.split('.').pop() || '').toLowerCase();
-			const map = {
-				py: '🐍', rs: '🦀', ts: '📘', tsx: '📘', js: '📒', jsx: '📒',
-				json: '📋', toml: '📋', yaml: '📋', yml: '📋', csv: '📋',
-				log: '📜', txt: '📜', md: '📜',
-				sh: '⚙️', bash: '⚙️',
-				html: '🌐', css: '🎨', svg: '🎨',
-				png: '📊', jpg: '📊', jpeg: '📊', gif: '📊', tiff: '📊', bmp: '📊',
-				pdf: '📕',
-				bam: '🧬', vcf: '🧬', bcf: '🧬', cram: '🧬', bed: '🧬', gff: '🧬',
-				fasta: '🧬', fa: '🧬', fastq: '🧬', fq: '🧬',
-				h5: '🗄️', h5ad: '🗄️', hdf5: '🗄️',
-			};
-			return map[ext] || '📄';
-		};
-
-		let currentDir = '';
-		let rootDir = '';
-		let currentFile = null;
-		let pendingInitialFile = null;
-		let initialFileLoaded = false;
 		let currentBlobUrl = null;
-		// Tracks the plugin script tag that's currently mounted so we can
-		// detach + nullify AutoPipePlugin before injecting the next one.
 		let pluginInstance = null;
-
-		function parentOf(p) {
-			if (!p || p === '/') return '/';
-			const cleaned = p.replace(/\\/+$/, '');
-			const idx = cleaned.lastIndexOf('/');
-			if (idx <= 0) return '/';
-			return cleaned.slice(0, idx);
-		}
-
-		function withinRoot(p) {
-			if (!rootDir) return true;
-			const norm = p.replace(/\\/+$/, '');
-			const r = rootDir.replace(/\\/+$/, '');
-			return norm === r || norm.startsWith(r + '/');
-		}
-
-		function setBreadcrumbs(dir) {
-			const r = (rootDir || '/').replace(/\\/+$/, '');
-			const d = (dir || '/').replace(/\\/+$/, '');
-			// Show breadcrumbs only from rootDir down - the user explicitly
-			// asked that we don't expose the path above the output dir.
-			let rest = '';
-			if (d === r) {
-				rest = '';
-			} else if (d.startsWith(r + '/')) {
-				rest = d.slice(r.length + 1);
-			} else {
-				rest = '';
-			}
-			const parts = rest ? rest.split('/').filter(Boolean) : [];
-			const rootLabel = r.split('/').filter(Boolean).pop() || '/';
-			let acc = r;
-			const crumbs = ['<span class="crumb" data-path="' + escapeHtml(r) + '">' + escapeHtml(rootLabel) + '</span>'];
-			for (const p of parts) {
-				acc = acc + '/' + p;
-				crumbs.push('<span class="sep">›</span>');
-				crumbs.push('<span class="crumb" data-path="' + escapeHtml(acc) + '">' + escapeHtml(p) + '</span>');
-			}
-			$('breadcrumbs').innerHTML = crumbs.join('');
-			document.querySelectorAll('.crumb').forEach(el => {
-				el.onclick = () => navigateTo(el.getAttribute('data-path'));
-			});
-		}
-
-		function navigateTo(dir) {
-			if (!withinRoot(dir)) {
-				return;
-			}
-			currentDir = dir;
-			$('path').textContent = dir;
-			setBreadcrumbs(dir);
-			$('listing').innerHTML = '<div class="placeholder">Loading…</div>';
-			vscode.postMessage({ type: 'aria.viewer.list', directory: dir });
-		}
-
-		function renderListing(entries) {
-			let html = '';
-			// ".." entry only when going up stays within rootDir. At root
-			// we drop the affordance entirely - there's nowhere allowed
-			// to navigate above us.
-			if (currentDir && currentDir !== rootDir) {
-				const parent = parentOf(currentDir);
-				if (withinRoot(parent)) {
-					html += '<div class="entry" data-type="up" data-path="' + escapeHtml(parent) + '"><span class="icon">📁</span>..</div>';
-				}
-			}
-			if (!entries || entries.length === 0) {
-				html += '<div class="placeholder">Empty.</div>';
-				$('listing').innerHTML = html;
-				return;
-			}
-			for (const e of entries) {
-				const icon = e.is_dir ? '📁' : fileIcon(e.name);
-				const cls = (e.path === currentFile) ? 'entry selected' : 'entry';
-				html += '<div class="' + cls + '" data-type="' + (e.is_dir ? 'dir' : 'file') + '" data-path="' + escapeHtml(e.path) + '"><span class="icon">' + icon + '</span>' + escapeHtml(e.name) + '</div>';
-			}
-			$('listing').innerHTML = html;
-			document.querySelectorAll('.entry').forEach(el => {
-				el.onclick = () => {
-					const type = el.getAttribute('data-type');
-					const p = el.getAttribute('data-path');
-					if (type === 'dir' || type === 'up') {
-						navigateTo(p);
-					} else {
-						openFile(p);
-					}
-				};
-			});
-
-			if (!initialFileLoaded && pendingInitialFile) {
-				const wanted = pendingInitialFile;
-				pendingInitialFile = null;
-				initialFileLoaded = true;
-				const match = entries.find(e => !e.is_dir && e.path === wanted);
-				if (match) {
-					openFile(wanted);
-				}
-			}
-		}
-
-		function openFile(filePath) {
-			currentFile = filePath;
-			$('right-header').innerHTML = '<span class="name">' + escapeHtml(filePath.split('/').pop()) + '</span><span class="meta">Loading…</span>';
-			$('viewer-host').innerHTML = '<div class="placeholder">Loading ' + escapeHtml(filePath) + '…</div>';
-			vscode.postMessage({ type: 'aria.viewer.open', filePath });
-			document.querySelectorAll('.entry').forEach(el => {
-				if (el.getAttribute('data-path') === filePath) el.classList.add('selected');
-				else el.classList.remove('selected');
-			});
-		}
+		let currentPayload = null;
 
 		function bytesFromBase64(b64) {
 			const binary = atob(b64);
@@ -911,13 +722,8 @@ function renderShellHtml(webview: vscode.Webview): string {
 			pluginInstance = null;
 		}
 
-		let currentPayload = null;
-
-		// PDF.js - loaded once on viewer panel boot. We import the module
-		// lazily and stash the lib object so subsequent embed swaps reuse
-		// the same instance. workerSrc must be set BEFORE the first call
-		// to getDocument(), otherwise PDF.js spawns a fake worker on the
-		// main thread (slower, but still works as a fallback).
+		// PDF.js - loaded once, lazily. workerSrc must be set BEFORE the
+		// first getDocument() call.
 		let pdfjsLibPromise = null;
 		function getPdfjs() {
 			if (!pdfjsLibPromise) {
@@ -932,11 +738,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 			return pdfjsLibPromise;
 		}
 
-		// Track which <embed>s we've already swapped so the
-		// MutationObserver doesn't keep re-processing the same node when
-		// the plugin's zoom re-render fires.
 		const ARIA_PDF_HANDLED = '__ariaPdfHandled';
-
 		async function replacePdfEmbeds() {
 			const embeds = document.querySelectorAll('embed[type="application/pdf"]');
 			for (const embed of embeds) {
@@ -949,7 +751,6 @@ function renderShellHtml(webview: vscode.Webview): string {
 				}
 			}
 		}
-
 		function makePdfError(err) {
 			const fb = document.createElement('div');
 			fb.style.padding = '24px';
@@ -957,51 +758,33 @@ function renderShellHtml(webview: vscode.Webview): string {
 			fb.textContent = 'PDF render failed: ' + (err && err.message ? err.message : String(err));
 			return fb;
 		}
-
 		async function intercept(embed) {
 			const src = (embed.getAttribute('src') || '').split('#')[0];
 			if (!src) return;
-			// The pdf-viewer plugin signals its current zoom via wrap height
-			// (500 * _zoom/100). We invert that to a zoom factor so user
-			// "+" clicks actually grow the canvas. Without this the wrap
-			// just got taller while the canvas inside stayed the same size.
 			const wrap = embed.parentElement;
 			const wrapHeightPx = (wrap && wrap.style && parseFloat(wrap.style.height)) || 500;
-			const zoomFactor = wrapHeightPx / 500;       // 1.0 at 100%, 2.0 at 200%
-
+			const zoomFactor = wrapHeightPx / 500;
 			const container = document.createElement('div');
 			container.style.width = '100%';
 			container.style.height = '100%';
 			container.style.overflow = 'auto';
 			container.style.background = 'var(--vscode-editor-background)';
-			// Grab-to-pan affordance. We toggle to "grabbing" on
-			// mousedown so the cursor stays consistent during a drag.
 			container.style.cursor = 'grab';
 			embed.replaceWith(container);
-
 			const loading = document.createElement('div');
 			loading.style.padding = '16px';
 			loading.style.opacity = '0.7';
 			loading.style.fontSize = '12px';
 			loading.textContent = 'Rendering PDF…';
 			container.appendChild(loading);
-
 			const lib = await getPdfjs();
 			const buffer = await fetch(src).then(r => r.arrayBuffer());
 			const pdf = await lib.getDocument({ data: buffer }).promise;
 			container.removeChild(loading);
-
-			// First-page metrics drive the "fit width" baseline so the
-			// whole page is visible on first paint. Without this, scale
-			// 1.5 made the canvas wider than the container and the user
-			// only saw a sliver in the top-left.
 			const firstPage = await pdf.getPage(1);
 			const baseViewport = firstPage.getViewport({ scale: 1.0 });
 			const fitScale = (container.clientWidth - 24) / baseViewport.width;
-			// Plugin zoom multiplies the fit-width baseline so "+" still
-			// makes the picture bigger relative to the perfect fit.
 			const renderScale = Math.max(0.25, fitScale * zoomFactor);
-
 			for (let p = 1; p <= pdf.numPages; p++) {
 				const page = p === 1 ? firstPage : await pdf.getPage(p);
 				const viewport = page.getViewport({ scale: renderScale });
@@ -1014,22 +797,12 @@ function renderShellHtml(webview: vscode.Webview): string {
 				container.appendChild(canvas);
 				await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
 			}
-
-			// Drag-to-pan. We listen on the container itself so the user
-			// can grab anywhere - over a canvas or over the whitespace
-			// between pages. scrollLeft/Top only matters when a zoomed-in
-			// canvas overflows; at 100% (fit) there's nothing to pan to,
-			// but the drag is still harmless.
 			let dragging = false;
 			let startX = 0, startY = 0, startScrollLeft = 0, startScrollTop = 0;
 			container.addEventListener('mousedown', (e) => {
-				dragging = true;
-				startX = e.clientX;
-				startY = e.clientY;
-				startScrollLeft = container.scrollLeft;
-				startScrollTop = container.scrollTop;
-				container.style.cursor = 'grabbing';
-				e.preventDefault();
+				dragging = true; startX = e.clientX; startY = e.clientY;
+				startScrollLeft = container.scrollLeft; startScrollTop = container.scrollTop;
+				container.style.cursor = 'grabbing'; e.preventDefault();
 			});
 			window.addEventListener('mousemove', (e) => {
 				if (!dragging) return;
@@ -1038,32 +811,18 @@ function renderShellHtml(webview: vscode.Webview): string {
 			});
 			window.addEventListener('mouseup', () => {
 				if (!dragging) return;
-				dragging = false;
-				container.style.cursor = 'grab';
+				dragging = false; container.style.cursor = 'grab';
 			});
 		}
-
-		// Run a single MutationObserver across the whole shell so it
-		// catches every <embed> insertion, including the new ones the
-		// plugin emits when the user clicks zoom in/out.
 		new MutationObserver(replacePdfEmbeds).observe(document.body, { childList: true, subtree: true });
 
 		function mountPlugin(payload) {
 			tearDownCurrentPlugin();
-
 			currentPayload = payload;
 			const bytes = bytesFromBase64(payload.base64);
 			const blob = new Blob([bytes], { type: payload.mimeType || 'application/octet-stream' });
 			currentBlobUrl = URL.createObjectURL(blob);
-
 			$('right-header').innerHTML = '<span class="name">' + escapeHtml(payload.filename) + '</span><span class="meta">' + escapeHtml(payload.plugin.name + ' v' + payload.plugin.version) + '</span>';
-
-			// Reset the viewer host with a single container element the
-			// plugin can take ownership of. Inject the plugin's style
-			// once, then load the plugin script and call its render().
-			// The padding leaves a little breathing room on every side -
-			// plugins (hdf5-viewer in particular) draw their tree right
-			// up to the edge otherwise.
 			const host = $('viewer-host');
 			host.innerHTML = '';
 			const container = document.createElement('div');
@@ -1072,25 +831,18 @@ function renderShellHtml(webview: vscode.Webview): string {
 			container.style.padding = '8px';
 			container.style.boxSizing = 'border-box';
 			host.appendChild(container);
-
 			if (payload.plugin.styleCss) {
 				const style = document.createElement('style');
 				style.textContent = payload.plugin.styleCss;
 				host.appendChild(style);
 			}
-
 			const script = document.createElement('script');
 			script.textContent = payload.plugin.entryJs;
 			pluginInstance = script;
 			host.appendChild(script);
-
-			// AutoPipePlugin contract: window.AutoPipePlugin.render(container, fileUrl, filename)
 			if (window.AutoPipePlugin && typeof window.AutoPipePlugin.render === 'function') {
 				try {
 					window.AutoPipePlugin.render(container, currentBlobUrl, payload.filename);
-					// PDF plugins (and anything else that drops a sandboxed
-					// <embed>) gets rewritten on a microtask boundary so the
-					// plugin's first innerHTML pass has already settled.
 					setTimeout(replacePdfEmbeds, 0);
 				} catch (err) {
 					host.innerHTML = '<div class="err">Plugin render failed: ' + escapeHtml(String(err)) + '</div>';
@@ -1100,60 +852,66 @@ function renderShellHtml(webview: vscode.Webview): string {
 			}
 		}
 
+		// A pipeline-type plugin renders the WHOLE result folder as one
+		// dashboard. It pulls each file through /data/{filename} using its own
+		// data_source (pre-registered on the extension side). We call
+		// renderPipeline(container, {folderName, files, pipeline}) when the
+		// plugin exposes it, falling back to render(container, null, folderName).
+		function mountPipeline(payload) {
+			tearDownCurrentPlugin();
+			$('right-header').innerHTML = '<span class="name">' + escapeHtml(payload.folderName) + '</span><span class="meta">' + escapeHtml(payload.plugin.name + ' v' + payload.plugin.version) + '</span>';
+			const host = $('viewer-host');
+			host.innerHTML = '';
+			const container = document.createElement('div');
+			container.style.height = '100%';
+			container.style.width = '100%';
+			container.style.padding = '8px';
+			container.style.boxSizing = 'border-box';
+			host.appendChild(container);
+			if (payload.plugin.styleCss) {
+				const style = document.createElement('style');
+				style.textContent = payload.plugin.styleCss;
+				host.appendChild(style);
+			}
+			const script = document.createElement('script');
+			script.textContent = payload.plugin.entryJs;
+			pluginInstance = script;
+			host.appendChild(script);
+			try {
+				if (window.AutoPipePlugin && typeof window.AutoPipePlugin.renderPipeline === 'function') {
+					window.AutoPipePlugin.renderPipeline(container, { folderName: payload.folderName, files: payload.files, pipeline: payload.pipeline });
+				} else if (window.AutoPipePlugin && typeof window.AutoPipePlugin.render === 'function') {
+					window.AutoPipePlugin.render(container, null, payload.folderName);
+				} else {
+					host.innerHTML = '<div class="err">Plugin "' + escapeHtml(payload.plugin.name) + '" did not register AutoPipePlugin.render</div>';
+				}
+				setTimeout(replacePdfEmbeds, 0);
+			} catch (err) {
+				host.innerHTML = '<div class="err">Plugin render failed: ' + escapeHtml(String(err)) + '</div>';
+			}
+		}
+
 		window.addEventListener('message', (e) => {
 			const msg = e.data;
 			if (msg.type === 'aria.viewer.fetchData.response') {
 				const cb = _fetchPending[msg.reqId];
-				if (cb) {
-					delete _fetchPending[msg.reqId];
-					cb(msg.data);
-				}
+				if (cb) { delete _fetchPending[msg.reqId]; cb(msg.data); }
 				return;
 			}
-			if (msg.type === 'aria.viewer.setDirectory') {
-				rootDir = msg.rootDir || msg.directory || '/';
-				if (msg.initialFile) {
-					pendingInitialFile = msg.initialFile;
-					initialFileLoaded = false;
-				}
-				navigateTo(msg.directory);
-			} else if (msg.type === 'aria.viewer.list.ok' && msg.directory === currentDir) {
-				renderListing(msg.entries);
-			} else if (msg.type === 'aria.viewer.fileLoaded') {
+			if (msg.type === 'aria.viewer.fileLoaded') {
 				mountPlugin(msg);
+			} else if (msg.type === 'aria.viewer.pipelineLoaded') {
+				mountPipeline(msg);
 			} else if (msg.type === 'aria.viewer.fileError') {
-				$('right-header').innerHTML = '<span class="name">' + escapeHtml(msg.filePath.split('/').pop()) + '</span>';
+				$('right-header').innerHTML = '<span class="name">' + escapeHtml(String(msg.filePath).split('/').pop()) + '</span>';
 				$('viewer-host').innerHTML = '<div class="err">' + escapeHtml(msg.error) + '</div>';
+			} else if (msg.type === 'aria.viewer.placeholder') {
+				$('right-header').innerHTML = '<span class="meta">No file selected</span>';
+				$('viewer-host').innerHTML = '<div class="placeholder">' + escapeHtml(msg.text) + '</div>';
 			} else if (msg.type === 'aria.viewer.error') {
-				$('listing').innerHTML = '<div class="err">' + escapeHtml(msg.error) + '</div>';
+				$('viewer-host').innerHTML = '<div class="err">' + escapeHtml(msg.error) + '</div>';
 			}
 		});
-
-		// Resize handle between the file list and the viewer pane.
-		(function() {
-			const gutter = document.getElementById('gutter');
-			const left = document.querySelector('.left');
-			const shell = document.querySelector('.shell');
-			if (!gutter || !left || !shell) return;
-			let dragging = false;
-			gutter.addEventListener('mousedown', (e) => {
-				dragging = true;
-				document.body.style.cursor = 'ew-resize';
-				e.preventDefault();
-			});
-			document.addEventListener('mousemove', (e) => {
-				if (!dragging) return;
-				const rect = shell.getBoundingClientRect();
-				const newWidth = Math.max(180, Math.min(rect.width - 240, e.clientX - rect.left));
-				left.style.width = newWidth + 'px';
-			});
-			document.addEventListener('mouseup', () => {
-				if (dragging) {
-					dragging = false;
-					document.body.style.cursor = '';
-				}
-			});
-		})();
 
 		vscode.postMessage({ type: 'aria.viewer.ready' });
 	</script>

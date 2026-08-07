@@ -15,8 +15,7 @@ import { SshService } from './ssh/sshService';
 import { VMManager } from './vm/vmManager';
 import { wslAvailable, listDistros, pickDistro } from './vm/wsl';
 import { QokaPdfEditorProvider } from './viewer/pdfEditor';
-import { openViewerForDirectory } from './viewer/viewerPanel';
-import { windowsToWsl } from './common/dockerEnv';
+import { openResultsViewer, viewFileInViewer } from './viewer/viewerPanel';
 import { HubApiClient } from './hub/apiClient';
 import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
@@ -72,16 +71,28 @@ export function activate(context: vscode.ExtensionContext): void {
 	));
 
 	// Open a pipeline results/<run> FOLDER in the autopipe viewer (plugins render each
-	// file, incl. genomics via the run connection's docker). Invoked by the "Open in
-	// viewer" button on results/ folders in the Analysis tab. The button passes the
-	// LOCAL folder path; map it to the active connection (WSL) path for the viewer.
+	// result file from the LOCAL results/ folder). Invoked by the "Open in viewer"
+	// button on results/ folders in the Analysis tab. Opening a folder marks it as a
+	// tree scope; clicking a file inside routes to aria.autopipe.viewFileInViewer.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.autopipe.openResultsViewer', async (arg: unknown) => {
 		const local = typeof arg === 'string' ? arg : (arg && (arg as vscode.Uri).fsPath) || '';
 		if (!local) { return; }
 		try {
-			await openViewerForDirectory(windowsToWsl(String(local)));
+			await openResultsViewer(String(local));
 		} catch (e) {
 			void vscode.window.showErrorMessage(`Could not open the pipeline viewer: ${(e as Error).message}`);
+		}
+	}));
+
+	// Render a single result file in the viewer tab whose scope contains it.
+	// Called by the core explorer when a file inside an open viewer scope is clicked.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.autopipe.viewFileInViewer', async (arg: unknown) => {
+		const local = typeof arg === 'string' ? arg : (arg && (arg as vscode.Uri).fsPath) || '';
+		if (!local) { return; }
+		try {
+			await viewFileInViewer(String(local));
+		} catch (e) {
+			void vscode.window.showErrorMessage(`Could not open the file in the viewer: ${(e as Error).message}`);
 		}
 	}));
 

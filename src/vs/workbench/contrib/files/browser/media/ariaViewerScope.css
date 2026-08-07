@@ -1,0 +1,40 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Highlight box around a results/<run>/ folder that has an open Autopipe
+   Viewer tab. Side + top borders plus a subtle tint group the folder and its
+   members into one region; the active (focused) viewer's scope is sky-blue,
+   idle scopes are grey. Applied per-row (virtualization-safe) by the
+   ResultsViewerFileContribution. */
+
+.monaco-list-row.aria-viewer-scope-member {
+	background-color: rgba(120, 120, 120, 0.06);
+	border-left: 2px solid var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.5));
+	border-right: 2px solid var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.5));
+	box-sizing: border-box;
+}
+
+.monaco-list-row.aria-viewer-scope-member.aria-viewer-scope-top {
+	border-top: 2px solid var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.5));
+}
+
+.monaco-list-row.aria-viewer-scope-member.aria-viewer-scope-bottom {
+	border-bottom: 2px solid var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.5));
+}
+
+/* Active scope: the viewer tab is focused -> sky-blue box. */
+.monaco-list-row.aria-viewer-scope-member.aria-viewer-scope-active {
+	background-color: rgba(64, 160, 255, 0.10);
+	border-left-color: var(--vscode-focusBorder, #40a0ff);
+	border-right-color: var(--vscode-focusBorder, #40a0ff);
+}
+
+.monaco-list-row.aria-viewer-scope-member.aria-viewer-scope-active.aria-viewer-scope-top {
+	border-top-color: var(--vscode-focusBorder, #40a0ff);
+}
+
+.monaco-list-row.aria-viewer-scope-member.aria-viewer-scope-active.aria-viewer-scope-bottom {
+	border-bottom-color: var(--vscode-focusBorder, #40a0ff);
+}
