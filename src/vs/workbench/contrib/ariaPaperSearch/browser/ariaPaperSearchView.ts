@@ -438,7 +438,7 @@ export class AriaPaperSearchView extends ViewPane {
 			openPdf.style.color = 'var(--vscode-textLink-foreground)';
 			openPdf.style.cursor = 'pointer';
 			openPdf.style.width = 'fit-content';
-			openPdf.onclick = (e) => { e.stopPropagation(); void this.openerService.open(pdfUri, { openExternal: true }); };
+			openPdf.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('vscode.open', pdfUri); };
 		}
 
 		// Meta line - Authors et al. · Venue · Year.
@@ -852,7 +852,9 @@ export class AriaDownloadedPdfsView extends ViewPane {
 			badge.style.flexShrink = '0';
 
 			row.title = 'Open PDF';
-			row.onclick = () => { void this.openerService.open(f.uri, { openExternal: true }); };
+			// Open in the in-app PDF viewer (the qoka.pdfViewer custom editor is the
+			// default editor for .pdf), not an external app.
+			row.onclick = () => { void this.commandService.executeCommand('vscode.open', f.uri); };
 		}
 	}
 }

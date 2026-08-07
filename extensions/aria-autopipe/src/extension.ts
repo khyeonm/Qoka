@@ -14,6 +14,7 @@ import { ConfigService } from './config/configService';
 import { SshService } from './ssh/sshService';
 import { VMManager } from './vm/vmManager';
 import { wslAvailable, listDistros, pickDistro } from './vm/wsl';
+import { QokaPdfEditorProvider } from './viewer/pdfEditor';
 import { HubApiClient } from './hub/apiClient';
 import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
@@ -58,6 +59,15 @@ export function activate(context: vscode.ExtensionContext): void {
 	// three dirs + the README exist, so a freshly opened project always shows
 	// them - even for remote-only users who never start the built-in VM.
 	try { ensureWorkspaceScaffold(); } catch { /* best-effort */ }
+
+	// In-app PDF viewer (pdf.js) as the default editor for .pdf, so downloaded papers
+	// (Paper Library) and pipeline result PDFs render inside Qoka as an editor tab
+	// instead of an external app.
+	context.subscriptions.push(vscode.window.registerCustomEditorProvider(
+		QokaPdfEditorProvider.viewType,
+		new QokaPdfEditorProvider(),
+		{ webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: false },
+	));
 
 	// Wire up the shared service container so MCP tool handlers can reach
 	// config / ssh / hub / github without each of them tracking the

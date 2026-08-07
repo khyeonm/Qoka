@@ -13,6 +13,18 @@
 		"onStartupFinished"
 	],
 	"contributes": {
+		"customEditors": [
+			{
+				"viewType": "qoka.pdfViewer",
+				"displayName": "Qoka PDF Viewer",
+				"selector": [
+					{
+						"filenamePattern": "*.pdf"
+					}
+				],
+				"priority": "default"
+			}
+		],
 		"commands": [
 			{
 				"command": "aria.autopipe.getStatus",
