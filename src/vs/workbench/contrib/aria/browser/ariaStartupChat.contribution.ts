@@ -97,8 +97,14 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		takePendingInstall();
 		void (async () => {
 			// No provider chosen yet → nothing to set up (shouldn't happen in a
-			// project window, but guard so we never hold an empty loader).
-			if (!hasPickedAiProvider()) {
+			// project window, but guard so we never hold an empty loader). Check the
+			// aria.aiProvider SETTING too (not just the localStorage flag): a returning
+			// user - or one who just re-signed-in (which clears the flag) - still has
+			// the setting, and their project window must run setup (loader + MCP
+			// registration), matching decideEmptyWorkbench.
+			const providerPref = this.configurationService.getValue<string>(ARIA_AI_PROVIDER_SETTING);
+			const pickedAi = hasPickedAiProvider() || providerPref === 'claude' || providerPref === 'codex';
+			if (!pickedAi) {
 				this._setupGateDone = true;
 				hideLoading();
 				return;

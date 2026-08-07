@@ -491,10 +491,16 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	}
 
 	private async signIn(provider: 'orcid' | 'google'): Promise<void> {
-		// Going through the login screen re-arms the AI picker: once this sign-in
-		// completes, the AI-assistant step shows again. Reopening later with an
-		// already-restored session skips signIn (and the picker), as intended.
-		clearPickedAiProvider();
+		// Going through the login screen normally re-arms the AI picker. But a
+		// RE-sign-in from within a project ("Sign in" in the status bar / Settings,
+		// which sets SIGNIN_RETURN_TO) must KEEP the existing AI-provider choice - the
+		// user already onboarded - so we reopen straight into the project and its setup
+		// gate still runs. Only clear (re-arm the picker) for a first-run login.
+		let reSignIn = false;
+		try { reSignIn = !!localStorage.getItem(SIGNIN_RETURN_TO); } catch { /* ignore */ }
+		if (!reSignIn) {
+			clearPickedAiProvider();
+		}
 		this.authLoading = true;
 		this.rerender();
 		try {

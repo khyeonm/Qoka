@@ -175,8 +175,8 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 
 		this.signInEntry = this.statusbarService.addEntry({
 			name: localize('aria.signin.name', "Sign in"),
-			text: localize('aria.signin.text', "$(account) Sign in"),
-			ariaLabel: localize('aria.signin.text', "$(account) Sign in"),
+			text: localize('aria.signin.text', "Sign in"),
+			ariaLabel: localize('aria.signin.text', "Sign in"),
 			tooltip: localize('aria.signin.tooltip', "Sign in to Qoka (optional)"),
 			command: SIGN_IN_COMMAND,
 			// FRESH id (not 'aria.signin'): an earlier build's 'aria.signin' entry ended

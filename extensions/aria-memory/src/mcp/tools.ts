@@ -95,12 +95,12 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'remember_project_memory',
-			description: 'ALWAYS write the title and content in ENGLISH - if the user spoke another language, translate the fact to English before saving. Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). Only for project-scoped facts - cross-project user preferences belong in remember_user_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
+			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). Only for project-scoped facts - cross-project user preferences belong in remember_user_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
 			inputSchema: {
 				type: 'object',
 				properties: {
-					title: { type: 'string', description: 'Short page title, in English. Reusing an existing title updates that page.' },
-					content: { type: 'string', description: 'The knowledge to store, in English Markdown. Be self-contained and specific.' },
+					title: { type: 'string', description: 'Short page title. Reusing an existing title updates that page.' },
+					content: { type: 'string', description: 'The knowledge to store, in Markdown. Be self-contained and specific.' },
 					type: {
 						type: 'string',
 						description: 'Category for grouping in the index, e.g. decision | entity | experiment | constraint | reference.',
@@ -165,7 +165,7 @@ export function buildTools(): ToolDefinition[] {
 		// --- cross-project ("user") memory - backed by the mem0 server ---------
 		{
 			name: 'remember_user_memory',
-			description: 'ALWAYS write the content in ENGLISH - if the user spoke another language, translate the fact to English before saving. Save a CROSS-PROJECT fact about the USER - something that stays true and useful in ANY project (their preferences, working style, identity, tools they favour, cross-cutting conventions). Do NOT use this for facts specific to the current project - those go to remember_project_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving.',
+			description: 'Save a CROSS-PROJECT fact about the USER - something that stays true and useful in ANY project (their preferences, working style, identity, tools they favour, cross-cutting conventions). Do NOT use this for facts specific to the current project - those go to remember_project_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving.',
 			inputSchema: {
 				type: 'object',
 				properties: {
