@@ -250,6 +250,7 @@ import './contrib/quickaccess/browser/quickAccess.contribution.js';
 import './contrib/files/browser/explorerViewlet.js';
 import './contrib/files/browser/fileActions.contribution.js';
 import './contrib/files/browser/files.contribution.js';
+import './contrib/files/browser/ariaResultsViewerContrib.js';
 
 // Bulk Edit
 import './contrib/bulkEdit/browser/bulkEditService.js';
