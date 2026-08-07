@@ -18,6 +18,13 @@ import {
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { AriaPaperSearchView, AriaDownloadedPdfsView } from './ariaPaperSearchView.js';
 import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
+import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
+import { IFileService, FileChangeType } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { URI } from '../../../../base/common/uri.js';
 
 const ARIA_PAPER_SEARCH_CONTAINER_ID = 'workbench.view.ariaPaperSearch';
 
@@ -97,3 +104,42 @@ Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([paperSe
 
 // "How to use?" link in the view's title bar (right of the "PAPER LIBRARY" title).
 registerAriaTabHelpTitleAction(AriaPaperSearchView.ID, 'paper-library');
+
+/**
+ * When the save-paper-pdf skill writes a PDF into `<workspace>/.qoka/references/pdfs/`,
+ * open the Paper Library (Downloaded PDFs section) so the user sees it right away.
+ */
+class AriaPdfDownloadRevealContribution extends Disposable implements IWorkbenchContribution {
+
+	static readonly ID = 'workbench.contrib.aria.pdfDownloadReveal';
+
+	private revealTimer: ReturnType<typeof setTimeout> | undefined;
+
+	constructor(
+		@IFileService fileService: IFileService,
+		@IWorkspaceContextService contextService: IWorkspaceContextService,
+		@IViewsService private readonly viewsService: IViewsService,
+	) {
+		super();
+		const folder = contextService.getWorkspace().folders[0];
+		if (!folder) { return; }
+		const pdfsUri = URI.joinPath(folder.uri, '.qoka', 'references', 'pdfs');
+		this._register(fileService.watch(pdfsUri));
+		this._register(fileService.onDidFilesChange(e => {
+			if (!e.affects(pdfsUri, FileChangeType.ADDED)) { return; }
+			// A download can fire several change events (mkdir + move); debounce so we
+			// reveal the Paper Library once, not repeatedly.
+			if (this.revealTimer) { return; }
+			this.revealTimer = setTimeout(() => { this.revealTimer = undefined; }, 1500);
+			void this.viewsService.openView(AriaDownloadedPdfsView.ID, true);
+		}));
+	}
+
+	override dispose(): void {
+		if (this.revealTimer) { clearTimeout(this.revealTimer); this.revealTimer = undefined; }
+		super.dispose();
+	}
+}
+
+Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
+	.registerWorkbenchContribution(AriaPdfDownloadRevealContribution, LifecyclePhase.Restored);
