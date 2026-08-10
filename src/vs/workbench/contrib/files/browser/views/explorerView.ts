@@ -562,6 +562,11 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 					// in that viewer tab instead of a normal editor.
 					if (ariaViewerScopeStore.scopeContaining(element.resource)) {
 						await this.commandService.executeCommand('aria.autopipe.viewFileInViewer', element.resource.fsPath);
+					} else if (/\.pdf$/i.test(element.resource.path)) {
+						// Open PDFs from the file tree in the OS default PDF app. The in-app
+						// Qoka PDF viewer stays reserved for the Paper Library's Open PDF
+						// button (which opens it explicitly, not through the explorer).
+						await this.openerService.open(element.resource, { openExternal: true });
 					} else {
 						await this.editorService.openEditor({ resource: element.resource, options: { preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);
 					}
