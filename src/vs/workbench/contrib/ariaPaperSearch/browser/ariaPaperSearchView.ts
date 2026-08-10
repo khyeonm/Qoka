@@ -19,6 +19,7 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -729,10 +730,32 @@ export class AriaDownloadedPdfsView extends ViewPane {
 		@ICommandService private readonly commandService: ICommandService,
 		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IDialogService private readonly dialogService: IDialogService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		this._register(this.onDidChangeBodyVisibility(visible => { if (visible) { void this.refresh(); } }));
 		void this.setupWatcher();
+	}
+
+	/** Delete a downloaded PDF from disk (.qoka/references/pdfs). The folder
+	 *  watcher refreshes the list automatically once the file is gone. */
+	private async deletePdf(file: { name: string; uri: URI }): Promise<void> {
+		const confirmed = await this.dialogService.confirm({
+			type: 'warning',
+			message: 'Delete this PDF from the Paper Library?',
+			detail: `${prettyPdfName(file.name)} will be permanently removed from .qoka/references/pdfs.`,
+			primaryButton: 'Delete',
+		});
+		if (!confirmed.confirmed) {
+			return;
+		}
+		try {
+			await this.fileService.del(file.uri, { useTrash: false, recursive: false });
+		} catch (err) {
+			void this.dialogService.error('Could not delete the PDF.', (err as Error).message);
+			return;
+		}
+		await this.refresh();
 	}
 
 	private pdfsDirUri(): URI | undefined {
@@ -852,6 +875,16 @@ export class AriaDownloadedPdfsView extends ViewPane {
 			badge.style.fontSize = '10px';
 			badge.style.opacity = '0.55';
 			badge.style.flexShrink = '0';
+
+			const del = append(row, $('span.codicon.codicon-trash')) as HTMLElement;
+			del.title = 'Delete PDF';
+			del.style.flexShrink = '0';
+			del.style.cursor = 'pointer';
+			del.style.opacity = '0.6';
+			del.style.padding = '2px 4px';
+			del.onmouseenter = () => { del.style.opacity = '1'; };
+			del.onmouseleave = () => { del.style.opacity = '0.6'; };
+			del.onclick = (e) => { e.stopPropagation(); void this.deletePdf(f); };
 
 			row.title = 'Open PDF';
 			// Open in the in-app PDF viewer (the qoka.pdfViewer custom editor is the

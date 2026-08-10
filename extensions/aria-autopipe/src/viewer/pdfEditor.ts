@@ -65,7 +65,7 @@ function buildHtml(webview: vscode.Webview, file: vscode.Uri): string {
 </style>
 </head>
 <body>
-<div id="toolbar"><button id="zoomout" title="Zoom out">-</button><span id="zoom">130%</span><button id="zoomin" title="Zoom in">+</button><span class="hint">Ctrl +/- or Ctrl + scroll to zoom, drag to move</span></div>
+<div id="toolbar"><button id="zoomout" title="Zoom out">-</button><span id="zoom">130%</span><button id="zoomin" title="Zoom in">+</button><span class="hint">Ctrl + scroll to zoom, drag to move</span></div>
 <div id="status">Loading PDF…</div>
 <div id="pages"></div>
 <script type="module">
@@ -74,42 +74,48 @@ function buildHtml(webview: vscode.Webview, file: vscode.Uri): string {
 	const pagesEl = document.getElementById('pages');
 	const statusEl = document.getElementById('status');
 	const zoomEl = document.getElementById('zoom');
-	let scale = 1.3, pdf = null, rendering = false;
+	let scale = 1.3, pdf = null, rendering = false, wantRender = false;
 	async function renderAll() {
-		if (!pdf || rendering) { return; }
+		if (!pdf) { return; }
+		// If a render is already running, just flag that another pass is needed;
+		// the running loop picks up the latest scale when it finishes. Without
+		// this, a zoom that arrives mid-render was silently dropped (the % changed
+		// but the pages never re-rasterized).
+		if (rendering) { wantRender = true; return; }
 		rendering = true;
-		pagesEl.innerHTML = '';
-		const dpr = window.devicePixelRatio || 1;
-		for (let i = 1; i <= pdf.numPages; i++) {
-			const page = await pdf.getPage(i);
-			const viewport = page.getViewport({ scale: scale * dpr });
-			const canvas = document.createElement('canvas');
-			canvas.width = viewport.width; canvas.height = viewport.height;
-			canvas.style.width = (viewport.width / dpr) + 'px';
-			pagesEl.appendChild(canvas);
-			await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+		try {
+			do {
+				wantRender = false;
+				const s = scale;
+				const dpr = window.devicePixelRatio || 1;
+				pagesEl.innerHTML = '';
+				for (let i = 1; i <= pdf.numPages; i++) {
+					const page = await pdf.getPage(i);
+					const viewport = page.getViewport({ scale: s * dpr });
+					const canvas = document.createElement('canvas');
+					canvas.width = viewport.width; canvas.height = viewport.height;
+					canvas.style.width = (viewport.width / dpr) + 'px';
+					pagesEl.appendChild(canvas);
+					await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+				}
+				zoomEl.textContent = Math.round(s * 100) + '%';
+			} while (wantRender);
+		} finally {
+			rendering = false;
 		}
-		zoomEl.textContent = Math.round(scale * 100) + '%';
-		rendering = false;
 	}
 	let renderTimer = null;
 	function setZoom(next) {
 		scale = Math.min(3, Math.max(0.4, Math.round(next * 100) / 100));
 		zoomEl.textContent = Math.round(scale * 100) + '%';
-		// Debounce re-render so a fast wheel/keypress burst rasterizes once.
+		// Debounce re-render so a fast wheel burst rasterizes once.
 		if (renderTimer) { clearTimeout(renderTimer); }
-		renderTimer = setTimeout(() => { renderTimer = null; renderAll(); }, 80);
+		renderTimer = setTimeout(() => { renderTimer = null; renderAll(); }, 60);
 	}
 	document.getElementById('zoomin').onclick = () => setZoom(scale + 0.2);
 	document.getElementById('zoomout').onclick = () => setZoom(scale - 0.2);
-	// Ctrl +/- and Ctrl+0 to reset.
-	window.addEventListener('keydown', (e) => {
-		if (!(e.ctrlKey || e.metaKey)) { return; }
-		if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoom(scale + 0.2); }
-		else if (e.key === '-' || e.key === '_') { e.preventDefault(); setZoom(scale - 0.2); }
-		else if (e.key === '0') { e.preventDefault(); setZoom(1.3); }
-	});
-	// Ctrl + mouse wheel to zoom.
+	// Ctrl + mouse wheel to zoom. (Ctrl +/- is intentionally NOT handled here -
+	// that keybinding zooms the whole Qoka window and a webview cannot suppress it.)
 	window.addEventListener('wheel', (e) => {
 		if (!(e.ctrlKey || e.metaKey)) { return; }
 		e.preventDefault();
