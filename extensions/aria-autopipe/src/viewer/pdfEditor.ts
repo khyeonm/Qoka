@@ -58,9 +58,14 @@ function buildHtml(webview: vscode.Webview, file: vscode.Uri): string {
 	#toolbar{position:sticky;top:0;display:flex;gap:8px;align-items:center;padding:6px 10px;background:var(--vscode-editorWidget-background);border-bottom:1px solid var(--vscode-widget-border,transparent);font-family:var(--vscode-font-family);font-size:12px;color:var(--vscode-foreground);z-index:1;}
 	#toolbar button{cursor:pointer;background:var(--vscode-button-secondaryBackground,rgba(127,127,127,.2));color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));border:none;border-radius:3px;padding:2px 9px;font-size:13px;}
 	#toolbar .hint{opacity:.55;font-size:11px;margin-left:6px;}
-	#pages{padding:12px;display:flex;flex-direction:column;align-items:center;gap:12px;cursor:grab;}
+	/* width:fit-content + min-width:100% lets the page column grow WIDER than the
+	   viewport when zoomed (so zoom actually enlarges the page and you pan to it),
+	   while still filling and centering when the page is narrower than the viewer.
+	   A max-width:100% on the canvas would clamp the displayed width and make zoom
+	   look like it does nothing. */
+	#pages{padding:12px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:12px;width:fit-content;min-width:100%;cursor:grab;}
 	#pages.grabbing{cursor:grabbing;}
-	#pages canvas{max-width:100%;box-shadow:0 0 6px rgba(0,0,0,.3);background:#fff;}
+	#pages canvas{box-shadow:0 0 6px rgba(0,0,0,.3);background:#fff;}
 	#status{opacity:.7;padding:12px;font-family:var(--vscode-font-family);color:var(--vscode-foreground);}
 </style>
 </head>
