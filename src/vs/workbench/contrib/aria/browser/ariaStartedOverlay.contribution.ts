@@ -27,7 +27,7 @@ import { basename, isEqual } from '../../../../base/common/resources.js';
 import { INativeHostService } from '../../../../platform/native/common/native.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ARIA_MODE_SETTING, ARIA_AI_PROVIDER_SETTING, AriaMode } from '../common/ariaConfiguration.js';
-import { ARIA_SET_MODE_COMMAND } from './ariaModeManager.js';
+import { ARIA_SET_MODE_COMMAND, ARIA_REMEMBER_MODE_COMMAND } from './ariaModeManager.js';
 import { ConcreteProvider, PROVIDER_EXTENSION_ID, PROVIDER_LABEL, hasPickedAiProvider, markPickedAiProvider, clearPickedAiProvider, providerSettingFor, setPendingInstall } from './ariaAiProviderChoice.js';
 
 // Pre-paint workbench hide. Installing the stylesheet at module-load
@@ -1496,9 +1496,22 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			void this.hostService.close();
 			return;
 		}
+		this.rememberPickedModeForFolder(folderUri);
 		this.pickAndDismiss(() => {
 			void this.hostService.openWindow([{ folderUri }], { forceReuseWindow: true });
 		});
+	}
+
+	/** Carry the mode the user picked in this (empty) overlay to the project we're
+	 *  about to open. The picker window has no folder key of its own, so without this
+	 *  the reload into the project would drop the choice and reopen in the project's
+	 *  last-remembered / default mode. Saved under the target folder's key so
+	 *  restoreFolderMode re-applies it. No-op when no explicit mode was picked. */
+	private rememberPickedModeForFolder(folderUri: URI): void {
+		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
+		if (mode === 'easy' || mode === 'advanced') {
+			void this.commandService.executeCommand(ARIA_REMEMBER_MODE_COMMAND, folderUri.toString(), mode);
+		}
 	}
 
 	/** The desktop native-host service, or undefined on a build where it isn't
@@ -1608,6 +1621,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			// Storage unavailable - the user can still open the tabs from the sidebar.
 		}
 		pushTrail(`createNewProject: calling openWindow(forceReuseWindow) for ${folderUri.fsPath}`);
+		this.rememberPickedModeForFolder(folderUri);
 		this.pickAndDismiss(() => {
 			void this.hostService.openWindow([{ folderUri }], { forceReuseWindow: true });
 		});

@@ -499,3 +499,24 @@ CommandsRegistry.registerCommand(ARIA_SET_MODE_COMMAND, async (accessor: Service
 	// command). Window-scoped so a mode change in one window never disturbs another.
 	await configurationService.updateValue(ARIA_MODE_SETTING, mode, {}, ConfigurationTarget.MEMORY, { donotNotifyError: true });
 });
+
+export const ARIA_REMEMBER_MODE_COMMAND = 'aria.mode.rememberForFolder';
+
+// Persist a mode for a SPECIFIC project folder key (its URI string). Used by the
+// Started-overlay picker: it runs in an EMPTY window that has no folder key of its
+// own (folderModeKey === undefined), so the mode the user picks there would be lost
+// on the reload into the project. Saving it under the TARGET folder's key here lets
+// restoreFolderMode re-apply the picked mode when that project opens.
+CommandsRegistry.registerCommand(ARIA_REMEMBER_MODE_COMMAND, (accessor: ServicesAccessor, folderKey: string, mode: AriaMode) => {
+	if (!folderKey || (mode !== 'easy' && mode !== 'advanced')) {
+		return;
+	}
+	const storageService = accessor.get(IStorageService);
+	const map = readPerFolderModes(storageService);
+	map[folderKey] = mode;
+	try {
+		storageService.store(PER_FOLDER_MODE_KEY, JSON.stringify(map), StorageScope.APPLICATION, StorageTarget.MACHINE);
+	} catch {
+		// Storage unavailable - the project just opens in its default mode.
+	}
+});
