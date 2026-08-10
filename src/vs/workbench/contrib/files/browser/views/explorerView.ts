@@ -47,7 +47,7 @@ import { IViewDescriptorService } from '../../../../common/views.js';
 import { IViewsService } from '../../../../services/views/common/viewsService.js';
 import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
 import { IUriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentity.js';
-import { EditorResourceAccessor, SideBySideEditor } from '../../../../common/editor.js';
+import { DEFAULT_EDITOR_ASSOCIATION, EditorResourceAccessor, SideBySideEditor } from '../../../../common/editor.js';
 import { IExplorerService, IExplorerView } from '../files.js';
 import { Codicon } from '../../../../../base/common/codicons.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
@@ -563,10 +563,18 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 					if (ariaViewerScopeStore.scopeContaining(element.resource)) {
 						await this.commandService.executeCommand('aria.autopipe.viewFileInViewer', element.resource.fsPath);
 					} else if (/\.pdf$/i.test(element.resource.path)) {
-						// Open PDFs from the file tree in the OS default PDF app. The in-app
-						// Qoka PDF viewer stays reserved for the Paper Library's Open PDF
-						// button (which opens it explicitly, not through the explorer).
-						await this.openerService.open(element.resource, { openExternal: true });
+						if (element.resource.path.includes('/.qoka/references/pdfs/')) {
+							// Downloaded paper PDFs open in VS Code's built-in editor, like any
+							// other file clicked in the tree (VS Code has no native PDF renderer,
+							// so this shows the standard binary-file notice). The Qoka PDF viewer
+							// is reached via the Paper Library's Open PDF button, not the tree.
+							await this.editorService.openEditor({ resource: element.resource, options: { override: DEFAULT_EDITOR_ASSOCIATION.id, preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);
+						} else {
+							// Other PDFs from the file tree open in the OS default PDF app. The
+							// in-app Qoka PDF viewer stays reserved for the Paper Library's Open
+							// PDF button (which opens it explicitly, not through the explorer).
+							await this.openerService.open(element.resource, { openExternal: true });
+						}
 					} else {
 						await this.editorService.openEditor({ resource: element.resource, options: { preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);
 					}

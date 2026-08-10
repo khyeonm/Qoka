@@ -54,13 +54,16 @@ export interface InstalledPlugin {
 	dir: string;
 }
 
-/** The 13 viewer plugins Qoka treats as default. Fetched from Hub on first
- *  run so the user has every common file type covered out of the box.
- *  Names match the Hub registry entries verbatim. */
+/** The default plugins Qoka installs on first run. Fetched from Hub so the user
+ *  has every common file type covered out of the box. Names match the Hub
+ *  registry entries verbatim. The first 13 are file-extension viewers; the last
+ *  is a pipeline dashboard (plugin_type 'pipeline') that claims an aptaselect
+ *  result directory (matched via its pipeline_match rules). */
 export const DEFAULT_PLUGIN_NAMES = [
 	'bam-viewer', 'bcf-viewer', 'bed-viewer', 'cram-viewer', 'csv-viewer',
 	'fasta-viewer', 'fastq-viewer', 'gff-viewer', 'hdf5-viewer', 'image-viewer',
 	'pdf-viewer', 'text-viewer', 'vcf-viewer',
+	'aptaselect-viewer',
 ];
 
 /**
@@ -71,7 +74,7 @@ export const DEFAULT_PLUGIN_NAMES = [
  *   - reading installed manifests
  *   - matching a file extension to a plugin
  *   - downloading a plugin from its Hub GitHub tarball
- *   - the first-run bootstrap that installs the default 13 plugins
+ *   - the first-run bootstrap that installs the default plugins
  *
  * No npm dependencies: extraction uses the system `tar` command. Linux
  * and macOS ship it; Windows 10+ ships it too.
@@ -202,7 +205,7 @@ export class PluginService {
 	}
 
 	/**
-	 * Make sure the default 13 plugins are installed. Skips ones that
+	 * Make sure the default plugins are installed. Skips ones that
 	 * already match the Hub version; downloads everything else. Returns
 	 * the actions taken so callers can build a summary notification.
 	 */

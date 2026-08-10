@@ -12,10 +12,12 @@ function pdfjsDir(): string {
 }
 
 /**
- * A read-only in-app PDF viewer (pdf.js) registered as the default editor for `.pdf`
- * files. Downloaded paper PDFs (Paper Library) and pipeline result PDFs open inside
- * Qoka as an editor tab instead of an external app. Local files only - rendered via
- * the webview's asWebviewUri, no server round-trip.
+ * A read-only in-app PDF viewer (pdf.js). Registered as the DEFAULT editor for
+ * `.pdf`, except downloaded paper PDFs under `.qoka/references/pdfs/`, which a
+ * configurationDefault association routes to VS Code's built-in editor so a
+ * plain Explorer click opens them like any other file. The Paper Library opens
+ * its PDFs with THIS viewer explicitly (vscode.openWith), so that path is
+ * unaffected. Local files only - rendered via the webview's asWebviewUri.
  */
 export class QokaPdfEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
@@ -79,52 +81,61 @@ function buildHtml(webview: vscode.Webview, file: vscode.Uri): string {
 	const pagesEl = document.getElementById('pages');
 	const statusEl = document.getElementById('status');
 	const zoomEl = document.getElementById('zoom');
-	let scale = 1.3, pdf = null, rendering = false, wantRender = false;
+	let pdf = null, zoom = 1.3;
+	// Natural (scale-1) CSS size of each page, in page order. The display size at
+	// the current zoom is natural * zoom.
+	const naturals = [];
+
+	// Rasterize EVERY page ONCE at a fixed resolution, then let zoom resize the
+	// already-rendered canvases purely via CSS. The old code re-rasterized (clear +
+	// rebuild) on every zoom step, which flickered and - when a re-render didn't
+	// land - left the page the same size or blank. Rendering once and CSS-scaling
+	// is flicker-free and the page reliably grows. RENDER=2 keeps it crisp up to
+	// ~2x zoom (slightly soft beyond, which is fine for reading).
 	async function renderAll() {
 		if (!pdf) { return; }
-		// If a render is already running, just flag that another pass is needed;
-		// the running loop picks up the latest scale when it finishes. Without
-		// this, a zoom that arrives mid-render was silently dropped (the % changed
-		// but the pages never re-rasterized).
-		if (rendering) { wantRender = true; return; }
-		rendering = true;
-		try {
-			do {
-				wantRender = false;
-				const s = scale;
-				const dpr = window.devicePixelRatio || 1;
-				pagesEl.innerHTML = '';
-				for (let i = 1; i <= pdf.numPages; i++) {
-					const page = await pdf.getPage(i);
-					const viewport = page.getViewport({ scale: s * dpr });
-					const canvas = document.createElement('canvas');
-					canvas.width = viewport.width; canvas.height = viewport.height;
-					canvas.style.width = (viewport.width / dpr) + 'px';
-					pagesEl.appendChild(canvas);
-					await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-				}
-				zoomEl.textContent = Math.round(s * 100) + '%';
-			} while (wantRender);
-		} finally {
-			rendering = false;
+		const dpr = window.devicePixelRatio || 1;
+		const RENDER = 2;
+		pagesEl.innerHTML = '';
+		naturals.length = 0;
+		for (let i = 1; i <= pdf.numPages; i++) {
+			const page = await pdf.getPage(i);
+			const natural = page.getViewport({ scale: 1 });
+			naturals.push({ w: natural.width, h: natural.height });
+			const viewport = page.getViewport({ scale: RENDER * dpr });
+			const canvas = document.createElement('canvas');
+			canvas.width = viewport.width; canvas.height = viewport.height;
+			sizeCanvas(canvas, i - 1);
+			pagesEl.appendChild(canvas);
+			await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
 		}
+		applyZoom();
 	}
-	let renderTimer = null;
+	// Set BOTH display dimensions explicitly so the layout always reflects the
+	// zoom (leaving height:auto let some HiDPI setups ignore the width change).
+	function sizeCanvas(canvas, idx) {
+		const n = naturals[idx];
+		if (!n) { return; }
+		canvas.style.width = (n.w * zoom) + 'px';
+		canvas.style.height = (n.h * zoom) + 'px';
+	}
+	function applyZoom() {
+		const list = pagesEl.querySelectorAll('canvas');
+		for (let i = 0; i < list.length; i++) { sizeCanvas(list[i], i); }
+		zoomEl.textContent = Math.round(zoom * 100) + '%';
+	}
 	function setZoom(next) {
-		scale = Math.min(3, Math.max(0.4, Math.round(next * 100) / 100));
-		zoomEl.textContent = Math.round(scale * 100) + '%';
-		// Debounce re-render so a fast wheel burst rasterizes once.
-		if (renderTimer) { clearTimeout(renderTimer); }
-		renderTimer = setTimeout(() => { renderTimer = null; renderAll(); }, 60);
+		zoom = Math.min(3, Math.max(0.4, Math.round(next * 100) / 100));
+		applyZoom(); // instant - just resizes the existing canvases, no re-render
 	}
-	document.getElementById('zoomin').onclick = () => setZoom(scale + 0.2);
-	document.getElementById('zoomout').onclick = () => setZoom(scale - 0.2);
+	document.getElementById('zoomin').onclick = () => setZoom(zoom + 0.2);
+	document.getElementById('zoomout').onclick = () => setZoom(zoom - 0.2);
 	// Ctrl + mouse wheel to zoom. (Ctrl +/- is intentionally NOT handled here -
 	// that keybinding zooms the whole Qoka window and a webview cannot suppress it.)
 	window.addEventListener('wheel', (e) => {
 		if (!(e.ctrlKey || e.metaKey)) { return; }
 		e.preventDefault();
-		setZoom(scale + (e.deltaY < 0 ? 0.12 : -0.12));
+		setZoom(zoom + (e.deltaY < 0 ? 0.12 : -0.12));
 	}, { passive: false });
 	// Drag anywhere (except the toolbar) to pan the pages.
 	(function () {
