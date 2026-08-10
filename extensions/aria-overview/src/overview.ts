@@ -11,7 +11,7 @@ import * as vscode from 'vscode';
 
 /**
  * Storage layer for the Project Overview, PER-PROJECT at
- * <workspace>/.aria/overview.json. The workbench Project Overview view reads and
+ * <workspace>/.qoka/overview.json. The workbench Project Overview view reads and
  * writes the same file directly (and watches it), so tools here just mutate the
  * file and the tab refreshes. Falls back to ~/.config/aria when no folder is open
  * so calls never crash.

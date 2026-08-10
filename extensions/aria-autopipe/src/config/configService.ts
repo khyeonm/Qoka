@@ -14,7 +14,21 @@ const STATE_KEY = 'aria.autopipe.config';
 /** User-visible mirror of the config: lets the user (or a debugger)
  *  inspect what the MCP tools see, and gives `get_workspace_info` a
  *  paper trail beyond VS Code's opaque globalState blob. */
-const DISK_CONFIG_PATH = path.join(os.homedir(), '.aria-autopipe-config.json');
+const DISK_CONFIG_PATH = path.join(os.homedir(), '.qoka', 'autopipe-config.json');
+/** Pre-rename location of the mirror. Moved to DISK_CONFIG_PATH once. */
+const LEGACY_DISK_CONFIG_PATH = path.join(os.homedir(), '.aria-autopipe-config.json');
+
+/** One-time move of the pre-rename config mirror to its new home under
+ *  ~/.qoka. The mirror is derived from globalState, so a failure here is
+ *  harmless - it is rewritten on the next config change. */
+function migrateLegacyConfigFile(): void {
+	try {
+		if (fs.existsSync(LEGACY_DISK_CONFIG_PATH) && !fs.existsSync(DISK_CONFIG_PATH)) {
+			fs.mkdirSync(path.dirname(DISK_CONFIG_PATH), { recursive: true });
+			fs.renameSync(LEGACY_DISK_CONFIG_PATH, DISK_CONFIG_PATH);
+		}
+	} catch { /* best-effort - the mirror is rebuilt from globalState */ }
+}
 
 /**
  * Persists Qoka Autopipe configuration in the extension's globalState. The
@@ -37,6 +51,7 @@ export class ConfigService {
 	private localVmEndpoint: SshProfile | null = null;
 
 	constructor(private readonly context: vscode.ExtensionContext) {
+		migrateLegacyConfigFile();
 		const raw = context.globalState.get<unknown>(STATE_KEY);
 		this.current = mergeIntoDefaults(raw);
 	}
@@ -106,6 +121,7 @@ export class ConfigService {
 					? { token: '<redacted>', login: this.current.github.login }
 					: null,
 			};
+			fs.mkdirSync(path.dirname(DISK_CONFIG_PATH), { recursive: true });
 			fs.writeFileSync(DISK_CONFIG_PATH, JSON.stringify(safe, null, 2) + '\n', 'utf8');
 		} catch (err) {
 			console.error(`[aria-autopipe] writeDiskMirror failed:`, err);

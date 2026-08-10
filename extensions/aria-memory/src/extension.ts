@@ -47,7 +47,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
 /**
  * Qoka Memory - boots a local MCP server so Claude Code (and, later, Codex)
  * can read and write this project's long-term memory: a per-project "LLM
- * wiki" of Markdown pages under `<workspace>/.aria/memory/wiki/`.
+ * wiki" of Markdown pages under `<workspace>/.qoka/memory/wiki/`.
  *
  * This is the first slice of the memory system. Still to come (separate
  * phases): the cross-project mem0 store + its tools, a background extractor

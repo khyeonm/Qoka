@@ -9,7 +9,7 @@
  * an npm package, so without Node it can neither be installed nor run.
  *
  * We never require admin/sudo: a portable Node is downloaded from nodejs.org into
- * ~/.aria/node (the same dir headlessCli probes) and extracted in place. If the
+ * ~/.qoka/node (the same dir headlessCli probes) and extracted in place. If the
  * machine already has a usable Node, we do nothing and let the system one win.
  *
  * The download host can be overridden with ARIA_NODE_DIST_BASE (tests/mirrors).
@@ -129,7 +129,7 @@ async function extract(archive: string, folder: string, into: string): Promise<v
 /**
  * Guarantee a `node`/`npm` is available, returning the directory that must be on
  * PATH to use it (empty string when the system Node is used). Idempotent: once a
- * portable Node exists under ~/.aria/node it is reused.
+ * portable Node exists under ~/.qoka/node it is reused.
  */
 export async function ensureNode(): Promise<string> {
 	if (hasUsableNode()) {

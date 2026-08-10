@@ -54,7 +54,7 @@ export const QOKA_CLAUDE_CONFIG_DIR = path.join(QOKA_HOME, 'claude');
  *  shared extension host - not just aria-skills - can spawn the provider CLIs and
  *  the Node they need. Codex is an npm script whose `#!/usr/bin/env node` shebang
  *  needs `node`; a non-developer machine often has none, so we prepend Qoka's
- *  portable Node (~/.aria/node/bin) plus ~/.local/bin (where claude/codex land).
+ *  portable Node (~/.qoka/node/bin) plus ~/.local/bin (where claude/codex land).
  *  Idempotent - safe to call from multiple extensions' activate(). */
 export function ensureQokaBinsOnPath(): void {
 	// Self-heal: an earlier build mirrored codex's npm launcher into ~/.qoka/bin,

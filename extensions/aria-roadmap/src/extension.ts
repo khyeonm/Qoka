@@ -70,7 +70,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	const state = new RoadmapState();
 	// In a project window (a folder is open), the store manages every roadmap
-	// under `.aria/roadmaps/` and mirrors the ACTIVE one into `state`. Migrate a
+	// under `.qoka/roadmaps/` and mirrors the ACTIVE one into `state`. Migrate a
 	// legacy single roadmap.json and make sure something is active so get_tree()
 	// and the canvas have a roadmap to show. In the empty wizard window there is
 	// no folder, so the store is folder-less and these are no-ops.

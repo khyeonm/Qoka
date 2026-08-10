@@ -12,7 +12,7 @@ import { RoadmapState, RoadmapNode, COLUMN_LABELS } from './state';
  * Multi-roadmap store.
  *
  * A project holds MANY roadmaps - one per hypothesis - each persisted as its own
- * `<workspace>/.aria/roadmaps/<id>.json`. Exactly one roadmap is "active" at a
+ * `<workspace>/.qoka/roadmaps/<id>.json`. Exactly one roadmap is "active" at a
  * time; the shared `RoadmapState` always mirrors the active roadmap, so every
  * existing MCP tool and workbench command (which operate on that one state)
  * transparently edits whichever roadmap is active. Switching active = reloading

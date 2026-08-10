@@ -10,7 +10,7 @@ import { services } from '../../common/services';
 export const PLUGIN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'list_installed_plugins',
-		description: 'List all viewer plugins installed locally for Qoka, with their supported file extensions and versions. Plugins live under ~/.aria-autopipe-plugins/ and work across every SSH host the user connects to.',
+		description: 'List all viewer plugins installed locally for Qoka, with their supported file extensions and versions. Plugins live under ~/.qoka/autopipe-plugins/ and work across every SSH host the user connects to.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			// Single-user, local plugin set: no SSH round-trip needed.

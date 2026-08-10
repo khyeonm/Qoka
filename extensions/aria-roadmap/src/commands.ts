@@ -15,7 +15,7 @@ import { RoadmapStore } from './roadmaps';
  * MCP shows up in the canvas, and a node the user adds manually shows up to the
  * AI on its next get_tree() call. Multi-roadmap: the workbench switches the
  * active roadmap (switchActive) when the user opens a different one, and every
- * mutation persists to that roadmap's own `.aria/roadmaps/<id>.json`.
+ * mutation persists to that roadmap's own `.qoka/roadmaps/<id>.json`.
  *
  * Every mutation re-emits `aria.roadmap.workbench.onStateChange` (carrying the
  * active roadmap id) so the matching canvas pane re-renders without polling.

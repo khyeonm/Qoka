@@ -68,7 +68,7 @@ export const DEFAULT_PLUGIN_NAMES = [
 
 /**
  * Local plugin manager. Plugins live under the user's home in
- * `~/.aria-autopipe-plugins/<name>/` so a single install can serve every
+ * `~/.qoka/autopipe-plugins/<name>/` so a single install can serve every
  * SSH host the user connects to. `PluginService` handles:
  *
  *   - reading installed manifests
@@ -79,12 +79,26 @@ export const DEFAULT_PLUGIN_NAMES = [
  * No npm dependencies: extraction uses the system `tar` command. Linux
  * and macOS ship it; Windows 10+ ships it too.
  */
+/** One-time move of the pre-rename plugin dir (~/.aria-autopipe-plugins) to its
+ *  new home (~/.qoka/autopipe-plugins), so updating keeps installed plugins
+ *  instead of re-downloading the defaults and orphaning user-installed ones. */
+function migrateLegacyPluginsDir(newDir: string): void {
+	try {
+		const legacy = path.join(os.homedir(), '.aria-autopipe-plugins');
+		if (fs.existsSync(legacy) && !fs.existsSync(newDir)) {
+			fs.mkdirSync(path.dirname(newDir), { recursive: true });
+			fs.renameSync(legacy, newDir);
+		}
+	} catch { /* best-effort - ensureDir + Hub re-download recover if this fails */ }
+}
+
 export class PluginService {
 
 	private readonly userPluginsDir: string;
 
 	constructor() {
-		this.userPluginsDir = path.join(os.homedir(), '.aria-autopipe-plugins');
+		this.userPluginsDir = path.join(os.homedir(), '.qoka', 'autopipe-plugins');
+		migrateLegacyPluginsDir(this.userPluginsDir);
 		console.log(`[aria-autopipe] PluginService: userPluginsDir = ${this.userPluginsDir}`);
 		this.ensureDir(this.userPluginsDir);
 		console.log(`[aria-autopipe] PluginService: directory ${fs.existsSync(this.userPluginsDir) ? 'exists' : 'does NOT exist'}`);

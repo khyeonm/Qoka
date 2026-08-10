@@ -55,7 +55,7 @@ function codexUrl(port: number): string { return `http://127.0.0.1:${port}/mcp`;
 
 function atomicWrite(file: string, content: string): void {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	const tmp = `${file}.aria-tmp-${process.pid}`;
+	const tmp = `${file}.qoka-tmp-${process.pid}`;
 	fs.writeFileSync(tmp, content, 'utf8');
 	fs.renameSync(tmp, file);
 }

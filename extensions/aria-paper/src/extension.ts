@@ -32,7 +32,7 @@ function cliAvailable(name: 'claude' | 'codex'): boolean {
 	const home = os.homedir();
 	const isWin = process.platform === 'win32';
 	// On Windows the CLIs are `.cmd`/`.exe` shims, never a bare extension-less
-	// file, and they land under the npm prefix root (~/.aria/npm or %APPDATA%/npm)
+	// file, and they land under the npm prefix root (~/.qoka/npm or %APPDATA%/npm)
 	// or Claude's ~/.local/bin - none on the GUI process PATH. Probe all of these
 	// with the right extensions so the reviewer gate matches reality on Windows.
 	const names = isWin ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name];

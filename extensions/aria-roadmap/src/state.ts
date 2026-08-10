@@ -61,7 +61,7 @@ export class RoadmapState {
 	private proposalSeq = 0;
 
 	/** Replace all committed nodes with the given set (proposals cleared).
-	 *  Used to hydrate from a project's persisted `.aria/roadmap.json` on
+	 *  Used to hydrate from a project's persisted `.qoka/roadmap.json` on
 	 *  activation, so the AI's get_tree() and the sidebar both reflect the
 	 *  saved roadmap in a project window. */
 	load(nodes: RoadmapNode[]): void {

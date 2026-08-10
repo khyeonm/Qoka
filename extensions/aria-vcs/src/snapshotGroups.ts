@@ -10,7 +10,7 @@
  * timeline collapses them into one expandable entry.
  *
  * The mapping `commitHash -> { groupId, continuation }` lives in a sidecar JSON
- * at `<workspace>/.aria/snapshot-groups.json`, kept OUT of git (added to
+ * at `<workspace>/.qoka/snapshot-groups.json`, kept OUT of git (added to
  * `.git/info/exclude`) so it never pollutes the user's history or the Advanced
  * mode diff. If the sidecar is lost the timeline just shows flat - no data loss.
  */
@@ -35,7 +35,7 @@ function sidecarPath(cwd: string): string {
 	return path.join(ariaDir(cwd), 'snapshot-groups.json');
 }
 
-/** Path we git-exclude - ONLY the sidecar, never the whole `.aria/` dir (which
+/** Path we git-exclude - ONLY the sidecar, never the whole `.qoka/` dir (which
  *  may hold tracked project data like roadmap.json). Keeping it out of git also
  *  stops `git add -A` in saveSnapshot from committing it into every snapshot. */
 const EXCLUDE_LINE = '.qoka/snapshot-groups.json';

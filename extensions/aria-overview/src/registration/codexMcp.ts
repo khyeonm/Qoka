@@ -19,7 +19,7 @@ const CODEX_CANDIDATES = [
 	path.join(os.homedir(), '.qoka', 'npm', 'bin', 'codex'),
 	'codex',
 	// Windows: `npm install -g` drops codex as a .cmd shim at the npm prefix root
-	// (Qoka-managed ~/.aria/npm, or the OS default %APPDATA%/npm) - neither is on
+	// (Qoka-managed ~/.qoka/npm, or the OS default %APPDATA%/npm) - neither is on
 	// the GUI process PATH, so probe them directly or Codex MCP never registers.
 	path.join(os.homedir(), '.qoka', 'npm', 'codex.cmd'),
 ];

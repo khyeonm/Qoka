@@ -12,7 +12,7 @@ import * as path from 'path';
  * system. (The cross-project half is a mem0 store added later; see the
  * project plan.)
  *
- * The wiki is just Markdown on disk under `<workspace>/.aria/memory/wiki/`:
+ * The wiki is just Markdown on disk under `<workspace>/.qoka/memory/wiki/`:
  *
  *   index.md          - a generated catalog of pages, grouped by type
  *   log.md            - append-only record of every ingest (audit / rollback)

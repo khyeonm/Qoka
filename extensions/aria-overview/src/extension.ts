@@ -46,7 +46,7 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
  * Qoka Project Overview - boots a local MCP server so the AI assistant can read
  * the project's title / summary / To-do list and, when a task looks finished,
  * propose completions (which surface as Accept/Reject badges in the Project
- * Notebook tab, as the root page). Tools write <workspace>/.aria/overview.json directly; the Notebook tab
+ * Notebook tab, as the root page). Tools write <workspace>/.qoka/overview.json directly; the Notebook tab
  * watches that file and refreshes.
  */
 export function activate(context: vscode.ExtensionContext): void {
