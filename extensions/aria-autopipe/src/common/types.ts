@@ -130,8 +130,8 @@ export function workspacePathsFor(profile: SshProfile): WorkspacePaths {
 			pipelines_dir: `${repo}/analysis`,
 			input_dir: `${repo}/data`,
 			output_dir: `${repo}/results`,
-			log_dir: `${repo}/results/.aria_logs`,
-			plugins_dir: `${repo}/.aria_plugins`,
+			log_dir: `${repo}/results/.qoka_logs`,
+			plugins_dir: `${repo}/.qoka_plugins`,
 		};
 	}
 	return {
@@ -139,8 +139,8 @@ export function workspacePathsFor(profile: SshProfile): WorkspacePaths {
 		pipelines_dir: `${repo}/pipelines`,
 		input_dir: `${repo}/pipelines_input`,
 		output_dir: `${repo}/pipelines_output`,
-		log_dir: `${repo}/pipelines_output/.aria_logs`,
-		plugins_dir: `${repo}/.aria_plugins`,
+		log_dir: `${repo}/pipelines_output/.qoka_logs`,
+		plugins_dir: `${repo}/.qoka_plugins`,
 	};
 }
 
