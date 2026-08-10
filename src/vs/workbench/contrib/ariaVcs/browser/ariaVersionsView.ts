@@ -294,12 +294,17 @@ export class AriaVersionsView extends ViewPane {
 			this.notificationService.info(localize('aria.vcs.nothingSelected', "Select at least one changed file to snapshot."));
 			return;
 		}
-		let draft: SnapshotDraft | undefined;
-		try {
-			draft = await this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths);
-		} catch {
-			draft = undefined;
-		}
+		// Naming a snapshot asks the AI to read the diff, which can take a few
+		// seconds. Kick it off immediately, then show a CENTER dialog (not a corner
+		// toast) so the wait doesn't look like a hang - the user can keep working and
+		// the Save dialog opens here once the name is ready.
+		const draftPromise = Promise.resolve(this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths))
+			.then(d => d, () => undefined);
+		await this.dialogService.info(
+			localize('aria.vcs.namingTitle', "Qoka is reviewing your changes"),
+			localize('aria.vcs.namingDetail', "It's suggesting a snapshot name from your code. This can take a moment - you can keep working, and the Save dialog will open here when it's ready."),
+		);
+		const draft = await draftPromise;
 		const result = await this.showSaveDialog(draft?.suggestedTitle ?? '', draft?.previousTitle, draft?.continuation === true);
 		if (!result) { return; }
 		await this.commandService.executeCommand('aria.vcs.saveSnapshot', result.title, paths, result.group);
