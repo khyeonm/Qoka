@@ -40,14 +40,11 @@ class ResultsViewerFileContribution extends Disposable implements IExplorerFileC
 		super();
 		this.container = container;
 		this.button = document.createElement('a');
+		// Visibility + right-edge placement are driven by CSS (ariaViewerScope.css):
+		// the button is absolutely positioned and shown on row hover only when it
+		// carries `.is-run-folder`, so it never wraps below the label and clips.
 		this.button.className = 'aria-open-in-viewer codicon codicon-eye';
 		this.button.title = localize('aria.openInViewer', "Open in viewer");
-		this.button.style.display = 'none';
-		this.button.style.marginLeft = 'auto';
-		this.button.style.flexShrink = '0';
-		this.button.style.cursor = 'pointer';
-		this.button.style.paddingLeft = '6px';
-		this.button.style.opacity = '0.8';
 		this._register(DOM.addDisposableListener(this.button, DOM.EventType.CLICK, (e: MouseEvent) => {
 			e.stopPropagation();
 			e.preventDefault();
@@ -63,7 +60,7 @@ class ResultsViewerFileContribution extends Disposable implements IExplorerFileC
 
 	setResource(resource: URI | undefined): void {
 		this.resource = resource;
-		this.button.style.display = resource && this.isResultsRunFolder(resource) ? 'inline-flex' : 'none';
+		this.button.classList.toggle('is-run-folder', !!(resource && this.isResultsRunFolder(resource)));
 		this.applyHighlight();
 	}
 
@@ -89,13 +86,16 @@ class ResultsViewerFileContribution extends Disposable implements IExplorerFileC
 		scheduleEdgePass();
 	}
 
-	/** A direct child of <workspace>/results (i.e. a pipeline run folder). */
+	/** A direct child of any workspace folder's `results/` dir (i.e. a pipeline
+	 *  run folder). */
 	private isResultsRunFolder(resource: URI): boolean {
-		const folder = this.contextService.getWorkspace().folders[0];
-		if (!folder) {
-			return false;
+		const parent = dirname(resource);
+		for (const folder of this.contextService.getWorkspace().folders) {
+			if (isEqual(parent, URI.joinPath(folder.uri, 'results'))) {
+				return true;
+			}
 		}
-		return isEqual(dirname(resource), URI.joinPath(folder.uri, 'results'));
+		return false;
 	}
 
 	override dispose(): void {

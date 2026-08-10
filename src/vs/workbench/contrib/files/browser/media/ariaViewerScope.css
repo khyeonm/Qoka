@@ -3,6 +3,41 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* "Open in viewer" button on a results/<run>/ folder row. Anchored to the
+   right edge of the row (position:absolute) so it never wraps below the label
+   and get clipped by the row height; revealed on row hover. Only rows the
+   contribution tags with `.is-run-folder` are eligible. */
+.explorer-item .aria-open-in-viewer,
+.monaco-list-row .aria-open-in-viewer {
+	display: none;
+}
+
+.monaco-list-row .aria-open-in-viewer.is-run-folder {
+	position: absolute;
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	z-index: 12;
+	cursor: pointer;
+	opacity: 0.85;
+	padding: 1px 3px;
+	border-radius: 3px;
+	color: var(--vscode-icon-foreground, inherit);
+	background: var(--vscode-list-hoverBackground, transparent);
+}
+
+.monaco-list-row:hover .aria-open-in-viewer.is-run-folder,
+.monaco-list-row.focused .aria-open-in-viewer.is-run-folder,
+.monaco-list-row.selected .aria-open-in-viewer.is-run-folder {
+	display: inline-flex;
+	align-items: center;
+}
+
+.monaco-list-row .aria-open-in-viewer.is-run-folder:hover {
+	opacity: 1;
+	color: var(--vscode-focusBorder, var(--vscode-icon-foreground, inherit));
+}
+
 /* Highlight box around a results/<run>/ folder that has an open Autopipe
    Viewer tab. Side + top borders plus a subtle tint group the folder and its
    members into one region; the active (focused) viewer's scope is sky-blue,

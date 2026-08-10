@@ -438,7 +438,9 @@ export class AriaPaperSearchView extends ViewPane {
 			openPdf.style.color = 'var(--vscode-textLink-foreground)';
 			openPdf.style.cursor = 'pointer';
 			openPdf.style.width = 'fit-content';
-			openPdf.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('vscode.open', pdfUri); };
+			// _workbench.open (not vscode.open, which drops its options) so each PDF
+			// opens in its OWN persistent tab instead of replacing a shared preview tab.
+			openPdf.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('_workbench.open', pdfUri, [undefined, { preview: false, pinned: true }]); };
 		}
 
 		// Meta line - Authors et al. · Venue · Year.
@@ -854,7 +856,7 @@ export class AriaDownloadedPdfsView extends ViewPane {
 			row.title = 'Open PDF';
 			// Open in the in-app PDF viewer (the qoka.pdfViewer custom editor is the
 			// default editor for .pdf), not an external app.
-			row.onclick = () => { void this.commandService.executeCommand('vscode.open', f.uri); };
+			row.onclick = () => { void this.commandService.executeCommand('_workbench.open', f.uri, [undefined, { preview: false, pinned: true }]); };
 		}
 	}
 }
