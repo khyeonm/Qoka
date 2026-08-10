@@ -57,13 +57,15 @@ function buildHtml(webview: vscode.Webview, file: vscode.Uri): string {
 	html,body{margin:0;padding:0;height:100%;background:var(--vscode-editor-background);}
 	#toolbar{position:sticky;top:0;display:flex;gap:8px;align-items:center;padding:6px 10px;background:var(--vscode-editorWidget-background);border-bottom:1px solid var(--vscode-widget-border,transparent);font-family:var(--vscode-font-family);font-size:12px;color:var(--vscode-foreground);z-index:1;}
 	#toolbar button{cursor:pointer;background:var(--vscode-button-secondaryBackground,rgba(127,127,127,.2));color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));border:none;border-radius:3px;padding:2px 9px;font-size:13px;}
-	#pages{padding:12px;display:flex;flex-direction:column;align-items:center;gap:12px;}
+	#toolbar .hint{opacity:.55;font-size:11px;margin-left:6px;}
+	#pages{padding:12px;display:flex;flex-direction:column;align-items:center;gap:12px;cursor:grab;}
+	#pages.grabbing{cursor:grabbing;}
 	#pages canvas{max-width:100%;box-shadow:0 0 6px rgba(0,0,0,.3);background:#fff;}
 	#status{opacity:.7;padding:12px;font-family:var(--vscode-font-family);color:var(--vscode-foreground);}
 </style>
 </head>
 <body>
-<div id="toolbar"><button id="zoomout" title="Zoom out">-</button><span id="zoom">130%</span><button id="zoomin" title="Zoom in">+</button></div>
+<div id="toolbar"><button id="zoomout" title="Zoom out">-</button><span id="zoom">130%</span><button id="zoomin" title="Zoom in">+</button><span class="hint">Ctrl +/- or Ctrl + scroll to zoom, drag to move</span></div>
 <div id="status">Loading PDF…</div>
 <div id="pages"></div>
 <script type="module">
@@ -90,8 +92,50 @@ function buildHtml(webview: vscode.Webview, file: vscode.Uri): string {
 		zoomEl.textContent = Math.round(scale * 100) + '%';
 		rendering = false;
 	}
-	document.getElementById('zoomin').onclick = () => { scale = Math.min(3, scale + 0.2); renderAll(); };
-	document.getElementById('zoomout').onclick = () => { scale = Math.max(0.4, scale - 0.2); renderAll(); };
+	let renderTimer = null;
+	function setZoom(next) {
+		scale = Math.min(3, Math.max(0.4, Math.round(next * 100) / 100));
+		zoomEl.textContent = Math.round(scale * 100) + '%';
+		// Debounce re-render so a fast wheel/keypress burst rasterizes once.
+		if (renderTimer) { clearTimeout(renderTimer); }
+		renderTimer = setTimeout(() => { renderTimer = null; renderAll(); }, 80);
+	}
+	document.getElementById('zoomin').onclick = () => setZoom(scale + 0.2);
+	document.getElementById('zoomout').onclick = () => setZoom(scale - 0.2);
+	// Ctrl +/- and Ctrl+0 to reset.
+	window.addEventListener('keydown', (e) => {
+		if (!(e.ctrlKey || e.metaKey)) { return; }
+		if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoom(scale + 0.2); }
+		else if (e.key === '-' || e.key === '_') { e.preventDefault(); setZoom(scale - 0.2); }
+		else if (e.key === '0') { e.preventDefault(); setZoom(1.3); }
+	});
+	// Ctrl + mouse wheel to zoom.
+	window.addEventListener('wheel', (e) => {
+		if (!(e.ctrlKey || e.metaKey)) { return; }
+		e.preventDefault();
+		setZoom(scale + (e.deltaY < 0 ? 0.12 : -0.12));
+	}, { passive: false });
+	// Drag anywhere (except the toolbar) to pan the pages.
+	(function () {
+		const sc = document.scrollingElement || document.documentElement;
+		let dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
+		document.addEventListener('mousedown', (e) => {
+			if (e.target && e.target.closest && e.target.closest('#toolbar')) { return; }
+			dragging = true; sx = e.clientX; sy = e.clientY; sl = sc.scrollLeft; st = sc.scrollTop;
+			pagesEl.classList.add('grabbing');
+			e.preventDefault();
+		});
+		window.addEventListener('mousemove', (e) => {
+			if (!dragging) { return; }
+			sc.scrollLeft = sl - (e.clientX - sx);
+			sc.scrollTop = st - (e.clientY - sy);
+		});
+		window.addEventListener('mouseup', () => {
+			if (!dragging) { return; }
+			dragging = false;
+			pagesEl.classList.remove('grabbing');
+		});
+	})();
 	(async () => {
 		try {
 			pdf = await pdfjsLib.getDocument('${docUri}').promise;

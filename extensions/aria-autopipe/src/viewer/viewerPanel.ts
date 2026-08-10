@@ -104,7 +104,7 @@ export async function openResultsViewer(folderPath: string): Promise<void> {
 
 	const panel = vscode.window.createWebviewPanel(
 		'aria.autopipe.viewer',
-		path.basename(folder) || 'Viewer',
+		`${path.basename(folder) || 'Results'} viewer`,
 		vscode.ViewColumn.Active,
 		{
 			enableScripts: true,
@@ -645,6 +645,10 @@ function renderShellHtml(webview: vscode.Webview): string {
 	<style>
 		html, body { margin: 0; padding: 0; height: 100%; background: var(--vscode-editor-background); color: var(--vscode-editor-foreground); font-family: var(--vscode-font-family); }
 		.wrap { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
+		/* Fixed guide at the top of every viewer tab - two lines, always visible.
+		   Blue left accent ties it to the highlighted (blue-outlined) folder scope. */
+		.guide { flex-shrink: 0; padding: 8px 14px; border-bottom: 1px solid var(--vscode-widget-border, transparent); border-left: 3px solid var(--vscode-focusBorder, #40a0ff); background: var(--vscode-editorWidget-background); font-size: 11.5px; line-height: 1.5; opacity: 0.92; }
+		.guide div { white-space: normal; }
 		.header { padding: 8px 14px; border-bottom: 1px solid var(--vscode-widget-border, transparent); font-size: 12px; display: flex; gap: 8px; align-items: baseline; flex-shrink: 0; }
 		.header .name { font-weight: 600; }
 		.header .meta { opacity: 0.7; font-size: 11px; }
@@ -655,9 +659,13 @@ function renderShellHtml(webview: vscode.Webview): string {
 </head>
 <body>
 	<div class="wrap">
+		<div class="guide">
+			<div>Pick a file from the highlighted folder (blue outline) in the Analysis tab to view it here.</div>
+			<div>To open files with an installed extension viewer instead, close this viewer tab and click each file.</div>
+		</div>
 		<div class="header" id="right-header"><span class="meta">No file selected</span></div>
 		<div class="viewer-host" id="viewer-host">
-			<div class="placeholder">Click a file in the highlighted folder to view it here.</div>
+			<div class="placeholder">Pick a file from the highlighted folder to view it here.</div>
 		</div>
 	</div>
 	<script>

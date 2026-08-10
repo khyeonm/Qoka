@@ -425,6 +425,13 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 			const activeFile = EditorResourceAccessor.getCanonicalUri(this.editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY });
 
 			if (activeFile) {
+				// Do not auto-reveal internal Paper Library PDFs: opening a downloaded
+				// PDF (.qoka/references/pdfs) should not expand Qoka's internal folder
+				// in the Analysis tree. The Paper Library tab lists them separately.
+				if (activeFile.path.includes('/.qoka/references/pdfs/')) {
+					return;
+				}
+
 				const focus = this.tree.getFocus();
 				const selection = this.tree.getSelection();
 				if (focus.length === 1 && this.uriIdentityService.extUri.isEqual(focus[0].resource, activeFile) && selection.length === 1 && this.uriIdentityService.extUri.isEqual(selection[0].resource, activeFile)) {

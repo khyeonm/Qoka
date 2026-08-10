@@ -44,8 +44,19 @@ and institutional subscriptions. You resolve the best accessible source yourself
   Example: `crispr-cas9-genome-editing-doudna.pdf`. (The Paper Library matches this
   name against saved-paper entries to link a PDF to its library entry, so keep the
   title words and first-author last name.)
-- If that exact filename already exists in `.qoka/references/pdfs/`, the paper is
-  already saved - tell the user and do not re-download.
+- **Deduplicate before downloading.** The same paper must not be saved twice under
+  slightly different filenames. BEFORE fetching anything, look for an existing copy
+  of THIS paper in `.qoka/references/pdfs/` - not just the exact filename, but any
+  file whose name contains the first-author last name AND at least two of the title
+  words. If one exists, the paper is already saved: tell the user and STOP (download
+  nothing).
+  ```bash
+  # <author> = first-author last name, lowercase; <w1>/<w2> = two distinct title words
+  ls "$root/.qoka/references/pdfs/" 2>/dev/null \
+    | grep -i "<author>" | grep -iE "<w1>|<w2>" | head -n1
+  ```
+  A non-empty result means it is already saved. Only if nothing matches do you
+  proceed to download.
 
 ## Workflow
 
@@ -54,7 +65,12 @@ and institutional subscriptions. You resolve the best accessible source yourself
    many namesakes), ask before downloading the wrong thing. You need the title and
    first author for the filename anyway.
 
-2. **Find an accessible PDF URL.** In priority order:
+2. **Check the library for an existing copy first.** Run the dedup check from "Where
+   the file goes" (first-author + title-word match in `.qoka/references/pdfs/`). If a
+   copy is already there, tell the user it is already saved and STOP - do not download
+   a duplicate.
+
+3. **Find an accessible PDF URL.** In priority order:
    - A **direct PDF link** the user supplied.
    - **Open access:** resolve the OA PDF via the `paper-lookup` skill's Unpaywall /
      PMC / arXiv / CORE routes (Unpaywall's `best_oa_location.url_for_pdf`, PMC PDF,
@@ -63,14 +79,14 @@ and institutional subscriptions. You resolve the best accessible source yourself
      be reachable from the user's IP. Try the publisher PDF URL directly.
    Do not fabricate a URL - only use links you actually resolved.
 
-3. **Download to a temp file first** (never straight to the library folder),
+4. **Download to a temp file first** (never straight to the library folder),
    following redirects with a normal browser User-Agent:
    ```bash
    tmp="$(mktemp --suffix=.pdf)"
    curl -sL -A "Mozilla/5.0" --max-time 60 -o "$tmp" "<PDF_URL>"
    ```
 
-4. **Verify it is a real PDF before saving.** A paywall or login page will download
+5. **Verify it is a real PDF before saving.** A paywall or login page will download
    as HTML with a `.pdf` name - reject it.
    ```bash
    head -c 5 "$tmp"        # must be "%PDF-"
@@ -78,9 +94,9 @@ and institutional subscriptions. You resolve the best accessible source yourself
    ```
    If the first bytes are not `%PDF-`, or the file is tiny/empty, it is NOT a usable
    PDF. Delete the temp file (`rm -f "$tmp"`) and treat this as "not downloadable"
-   (step 6).
+   (step 7).
 
-5. **Save it.** Only now, using the ABSOLUTE `$root` resolved in "Where the file
+6. **Save it.** Only now, using the ABSOLUTE `$root` resolved in "Where the file
    goes":
    ```bash
    mkdir -p "$root/.qoka/references/pdfs"
@@ -89,7 +105,7 @@ and institutional subscriptions. You resolve the best accessible source yourself
    Tell the user it's saved. They can open it from the Paper Library tab's
    "Downloaded PDFs" section.
 
-6. **If no usable PDF** (no OA copy, paywalled and not reachable from this IP, or the
+7. **If no usable PDF** (no OA copy, paywalled and not reachable from this IP, or the
    download failed verification): **write nothing** - no folder, no empty or partial
    file. Tell the user plainly that this paper's PDF could not be downloaded (e.g.
    "It's paywalled and I couldn't reach an open-access copy"). Do not save the
