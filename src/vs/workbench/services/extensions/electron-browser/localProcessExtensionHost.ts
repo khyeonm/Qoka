@@ -229,7 +229,16 @@ export class NativeLocalProcessExtensionHost extends Disposable implements IExte
 
 		const env = objects.mixin(processEnv, {
 			VSCODE_ESM_ENTRYPOINT: 'vs/workbench/api/node/extensionHostProcess',
-			VSCODE_HANDLES_UNCAUGHT_ERRORS: true
+			VSCODE_HANDLES_UNCAUGHT_ERRORS: true,
+			// Qoka: force Codex / Claude to Qoka's isolated config homes for EVERY
+			// extension host (including the one that runs Codex), so their CLIs read
+			// Qoka's MCP config under ~/.qoka and never the system ~/.codex / ~/.claude.
+			// Belt-and-suspenders with the same vars set in the main process
+			// (src/main.ts): injecting here guarantees it regardless of how the shell
+			// env resolves. Only affects processes Qoka spawns, so a system/terminal
+			// Codex or Claude (separate process) stays isolated.
+			CODEX_HOME: URI.joinPath(this._environmentService.userHome, '.qoka', 'codex').fsPath,
+			CLAUDE_CONFIG_DIR: URI.joinPath(this._environmentService.userHome, '.qoka', 'claude').fsPath
 		});
 
 		if (this._environmentService.debugExtensionHost.env) {

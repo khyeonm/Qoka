@@ -22,6 +22,20 @@ import { NativeParsedArgs } from './vs/platform/environment/common/argv.js';
 
 perf.mark('code/didStartMain');
 
+// Qoka: pin CODEX_HOME / CLAUDE_CONFIG_DIR to Qoka's isolated homes in the MAIN
+// process, before any extension host is forked, so EVERY extension host - including
+// the workspaceless one that runs Codex - inherits them and reads Qoka's MCP config
+// under ~/.qoka (never the system ~/.codex / ~/.claude). Setting it only inside the
+// aria-skills extension host was not enough: Codex runs in a different host that does
+// not inherit that host's env, so it fell back to ~/.codex and never saw Qoka's MCP
+// servers. This only affects processes Qoka spawns - a system/terminal Codex or
+// Claude is a separate process with its own env, so isolation is preserved.
+{
+	const qokaHome = path.join(os.homedir(), '.qoka');
+	process.env['CODEX_HOME'] = path.join(qokaHome, 'codex');
+	process.env['CLAUDE_CONFIG_DIR'] = path.join(qokaHome, 'claude');
+}
+
 perf.mark('code/willLoadMainBundle', {
 	// When built, the main bundle is a single JS file with all
 	// dependencies inlined. As such, we mark `willLoadMainBundle`
