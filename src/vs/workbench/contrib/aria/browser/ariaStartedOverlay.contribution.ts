@@ -1349,10 +1349,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		parent.appendChild(grid);
 
 		const makeCard = (mode: 'easy' | 'advanced', label: string, detail: string): void => {
-			// Only highlight a card once the user has EXPLICITLY chosen a mode - not
-			// from the config default - so the first-run picker starts with neither
-			// mode selected.
-			const selected = this.modeExplicitlyChosen() && currentMode === mode;
+			// Always render BOTH cards unselected - even when a mode is already set
+			// (e.g. the picker shown when opening a second window) - so the user
+			// consciously re-picks each time instead of seeing a pre-highlighted
+			// default. (currentMode / modeExplicitlyChosen are intentionally unused.)
+			const selected = false;
 			const card = document.createElement('button');
 			card.style.display = 'flex';
 			card.style.flexDirection = 'column';
