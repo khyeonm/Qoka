@@ -16,6 +16,28 @@ import { isJsonRpcRequest, jsonRpcSuccess, jsonRpcError, JsonRpcErrorCodes, Json
 const DEFAULT_PORT = 3766;
 const HOST = '127.0.0.1';
 
+/**
+ * Instructions the memory server advertises on `initialize`. Deliberately short
+ * and memory-specific (not a long routing blob) so the client actually weights
+ * it. The key behaviour it adds: OFFER to remember PROACTIVELY - not only when
+ * the user literally says "remember".
+ */
+const MEMORY_SERVER_INSTRUCTIONS = [
+	'This project has a long-term memory with two scopes:',
+	'- remember_project_memory: a fact about THIS project (a decision, a path/server, an experiment result, a project-specific term).',
+	'- remember_user_memory: a cross-project fact about the USER (a preference, working style, a tool they favour).',
+	'Recall with search_project_memory / project_memory_index before answering, and before saving so you update an existing page instead of duplicating it.',
+	'',
+	'OFFER TO REMEMBER PROACTIVELY - even when the user does NOT say "remember". When the user states a durable',
+	'preference, a standing rule, or a project/environment fact ("I like X", "from now on do it with X", "you can',
+	'use the X server", "the data is at X"), or corrects how you did something: FINISH the requested task first,',
+	'then at the END of your reply add ONE short line, in the user\'s own language, offering to save it (e.g.',
+	'"이거 기억해둘까요?"). Do NOT try to judge one-off vs durable yourself - just ask; if the user says yes, save it',
+	'with the matching tool (ask which scope only if it is genuinely unclear). NEVER save without the user\'s yes.',
+	'Offer one item at a time; if the user declines or ignores it, do not re-offer that item this session; skip if it',
+	'is already saved; never offer for one-off task mechanics. Store the memory in the user\'s own language - do not translate it.',
+].join('\n');
+
 interface SseSession {
 	id: string;
 	res: http.ServerResponse;
@@ -260,6 +282,7 @@ export class AriaMemoryMcpServer {
 					protocolVersion: negotiated,
 					serverInfo: { name: 'qoka-memory', version: '0.0.1' },
 					capabilities: { tools: {} },
+					instructions: MEMORY_SERVER_INSTRUCTIONS,
 				};
 			}
 			case 'notifications/initialized':

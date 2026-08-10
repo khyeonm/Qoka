@@ -95,7 +95,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'remember_project_memory',
-			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). Only for project-scoped facts - cross-project user preferences belong in remember_user_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
+			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). The user need NOT say "remember": if they stated a project/environment fact ("you can use the X server", "the data is at X") and agreed to your offer to save it, save it here. Only for project-scoped facts - cross-project user preferences belong in remember_user_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -165,7 +165,7 @@ export function buildTools(): ToolDefinition[] {
 		// --- cross-project ("user") memory - backed by the mem0 server ---------
 		{
 			name: 'remember_user_memory',
-			description: 'Save a CROSS-PROJECT fact about the USER - something that stays true and useful in ANY project (their preferences, working style, identity, tools they favour, cross-cutting conventions). Do NOT use this for facts specific to the current project - those go to remember_project_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving.',
+			description: 'Save a CROSS-PROJECT fact about the USER - something that stays true and useful in ANY project (their preferences, working style, identity, tools they favour, cross-cutting conventions). The user need NOT say "remember": if they stated a preference or standing rule ("I like X", "from now on do it with X") and agreed to your offer to save it, save it here. Do NOT use this for facts specific to the current project - those go to remember_project_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving.',
 			inputSchema: {
 				type: 'object',
 				properties: {
