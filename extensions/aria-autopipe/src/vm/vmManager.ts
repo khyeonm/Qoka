@@ -15,7 +15,7 @@ import { LOCAL_VM_ID, SshProfile, hostVmLimits } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
-import { wslAvailable, listDistros, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath, wslShutdown } from './wsl';
+import { wslAvailable, listDistros, listDistrosStrict, isWslServiceError, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath, wslShutdown } from './wsl';
 import { windowsToWsl } from '../common/dockerEnv';
 import { ensureWorkspaceScaffold } from '../common/workspaceSync';
 
@@ -185,18 +185,42 @@ export class VMManager {
 			try {
 				await this.startWsl(progress);
 			} catch {
-				// A WSL start failure is often a degraded / stuck lightweight VM (e.g.
-				// `Wsl/Service/E_UNEXPECTED` after an idle timeout). Reset it once with a
-				// data-safe `wsl --shutdown` (never --unregister) and retry before
-				// surfacing the error, so the user never has to touch a terminal.
+				// A WSL start failure is often a stuck lightweight VM (e.g.
+				// `Wsl/Service/E_UNEXPECTED` after an idle timeout). Reset it ONCE with a
+				// data-safe `wsl --shutdown` (never --unregister) and retry, so the user
+				// never has to touch a terminal.
+				progress('The WSL run environment was unresponsive; resetting it and retrying…');
 				await wslShutdown();
-				await this.startWsl(progress);
+				try {
+					await this.startWsl(progress);
+				} catch (second) {
+					// The reset did not clear it: a persistent Wsl/Service/…/E_UNEXPECTED
+					// means Windows' WSL service itself is wedged, which only a restart of
+					// the WSL service (needs admin) or the PC reliably fixes. Surface ONE
+					// clear, actionable message - never the misleading "install Ubuntu",
+					// since the distro IS present, just unable to start.
+					throw this.friendlyWslError(second);
+				}
 			}
 		} else if (process.platform === 'darwin' && process.arch === 'arm64') {
 			await this.startVfkit(progress);
 		} else {
 			await this.startQemu(progress);
 		}
+	}
+
+	/** Map a persistent WSL start failure to ONE clear, non-technical instruction.
+	 *  A wedged WSL service (`Wsl/Service/…/E_UNEXPECTED`) is a Windows-side problem a
+	 *  `wsl --shutdown` could not clear, so the honest fix is a restart - say so
+	 *  plainly and reassure that nothing is lost. Any other error keeps its message. */
+	private friendlyWslError(e: unknown): Error {
+		if (isWslServiceError(e)) {
+			return new Error(
+				'Windows\' WSL service is stuck, and an automatic reset did not clear it. '
+				+ 'Please save your work and restart your PC, then reopen Qoka. '
+				+ 'Your files and installed tools are safe (nothing is deleted).');
+		}
+		return e instanceof Error ? e : new Error(String(e));
 	}
 
 	/** After opening the Ubuntu OOBE window, wait for the user to create their
@@ -232,7 +256,10 @@ export class VMManager {
 			throw new Error('WSL is not ready yet. If you just installed Qoka, restart your PC to finish enabling WSL, then reopen Qoka. (To install WSL manually: run "wsl --install" in an admin terminal, then reboot.)');
 		}
 
-		let distro = pickDistro(await listDistros());
+		// listDistrosStrict THROWS if `wsl --list` itself errors (a wedged service),
+		// so that case propagates to startReal's shutdown+retry instead of being
+		// misread as "no Ubuntu -> install it".
+		let distro = pickDistro(await listDistrosStrict());
 		if (!distro) {
 			// The WSL engine is present (wslAvailable passed) but no Ubuntu distro is
 			// registered. This is the state a FRESH machine lands in after the
@@ -247,7 +274,7 @@ export class VMManager {
 			} catch (e) {
 				throw new Error(`Could not install Ubuntu for the built-in run environment: ${e instanceof Error ? e.message : String(e)}. Check your internet connection, or run "wsl --install -d Ubuntu" in a terminal, then try again.`);
 			}
-			distro = pickDistro(await listDistros());
+			distro = pickDistro(await listDistrosStrict());
 			if (!distro) {
 				throw new Error('Ubuntu was installed but is not registered yet. Open "Ubuntu" from the Start menu once, then click "Set up now" again.');
 			}

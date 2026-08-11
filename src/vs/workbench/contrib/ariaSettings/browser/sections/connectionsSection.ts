@@ -15,7 +15,7 @@ interface Probe { kind?: string; connected?: boolean }
 interface VmStatus { status?: string; progress?: { message?: string; pct?: number } }
 /** From `aria.autopipe.vm.wslProbe`: whether the WSL engine and an Ubuntu distro are
  *  actually installed, so a not-connected row can say "install" vs "not connected". */
-interface WslProbe { wsl?: boolean; ubuntu?: boolean }
+interface WslProbe { wsl?: boolean; ubuntu?: boolean; serviceError?: boolean }
 
 const LOCAL_VM_ID = '__local_vm__';
 
@@ -56,6 +56,9 @@ function wslSetupSkipped(): boolean {
 function wslNeededText(wsl: WslProbe | undefined): string {
 	if (!wsl) { return 'Not connected - checking WSL and Ubuntu…'; }
 	if (!wsl.wsl) { return WSL_NEEDED_TEXT; }
+	// The WSL service is wedged (couldn't even list distros): Ubuntu IS installed,
+	// so never say "install Ubuntu" here - the fix is a reset / PC restart.
+	if (wsl.serviceError) { return 'Windows\' WSL service is stuck. Please restart your PC, then reopen Qoka. Your files are safe.'; }
 	if (!wsl.ubuntu) { return 'WSL is installed, but Ubuntu isn\'t. Install Ubuntu to use Local (WSL). See qoka.org for setup instructions.'; }
 	return 'WSL and Ubuntu are installed but not connected. Click to restart.';
 }

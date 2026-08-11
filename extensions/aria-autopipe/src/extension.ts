@@ -13,7 +13,7 @@ import { registerWithCodex } from './registration/codexMcp';
 import { ConfigService } from './config/configService';
 import { SshService } from './ssh/sshService';
 import { VMManager } from './vm/vmManager';
-import { wslAvailable, listDistros, pickDistro } from './vm/wsl';
+import { wslAvailable, listDistrosStrict, isWslServiceError, pickDistro } from './vm/wsl';
 import { QokaPdfEditorProvider } from './viewer/pdfEditor';
 import { openResultsViewer, viewFileInViewer } from './viewer/viewerPanel';
 import { HubApiClient } from './hub/apiClient';
@@ -162,8 +162,17 @@ export function activate(context: vscode.ExtensionContext): void {
 		// the Connections section. On non-Windows these probes harmlessly return false/[].
 		vscode.commands.registerCommand('aria.autopipe.vm.wslProbe', async () => {
 			const wsl = await wslAvailable();
-			const ubuntu = wsl && pickDistro(await listDistros()) !== undefined;
-			return { wsl, ubuntu };
+			if (!wsl) { return { wsl: false, ubuntu: false }; }
+			// STRICT list: a wedged WSL service must report serviceError (needs a reset /
+			// PC restart), NOT be misread as "Ubuntu not installed" (an errored list is
+			// not an empty one). Keeps the Connections message honest.
+			try {
+				const ubuntu = pickDistro(await listDistrosStrict()) !== undefined;
+				return { wsl: true, ubuntu };
+			} catch (e) {
+				if (isWslServiceError(e)) { return { wsl: true, ubuntu: false, serviceError: true }; }
+				return { wsl: true, ubuntu: false };
+			}
 		}),
 		// "Set up now": make the built-in VM active and provision+boot it.
 		vscode.commands.registerCommand('aria.autopipe.vm.setup', async () => {

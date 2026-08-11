@@ -75,15 +75,44 @@ export async function wslShutdown(): Promise<void> {
 	}
 }
 
-/** Installed distro names (excludes docker-desktop's helper distros). */
+/** True when an error from a wsl.exe call is a WSL SERVICE/VM failure (the
+ *  lightweight VM is wedged - `Wsl/Service/.../E_UNEXPECTED`, often after an idle
+ *  timeout) rather than an ordinary "command exited non-zero". These clear with a
+ *  `wsl --shutdown` reset (or, if persistent, a PC restart), NOT by installing a
+ *  distro - so callers must NOT treat them as "Ubuntu is missing". */
+export function isWslServiceError(e: unknown): boolean {
+	// wsl.exe writes the failure to stderr (UTF-16 -> may carry NULs) and Node also
+	// puts it on the rejected error's message; check both, plus a raw string.
+	const err = e as { stderr?: unknown; stdout?: unknown; message?: unknown };
+	const text = stripNuls([err?.message, err?.stderr, err?.stdout, typeof e === 'string' ? e : '']
+		.map(v => (typeof v === 'string' ? v : '')).join(' ')).toLowerCase();
+	return text.includes('e_unexpected')
+		|| text.includes('wsl/service')
+		|| text.includes('wsl/wsl_e_')
+		|| text.includes('the wsl service')
+		|| text.includes('element not found')      // Wsl/Service after VM teardown
+		|| text.includes('operation timed out');    // service unresponsive
+}
+
+/** Installed distro names (excludes docker-desktop's helper distros). Rejects when
+ *  the `wsl --list` call itself ERRORS - so a wedged WSL service surfaces as a
+ *  failure the caller can reset, instead of an empty list that reads as "no distro
+ *  installed" (which wrongly sent Qoka down the "install Ubuntu" path). */
+export async function listDistrosStrict(): Promise<string[]> {
+	const { stdout } = await execFileAsync(wslExePath(), ['--list', '--quiet'], { windowsHide: true, env: WSL_ENV, timeout: 15_000 });
+	return stripNuls(stdout)
+		.split('\n')
+		.map(l => l.trim())
+		.filter(Boolean)
+		.filter(name => !/^docker-desktop/i.test(name));
+}
+
+/** Lenient variant for probes/UI: returns [] on ANY error. Do NOT use it to decide
+ *  whether Ubuntu needs installing (an errored list is not an empty list) - use
+ *  listDistrosStrict + isWslServiceError for that. */
 export async function listDistros(): Promise<string[]> {
 	try {
-		const { stdout } = await execFileAsync(wslExePath(), ['--list', '--quiet'], { windowsHide: true, env: WSL_ENV, timeout: 15_000 });
-		return stripNuls(stdout)
-			.split('\n')
-			.map(l => l.trim())
-			.filter(Boolean)
-			.filter(name => !/^docker-desktop/i.test(name));
+		return await listDistrosStrict();
 	} catch {
 		return [];
 	}
