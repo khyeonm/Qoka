@@ -7,6 +7,7 @@ import * as http from 'http';
 import * as crypto from 'crypto';
 import { URL } from 'url';
 import { ToolDefinition } from './tools';
+import { maybeAppendTodoReminder } from './todoReminder';
 import { isJsonRpcRequest, jsonRpcSuccess, jsonRpcError, JsonRpcErrorCodes, JsonRpcRequest } from './jsonrpc';
 
 const HOST = '127.0.0.1';
@@ -360,7 +361,10 @@ export class QokaMcpServer {
 				if (!tool) {
 					throw new Error(`unknown tool: ${params.name}`);
 				}
-				return await tool.handler(params.arguments ?? {});
+				const result = await tool.handler(params.arguments ?? {});
+				// After a deliverable-producing tool succeeds, surface the open To-do
+				// list so the AI can propose completing a matching item.
+				return maybeAppendTodoReminder(tool.name, result);
 			}
 			default:
 				throw new Error(`unknown method: ${req.method}`);

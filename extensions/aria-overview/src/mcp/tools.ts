@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import {
 	readOverview, setTitle, updateSummary, getSummaryText, blocksToText,
 	addTask, addTasks, updateTask, removeTask, setTasksDone, proposeCompletions,
+	setTaskSchedule, OverviewTask,
 } from '../overview';
 
 export interface ToolDefinition {
@@ -28,6 +29,24 @@ function asStringArray(v: unknown): string[] | undefined {
 	return Array.isArray(v) && v.every(x => typeof x === 'string') ? (v as string[]) : undefined;
 }
 
+/** A task as returned to the AI: identity + completion + the (optional) schedule
+ *  fields, so the AI can both read a deadline and reason about it. Undefined
+ *  fields are omitted to keep the JSON compact. */
+function taskView(t: OverviewTask): Record<string, unknown> {
+	const out: Record<string, unknown> = { id: t.id, label: t.label, done: t.done };
+	if (t.checkedAt) { out.checkedAt = t.checkedAt; }
+	if (t.startDate) { out.startDate = t.startDate; }
+	if (t.startTime) { out.startTime = t.startTime; }
+	if (t.dueDate) { out.dueDate = t.dueDate; }
+	if (t.dueTime) { out.dueTime = t.dueTime; }
+	return out;
+}
+
+/** 'YYYY-MM-DD' local calendar date. */
+function isDate(s: string): boolean { return /^\d{4}-\d{2}-\d{2}$/.test(s); }
+/** 'HH:mm' 24-hour local time. */
+function isTime(s: string): boolean { return /^([01]\d|2[0-3]):[0-5]\d$/.test(s); }
+
 /**
  * Project Overview tools. Read the project's title / summary / To-do list and
  * update them. The two proposal tools are the heart of progress tracking: when,
@@ -39,14 +58,14 @@ export function buildTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'get_project_overview',
-			description: 'Read the whole Project Overview at once: title, summary (as plain text), and the To-do list (each task has id, label, done). Use the granular get_* tools if you only need one part.',
+			description: 'Read the whole Project Overview at once: title, summary (as plain text), and the To-do list (each task has id, label, done, and any schedule fields startDate/startTime/dueDate/dueTime/checkedAt). Use the granular get_* tools if you only need one part.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				const d = readOverview();
 				return ok(JSON.stringify({
 					title: d.title,
 					summary: blocksToText(d.content),
-					tasks: d.tasks.map(t => ({ id: t.id, label: t.label, done: t.done })),
+					tasks: d.tasks.map(taskView),
 				}));
 			},
 		},
@@ -64,9 +83,9 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'get_tasks',
-			description: 'Read the To-do list only. Returns each task as {id, label, done}. Call this to know the current tasks before proposing completions.',
+			description: 'Read the To-do list only. Returns each task as {id, label, done} plus any schedule fields (startDate, startTime, dueDate, dueTime as local wall-clock strings; checkedAt when completed). Call this to know the current tasks before proposing completions or reading/reasoning about deadlines.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-			handler: async () => ok(JSON.stringify(readOverview().tasks.map(t => ({ id: t.id, label: t.label, done: t.done })))),
+			handler: async () => ok(JSON.stringify(readOverview().tasks.map(taskView))),
 		},
 		{
 			name: 'set_project_title',
@@ -106,7 +125,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'add_tasks',
-			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). HARD PRECONDITION: the To-do is derived FROM the roadmap, so you may call this ONLY AFTER the roadmap has been built (it has committed nodes - check with the roadmap tool get_tree if unsure). NEVER call add_tasks right after writing the project summary; during onboarding the order is FIXED: overview title+summary -> build the roadmap (open_roadmap, then propose/accept nodes) -> ONLY THEN add_tasks -> open_overview again. Skipping the roadmap and jumping from the summary straight to the To-do is a bug - do not do it. Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. It is MANDATORY before the final open_overview - never come back to the Overview with an empty To-do. After adding them, TELL THE USER what they can do with the list themselves: reorder items with the up/down arrows on the left of each row, and give any item a deadline or a date range (with an optional time) by clicking the calendar icon on its right. You cannot set deadlines - only the user can, because only they know their real schedule.',
+			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). HARD PRECONDITION: the To-do is derived FROM the roadmap, so you may call this ONLY AFTER the roadmap has been built (it has committed nodes - check with the roadmap tool get_tree if unsure). NEVER call add_tasks right after writing the project summary; during onboarding the order is FIXED: overview title+summary -> build the roadmap (open_roadmap, then propose/accept nodes) -> ONLY THEN add_tasks -> open_overview again. Skipping the roadmap and jumping from the summary straight to the To-do is a bug - do not do it. Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. It is MANDATORY before the final open_overview - never come back to the Overview with an empty To-do. After adding them, TELL THE USER what they can do with the list themselves: reorder items with the up/down arrows on the left of each row, and give any item a deadline or a date range (with an optional time) by clicking the calendar icon on its right. When the user tells you a date/time for a task, set it yourself with set_task_schedule; do NOT invent deadlines they did not state.',
 			inputSchema: {
 				type: 'object',
 				properties: { labels: { type: 'array', items: { type: 'string' }, description: 'Task labels.' } },
@@ -197,6 +216,49 @@ export function buildTools(): ToolDefinition[] {
 				const id = asString(args.id); const label = asString(args.label);
 				if (!id || label === undefined) { return err('id and label are required.'); }
 				return updateTask(id, { label }) ? ok('Task updated.') : err(`No task with id ${id}.`);
+			},
+		},
+		{
+			name: 'set_task_schedule',
+			description: 'Set (or clear) a task\'s deadline or period. Set this when the user gives a date/time for a task ("finish X by Friday 6pm", "work on Y from Mon 9:00 to Wed 18:00"). Do NOT invent deadlines the user did not state. A SINGLE deadline uses dueDate (+ optional dueTime); a PERIOD sets startDate (+ optional startTime) through dueDate (+ optional dueTime) - a range can carry two times, one for the start and one for the end. Dates are local wall-clock (no timezone): dueDate/startDate as YYYY-MM-DD, dueTime/startTime as HH:mm (24-hour). Pass clear:true to remove all date/time from the task. Only the fields you pass are changed. The Project Overview calendar updates live.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: { type: 'string', description: 'Task id (from get_tasks).' },
+					startDate: { type: 'string', description: 'Period start date, YYYY-MM-DD (omit for a single deadline).' },
+					startTime: { type: 'string', description: 'Period start time, HH:mm 24-hour (optional).' },
+					dueDate: { type: 'string', description: 'Deadline / period end date, YYYY-MM-DD.' },
+					dueTime: { type: 'string', description: 'Deadline / period end time, HH:mm 24-hour (optional).' },
+					clear: { type: 'boolean', description: 'true removes all date/time from the task.' },
+				},
+				required: ['id'],
+				additionalProperties: false,
+			},
+			handler: async (args) => {
+				const id = asString(args.id);
+				if (!id) { return err('id is required.'); }
+				if (args.clear === true) {
+					return setTaskSchedule(id, null) ? ok('Schedule cleared.') : err(`No task with id ${id}.`);
+				}
+				const schedule: { startDate?: string; startTime?: string; dueDate?: string; dueTime?: string } = {};
+				for (const key of ['startDate', 'dueDate'] as const) {
+					const v = asString(args[key]);
+					if (v !== undefined) {
+						if (!isDate(v)) { return err(`${key} must be YYYY-MM-DD.`); }
+						schedule[key] = v;
+					}
+				}
+				for (const key of ['startTime', 'dueTime'] as const) {
+					const v = asString(args[key]);
+					if (v !== undefined) {
+						if (!isTime(v)) { return err(`${key} must be HH:mm (24-hour).`); }
+						schedule[key] = v;
+					}
+				}
+				if (Object.keys(schedule).length === 0) {
+					return err('Provide at least one of startDate/startTime/dueDate/dueTime, or clear:true.');
+				}
+				return setTaskSchedule(id, schedule) ? ok('Schedule set.') : err(`No task with id ${id}.`);
 			},
 		},
 		{

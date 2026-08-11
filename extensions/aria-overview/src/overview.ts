@@ -24,6 +24,17 @@ export interface OverviewTask {
 	label: string;
 	done: boolean;
 	checkedAt?: string;
+	/**
+	 * Optional deadline / period. Stored as local wall-clock values WITHOUT a
+	 * timezone (a deadline is "6pm on the 4th", not an instant), matching the
+	 * Project Overview editor. A single deadline uses `dueDate` (+ optional
+	 * `dueTime`); a period sets `startDate` (+ optional `startTime`) through
+	 * `dueDate` (+ optional `dueTime`).
+	 */
+	startDate?: string;   // 'YYYY-MM-DD'
+	startTime?: string;   // 'HH:mm', 24-hour
+	dueDate?: string;     // 'YYYY-MM-DD'
+	dueTime?: string;     // 'HH:mm', 24-hour
 }
 
 export interface PendingCompletion {
@@ -304,6 +315,33 @@ export function setTasksDone(ids: string[], done: boolean, when: string): { upda
 		// Completing/uncompleting clears any pending proposal for those tasks.
 		d.pendingCompletions = d.pendingCompletions.filter(p => !ids.includes(p.taskId));
 		return { updated };
+	});
+}
+
+/**
+ * Set (or clear) a task's deadline / period. Values are local wall-clock
+ * strings ('YYYY-MM-DD' / 'HH:mm'), stored verbatim without a timezone so the
+ * Project Overview editor renders them exactly as given. Only the keys present
+ * in `schedule` are changed; `schedule === null` clears all four fields.
+ * Returns false when the id is not found.
+ */
+export function setTaskSchedule(
+	id: string,
+	schedule: { startDate?: string; startTime?: string; dueDate?: string; dueTime?: string } | null,
+): boolean {
+	return mutate(d => {
+		const t = d.tasks.find(x => x.id === id);
+		if (!t) { return false; }
+		if (schedule === null) {
+			t.startDate = undefined; t.startTime = undefined;
+			t.dueDate = undefined; t.dueTime = undefined;
+			return true;
+		}
+		if ('startDate' in schedule) { t.startDate = schedule.startDate || undefined; }
+		if ('startTime' in schedule) { t.startTime = schedule.startTime || undefined; }
+		if ('dueDate' in schedule) { t.dueDate = schedule.dueDate || undefined; }
+		if ('dueTime' in schedule) { t.dueTime = schedule.dueTime || undefined; }
+		return true;
 	});
 }
 
