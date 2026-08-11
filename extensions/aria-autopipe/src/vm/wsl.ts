@@ -62,6 +62,19 @@ export async function wslAvailable(): Promise<boolean> {
 	}
 }
 
+/** Fully reset the WSL lightweight VM WITHOUT deleting anything. `wsl --shutdown`
+ *  stops all distros' RUNNING state; it is NOT `--unregister`, so sandboxes,
+ *  installed tools and files all survive. A degraded / read-only / stuck distro
+ *  only clears by killing the VM this way (exactly what a manual `wsl --shutdown`
+ *  does). Best-effort - the caller restarts the distro regardless. */
+export async function wslShutdown(): Promise<void> {
+	try {
+		await execFileAsync(wslExePath(), ['--shutdown'], { windowsHide: true, env: WSL_ENV, timeout: 30_000 });
+	} catch {
+		/* best-effort */
+	}
+}
+
 /** Installed distro names (excludes docker-desktop's helper distros). */
 export async function listDistros(): Promise<string[]> {
 	try {

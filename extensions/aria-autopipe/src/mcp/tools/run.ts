@@ -145,6 +145,19 @@ function projectSandboxKey(root: string): string {
 	return `${base}-${hash}`;
 }
 
+/** Heuristic: does a run's stderr look like a DEGRADED WSL instance (read-only fs,
+ *  I/O / bus error) - the state a `wsl --shutdown` reset fixes - rather than an
+ *  ordinary code error? Deliberately narrow so a normal failure never triggers a VM
+ *  reset. */
+function looksLikeDegradedWsl(stderr: string): boolean {
+	const s = (stderr || '').toLowerCase();
+	return s.includes('read-only file system')
+		|| s.includes('input/output error')
+		|| s.includes('bus error')
+		|| s.includes('cannot allocate memory')
+		|| s.includes('structure needs cleaning');
+}
+
 export const RUN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'run_code',
@@ -343,7 +356,32 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					"ls -1p 2>/dev/null | grep -v '/$'",
 					'exit $__rc',
 				].join('\n');
-				const r = await ssh.run(ep, script, { timeoutMs });
+				// Run once. If the built-in WSL run environment is DEGRADED (a dropped
+				// connection, or a read-only / I/O / bus-error signature - what a manual
+				// `wsl --shutdown` fixes), reset it ONCE via VMManager.recover (stop +
+				// wsl --shutdown + start; keeps ALL data, never --unregister) and retry
+				// with a fresh endpoint. The user never touches a terminal. A normal code
+				// error is NOT degraded, so it never triggers a reset.
+				const runScript = (endpoint: typeof ep) => ssh.run(endpoint, script, { timeoutMs });
+				let r: Awaited<ReturnType<typeof ssh.run>>;
+				let degraded = false;
+				try {
+					r = await runScript(ep);
+					degraded = isBuiltIn && looksLikeDegradedWsl(r.stderr);
+				} catch (execErr) {
+					if (!isBuiltIn) { throw execErr; }
+					r = undefined as unknown as Awaited<ReturnType<typeof ssh.run>>;
+					degraded = true; // a thrown error on the built-in WSL = treat as degraded
+				}
+				if (degraded) {
+					try {
+						await services().vm.recover();
+						const fresh = await resolveRunTarget();
+						r = await runScript(fresh.profile);
+					} catch (recoverErr) {
+						if (!r) { throw recoverErr; } // no first result and retry failed - surface it
+					}
+				}
 				if (r.exitCode === 97) {
 					return errorResult(`run_code could not create its run directory on ${target}: ${r.stderr.trim() || 'mkdir failed'}. Check the account has a writable home directory there.`);
 				}

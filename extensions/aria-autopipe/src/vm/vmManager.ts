@@ -15,7 +15,7 @@ import { LOCAL_VM_ID, SshProfile, hostVmLimits } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
-import { wslAvailable, listDistros, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath } from './wsl';
+import { wslAvailable, listDistros, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath, wslShutdown } from './wsl';
 import { windowsToWsl } from '../common/dockerEnv';
 import { ensureWorkspaceScaffold } from '../common/workspaceSync';
 
@@ -182,7 +182,16 @@ export class VMManager {
 		// path. Apple Silicon → vfkit (qemu's HVF asserts on M4). Intel Macs and
 		// Linux keep qemu+HVF/KVM.
 		if (process.platform === 'win32') {
-			await this.startWsl(progress);
+			try {
+				await this.startWsl(progress);
+			} catch {
+				// A WSL start failure is often a degraded / stuck lightweight VM (e.g.
+				// `Wsl/Service/E_UNEXPECTED` after an idle timeout). Reset it once with a
+				// data-safe `wsl --shutdown` (never --unregister) and retry before
+				// surfacing the error, so the user never has to touch a terminal.
+				await wslShutdown();
+				await this.startWsl(progress);
+			}
 		} else if (process.platform === 'darwin' && process.arch === 'arm64') {
 			await this.startVfkit(progress);
 		} else {
@@ -547,6 +556,19 @@ export class VMManager {
 		await this.stop();
 		try { fs.rmSync(path.join(this.dir, 'overlay.qcow2')); } catch { /* ignore */ }
 		// Base image + workspace are kept: reset only recreates the throwaway overlay.
+	}
+
+	/** Recover a degraded built-in run environment WITHOUT losing data, then start
+	 *  fresh. On Windows a read-only / stuck WSL distro only clears when the
+	 *  lightweight VM is killed: stop our keeper, `wsl --shutdown` (data-safe - never
+	 *  --unregister), then start. Used when a run fails with a degraded-WSL signature,
+	 *  so the fix a manual `wsl --shutdown` gives happens automatically, no terminal. */
+	async recover(): Promise<void> {
+		await this.stop();
+		if (process.platform === 'win32') {
+			await wslShutdown();
+		}
+		await this.start();
 	}
 
 	dispose(): void { void this.stop(); this._onDidChange.dispose(); this._onProgress.dispose(); }
