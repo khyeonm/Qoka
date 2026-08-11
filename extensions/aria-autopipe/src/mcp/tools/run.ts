@@ -155,7 +155,13 @@ function looksLikeDegradedWsl(stderr: string): boolean {
 		|| s.includes('input/output error')
 		|| s.includes('bus error')
 		|| s.includes('cannot allocate memory')
-		|| s.includes('structure needs cleaning');
+		|| s.includes('structure needs cleaning')
+		// WSL SERVICE / lightweight-VM wedge (idle-timeout etc.): a `wsl --shutdown`
+		// reset clears these, so treat them as degraded and recover rather than
+		// relaying the raw error.
+		|| s.includes('e_unexpected')
+		|| s.includes('wsl/service')
+		|| s.includes('the wsl service');
 }
 
 export const RUN_TOOLS: ToolDefinition[] = [
@@ -165,7 +171,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 			'Use this to RUN CODE for QUICK, one-off tasks - a version check, a short script, a single analysis (e.g. "run this scanpy analysis"). ALSO use this to CHECK whether a package/tool is installed (run a tiny import/version script here) - do NOT check your own machine with `python -c`/`pip show`/`which`, which inspects the WRONG environment. For LONG / multi-step / reproducible pipelines, use the qoka-autopipe MCP\'s execute_pipeline instead: run_code and execute_pipeline are the TWO correct ways to run code, chosen by quick-vs-pipeline - the terminal is never one of them. NEVER run code in your own terminal / bash / shell tool - that bypasses the Qoka run environment and is WRONG; if you already ran it in your terminal and it failed, STOP and use this instead. Before running ANY code, ALWAYS call get_workspace_info (qoka-autopipe MCP) first to confirm the ACTIVE connection - the local run environment OR the SSH server selected in the Settings tab (the SAME target autopipe uses) - and tell the user where it will run. Runs on that connection and returns stdout/stderr; the result states which target it actually ran on. ALWAYS pass `label` - a short kebab-case summary of what the USER asked for - so the result folder is named after the work: results/rna-velocity-umap/ for outputs, analysis/rna-velocity-umap/ for the script instead of an unreadable timestamp. Do NOT put a date, time or counter in it; a repeat name gets -2, -3 automatically. '
 			+ 'Python runs via uv, so you can request any packages (scanpy, numpy, pandas, …) in `dependencies` and they are installed automatically before the code runs - no setup needed. '
 			+ 'For NON-Python tools (conda/bioconda CLIs like samtools/bwa/R), use a bash script with micromamba (install it in-script if missing). ALWAYS uv for Python, micromamba for everything else - never pip. When an installed Qoka skill matches the task (scanpy, scvi-tools, biopython, gget, anndata, …), use that skill for the analysis. '
-			+ 'INSTALL-DO-NOT-STOP: if a version/availability check shows a package or tool is NOT installed, do NOT stop and tell the user it is missing - the run environment has network, so INSTALL it right here (Python via `dependencies` or uv; other CLIs via micromamba in-script) and CONTINUE with what the user actually asked for. Report that something is unavailable ONLY if the install itself fails, and then say what failed. '
+			+ 'INSTALL-IF-MISSING - THIS IS MANDATORY, applies to EVERY availability/version check: if ANYTHING is not installed, you MUST install it yourself in the SAME run and continue - you are NEVER allowed to stop and hand the user a "not installed" / "command not found" answer. The run environment has network and is disposable, so install whatever is missing (Python packages via `dependencies`/uv; anything else via micromamba in-script), THEN re-run the check and give the user the ACTUAL version/result. Set timeout_s: 900 because the install runs first. The ONLY time you may say something is unavailable is when the INSTALL ITSELF fails, and then you must say exactly what failed and what you tried. Relaying a bare "not installed" as the final answer is WRONG. '
 			+ 'This call runs silently until it fully finishes (installs are not streamed), so BEFORE a call that will install uv/micromamba/packages, tell the user setup is in progress and the first time can take a minute or two. '
 			+ 'And pass timeout_s: 900 on that call - the first Python run pulls the interpreter and all dependencies, which overruns the 300s default for anything like scanpy/anndata and aborts the install halfway, looking to the user like the code failed. '
 			+ 'Do NOT use for multi-step, reproducible, or input/output-tracked work - build an autopipe pipeline (qoka-autopipe MCP) for that instead. '
