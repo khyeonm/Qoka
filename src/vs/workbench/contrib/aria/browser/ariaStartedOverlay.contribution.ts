@@ -1332,6 +1332,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		banner.appendChild(out);
 	}
 
+	/** Whether the user clicked a mode card in THIS overlay session. Drives the card
+	 *  highlight: nothing is selected on appear, but a clicked card stays highlighted
+	 *  (survives the overlay's re-render on mode change). Resets with the window. */
+	private _modePickedInPicker = false;
+
 	private renderModeSection(parent: HTMLElement, currentMode: AriaMode): void {
 		const heading = document.createElement('h2');
 		heading.textContent = 'Mode';
@@ -1348,12 +1353,23 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		grid.style.marginBottom = '12px';
 		parent.appendChild(grid);
 
+		const cards: { mode: 'easy' | 'advanced'; card: HTMLButtonElement }[] = [];
+		// Paint one card as picked (blue) and the other neutral. NOTHING is painted
+		// until the user picks in THIS overlay session (no pre-selection), but once
+		// they click a card it highlights immediately for clear feedback.
+		const paintSelection = (picked: 'easy' | 'advanced' | null): void => {
+			for (const entry of cards) {
+				const on = entry.mode === picked;
+				entry.card.style.background = on
+					? 'var(--vscode-button-background, rgba(0, 122, 204, 0.9))'
+					: 'rgba(127, 127, 127, 0.06)';
+				entry.card.style.color = on
+					? 'var(--vscode-button-foreground, #fff)'
+					: 'var(--vscode-foreground, #cccccc)';
+			}
+		};
+
 		const makeCard = (mode: 'easy' | 'advanced', label: string, detail: string): void => {
-			// Always render BOTH cards unselected - even when a mode is already set
-			// (e.g. the picker shown when opening a second window) - so the user
-			// consciously re-picks each time instead of seeing a pre-highlighted
-			// default. (currentMode / modeExplicitlyChosen are intentionally unused.)
-			const selected = false;
 			const card = document.createElement('button');
 			card.style.display = 'flex';
 			card.style.flexDirection = 'column';
@@ -1361,15 +1377,12 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			card.style.padding = '16px 18px';
 			card.style.border = '1px solid rgba(127, 127, 127, 0.2)';
 			card.style.borderRadius = '6px';
-			card.style.background = selected
-				? 'var(--vscode-button-background, rgba(0, 122, 204, 0.9))'
-				: 'rgba(127, 127, 127, 0.06)';
-			card.style.color = selected
-				? 'var(--vscode-button-foreground, #fff)'
-				: 'var(--vscode-foreground, #cccccc)';
+			card.style.background = 'rgba(127, 127, 127, 0.06)';
+			card.style.color = 'var(--vscode-foreground, #cccccc)';
 			card.style.cursor = 'pointer';
 			card.style.fontFamily = 'inherit';
 			card.style.textAlign = 'left';
+			card.style.transition = 'background 80ms ease, color 80ms ease';
 
 			const titleEl = document.createElement('div');
 			titleEl.textContent = label;
@@ -1385,15 +1398,25 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 			card.onclick = (e) => {
 				e.stopPropagation();
+				// Highlight the clicked card at once (the reload into the project is
+				// what actually applies the mode; this is immediate visual feedback).
+				this._modePickedInPicker = true;
+				paintSelection(mode);
 				try { localStorage.setItem(MODE_CHOSEN_FLAG, '1'); } catch { /* ignore */ }
 				void this.commandService.executeCommand(ARIA_SET_MODE_COMMAND, mode);
 			};
 
+			cards.push({ mode, card });
 			grid.appendChild(card);
 		};
 
 		makeCard('easy', 'Easy', 'Simplified UI focused on chat and the research side panels.');
 		makeCard('advanced', 'Advanced', 'Full IDE layout with drag-and-resize panels and every VS Code feature.');
+		// Keep the picked highlight across the overlay's re-render (it re-renders when
+		// the mode config changes); before any pick this session, both stay neutral.
+		if (this._modePickedInPicker && (currentMode === 'easy' || currentMode === 'advanced')) {
+			paintSelection(currentMode);
+		}
 	}
 
 	private renderStartSection(parent: HTMLElement): void {
