@@ -25,6 +25,7 @@ import { createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEd
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { FileChange, Snapshot, SnapshotDraft, StatusInfo, basename, injectAriaVcsStyles, markerFor, onDidChangeSnapshots, notifySnapshotsChanged } from './ariaVcsCommon.js';
@@ -92,6 +93,7 @@ export class AriaVersionsView extends ViewPane {
 		@INotificationService private readonly notificationService: INotificationService,
 		@IFileService private readonly fileService: IFileService,
 		@IDialogService private readonly dialogService: IDialogService,
+		@IProgressService private readonly progressService: IProgressService,
 	) {
 		// Keep the header actions (Changes: Save + Refresh, Snapshots: Refresh)
 		// always visible instead of only on hover/focus, so the buttons are always
@@ -295,16 +297,13 @@ export class AriaVersionsView extends ViewPane {
 			return;
 		}
 		// Naming a snapshot asks the AI to read the diff, which can take a few
-		// seconds. Kick it off immediately, then show a CENTER dialog (not a corner
-		// toast) so the wait doesn't look like a hang - the user can keep working and
-		// the Save dialog opens here once the name is ready.
-		const draftPromise = Promise.resolve(this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths))
-			.then(d => d, () => undefined);
-		await this.dialogService.info(
-			localize('aria.vcs.namingTitle', "Qoka is reviewing your changes"),
-			localize('aria.vcs.namingDetail', "It's suggesting a snapshot name from your code. This can take a moment - you can keep working, and the Save dialog will open here when it's ready."),
+		// seconds. Show a CENTER modal progress spinner (not a corner toast) so the
+		// wait reads as "working" rather than a hang; it auto-closes when the name is
+		// ready and the Save dialog opens.
+		const draft = await this.progressService.withProgress(
+			{ location: ProgressLocation.Dialog, title: localize('aria.vcs.naming', "Qoka is reviewing your changes to suggest a snapshot name…"), cancellable: false },
+			() => Promise.resolve(this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths)).then(d => d, () => undefined),
 		);
-		const draft = await draftPromise;
 		const result = await this.showSaveDialog(draft?.suggestedTitle ?? '', draft?.previousTitle, draft?.continuation === true);
 		if (!result) { return; }
 		await this.commandService.executeCommand('aria.vcs.saveSnapshot', result.title, paths, result.group);
