@@ -7,6 +7,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { Codicon } from '../../../../base/common/codicons.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { MenuId, MenuRegistry } from '../../../../platform/actions/common/actions.js';
@@ -60,7 +61,13 @@ Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([changes
 // row in the body. Each routes to the live Changes view instance.
 
 const SAVE_ID = 'aria.vcs.ui.saveSnapshot';
+const NAMING_ID = 'aria.vcs.ui.naming';
 const REFRESH_ID = 'aria.vcs.ui.refresh';
+
+/** Set on the Changes view while the AI generates a snapshot name, so the Save
+ *  button is replaced IN PLACE by a spinning "naming…" icon. Non-blocking: the user
+ *  keeps working and the Save dialog opens when the name is ready. */
+const SNAPSHOT_NAMING_KEY = 'ariaVcs.snapshotNaming';
 
 function changesView2(accessor: ServicesAccessor): AriaVersionsView | undefined {
 	const v = accessor.get(IViewsService).getViewWithId(AriaChangesView.ID);
@@ -68,15 +75,25 @@ function changesView2(accessor: ServicesAccessor): AriaVersionsView | undefined 
 }
 
 CommandsRegistry.registerCommand(SAVE_ID, (accessor) => changesView2(accessor)?.saveSnapshotFlow());
+CommandsRegistry.registerCommand(NAMING_ID, () => { /* visual-only: a name is being generated */ });
 CommandsRegistry.registerCommand(REFRESH_ID, (accessor) => changesView2(accessor)?.refreshNow());
 
+const inChangesView = ContextKeyExpr.equals('view', AriaChangesView.ID);
+
+// Save snapshot - hidden while a name is being generated (replaced by the spinner below).
 MenuRegistry.appendMenuItem(MenuId.ViewTitle, {
 	command: { id: SAVE_ID, title: localize('aria.vcs.save', "Save snapshot"), icon: Codicon.save },
 	group: 'navigation', order: 1,
-	when: ContextKeyExpr.equals('view', AriaChangesView.ID),
+	when: ContextKeyExpr.and(inChangesView, ContextKeyExpr.not(SNAPSHOT_NAMING_KEY)),
+});
+// Spinner shown IN PLACE of the Save button while the AI names the snapshot.
+MenuRegistry.appendMenuItem(MenuId.ViewTitle, {
+	command: { id: NAMING_ID, title: localize('aria.vcs.naming', "Generating snapshot name…"), icon: ThemeIcon.modify(Codicon.loading, 'spin') },
+	group: 'navigation', order: 1,
+	when: ContextKeyExpr.and(inChangesView, ContextKeyExpr.has(SNAPSHOT_NAMING_KEY)),
 });
 MenuRegistry.appendMenuItem(MenuId.ViewTitle, {
 	command: { id: REFRESH_ID, title: localize('aria.vcs.refreshTooltip', "Refresh"), icon: Codicon.refresh },
 	group: 'navigation', order: 2,
-	when: ContextKeyExpr.equals('view', AriaChangesView.ID),
+	when: inChangesView,
 });

@@ -8,7 +8,7 @@ import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IContextKeyService, IContextKey, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -25,7 +25,6 @@ import { createAriaHelpTitleActionViewItem } from '../../aria/browser/ariaHelpEd
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { FileChange, Snapshot, SnapshotDraft, StatusInfo, basename, injectAriaVcsStyles, markerFor, onDidChangeSnapshots, notifySnapshotsChanged } from './ariaVcsCommon.js';
@@ -77,6 +76,10 @@ export class AriaVersionsView extends ViewPane {
 	/** Holds the workspace file watcher (re-created when the folder changes). */
 	private readonly watcherStore = this._register(new DisposableStore());
 
+	/** True while the AI generates a snapshot name → the Save title button is
+	 *  replaced in place by a spinner (see ariaVcs.contribution). */
+	private readonly _namingCtx: IContextKey<boolean>;
+
 	constructor(
 		options: IViewPaneOptions,
 		@IKeybindingService keybindingService: IKeybindingService,
@@ -93,13 +96,13 @@ export class AriaVersionsView extends ViewPane {
 		@INotificationService private readonly notificationService: INotificationService,
 		@IFileService private readonly fileService: IFileService,
 		@IDialogService private readonly dialogService: IDialogService,
-		@IProgressService private readonly progressService: IProgressService,
 	) {
 		// Keep the header actions (Changes: Save + Refresh, Snapshots: Refresh)
 		// always visible instead of only on hover/focus, so the buttons are always
 		// reachable in the Analysis tab.
 		super({ ...options, showActions: ViewPaneShowActions.Always }, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		injectAriaVcsStyles();
+		this._namingCtx = new RawContextKey<boolean>('ariaVcs.snapshotNaming', false).bindTo(contextKeyService);
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => this.refresh()));
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => { this.setupFileWatcher(); this.refresh(); }));
 		this._register(onDidChangeSnapshots(() => this.refresh()));
@@ -297,13 +300,21 @@ export class AriaVersionsView extends ViewPane {
 			return;
 		}
 		// Naming a snapshot asks the AI to read the diff, which can take a few
-		// seconds. Show a CENTER modal progress spinner (not a corner toast) so the
-		// wait reads as "working" rather than a hang; it auto-closes when the name is
-		// ready and the Save dialog opens.
-		const draft = await this.progressService.withProgress(
-			{ location: ProgressLocation.Dialog, title: localize('aria.vcs.naming', "Qoka is reviewing your changes to suggest a snapshot name…"), cancellable: false },
-			() => Promise.resolve(this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths)).then(d => d, () => undefined),
+		// seconds. Tell the user ONCE that it takes a moment, then replace the Save
+		// button with a spinner (via a context key) and generate the name in the
+		// BACKGROUND - the popup is dismissed, so the user keeps working. The Save
+		// dialog opens when the name is ready.
+		await this.dialogService.info(
+			localize('aria.vcs.namingTitle', "Generating a snapshot name"),
+			localize('aria.vcs.namingDetail', "Qoka is reviewing your changes to suggest a name - this takes a moment. You can keep working; a Save dialog opens when it's ready."),
 		);
+		this._namingCtx.set(true);
+		let draft: SnapshotDraft | undefined;
+		try {
+			draft = await Promise.resolve(this.commandService.executeCommand<SnapshotDraft>('aria.vcs.prepareSnapshot', paths)).then(d => d, () => undefined);
+		} finally {
+			this._namingCtx.set(false);
+		}
 		const result = await this.showSaveDialog(draft?.suggestedTitle ?? '', draft?.previousTitle, draft?.continuation === true);
 		if (!result) { return; }
 		await this.commandService.executeCommand('aria.vcs.saveSnapshot', result.title, paths, result.group);
