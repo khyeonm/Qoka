@@ -5,9 +5,22 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as vscode from 'vscode';
 import { candidateClaudePaths } from '../detection/claudeCodeDetector';
 
 const execAsync = promisify(exec);
+
+/** Per-window isolation: register under the PROJECT (local) scope keyed by the
+ *  open workspace so each Qoka window writes its OWN live port into
+ *  projects[<workspace>] instead of one shared global entry. The claude mcp
+ *  commands run with cwd = the workspace for local scope to land in the right
+ *  project. Falls back to user scope when no folder is open. */
+function scopeOpts(): { scope: 'local' | 'user'; opts: { timeout: number; cwd?: string } } {
+	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	return cwd
+		? { scope: 'local', opts: { timeout: 10000, cwd } }
+		: { scope: 'user', opts: { timeout: 10000 } };
+}
 
 // Every Qoka server is `qoka-*`. This one used to be plain `autopipe`, which is
 // ALSO what the standalone autopipe-app registers - sharing the name meant our
@@ -57,9 +70,9 @@ export interface RegistrationResult {
  * when it isn't registered / can't be read. Lets us skip a redundant
  * remove+add when the existing entry already points at our live server.
  */
-async function readClaudeRegisteredPort(claude: string, name: string): Promise<number | null> {
+async function readClaudeRegisteredPort(claude: string, name: string, opts: { timeout: number; cwd?: string }): Promise<number | null> {
 	try {
-		const out = await execAsync(`${quoteArg(claude)} mcp get ${name}`, { timeout: 10000 });
+		const out = await execAsync(`${quoteArg(claude)} mcp get ${name}`, opts);
 		const m = out.stdout.match(/127\.0\.0\.1:(\d+)/);
 		return m ? parseInt(m[1], 10) : null;
 	} catch {
@@ -87,12 +100,13 @@ export async function registerWithClaudeCode(port: number, name: string = MCP_NA
 
 	const url = `http://127.0.0.1:${port}/sse`;
 	const q = quoteArg(claude);
+	const { scope, opts } = scopeOpts();
 
 	// Skip the (expensive) remove+add when the client already points at our
 	// live port. The port is the discriminator: an entry on a *different* port
 	// is stale (a previous run, or the standalone autopipe-app holding 3748),
 	// and one on *this* port already targets the server we just started.
-	const existingPort = await readClaudeRegisteredPort(claude, name);
+	const existingPort = await readClaudeRegisteredPort(claude, name, opts);
 	if (existingPort === port) {
 		console.log(`[aria-autopipe] Claude Code already registered "${name}" on port ${port}; skipping re-registration`);
 		return { ok: true, changed: false, message: `Already registered -> ${url}` };
@@ -109,7 +123,7 @@ export async function registerWithClaudeCode(port: number, name: string = MCP_NA
 	for (const rmName of rmNames) {
 		for (const scope of ['user', 'project', 'local']) {
 			try {
-				const out = await execAsync(`${q} mcp remove ${rmName} --scope ${scope}`, { timeout: 10000 });
+				const out = await execAsync(`${q} mcp remove ${rmName} --scope ${scope}`, opts);
 				console.log(`[aria-autopipe] removed prior MCP entry "${rmName}" (--scope ${scope}):`, out.stdout.trim());
 			} catch (err) {
 				// "No MCP server found" is the expected outcome on a clean
@@ -122,10 +136,10 @@ export async function registerWithClaudeCode(port: number, name: string = MCP_NA
 	// `--scope user` writes to the per-user config so the server is
 	// reachable from every project Claude Code opens - not just the
 	// directory Qoka happened to launch from.
-	const addCmd = `${q} mcp add --scope user ${name} ${quoteArg(url)} --transport sse`;
+	const addCmd = `${q} mcp add --scope ${scope} ${name} ${quoteArg(url)} --transport sse`;
 	console.log(`[aria-autopipe] running: ${addCmd}`);
 	try {
-		const out = await execAsync(addCmd, { timeout: 10000 });
+		const out = await execAsync(addCmd, opts);
 		console.log(`[aria-autopipe] mcp add stdout:`, out.stdout.trim());
 		console.log(`[aria-autopipe] mcp add stderr:`, out.stderr.trim());
 	} catch (err) {
@@ -139,7 +153,7 @@ export async function registerWithClaudeCode(port: number, name: string = MCP_NA
 	// (user/project/local) misalign, so we confirm explicitly and surface
 	// what's actually there.
 	try {
-		const listOut = await execAsync(`${q} mcp list`, { timeout: 10000 });
+		const listOut = await execAsync(`${q} mcp list`, opts);
 		console.log(`[aria-autopipe] claude mcp list:\n${listOut.stdout.trim()}`);
 		if (!listOut.stdout.includes(name)) {
 			return {

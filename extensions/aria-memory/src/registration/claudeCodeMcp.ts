@@ -8,8 +8,21 @@ import { promisify } from 'util';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
 
 const execAsync = promisify(exec);
+
+/** Register per-window: use the PROJECT (local) scope keyed by the open workspace
+ *  so each Qoka window writes its OWN live port into projects[<workspace>] and
+ *  windows don't collapse onto one shared global entry. The `claude mcp` commands
+ *  must run with cwd = the workspace for local scope to land in the right project.
+ *  Falls back to user scope when no folder is open. */
+function scopeOpts(): { scope: 'local' | 'user'; opts: { timeout: number; cwd?: string } } {
+	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	return cwd
+		? { scope: 'local', opts: { timeout: 10000, cwd } }
+		: { scope: 'user', opts: { timeout: 10000 } };
+}
 
 /** Name Claude Code lists this MCP under. Must match the `name` returned by
  *  the server's `initialize` response so the user sees one consistent label. */
@@ -58,9 +71,9 @@ async function resolveClaudeBinary(): Promise<string | null> {
 	return null;
 }
 
-async function readClaudeRegisteredPort(claude: string): Promise<number | null> {
+async function readClaudeRegisteredPort(claude: string, opts: { timeout: number; cwd?: string }): Promise<number | null> {
 	try {
-		const out = await execAsync(`${quoteArg(claude)} mcp get ${MCP_NAME}`, { timeout: 10000 });
+		const out = await execAsync(`${quoteArg(claude)} mcp get ${MCP_NAME}`, opts);
 		const m = out.stdout.match(/127\.0\.0\.1:(\d+)/);
 		return m ? parseInt(m[1], 10) : null;
 	} catch {
@@ -85,27 +98,28 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 
 	const url = `http://127.0.0.1:${port}/sse`;
 	const q = quoteArg(claude);
+	const { scope, opts } = scopeOpts();
 
-	const existingPort = await readClaudeRegisteredPort(claude);
+	const existingPort = await readClaudeRegisteredPort(claude, opts);
 	if (existingPort === port) {
 		console.log(`[aria-memory] Claude Code already registered on port ${port}; skipping re-registration`);
 		return { ok: true, changed: false, message: `Already registered -> ${url}` };
 	}
 
-	for (const scope of ['user', 'project', 'local']) {
+	for (const s of ['user', 'project', 'local']) {
 		try {
-			const out = await execAsync(`${q} mcp remove ${MCP_NAME} --scope ${scope}`, { timeout: 10000 });
-			console.log(`[aria-memory] removed prior MCP entry --scope ${scope}:`, out.stdout.trim());
+			const out = await execAsync(`${q} mcp remove ${MCP_NAME} --scope ${s}`, opts);
+			console.log(`[aria-memory] removed prior MCP entry --scope ${s}:`, out.stdout.trim());
 		} catch (e) {
-			console.log(`[aria-memory] no prior MCP entry --scope ${scope}:`, (e as Error).message);
+			console.log(`[aria-memory] no prior MCP entry --scope ${s}:`, (e as Error).message);
 		}
 	}
 
-	const addCmd = `${q} mcp add --scope user ${MCP_NAME} ${quoteArg(url)} --transport sse`;
+	const addCmd = `${q} mcp add --scope ${scope} ${MCP_NAME} ${quoteArg(url)} --transport sse`;
 	console.log(`[aria-memory] running: ${addCmd}`);
 	const runAdd = async (): Promise<{ ok: boolean; stderr: string }> => {
 		try {
-			const out = await execAsync(addCmd, { timeout: 10000 });
+			const out = await execAsync(addCmd, opts);
 			console.log(`[aria-memory] mcp add stdout:`, out.stdout.trim());
 			console.log(`[aria-memory] mcp add stderr:`, out.stderr.trim());
 			return { ok: true, stderr: '' };
@@ -124,7 +138,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 		// jitter and try the add once more.
 		console.warn('[aria-memory] mcp add raced with another writer; retrying after re-remove');
 		try {
-			await execAsync(`${q} mcp remove ${MCP_NAME} --scope user`, { timeout: 10000 });
+			await execAsync(`${q} mcp remove ${MCP_NAME} --scope ${scope}`, opts);
 		} catch (e) {
 			console.log(`[aria-memory] retry-remove failed (likely already gone):`, (e as Error).message);
 		}
@@ -137,7 +151,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	}
 
 	try {
-		const listOut = await execAsync(`${q} mcp list`, { timeout: 10000 });
+		const listOut = await execAsync(`${q} mcp list`, opts);
 		if (!listOut.stdout.includes(MCP_NAME)) {
 			return {
 				ok: false,

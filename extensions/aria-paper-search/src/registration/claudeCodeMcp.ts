@@ -7,9 +7,22 @@ import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+
+/** Per-window isolation: register under the PROJECT (local) scope keyed by the
+ *  open workspace so each Qoka window writes its OWN live port into
+ *  projects[<workspace>] instead of one shared global entry. The claude mcp
+ *  commands run with cwd = the workspace for local scope to land in the right
+ *  project. Falls back to user scope when no folder is open. */
+function scopeOpts(): { scope: 'local' | 'user'; opts: { timeout: number; cwd?: string } } {
+	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	return cwd
+		? { scope: 'local', opts: { timeout: 10000, cwd } }
+		: { scope: 'user', opts: { timeout: 10000 } };
+}
 
 const MCP_NAME = 'qoka-paper-library';
 // Older Qoka builds may have registered under "aria-paper-library" or
@@ -102,6 +115,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 		};
 	}
 	const url = `http://127.0.0.1:${port}/sse`;
+	const { scope, opts } = scopeOpts();
 
 	// Skip work when the USER-scope entry already points at our live
 	// port. We deliberately ignore project/local scope here - those
@@ -123,7 +137,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	for (const name of [MCP_NAME, ...LEGACY_NAMES]) {
 		for (const scope of ['user', 'project', 'local']) {
 			try {
-				await execAsync(`${q(claude)} mcp remove ${name} --scope ${scope}`, { timeout: 10000 });
+				await execAsync(`${q(claude)} mcp remove ${name} --scope ${scope}`, opts);
 				console.log(`[aria-paper-search] removed prior entry "${name}" --scope ${scope}`);
 			} catch { /* "No MCP server found" expected - silent */ }
 		}
@@ -132,10 +146,10 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	// `--scope user` writes to the per-user config so paper-library is
 	// visible to Claude Code sessions regardless of the working
 	// directory. autopipe uses the same scope for the same reason.
-	const addCmd = `${q(claude)} mcp add ${MCP_NAME} --scope user --transport sse ${q(url)}`;
+	const addCmd = `${q(claude)} mcp add ${MCP_NAME} --scope ${scope} --transport sse ${q(url)}`;
 	console.log(`[aria-paper-search] running: ${addCmd}`);
 	try {
-		const out = await execAsync(addCmd, { timeout: 10000 });
+		const out = await execAsync(addCmd, opts);
 		console.log(`[aria-paper-search] claude mcp add stdout: ${out.stdout.trim()}`);
 		if (out.stderr) {
 			console.log(`[aria-paper-search] claude mcp add stderr: ${out.stderr.trim()}`);
@@ -147,7 +161,7 @@ export async function registerWithClaudeCode(port: number): Promise<Registration
 	}
 
 	try {
-		const listOut = await execAsync(`${q(claude)} mcp list`, { timeout: 10000 });
+		const listOut = await execAsync(`${q(claude)} mcp list`, opts);
 		if (!listOut.stdout.includes(MCP_NAME)) {
 			return {
 				ok: false, changed: true,
