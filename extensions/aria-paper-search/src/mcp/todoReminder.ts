@@ -36,9 +36,11 @@ interface ToolResult {
 
 /** Tool names that mean "a deliverable was produced" - matched by leading verb so
  *  new tools are covered without editing a list. `record_` catches record_review
- *  (the peer-review skill's terminal tool). Query/setup tools (get_/list_/check_/
- *  read_/search_/set_/open_/start_/prepare_...) are intentionally excluded. */
-const PRODUCTIVE_VERB = /^(run|execute|save|create|export|publish|build|record)_/;
+ *  (the peer-review skill's terminal tool); `append_`/`update_` catch note edits
+ *  (append_note / update_note), which are progress just like create_note. Query /
+ *  setup tools (get_/list_/check_/read_/search_/set_/open_/start_/prepare_/delete_)
+ *  are intentionally excluded. */
+const PRODUCTIVE_VERB = /^(run|execute|save|create|export|publish|build|record|append|update)_/;
 
 /** Don't re-inject the list within this window, so a burst of tools (or a review
  *  recording per-reviewer) nudges once, not every call. */
