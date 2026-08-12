@@ -53,6 +53,25 @@ const CODEX_TOML = path.join(QOKA_CODEX_HOME, 'config.toml');
 function claudeUrl(port: number): string { return `http://127.0.0.1:${port}/sse`; }
 function codexUrl(port: number): string { return `http://127.0.0.1:${port}/mcp`; }
 
+/**
+ * Key Claude Code uses for `projects[<cwd>]`. Claude normalizes its working
+ * directory to forward slashes with a LOWERCASE drive letter (e.g.
+ * `c:/Users/name/proj`). VSCode's Uri.fsPath gives BACKSLASHES on Windows
+ * (`c:\Users\name\proj`), so writing the raw fsPath as the key never matched
+ * what the chat looked up: the chat read an EMPTY per-project block and fell
+ * back to the shared root `mcpServers`, which points at a DIFFERENT window's
+ * port. That is the cross-window leak (one window's chat answering with another
+ * window's paper library / run_code). The `claude mcp add` CLI path did not hit
+ * this because the CLI normalizes its own cwd; this direct JSON writer must do
+ * the same normalization by hand. On macOS/Linux fsPath is already
+ * `/Users/...` (no drive, forward slashes), so this is a no-op there.
+ */
+function claudeProjectKey(p: string): string {
+	return p
+		.replace(/\\/g, '/')
+		.replace(/^([A-Za-z]):/, (_m, d: string) => `${d.toLowerCase()}:`);
+}
+
 function atomicWrite(file: string, content: string): void {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	const tmp = `${file}.qoka-tmp-${process.pid}`;
@@ -93,8 +112,11 @@ function writeClaude(servers: McpServerInfo[], workspacePath?: string): void {
 	// per-project bwrap). Local scope overrides the root entry for the same name, so
 	// the root above is only a fallback. Keyed by the workspace path the CLI runs in.
 	if (workspacePath) {
+		// Match Claude's own project key (forward slashes, lowercase drive) so the
+		// chat actually reads this block instead of the shared root fallback.
+		const key = claudeProjectKey(workspacePath);
 		const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, { mcpServers?: Record<string, unknown> }>;
-		const proj = (projects[workspacePath] && typeof projects[workspacePath] === 'object' ? projects[workspacePath] : {});
+		const proj = (projects[key] && typeof projects[key] === 'object' ? projects[key] : {});
 		const pmcp = (proj.mcpServers && typeof proj.mcpServers === 'object' ? proj.mcpServers : {}) as Record<string, unknown>;
 		for (const s of servers) {
 			const url = claudeUrl(s.port);
@@ -105,7 +127,7 @@ function writeClaude(servers: McpServerInfo[], workspacePath?: string): void {
 			}
 		}
 		proj.mcpServers = pmcp;
-		projects[workspacePath] = proj;
+		projects[key] = proj;
 		obj.projects = projects;
 	}
 	if (!changed) { return; }
