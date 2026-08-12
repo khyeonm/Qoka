@@ -305,8 +305,21 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 export function keeperScript(port: number): string {
 	return [
 		'mkdir -p /run/sshd',
-		// Native docker engine only; Docker Desktop manages its own daemon.
-		'service docker start >/dev/null 2>&1 || (command -v dockerd >/dev/null 2>&1 && nohup dockerd >/tmp/qoka-dockerd.log 2>&1 &)',
+		// Bring the native docker engine up, self-healing the most common WSL
+		// failure: after an unclean shutdown (WSL idle-stop / sleep / reboot) a
+		// stale `docker0` bridge is left behind and dockerd crash-loops on boot
+		// with "cannot create network (docker0): networks have same bridge name",
+		// which systemd then rate-limits ("Start request repeated too quickly").
+		// We only touch anything when docker is actually DOWN, and the keeper runs
+		// as root (`wsl -u root`), so no sudo is involved. Skipped entirely when
+		// docker is already healthy (e.g. Docker Desktop integration).
+		'if ! docker info >/dev/null 2>&1; then',
+		'  systemctl reset-failed docker.service 2>/dev/null || true',
+		'  ip link delete docker0 2>/dev/null || true',
+		'  rm -f /var/lib/docker/network/files/local-kv.db 2>/dev/null || true',
+		'  service docker start >/dev/null 2>&1 || (command -v dockerd >/dev/null 2>&1 && nohup dockerd >/tmp/qoka-dockerd.log 2>&1 &)',
+		'  for _i in 1 2 3 4 5 6 7 8 9 10; do docker info >/dev/null 2>&1 && break; sleep 1; done',
+		'fi',
 		// Foreground sshd keeps the distro alive; -e logs to stderr (captured).
 		`exec /usr/sbin/sshd -D -e -p ${port}`,
 	].join('\n');

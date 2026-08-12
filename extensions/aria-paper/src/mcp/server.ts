@@ -23,6 +23,8 @@ interface SseSession {
  * work without per-client branches. Owns no state - every tool call is
  * dispatched into the tool table the caller provided.
  */
+import { maybeAppendTodoReminder } from './todoReminder';
+
 export class AriaPaperMcpServer {
 
 	private httpServer: http.Server | undefined;
@@ -274,7 +276,8 @@ export class AriaPaperMcpServer {
 				if (!tool) {
 					throw new Error(`unknown tool: ${params.name}`);
 				}
-				return await tool.handler(params.arguments ?? {});
+				const result = await tool.handler(params.arguments ?? {});
+					return maybeAppendTodoReminder(params.name ?? '', result);
 			}
 			default:
 				throw new Error(`unknown method: ${req.method}`);

@@ -47,6 +47,13 @@ function isDate(s: string): boolean { return /^\d{4}-\d{2}-\d{2}$/.test(s); }
 /** 'HH:mm' 24-hour local time. */
 function isTime(s: string): boolean { return /^([01]\d|2[0-3]):[0-5]\d$/.test(s); }
 
+/** Reveal the Project Overview tab (the same command open_overview uses), so a
+ *  task the AI just checked off is visible without the user hunting for it.
+ *  Best-effort - never fails the tool call. */
+async function revealOverview(): Promise<void> {
+	try { await vscode.commands.executeCommand('aria.overview.open'); } catch { /* tab optional */ }
+}
+
 /**
  * Project Overview tools. Read the project's title / summary / To-do list and
  * update them. The two proposal tools are the heart of progress tracking: when,
@@ -125,7 +132,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'add_tasks',
-			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). HARD PRECONDITION: the To-do is derived FROM the roadmap, so you may call this ONLY AFTER the roadmap has been built (it has committed nodes - check with the roadmap tool get_tree if unsure). NEVER call add_tasks right after writing the project summary; during onboarding the order is FIXED: overview title+summary -> build the roadmap (open_roadmap, then propose/accept nodes) -> ONLY THEN add_tasks -> open_overview again. Skipping the roadmap and jumping from the summary straight to the To-do is a bug - do not do it. Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. It is MANDATORY before the final open_overview - never come back to the Overview with an empty To-do. After adding them, TELL THE USER what they can do with the list themselves: reorder items with the up/down arrows on the left of each row, and give any item a deadline or a date range (with an optional time) by clicking the calendar icon on its right. When the user tells you a date/time for a task, set it yourself with set_task_schedule; do NOT invent deadlines they did not state.',
+			description: 'Add SEVERAL tasks at once (a whole drafted To-do list). HARD PRECONDITION: the To-do is derived FROM the roadmap, so you may call this ONLY AFTER the roadmap has been built (it has committed nodes - check with the roadmap tool get_tree if unsure). NEVER call add_tasks right after writing the project summary; during onboarding the order is FIXED: overview title+summary -> build the roadmap (open_roadmap, then propose/accept nodes) -> ONLY THEN add_tasks -> open_overview again. Skipping the roadmap and jumping from the summary straight to the To-do is a bug - do not do it. Prefer ACTION-oriented items the user will actually DO (experiments, analyses, concrete steps) - they need NOT mirror the roadmap 1:1. It is MANDATORY before the final open_overview - never come back to the Overview with an empty To-do. After adding them, TELL THE USER what they can do with the list themselves: reorder items with the up/down arrows on the left of each row, and give any item a deadline or a date range (with an optional time) by clicking the calendar icon on its right. When the user tells you a date/time for a task, set it yourself with set_task_schedule; do NOT invent deadlines they did not state. PHRASE each item as something the user actually does: when the work maps to a Qoka capability (finding papers, writing a paper, taking notes, running an analysis/pipeline, managing memory), write it as that Qoka action - but KEEP the user\'s specific context as a qualifier rather than a bare generic verb (for a single-cell project prefer "write the single-cell analysis paper", not just "write a paper"; "find single-cell QC method papers", not just "find papers"). Do not hardcode fixed wording - adapt the qualifier to THIS project. For steps Qoka cannot do (wet-lab / physical experiments, e.g. running an aptamer selection), do NOT phrase them as a Qoka action; write the concrete step the USER performs at the bench.',
 			inputSchema: {
 				type: 'object',
 				properties: { labels: { type: 'array', items: { type: 'string' }, description: 'Task labels.' } },
@@ -278,7 +285,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'set_task_done',
-			description: 'Check or uncheck ONE task. Only call after the user agreed to mark it complete. `done` defaults to true.',
+			description: 'Check or uncheck ONE task. Only call after the user agreed in chat to mark it complete. `done` defaults to true. Checking a task opens the Project Overview tab so the user sees it checked - no tab Accept badge is needed.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -293,6 +300,7 @@ export function buildTools(): ToolDefinition[] {
 				if (!id) { return err('id is required.'); }
 				const done = args.done === false ? false : true;
 				const r = setTasksDone([id], done, new Date().toISOString());
+				if (r.updated.length) { await revealOverview(); }
 				return r.updated.length ? ok(`Task marked ${done ? 'done' : 'not done'}.`) : err(`No task with id ${id}.`);
 			},
 		},
@@ -313,6 +321,7 @@ export function buildTools(): ToolDefinition[] {
 				if (!ids || ids.length === 0) { return err('ids (non-empty string array) is required.'); }
 				const done = args.done === false ? false : true;
 				const r = setTasksDone(ids, done, new Date().toISOString());
+				if (r.updated.length) { await revealOverview(); }
 				return ok(`Marked ${r.updated.length} task(s) ${done ? 'done' : 'not done'}.`);
 			},
 		},

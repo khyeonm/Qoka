@@ -26,6 +26,8 @@ interface SseSession {
  * The server owns no state of its own - every tool call is dispatched into
  * the RoadmapState instance the caller provided through the tool table.
  */
+import { maybeAppendTodoReminder } from './todoReminder';
+
 export class AriaNotesMcpServer {
 
 	private httpServer: http.Server | undefined;
@@ -280,7 +282,8 @@ export class AriaNotesMcpServer {
 				if (!tool) {
 					throw new Error(`unknown tool: ${params.name}`);
 				}
-				return await tool.handler(params.arguments ?? {});
+				const result = await tool.handler(params.arguments ?? {});
+					return maybeAppendTodoReminder(params.name ?? '', result);
 			}
 			default:
 				throw new Error(`unknown method: ${req.method}`);

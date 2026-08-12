@@ -30,6 +30,8 @@ interface SseSession {
  * (3760-3765) so the two MCP servers can coexist when both extensions
  * are active.
  */
+import { maybeAppendTodoReminder } from './todoReminder';
+
 export class AriaPaperLibraryMcpServer {
 
 	private httpServer: http.Server | undefined;
@@ -265,7 +267,8 @@ export class AriaPaperLibraryMcpServer {
 				if (!tool) {
 					throw new Error(`unknown tool: ${params.name}`);
 				}
-				return await tool.handler(params.arguments ?? {});
+				const result = await tool.handler(params.arguments ?? {});
+					return maybeAppendTodoReminder(params.name ?? '', result);
 			}
 			default:
 				throw new Error(`unknown method: ${req.method}`);
