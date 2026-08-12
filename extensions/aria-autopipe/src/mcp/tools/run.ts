@@ -164,6 +164,24 @@ function looksLikeDegradedWsl(stderr: string): boolean {
 		|| s.includes('the wsl service');
 }
 
+/** Heuristic: does a FAILED run's stderr say a tool / command / package is simply
+ *  NOT INSTALLED (as opposed to a real code bug)? Used to inject an install-and-retry
+ *  directive into the result so the AI installs it and finishes the task itself,
+ *  instead of relaying a bare "not installed" to the user. Kept to unambiguous
+ *  "missing executable / missing module" phrasings so a normal error never trips it. */
+function looksLikeMissingTool(stderr: string): boolean {
+	const s = (stderr || '').toLowerCase();
+	return s.includes('command not found')
+		|| s.includes(': not found')
+		|| s.includes('not recognized as an internal or external command')
+		|| s.includes('no module named')
+		|| s.includes('modulenotfounderror')
+		|| s.includes('is not installed')
+		|| s.includes('executable not found')
+		|| s.includes('no such command')
+		|| s.includes('packagesnotfounderror');
+}
+
 export const RUN_TOOLS: ToolDefinition[] = [
 	{
 		name: 'run_code',
@@ -478,6 +496,20 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				}
 				if (copyNote) {
 					lines.push('', copyNote);
+				}
+				// The run FAILED only because something is not installed: inject a strong
+				// install-and-retry directive at the TOP of the result, right where the AI
+				// makes its next decision. A static tool description alone does not stop a
+				// model from relaying "command not found" to the user; this does, because
+				// it arrives in the very result the model must process next.
+				if (r.exitCode !== 0 && looksLikeMissingTool(r.stderr)) {
+					lines.unshift(
+						'ACTION REQUIRED - DO NOT relay this failure to the user. The run failed ONLY because a required tool/command/package is not installed in the run environment. '
+						+ 'This environment is disposable and has network access, so you MUST install it yourself and finish the task in THIS SAME turn - do not ask the user, do not stop: '
+						+ 'for a Python package add it to `dependencies` (uv); for anything else (a CLI such as julia, samtools, R, …) write a bash script that installs it (micromamba, e.g. `micromamba install -y -c conda-forge <tool>`, or the tool\'s own installer) and THEN runs the original command in the same script. '
+						+ 'Call run_code again NOW with timeout_s: 900 and give the user the ACTUAL result. Only if the INSTALL ITSELF then fails may you tell the user, stating exactly what failed. Reporting "not installed" as your answer is WRONG.',
+						'',
+					);
 				}
 				return textResult(lines.join('\n'));
 			} catch (err) {

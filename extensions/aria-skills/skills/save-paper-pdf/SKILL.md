@@ -1,6 +1,6 @@
 ---
 name: save-paper-pdf
-description: Download a paper's full-text PDF into the project's Paper Library (`.qoka/references/pdfs/`). Use when the user asks to save/download a paper as PDF, "get me the PDF of this paper", "download this article", or wants a paper stored locally to read in Qoka. Resolves an accessible PDF (open access or the user's institutional access from their own IP), verifies it is a real PDF, and only then writes it. If no downloadable PDF exists, it says so and writes nothing.
+description: Download a paper's full-text PDF FILE into `.qoka/references/pdfs/`. This is DIFFERENT from save_paper (qoka-paper-library MCP), which saves only the paper's library ENTRY/metadata - this skill fetches the actual PDF file. Use ONLY when the user clearly wants the PDF ("get me the PDF", "download this article as PDF", "save the PDF"). If the user just says "save this paper" without specifying, do NOT assume PDF - ask whether they want the library entry (save_paper) or the PDF file. Resolves an accessible PDF (open access or the user's institutional access from their own IP), verifies it is a real PDF, and only then writes it. If no downloadable PDF exists, it says so and writes nothing.
 allowed-tools: Read Bash
 license: MIT
 ---
