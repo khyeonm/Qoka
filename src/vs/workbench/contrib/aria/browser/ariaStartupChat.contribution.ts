@@ -10,6 +10,7 @@ import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js'
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
@@ -51,6 +52,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		@ICommandService private readonly commandService: ICommandService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@INotificationService private readonly notificationService: INotificationService,
+		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
@@ -73,6 +75,14 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// tools are already registered.
 		this._register(CommandsRegistry.registerCommand('aria.setup.installProvider', (_acc, provider) =>
 			this._installProviderInteractive(provider)));
+
+		// Settings (account menu) "Reconnect MCP tools": re-run THIS window's MCP
+		// registration for whatever providers are chosen (Claude AND/OR Codex),
+		// healing any stale port the config still points at. A running chat reads
+		// MCP only at session start, so we do not touch it - the result toast tells
+		// the user to open a new chat if an already-open one is missing tools.
+		// Registered before the empty-workbench return so it exists in every window.
+		this._register(CommandsRegistry.registerCommand('aria.mcp.reconnect', () => this._reconnectMcp()));
 
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
 			return;
@@ -272,6 +282,65 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			// fall through to the CLI reconcile path
 		}
 		return this._registerRemainingMcp();
+	}
+
+	/** On-demand reconnect from Settings (the account menu). Offers ONLY the
+	 *  providers whose CLI is actually installed; with both installed the user ticks
+	 *  which to reconnect (a checkbox pick). For each selected provider it re-collects
+	 *  each Qoka MCP server's LIVE port and rewrites THIS window's config - Claude's
+	 *  root `mcpServers` + `projects.<cwd>` local scope, Codex's config.toml - so a
+	 *  stale port a window reload left behind is healed. Only entries whose port
+	 *  actually changed get rewritten (writeClaude/writeCodex skip unchanged ones), so
+	 *  a healthy server is left untouched. It does NOT restart a genuinely stopped
+	 *  server (a window reload re-runs the server) nor force an already-open chat to
+	 *  reconnect (a new chat reads the fresh config); both are called out in the toast. */
+	private async _reconnectMcp(): Promise<void> {
+		// Only offer providers the user actually HAS installed (CLI present) - the
+		// "green" ones. A provider whose CLI isn't installed has no MCP config to
+		// reconnect, so it never appears.
+		const all: ConcreteProvider[] = ['claude', 'codex'];
+		const availability = await Promise.all(all.map(p => this._cliAvailable(p)));
+		const available = all.filter((_, i) => availability[i]);
+		if (available.length === 0) {
+			this.notificationService.info('No AI command-line tool is installed yet, so there are no Qoka MCP tools to reconnect.');
+			return;
+		}
+
+		// One installed provider: reconnect it directly. Two: let the user tick which
+		// to reconnect (both pre-checked), then confirm - the checkmark IS the button.
+		let providers: ConcreteProvider[];
+		if (available.length === 1) {
+			providers = available;
+		} else {
+			const items: (IQuickPickItem & { provider: ConcreteProvider })[] = available.map(p => ({
+				label: PROVIDER_LABEL[p],
+				provider: p,
+				picked: true,
+			}));
+			const picked = await this.quickInputService.pick(items, {
+				canPickMany: true,
+				title: 'Reconnect MCP tools',
+				placeHolder: 'Select which AI tools to reconnect',
+			});
+			if (!picked || picked.length === 0) {
+				return; // cancelled or nothing ticked
+			}
+			providers = picked.map(i => i.provider);
+		}
+
+		const labels = providers.map(p => PROVIDER_LABEL[p]).join(' and ');
+		let ok = false;
+		try {
+			ok = await this._registerMcpFast(providers);
+			try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+		} catch {
+			ok = false;
+		}
+		if (ok) {
+			this.notificationService.info(`Reconnected Qoka MCP tools for ${labels}. If a chat that is already open is missing tools, start a new chat.`);
+		} else {
+			this.notificationService.warn(`Some Qoka MCP tools could not reconnect for ${labels}. Reload the window to restart a stopped server, then try again.`);
+		}
 	}
 
 	/** Ask every Qoka MCP to (re)register; show ONE toast if any newly did. A

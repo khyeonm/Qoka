@@ -42,6 +42,12 @@ class AriaViewerScopeStore {
 	private readonly _onDidChange = new Emitter<void>();
 	readonly onDidChange: Event<void> = this._onDidChange.event;
 
+	private readonly _onDidAddScope = new Emitter<URI>();
+	/** Fires with the folder each time a NEW viewer scope opens, so the explorer
+	 *  can reveal AND expand that `results/<run>/` folder - its files should be
+	 *  listed and one click away, not hidden behind a collapsed row. */
+	readonly onDidAddScope: Event<URI> = this._onDidAddScope.event;
+
 	get scopes(): readonly ViewerScopeState[] {
 		return this._scopes;
 	}
@@ -57,6 +63,7 @@ class AriaViewerScopeStore {
 		}
 		this._scopes.push({ folder, active: true });
 		this._onDidChange.fire();
+		this._onDidAddScope.fire(folder);
 	}
 
 	setScopeActive(folder: URI, active: boolean): void {

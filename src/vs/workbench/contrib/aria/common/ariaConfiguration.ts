@@ -57,7 +57,15 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 				localize('aria.mode.advanced', "Full IDE with all VS Code features."),
 			],
 			default: '',
-			scope: ConfigurationScope.APPLICATION,
+			// WINDOW, not APPLICATION: the mode is PER-WINDOW (two projects open at
+			// once can each be easy or advanced). As an APPLICATION-scoped setting it
+			// was shared across windows, and the per-window ConfigurationTarget.MEMORY
+			// override used to fake per-window mode was dropped whenever ANOTHER window
+			// changed an application-scoped setting (e.g. the Started overlay writing
+			// aria.aiProvider) - that re-resolved aria.mode from the shared value and
+			// silently flipped the existing window out of easy. WINDOW scope makes the
+			// per-window (MEMORY) value legitimate and stable across that broadcast.
+			scope: ConfigurationScope.WINDOW,
 			description: localize('aria.mode.description', "Qoka interface mode."),
 		},
 		[ARIA_AI_PROVIDER_SETTING]: {

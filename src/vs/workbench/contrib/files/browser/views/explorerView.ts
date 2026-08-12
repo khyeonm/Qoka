@@ -586,6 +586,22 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 
 		this._register(this.tree.onContextMenu(e => this.onContextMenu(e)));
 
+		// Opening a results viewer expands that `results/<run>/` folder in the tree so
+		// its files are listed and one click away, instead of leaving the user on a
+		// collapsed row. `select` materialises the folder into the model + reveals it;
+		// then expand it so the children show.
+		this._register(ariaViewerScopeStore.onDidAddScope(async folder => {
+			try {
+				await this.explorerService.select(folder, true);
+				const item = this.explorerService.findClosest(folder);
+				if (item) {
+					await this.tree.expand(item);
+				}
+			} catch {
+				// best-effort: the tree may not be ready or the folder may be filtered out.
+			}
+		}));
+
 		this._register(this.tree.onDidScroll(async e => {
 			const editable = this.explorerService.getEditable();
 			if (e.scrollTopChanged && editable && this.tree.getRelativeTop(editable.stat) === null) {

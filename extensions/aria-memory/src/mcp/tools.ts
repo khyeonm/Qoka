@@ -7,7 +7,7 @@ import {
 	deletePage, listPages, readIndex, readPageRaw, resolvePage,
 	searchPages, writePage,
 } from '../wiki';
-import { rememberUser, recallUser } from '../userMemory';
+import { rememberUser, recallUser, listUser, deleteUser } from '../userMemory';
 
 export interface ToolDefinition {
 	name: string;
@@ -95,7 +95,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'remember_project_memory',
-			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). The user need NOT say "remember": if they stated a project/environment fact ("you can use the X server", "the data is at X") and agreed to your offer to save it, save it here. Only for project-scoped facts - cross-project user preferences belong in remember_user_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first.',
+			description: 'Save or update a piece of THIS project\'s long-term knowledge (a decision, architecture note, experiment result, data location, project-specific term, etc.). The user need NOT say "remember": if they stated a project/environment fact ("you can use the X server", "the data is at X") and agreed to your offer to save it, save it here. Only for project-scoped facts - cross-project user preferences belong in remember_user_memory. If it is unclear whether a fact is project-specific or a cross-project user preference, ASK the user which before saving. Reuse the same `title` to update an existing page rather than creating a near-duplicate; check project_memory_index / search_project_memory first. If the user is RE-SCOPING a fact you had saved GLOBALLY (they say "remember this for THIS project only" after it went to user memory), first delete the global copy with forget_user_memory (confirm before deleting), then save it here - never leave both.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -187,7 +187,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'recall_user_memory',
-			description: 'Search the USER\'s cross-project memory (preferences, working style, identity) by meaning - regardless of which project is open. Use this to recall what you know about the user before answering.',
+			description: 'Search the USER\'s cross-project memory (preferences, working style, identity) by meaning - regardless of which project is open. Use this to recall what you know about the user before answering. To REMOVE or RE-SCOPE a memory the user retracts, delete it with forget_user_memory (it confirms before deleting) rather than saving a contradicting one.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -207,6 +207,37 @@ export function buildTools(): ToolDefinition[] {
 					return ok(hits.map(h => `- ${h.memory}${typeof h.score === 'number' ? ` (${h.score.toFixed(2)})` : ''}`).join('\n'));
 				} catch (e) {
 					return err(`recall_user_memory failed (memory server): ${(e as Error).message}`);
+				}
+			},
+		},
+		{
+			name: 'forget_user_memory',
+			description: 'Delete a CROSS-PROJECT (global) user memory. Irreversible, so CONFIRM with the user BEFORE calling - ask "Shall I delete this memory?" first. Use this when the user RETRACTS a global memory, or wants a fact remembered for the CURRENT PROJECT ONLY instead of globally: delete the global copy here, then re-save it with remember_project_memory. Never leave a second, contradicting memory in place to override a wrong one - remove the wrong one. Pass a distinctive phrase from the memory (ideally text copied from recall_user_memory). If several memories match the phrase, NONE are deleted and they are listed, so you can confirm which one with the user and call again with a more specific phrase.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					query: { type: 'string', description: 'A distinctive phrase from the memory to delete (ideally copied from recall_user_memory output).' },
+				},
+				required: ['query'],
+				additionalProperties: false,
+			},
+			handler: async (args) => {
+				const query = asString(args.query);
+				if (!query) { return err('forget_user_memory requires `query`.'); }
+				try {
+					const items = await listUser();
+					const needle = query.trim().toLowerCase();
+					const matches = items.filter(m => (m.memory ?? '').toLowerCase().includes(needle));
+					if (matches.length === 0) {
+						return ok(`No cross-project memory matches "${query}". Nothing was deleted.`);
+					}
+					if (matches.length > 1) {
+						return ok(`Several cross-project memories match "${query}", so nothing was deleted. Confirm which one with the user, then call again with a phrase unique to it:\n${matches.map(m => `- ${m.memory}`).join('\n')}`);
+					}
+					await deleteUser(matches[0].id);
+					return ok(`Deleted cross-project user memory: "${matches[0].memory}".`);
+				} catch (e) {
+					return err(`forget_user_memory failed (memory server): ${(e as Error).message}`);
 				}
 			},
 		},

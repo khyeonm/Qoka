@@ -44,8 +44,9 @@ const ARIA_EASY_LIGHT_THEME = 'Light Modern';
 const PREV_COLOR_THEME_KEY = 'aria.prevColorTheme';
 
 /** Storage key holding a `{ [folderKey]: mode }` map so each project reopens in
- *  the mode it was last used with (aria.mode itself is a single global value,
- *  so we remember per folder here and re-apply it when that folder opens). */
+ *  the mode it was last used with. aria.mode is WINDOW-scoped and the per-window
+ *  value is a non-persisted MEMORY override, so we remember each folder's mode
+ *  here and re-apply it (as a MEMORY override) when that folder opens. */
 const PER_FOLDER_MODE_KEY = 'aria.mode.perFolder';
 
 /** Stable key for the open project (the multi-root .code-workspace file, else
