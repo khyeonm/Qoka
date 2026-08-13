@@ -31,6 +31,12 @@ export class ProvidersSection extends SettingsSection {
 			return;
 		}
 
+		// Plain-language guidance: how to tell if the tools are connected, and what
+		// the Reconnect button below is for.
+		const note = append(this.body, $('div'));
+		note.textContent = 'If Qoka\'s tools don\'t seem to work, type /mcp in your AI chat to check the connection. If they aren\'t connected, press Reconnect tools below.';
+		Object.assign(note.style, { fontSize: '12px', opacity: '0.75', margin: '0 0 12px', lineHeight: '1.5' });
+
 		const kindOf = (p: ProviderInfo): 'claude' | 'codex' =>
 			(/codex/i.test(p.kind ?? '') || /codex/i.test(p.displayName ?? '')) ? 'codex' : 'claude';
 
@@ -53,14 +59,6 @@ export class ProvidersSection extends SettingsSection {
 				Object.assign(box.style, { flexShrink: '0', margin: '0', cursor: 'pointer' });
 				checks.push({ kind: kindOf(p), box });
 			}
-
-			const dot = append(row, $('span'));
-			Object.assign(dot.style, {
-				width: '8px', height: '8px', borderRadius: '50%', flexShrink: '0',
-				background: installed && active ? 'var(--vscode-charts-green, #4caf50)'
-					: installed ? 'var(--vscode-charts-yellow, #e6c200)'
-						: 'var(--vscode-charts-red, #f14c4c)',
-			});
 
 			const name = append(row, $('span'));
 			name.textContent = p.displayName ?? p.kind ?? 'AI assistant';

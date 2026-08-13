@@ -49,6 +49,17 @@ CommandsRegistry.registerCommand('aria.peerReview.newForPaper', async (accessor,
 	await accessor.get(IEditorService).openEditor(new AriaPeerReviewInput(undefined, seed), { pinned: true });
 });
 
+// Start the review from the CURRENTLY-open new-review form (source + reviewers the
+// user picked). Triggered by the chat's start_peer_review tool - there is no button.
+// Returns the execId so the tool can tell the AI which run to drive.
+CommandsRegistry.registerCommand('aria.peerReview.runActive', async (accessor) => {
+	const pane = accessor.get(IEditorService).activeEditorPane;
+	if (pane instanceof AriaPeerReviewEditorPane) {
+		return pane.runFromForm();
+	}
+	return undefined;
+});
+
 CommandsRegistry.registerCommand('aria.peerReview.open', async (accessor, execId?: unknown) => {
 	if (typeof execId !== 'string' || !execId) { return; }
 	await accessor.get(IEditorService).openEditor(new AriaPeerReviewInput(execId), { pinned: true });

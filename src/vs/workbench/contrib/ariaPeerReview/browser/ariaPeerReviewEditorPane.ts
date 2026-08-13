@@ -388,7 +388,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	private renderNew(root: HTMLElement): void {
 		const h = append(root, $('div')); h.textContent = localize('aria.peerReview.newTitle', "Peer Review");
 		Object.assign(h.style, { fontSize: '20px', fontWeight: '600', margin: '2px 0 4px' });
-		const sub = append(root, $('div')); sub.textContent = localize('aria.peerReview.newSub', "Pick ONE source to review, choose reviewers, then run independent AI reviewers to surface major concerns - without fabricating anything.");
+		const sub = append(root, $('div')); sub.textContent = localize('aria.peerReview.newSub', "Pick the source and reviewers below, then ask your AI chat to review it - say \"Peer review this paper.\" The reviewers run in the chat and their concerns appear here.");
 		Object.assign(sub.style, { fontSize: '13px', opacity: '0.7', marginBottom: '4px' });
 
 		const s1 = this.section(root);
@@ -464,12 +464,15 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		rw.appendChild(this.reviewerCheckbox('claude', this.claudeAvailable ? 'Claude' : localize('aria.peerReview.claudeMissing', "Claude - not installed"), this.claudeAvailable));
 		rw.appendChild(this.reviewerCheckbox('codex', this.codexAvailable ? 'Codex' : localize('aria.peerReview.codexMissing', "Codex - not installed"), this.codexAvailable));
 
-		// copy prompt
-		const bar = append(root, $('div'));
-		Object.assign(bar.style, { marginTop: '24px', display: 'flex', alignItems: 'center', gap: '10px' });
-		bar.appendChild(this.button(localize('aria.peerReview.copyPrompt', "Review with AI"), 'primary', () => void this.startReview()));
-		const note = append(root, $('div')); note.textContent = localize('aria.peerReview.copyNote', "Paste it into your AI chat and press Enter. When the reviewers finish, this tab opens the results.");
-		Object.assign(note.style, { fontSize: '12px', opacity: '0.6', marginTop: '8px' });
+		// No button: the review is started from the AI chat. Guide the user.
+		const note = append(root, $('div'));
+		Object.assign(note.style, { marginTop: '24px', border: '1px solid var(--vscode-focusBorder, #4488dd)', borderRadius: '6px', padding: '10px 12px', fontSize: '13px', lineHeight: '1.5' });
+		const nlabel = append(note, $('div'));
+		nlabel.textContent = localize('aria.peerReview.sendToChat', "When you've picked the source and reviewers above, send this to your AI chat:");
+		Object.assign(nlabel.style, { fontSize: '12px', opacity: '0.7', marginBottom: '3px' });
+		const nex = append(note, $('div'));
+		nex.textContent = localize('aria.peerReview.chatExample', "Peer review this paper.");
+		Object.assign(nex.style, { fontWeight: '600' });
 	}
 
 	private sourceCard(mode: 'file' | 'manuscript', title: string, hint: string, enabled: boolean): HTMLElement {
@@ -605,7 +608,11 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		this.render();
 	}
 
-	private async startReview(): Promise<void> {
+	/** Create the review run from the current new-review form (source + reviewers)
+	 *  and open its results pane. Returns the execId, or undefined if the form is
+	 *  incomplete. Called by the `aria.peerReview.runActive` command, which the
+	 *  chat's start_peer_review tool triggers - there is no longer a button. */
+	async runFromForm(): Promise<string | undefined> {
 		const folder = this.folderUri();
 		if (!folder) { this.notificationService.error(localize('aria.peerReview.noFolder', "Open a project folder first.")); return; }
 		const reviewers = Object.keys(this.reviewers).filter(k => this.reviewers[k]);
@@ -641,18 +648,13 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		}
 
 		await this.fileService.writeFile(joinPath(dir, 'meta.json'), VSBuffer.fromString(JSON.stringify(meta, null, 2)));
-		await this.sendToChat(this.reviewPrompt(execId, title, reviewers));
 
-		// Open the run when concerns land (the user reviews in the chat).
-		const concernsUri = joinPath(dir, 'concerns.json');
-		const watcher = this.fileService.onDidFilesChange(async e => {
-			if (!e.affects(dir)) { return; }
-			if (await this.fileService.exists(concernsUri)) {
-				watcher.dispose();
-				await this.editorService.openEditor(new AriaPeerReviewInput(execId), { pinned: true });
-			}
-		});
-		this.inputStore.add(watcher);
+		// Open the run pane IMMEDIATELY: the paper shows on the left and each
+		// reviewer's column on the right starts as a spinner ("reviewing"). The pane
+		// watches the run dir, so concern cards fill in live as the reviewers record
+		// them - the user isn't left staring at nothing while the review runs.
+		await this.editorService.openEditor(new AriaPeerReviewInput(execId), { pinned: true });
+		return execId;
 	}
 
 	private reviewPrompt(execId: string, _title: string, reviewers: string[]): string {
@@ -749,9 +751,16 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		Object.assign(rbody.style, { padding: '14px 18px 20px' });
 		const rec = this.concerns?.reviewers?.[this.activeReviewer];
 		if (!rec) {
+			// Reviewer hasn't recorded yet: show a spinner in the empty column so it
+			// reads as "in progress". Concern cards replace it live once this reviewer
+			// records (the pane watches the run dir).
 			const wait = append(rbody, $('div'));
-			Object.assign(wait.style, { fontSize: '13px', opacity: '0.75', padding: '16px 0', lineHeight: '1.5' });
-			wait.textContent = localize('aria.peerReview.waiting', "Reviewing… concerns appear here when this reviewer finishes.");
+			Object.assign(wait.style, { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', opacity: '0.85', padding: '18px 0 6px' });
+			const spin = append(wait, $('span.codicon.codicon-loading.codicon-modifier-spin')) as HTMLElement;
+			Object.assign(spin.style, { fontSize: '16px', flexShrink: '0' });
+			const name = this.activeReviewer.charAt(0).toUpperCase() + this.activeReviewer.slice(1);
+			const label = append(wait, $('span'));
+			label.textContent = localize('aria.peerReview.reviewing', "{0} is reviewing…", name);
 			const paste = append(rbody, $('div'));
 			Object.assign(paste.style, { fontSize: '12.5px', opacity: '0.6', lineHeight: '1.5' });
 			paste.textContent = localize('aria.peerReview.pasteToStart', "Paste the copied prompt into your AI chat and press Enter to start.");

@@ -8,7 +8,7 @@ import {
 	addCitation, createPaper, getAssets, getCitations, getManuscript, getMeta,
 	getProposal, hasUnsavedEdits, listPapers, OutlineSection, PaperFormat,
 	resolvePaper, setAssetSummary, setFocus, setFormat, setOutline, setProposal,
-	setTitle, syncManuscriptTitle, writeManuscript,
+	setStep, setTitle, syncManuscriptTitle, writeManuscript,
 } from '../papers';
 import { ExportFormat, exportPaper } from '../exporter';
 import { WRITING_GUIDE } from '../guide';
@@ -56,7 +56,7 @@ export function buildTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'get_writing_guide',
-			description: 'Read the manuscript-writing methodology Qoka expects you to follow (structure, source-exclusivity, citation keys, prose rules). Call this before drafting.',
+			description: 'Read the manuscript-writing methodology Qoka expects you to follow (structure, source-exclusivity, citation keys, prose rules). Call this before drafting. Also: when the user asks to write a paper (without naming which), first call list_papers - use the paper if exactly one exists, ASK the user which if several, or create_paper if none - so every later tool has the right `paper`.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(WRITING_GUIDE),
 		},
@@ -188,7 +188,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'set_focus',
-			description: 'Set the research focus - a bullet-point statement of the problem, objectives, gap/contribution, and (if figures exist) where each figure belongs. Develop it with the user one question at a time, then record it here. See get_writing_guide → Focus.',
+			description: 'Set the research focus - a bullet-point statement of the problem, objectives, gap/contribution, and (if figures exist) where each figure belongs. Develop it with the user one question at a time, then record it here. See get_writing_guide → Focus. After saving, ASK the user whether to continue to the outline; if they agree, call advance_paper_step (step 3) and build it with set_outline.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -211,7 +211,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'set_outline',
-			description: 'Set the paper outline: an ordered list of sections, each { title, wordCount?, keyPoints?, citations? } where citations are citekeys from list_citations. Per-section wordCount should sum to targetWords.',
+			description: 'Set the paper outline: an ordered list of sections, each { title, wordCount?, keyPoints?, citations? } where citations are citekeys from list_citations. Per-section wordCount should sum to targetWords. After saving, ASK the user whether to continue to the draft; if they agree, call advance_paper_step (step 4) and write it with set_manuscript.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -242,6 +242,30 @@ export function buildTools(): ToolDefinition[] {
 					const meta = setOutline(r.id, a.sections as OutlineSection[]);
 					return ok(`Set outline (${meta.outline.length} sections).`);
 				} catch (e) { return err(`set_outline failed: ${(e as Error).message}`); }
+			},
+		},
+		{
+			name: 'advance_paper_step',
+			description: 'Move the writing window to a wizard step so the user is carried through the flow. Steps (0-based): 0 Format, 1 Sources, 2 Focus, 3 Outline, 4 Write. After you finish a step AND the user agrees to continue, call this to advance the UI (e.g. step 3 after the focus), then do that next step. The window follows automatically.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					paper: { type: 'string', description: 'Paper id or title.' },
+					step: { type: 'number', description: 'Target step: 2 Focus, 3 Outline, 4 Write (0 Format, 1 Sources).' },
+				},
+				required: ['paper', 'step'],
+				additionalProperties: false,
+			},
+			handler: async (a) => {
+				const r = resolveOrErr(a.paper);
+				if ('content' in r) { return r; }
+				const step = asNumber(a.step);
+				if (step === undefined) { return err('`step` is required.'); }
+				try {
+					const meta = setStep(r.id, step);
+					const names = ['Format', 'Sources', 'Focus', 'Outline', 'Write'];
+					return ok(`Moved the writing window to the ${names[meta.step]} step.`);
+				} catch (e) { return err(`advance_paper_step failed: ${(e as Error).message}`); }
 			},
 		},
 		{

@@ -49,6 +49,10 @@ export interface PaperMeta {
 	outline: OutlineSection[];
 	/** Wizard step the user last had open (0=Format … 4=Write). */
 	step: number;
+	/** True while the agent is generating the first draft (set when it advances to
+	 *  the Write step, cleared once the manuscript is written). Drives the "Writing
+	 *  your paper…" spinner on the Write step. */
+	drafting?: boolean;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -170,6 +174,7 @@ export function getMeta(id: string): PaperMeta | undefined {
 			focus: typeof parsed.focus === 'string' ? parsed.focus : '',
 			outline: Array.isArray(parsed.outline) ? parsed.outline : [],
 			step: typeof parsed.step === 'number' ? parsed.step : 0,
+			drafting: parsed.drafting === true,
 			createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : new Date().toISOString(),
 			updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
 		};
@@ -240,6 +245,20 @@ export function setTitle(id: string, title: string): PaperMeta {
 	return meta;
 }
 
+/** Set the wizard step the writing window shows (0=Format … 4=Write). Lets the
+ *  agent advance the UI to the next step after finishing one, so the user is
+ *  carried through focus -> outline -> draft. */
+export function setStep(id: string, step: number): PaperMeta {
+	const meta = getMeta(id);
+	if (!meta) { throw new Error(`No paper "${id}".`); }
+	meta.step = Math.max(0, Math.min(4, Math.round(step)));
+	// Advancing to Write means the agent is about to draft: show the spinner.
+	// set_manuscript clears it once the draft lands.
+	meta.drafting = meta.step === 4;
+	writeMeta(meta);
+	return meta;
+}
+
 export function getManuscript(id: string): string {
 	const p = manuscriptPath(id);
 	if (!p) { return ''; }
@@ -278,7 +297,7 @@ export function writeManuscript(id: string, markdown: string): void {
 	fs.writeFileSync(p, out, 'utf8');
 	if (op) { fs.writeFileSync(op, out, 'utf8'); } // refresh frozen baseline
 	clearProposal(id); // any pending review is obsolete against the new draft
-	if (meta) { writeMeta(meta); } // touch updatedAt
+	if (meta) { meta.drafting = false; writeMeta(meta); } // draft landed - stop the spinner
 }
 
 /** Stage a proposed revision (full revised manuscript) for the user to review;

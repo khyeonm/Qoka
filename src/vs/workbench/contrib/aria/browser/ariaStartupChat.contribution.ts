@@ -345,9 +345,9 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			ok = false;
 		}
 		if (ok) {
-			this.notificationService.info(`Reconnected Qoka MCP tools for ${labels}. If a chat that is already open is missing tools, start a new chat.`);
+			this.notificationService.info(`Reconnected Qoka tools for ${labels}. Open a new chat in your AI chat to use them.`);
 		} else {
-			this.notificationService.warn(`Some Qoka MCP tools could not reconnect for ${labels}. Reload the window to restart a stopped server, then try again.`);
+			this.notificationService.warn(`Couldn't reconnect all Qoka tools for ${labels}. Open a new chat in your AI chat; if they are still missing, reload the window.`);
 		}
 	}
 
@@ -692,10 +692,17 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					});
 					escapeShown = true;
 				}
+			} else if (s === 'ready' || s === 'error') {
+				// Definitive: the run env is already up (ready) or has failed (error) -
+				// either way there is nothing to wait for, so DON'T sit out the grace
+				// period. On a relaunch where WSL is already running (e.g. another Qoka
+				// window keeps it up, or many windows are open) this returns at once
+				// instead of blocking the loader ~8s every launch.
+				return;
 			} else {
-				// ready | error | stopped | unknown. Stop - unless we're still in the
-				// initial grace and haven't seen setup begin (the built-in start is
-				// async, so 'stopped' here may just mean "not started yet").
+				// 'stopped' | 'unknown': the built-in start is async, so this may just
+				// mean "not started yet". Keep the grace so we don't conclude "done"
+				// before provisioning even begins on a genuine cold start.
 				if (seenActive || Date.now() >= graceUntil) {
 					return;
 				}

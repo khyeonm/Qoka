@@ -579,6 +579,29 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		};
 	}
 
+	/** A "Send this to your AI chat: <example>" hint that replaces the old
+	 *  prompt-copy buttons. The entry step (Focus) pulses to draw the eye; later
+	 *  steps show it as a plain one-line fallback (the AI usually advances those
+	 *  automatically). */
+	private sendChatHint(root: HTMLElement, example: string, pulse: boolean): void {
+		const box = append(root, $('div'));
+		Object.assign(box.style, {
+			border: '1px solid var(--vscode-focusBorder, #4488dd)', borderRadius: '6px',
+			padding: '9px 12px', margin: '2px 0 10px',
+		});
+		const label = append(box, $('div'));
+		label.textContent = localize('aria.paperWriter.sendToChat', "Send this to your AI chat:");
+		Object.assign(label.style, { fontSize: '12px', opacity: '0.7', marginBottom: '3px' });
+		const ex = append(box, $('div'));
+		ex.textContent = example;
+		Object.assign(ex.style, { fontSize: '13px', fontWeight: '600', lineHeight: '1.45' });
+		if (pulse) {
+			box.animate(
+				[{ boxShadow: '0 0 0 0 rgba(68,136,221,0.45)' }, { boxShadow: '0 0 0 7px rgba(68,136,221,0)' }],
+				{ duration: 1700, iterations: Infinity });
+		}
+	}
+
 	// --- Step 3: Focus ------------------------------------------------------
 
 	private renderFocusStep(root: HTMLElement): void {
@@ -586,7 +609,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const hint = append(root, $('div'));
 		hint.textContent = localize('aria.paperWriter.focusHint', "Develop the focus with AI (it asks one question at a time), or write/paste it directly. Problem, objectives, gap, and contribution.");
 		Object.assign(hint.style, { fontSize: '13px', opacity: '0.7', lineHeight: '1.55', marginBottom: '8px' });
-		append(root, this.button(localize('aria.paperWriter.developFocus', "Develop focus with AI"), 'primary', () => void this.sendToChat(this.focusPrompt())));
+		this.sendChatHint(root, "Let's write a paper, starting with the research focus.", true);
 		const ta = append(root, $('textarea')) as HTMLTextAreaElement;
 		ta.value = this.meta!.focus ?? '';
 		ta.placeholder = localize('aria.paperWriter.focusPlaceholder', "- Problem: …\n- Objective: …\n- Gap / contribution: …");
@@ -603,9 +626,9 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const hint = append(root, $('div'));
 		hint.textContent = localize('aria.paperWriter.outlineHint', "Let the AI propose sections + word budgets, or build them yourself. Add the key points each section should cover.");
 		Object.assign(hint.style, { fontSize: '13px', opacity: '0.7', lineHeight: '1.55', marginBottom: '8px' });
+		this.sendChatHint(root, "Propose an outline with sections and word budgets.", false);
 		const btnRow = append(root, $('div'));
 		Object.assign(btnRow.style, { display: 'flex', gap: '8px', flexWrap: 'wrap' });
-		btnRow.appendChild(this.button(localize('aria.paperWriter.generateOutline', "Generate outline with AI"), 'primary', () => void this.sendToChat(this.outlinePrompt())));
 		btnRow.appendChild(this.button(localize('aria.paperWriter.resetOutline', "Reset to default sections"), 'ghost', () => {
 			this.meta!.outline = this.defaultOutline();
 			void this.saveMeta().then(() => this.render());
@@ -718,15 +741,29 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			: localize('aria.paperWriter.writeHint', "The AI combines your format, sources, focus, and outline to write the manuscript section by section.");
 		Object.assign(hint.style, { fontSize: '13px', opacity: '0.7', lineHeight: '1.55', marginBottom: '12px' });
 
+		// Not yet drafted. While the AI is generating the first draft (it set the
+		// drafting flag when it advanced here), show a spinner; otherwise guide the
+		// user to ask for it in chat.
+		if (!written) {
+			if (this.meta?.drafting) {
+				const wait = append(root, $('div'));
+				Object.assign(wait.style, { display: 'flex', alignItems: 'center', gap: '10px', margin: '4px 0 12px', fontSize: '13px' });
+				const spin = append(wait, $('span.codicon.codicon-loading.codicon-modifier-spin')) as HTMLElement;
+				Object.assign(spin.style, { fontSize: '16px', flexShrink: '0' });
+				const label = append(wait, $('span'));
+				label.textContent = localize('aria.paperWriter.writing', "Writing your paper…");
+			} else {
+				this.sendChatHint(root, "Write the draft section by section.", false);
+			}
+		}
+
 		// One responsive row: [Re-write] [Revise] │ [Export MD] [DOCX] [LaTeX].
 		// flexWrap lets it reflow when the tab is narrowed.
 		const bar = append(root, $('div'));
 		Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' });
-		bar.appendChild(this.button(
-			written ? localize('aria.paperWriter.rewrite', "Re-write with AI") : localize('aria.paperWriter.write', "Write the paper with AI"),
-			'primary', () => void this.onWrite()));
 
 		if (written) {
+			bar.appendChild(this.button(localize('aria.paperWriter.rewrite', "Re-write with AI"), 'primary', () => void this.onWrite()));
 			bar.appendChild(this.button(localize('aria.paperWriter.revise', "Revise a part with AI"), 'ghost', () => void this.sendToChat(this.revisePrompt())));
 			const divider = append(bar, $('div'));
 			Object.assign(divider.style, { width: '1px', alignSelf: 'stretch', minHeight: '26px', background: 'rgba(127,127,127,0.4)', margin: '0 4px' });

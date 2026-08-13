@@ -225,14 +225,28 @@ export function buildReviewTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'open_new_review',
-			description: 'Open Qoka\'s Manuscript tab and start a NEW review window. Call this FIRST when the user asks IN CHAT to peer-review / critique a paper and you do not yet have an execId. It only opens the UI (best-effort) - it does not start the review, and it does NOT pre-load any paper. After calling it, tell the user to pick ONE source in the new-review window: upload a file, OR click "A paper written in the Manuscript tab" and select the manuscript they wrote. They can add figures / supplementary files, then say when they are done; the actual run is started from the tab (which gives you an execId for get_review).',
+			description: 'Open Qoka\'s Manuscript tab and start a NEW review window. Call this FIRST when the user asks IN CHAT to peer-review / critique a paper and you do not yet have an execId. It only opens the UI (best-effort) - it does not start the review, and it does NOT pre-load any paper. After calling it, tell the user to pick ONE source in the new-review window: upload a file, OR click "A paper written in the Manuscript tab" and select the manuscript they wrote. They can add figures / supplementary files; when they say they are done, call start_peer_review to run it (it returns an execId for get_review).',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				// Best-effort: reveal the Manuscript tab, then open the new-review
 				// window. UI failures must not fail the tool.
 				try { await vscode.commands.executeCommand('workbench.view.ariaManuscript'); } catch { /* tab optional */ }
 				try { await vscode.commands.executeCommand('aria.peerReview.new'); } catch { /* window optional */ }
-				return ok('Opened the new-review window on the Manuscript tab. Tell the user to pick ONE source there - upload a file, or select "A paper written in the Manuscript tab" and choose their manuscript - and add any figures / supplementary files, then say when they are done. Only then does the review run (started from the tab).');
+				return ok('Opened the Peer Review window. Tell the user to pick ONE source there - upload a file, or select "A paper written in the Manuscript tab" and choose their manuscript - and add any figures / supplementary files, then say when they are done. When they are, call start_peer_review to run it.');
+			},
+		},
+		{
+			name: 'start_peer_review',
+			description: 'Start the AI peer review the user set up in Qoka\'s Peer Review tab: they pick the source (a manuscript, or an uploaded file) and the reviewers there, and this runs it. Returns the review run id (execId). If it reports nothing is set up, tell the user to open the Peer Review tab and pick a source + reviewers, then call this again. After it returns an execId, call get_review(execId), run each reviewer independently, and record each reviewer\'s Major/Minor concerns with record_review - the results tab is already open with a spinner per reviewer.',
+			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+			handler: async () => {
+				try {
+					const execId = await vscode.commands.executeCommand<string | undefined>('aria.peerReview.runActive');
+					if (!execId) {
+						return ok('No peer review is set up yet. Ask the user to open the Peer Review tab, pick a source (a manuscript or an uploaded file) and reviewers, then call start_peer_review again.');
+					}
+					return ok(`Started peer review run "${execId}". Now call get_review("${execId}"), run each selected reviewer independently, and record each reviewer's Major/Minor concerns with record_review. The results tab is already open with a spinner per reviewer.`);
+				} catch (e) { return err(`start_peer_review failed: ${(e as Error).message}`); }
 			},
 		},
 		{
