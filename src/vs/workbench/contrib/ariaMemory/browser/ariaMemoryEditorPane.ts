@@ -5,6 +5,7 @@
 
 import { $, append, clearNode, Dimension } from '../../../../base/browser/dom.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { onDidRequestAriaMemoryRefresh } from './ariaMemoryRefresh.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
@@ -75,6 +76,11 @@ export class AriaMemoryEditorPane extends EditorPane {
 		heading.textContent = 'Memory';
 		Object.assign(heading.style, { fontSize: '22px', fontWeight: '600', margin: '4px 0 18px' });
 		this.column = column;
+
+		// A chat that saved/deleted a memory (via the MCP tools) fires
+		// aria.memory.refresh; reload BOTH sections so the tab reflects it even when
+		// it was already open.
+		this._register(onDidRequestAriaMemoryRefresh(() => this.buildSections()));
 	}
 
 	override async setInput(input: EditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {

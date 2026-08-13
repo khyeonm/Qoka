@@ -22,6 +22,7 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IAuthenticationService, AuthenticationSession } from '../../../services/authentication/common/authentication.js';
 import { ROADMAP_SCHEME } from '../../ariaRoadmapWizard/browser/ariaRoadmapWizardCommon.js';
 import { URI } from '../../../../base/common/uri.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { basename, isEqual } from '../../../../base/common/resources.js';
 import { INativeHostService } from '../../../../platform/native/common/native.js';
@@ -97,6 +98,12 @@ const JUST_PICKED_FLAG = 'aria.started.justPicked';
  *  not silently auto-reopen the project they just left. localStorage (not
  *  sessionStorage) so it survives the closeFolder reload; consumed on first read. */
 const WANT_PICKER_FLAG = 'aria.started.wantPicker';
+
+/** APPLICATION-scoped storage of the last-active PROJECT folder URI. A project
+ *  window records it on focus; a COLD app launch (no other window open) reopens
+ *  it - more accurate than "most recently opened" when several windows were open
+ *  and closed together. */
+const LAST_ACTIVE_PROJECT_KEY = 'aria.started.lastActiveProject';
 /** Set (localStorage, value = '1') when the user chooses "Continue without signing
  *  in" on the login screen. Makes sign-in optional: once skipped, later launches go
  *  straight to the picker/project instead of the login gate. Cleared when the user
@@ -249,6 +256,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IStorageService private readonly storageService: IStorageService,
 	) {
 		super();
 
@@ -289,6 +297,20 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// build's storage backend.
 		try { sessionStorage.removeItem('aria.started.picked'); } catch { /* ignore */ }
 		try { localStorage.removeItem(RECENT_PICK_KEY); } catch { /* ignore */ }
+
+		// Remember the last-active PROJECT so a cold app launch reopens where the
+		// user was actually working. Store now (this window shows a project) and
+		// again whenever it regains focus; the empty-window auto-reopen reads it.
+		if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY) {
+			const projectUri = this.contextService.getWorkspace().folders[0]?.uri;
+			if (projectUri) {
+				const remember = () => {
+					try { this.storageService.store(LAST_ACTIVE_PROJECT_KEY, projectUri.toString(), StorageScope.APPLICATION, StorageTarget.MACHINE); } catch { /* ignore */ }
+				};
+				remember();
+				this._register(this.hostService.onDidChangeFocus(focused => { if (focused) { remember(); } }));
+			}
+		}
 
 		// This overlay (sign-in + picker) is only for an EMPTY workbench. A folder
 		// window - a just-picked reload or a restored project - shows the workbench
@@ -344,6 +366,16 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		if (wantPicker) {
 			try { localStorage.removeItem(WANT_PICKER_FLAG); } catch { /* ignore */ }
 			pushTrail('decideEmptyWorkbench: WANT_PICKER flag set -> showing picker');
+			this.showOverlayAndWireAuth();
+			return;
+		}
+
+		// ADDITIONAL window: another Qoka project window is already open, so the user
+		// opened this new window to pick a (probably different) project. Always show
+		// the picker - never auto-reopen the most-recent project here. Only a COLD
+		// launch (this is the only window) returns the user to where they left off.
+		if (await this.anotherProjectWindowOpen()) {
+			pushTrail('decideEmptyWorkbench: another project window is open -> showing picker (additional window)');
 			this.showOverlayAndWireAuth();
 			return;
 		}
@@ -424,6 +456,19 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	/** The most recent recently-opened folder whose directory still exists, or
 	 *  undefined when there is none to reopen. */
 	private async mostRecentExistingProject(): Promise<URI | undefined> {
+		// Prefer the LAST-ACTIVE project (the folder window the user last worked in /
+		// that was last closed) so a cold launch reopens where they left off, even
+		// when several windows were open and closed at once.
+		try {
+			const raw = this.storageService.get(LAST_ACTIVE_PROJECT_KEY, StorageScope.APPLICATION);
+			if (raw) {
+				const uri = URI.parse(raw);
+				if (await this.fileService.exists(uri)) {
+					return uri;
+				}
+			}
+		} catch { /* fall back to the recents list */ }
+
 		let recents: IRecentlyOpened;
 		try {
 			recents = await this.workspacesService.getRecentlyOpened();
@@ -1548,6 +1593,23 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 				return undefined;
 			}
 		});
+	}
+
+	/** True when ANOTHER main window already has a project (folder / workspace) open.
+	 *  An empty window appearing while such a window exists is an ADDITIONAL window
+	 *  the user opened to pick something, so it shows the picker instead of auto-
+	 *  reopening the most-recent project. */
+	private async anotherProjectWindowOpen(): Promise<boolean> {
+		const nativeHost = this.nativeHost();
+		if (!nativeHost) { return false; }
+		let windows: Array<{ readonly id: number; readonly workspace?: unknown }>;
+		try {
+			windows = await nativeHost.getWindows({ includeAuxiliaryWindows: false });
+		} catch {
+			return false;
+		}
+		const selfId = nativeHost.windowId;
+		return windows.some(w => w.id !== selfId && !!w.workspace);
 	}
 
 	/** The id of another main window that already has `folderUri` open as its

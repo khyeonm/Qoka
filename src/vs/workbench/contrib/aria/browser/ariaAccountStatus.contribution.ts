@@ -254,11 +254,6 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 					label: localize('aria.aiProviders.menu', "AI providers"),
 					run: () => { void this.commandService.executeCommand('aria.aiProvider.choose'); },
 				}),
-				toAction({
-					id: 'aria.mcp.reconnect',
-					label: localize('aria.mcp.reconnect.menu', "Reconnect MCP tools"),
-					run: () => { void this.commandService.executeCommand('aria.mcp.reconnect'); },
-				}),
 			],
 		});
 	}

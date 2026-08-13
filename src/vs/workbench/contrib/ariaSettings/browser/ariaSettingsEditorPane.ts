@@ -121,7 +121,7 @@ export class AriaSettingsEditorPane extends EditorPane {
 			return section;
 		};
 
-		add('Providers', (body, header) => new ProvidersSection(body, this.commandService, header), true);
+		add('AI Assistants', (body, header) => new ProvidersSection(body, this.commandService, header), true);
 		add('Connections', (body, header) => new ConnectionsSection(body, this.commandService, header), false);
 		add('Autopipe', (body, header) => new AutopipeSection(body, this.commandService, header), false);
 		const skills = add('Skills', (body, header) => new SkillsSection(body, this.commandService, header), false);

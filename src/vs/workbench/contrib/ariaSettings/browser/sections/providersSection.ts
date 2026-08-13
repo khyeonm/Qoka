@@ -31,11 +31,28 @@ export class ProvidersSection extends SettingsSection {
 			return;
 		}
 
+		const kindOf = (p: ProviderInfo): 'claude' | 'codex' =>
+			(/codex/i.test(p.kind ?? '') || /codex/i.test(p.displayName ?? '')) ? 'codex' : 'claude';
+
+		// One checkbox per INSTALLED assistant; the Reconnect action below re-registers
+		// MCP tools for just the ticked ones (heals a stale/dead port for that provider).
+		const checks: { kind: 'claude' | 'codex'; box: HTMLInputElement }[] = [];
+
 		for (const p of providers) {
 			const installed = !!p.installed;
 			const active = !!p.active;
 			const row = append(this.body, $('div'));
 			Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', margin: '5px 0' });
+
+			// Installed assistants get a checkbox so the user chooses which to reconnect.
+			if (installed) {
+				const box = append(row, $('input')) as HTMLInputElement;
+				box.type = 'checkbox';
+				box.checked = true;
+				box.title = 'Include when reconnecting tools';
+				Object.assign(box.style, { flexShrink: '0', margin: '0', cursor: 'pointer' });
+				checks.push({ kind: kindOf(p), box });
+			}
 
 			const dot = append(row, $('span'));
 			Object.assign(dot.style, {
@@ -56,8 +73,7 @@ export class ProvidersSection extends SettingsSection {
 				state.textContent = active ? 'active' : 'installed, not yet active';
 				Object.assign(state.style, { fontSize: '11px', opacity: '0.7', flexShrink: '0' });
 			} else {
-				const isCodex = /codex/i.test(p.kind ?? '') || /codex/i.test(p.displayName ?? '');
-				const cliArg = isCodex ? 'codex' : 'claude';
+				const cliArg = kindOf(p);
 				const install = append(row, $('button')) as HTMLButtonElement;
 				install.textContent = 'Install';
 				Object.assign(install.style, {
@@ -70,6 +86,25 @@ export class ProvidersSection extends SettingsSection {
 				// all tools the moment it opens.
 				install.onclick = () => { void this.commandService.executeCommand('aria.setup.installProvider', cliArg); };
 			}
+		}
+
+		// Reconnect the ticked assistants' MCP tools. Only shown when at least one
+		// assistant is installed (there is nothing to reconnect otherwise).
+		if (checks.length > 0) {
+			const actions = append(this.body, $('div'));
+			Object.assign(actions.style, { display: 'flex', justifyContent: 'flex-end', marginTop: '10px' });
+			const reconnect = append(actions, $('button')) as HTMLButtonElement;
+			reconnect.textContent = 'Reconnect tools';
+			Object.assign(reconnect.style, {
+				flexShrink: '0', padding: '3px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px',
+				border: '1px solid var(--vscode-button-border, transparent)',
+				background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)',
+			});
+			reconnect.onclick = () => {
+				const picked = checks.filter(c => c.box.checked).map(c => c.kind);
+				if (picked.length === 0) { return; }
+				void this.commandService.executeCommand('aria.mcp.reconnect', picked);
+			};
 		}
 	}
 }

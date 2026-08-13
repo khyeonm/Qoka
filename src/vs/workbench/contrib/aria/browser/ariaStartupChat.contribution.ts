@@ -82,7 +82,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// MCP only at session start, so we do not touch it - the result toast tells
 		// the user to open a new chat if an already-open one is missing tools.
 		// Registered before the empty-workbench return so it exists in every window.
-		this._register(CommandsRegistry.registerCommand('aria.mcp.reconnect', () => this._reconnectMcp()));
+		this._register(CommandsRegistry.registerCommand('aria.mcp.reconnect', (_acc, arg) => this._reconnectMcp(arg)));
 
 		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
 			return;
@@ -294,38 +294,46 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  a healthy server is left untouched. It does NOT restart a genuinely stopped
 	 *  server (a window reload re-runs the server) nor force an already-open chat to
 	 *  reconnect (a new chat reads the fresh config); both are called out in the toast. */
-	private async _reconnectMcp(): Promise<void> {
-		// Only offer providers the user actually HAS installed (CLI present) - the
-		// "green" ones. A provider whose CLI isn't installed has no MCP config to
-		// reconnect, so it never appears.
-		const all: ConcreteProvider[] = ['claude', 'codex'];
-		const availability = await Promise.all(all.map(p => this._cliAvailable(p)));
-		const available = all.filter((_, i) => availability[i]);
-		if (available.length === 0) {
-			this.notificationService.info('No AI command-line tool is installed yet, so there are no Qoka MCP tools to reconnect.');
-			return;
-		}
+	private async _reconnectMcp(arg?: unknown): Promise<void> {
+		// The Settings > AI Assistants "Reconnect tools" button passes the ticked
+		// providers explicitly - reconnect exactly those, no picker.
+		const explicit = Array.isArray(arg)
+			? arg.filter((p): p is ConcreteProvider => p === 'claude' || p === 'codex')
+			: [];
 
-		// One installed provider: reconnect it directly. Two: let the user tick which
-		// to reconnect (both pre-checked), then confirm - the checkmark IS the button.
 		let providers: ConcreteProvider[];
-		if (available.length === 1) {
-			providers = available;
+		if (explicit.length > 0) {
+			providers = explicit;
 		} else {
-			const items: (IQuickPickItem & { provider: ConcreteProvider })[] = available.map(p => ({
-				label: PROVIDER_LABEL[p],
-				provider: p,
-				picked: true,
-			}));
-			const picked = await this.quickInputService.pick(items, {
-				canPickMany: true,
-				title: 'Reconnect MCP tools',
-				placeHolder: 'Select which AI tools to reconnect',
-			});
-			if (!picked || picked.length === 0) {
-				return; // cancelled or nothing ticked
+			// No explicit list: offer only providers the user actually HAS installed
+			// (CLI present) - a provider without a CLI has no MCP config to reconnect.
+			const all: ConcreteProvider[] = ['claude', 'codex'];
+			const availability = await Promise.all(all.map(p => this._cliAvailable(p)));
+			const available = all.filter((_, i) => availability[i]);
+			if (available.length === 0) {
+				this.notificationService.info('No AI command-line tool is installed yet, so there are no Qoka MCP tools to reconnect.');
+				return;
 			}
-			providers = picked.map(i => i.provider);
+			// One installed provider: reconnect it directly. Two: let the user tick
+			// which to reconnect (both pre-checked), then confirm.
+			if (available.length === 1) {
+				providers = available;
+			} else {
+				const items: (IQuickPickItem & { provider: ConcreteProvider })[] = available.map(p => ({
+					label: PROVIDER_LABEL[p],
+					provider: p,
+					picked: true,
+				}));
+				const picked = await this.quickInputService.pick(items, {
+					canPickMany: true,
+					title: 'Reconnect MCP tools',
+					placeHolder: 'Select which AI tools to reconnect',
+				});
+				if (!picked || picked.length === 0) {
+					return; // cancelled or nothing ticked
+				}
+				providers = picked.map(i => i.provider);
+			}
 		}
 
 		const labels = providers.map(p => PROVIDER_LABEL[p]).join(' and ');

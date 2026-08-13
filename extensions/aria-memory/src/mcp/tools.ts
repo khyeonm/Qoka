@@ -8,6 +8,15 @@ import {
 	searchPages, writePage,
 } from '../wiki';
 import { rememberUser, recallUser, listUser, deleteUser } from '../userMemory';
+import * as vscode from 'vscode';
+
+/** After a chat saves or deletes a memory, reflect it in the Memory tab at once:
+ *  reload BOTH sections, and (on a save) open/focus the tab. Best-effort - the tab
+ *  need not be open, and the workbench commands are no-ops when it isn't. */
+function notifyMemoryChanged(openTab: boolean): void {
+	if (openTab) { void vscode.commands.executeCommand('aria.memory.open'); }
+	void vscode.commands.executeCommand('aria.memory.refresh');
+}
 
 export interface ToolDefinition {
 	name: string;
@@ -127,6 +136,7 @@ export function buildTools(): ToolDefinition[] {
 						type: asString(args.type),
 						links: asStringArray(args.links),
 					});
+					notifyMemoryChanged(true);
 					return ok(`Saved project memory "${info.title}" (${info.slug}, type: ${info.type}).`);
 				} catch (e) {
 					return err(`remember_project_memory failed: ${(e as Error).message}`);
@@ -147,9 +157,11 @@ export function buildTools(): ToolDefinition[] {
 				if (!page) { return err('forget_project_memory requires `page`.'); }
 				const info = resolvePage(page);
 				if (!info) { return err(`No page matches "${page}".`); }
-				return deletePage(info.slug)
-					? ok(`Deleted project memory "${info.title}" (${info.slug}).`)
-					: err(`Could not delete "${info.slug}".`);
+				if (deletePage(info.slug)) {
+					notifyMemoryChanged(false);
+					return ok(`Deleted project memory "${info.title}" (${info.slug}).`);
+				}
+				return err(`Could not delete "${info.slug}".`);
 			},
 		},
 		{
@@ -179,6 +191,7 @@ export function buildTools(): ToolDefinition[] {
 				if (!content) { return err('remember_user_memory requires `content`.'); }
 				try {
 					await rememberUser(content);
+					notifyMemoryChanged(true);
 					return ok('Saved to cross-project user memory.');
 				} catch (e) {
 					return err(`remember_user_memory failed (memory server): ${(e as Error).message}`);
@@ -235,6 +248,7 @@ export function buildTools(): ToolDefinition[] {
 						return ok(`Several cross-project memories match "${query}", so nothing was deleted. Confirm which one with the user, then call again with a phrase unique to it:\n${matches.map(m => `- ${m.memory}`).join('\n')}`);
 					}
 					await deleteUser(matches[0].id);
+					notifyMemoryChanged(false);
 					return ok(`Deleted cross-project user memory: "${matches[0].memory}".`);
 				} catch (e) {
 					return err(`forget_user_memory failed (memory server): ${(e as Error).message}`);
