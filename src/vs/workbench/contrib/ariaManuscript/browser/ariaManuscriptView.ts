@@ -41,6 +41,11 @@ export class AriaManuscriptView extends ViewPane {
 	static readonly ID = 'aria.manuscript.main';
 
 	private viewBody: HTMLElement | undefined;
+	/** Guards against overlapping refresh() runs. Each async refresh loads its data,
+	 *  then bails if a newer refresh started meanwhile - otherwise two interleaved
+	 *  runs both append their sections and the list duplicates (e.g. a second
+	 *  "Reviews" header on top). */
+	private refreshSeq = 0;
 
 	constructor(
 		options: IViewPaneOptions,
@@ -89,12 +94,29 @@ export class AriaManuscriptView extends ViewPane {
 	private async refresh(): Promise<void> {
 		const root = this.viewBody;
 		if (!root) { return; }
+		const seq = ++this.refreshSeq;
+
+		const isEmpty = this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY;
+
+		// Load ALL async data up front (papers, reviews, and their export file lists)
+		// so the DOM build below has no awaits. An await between clearNode and the
+		// appends is what let two overlapping refreshes interleave and duplicate a
+		// section; precomputing removes that window, and the seq check drops any run
+		// a newer refresh has superseded.
+		const papers = isEmpty ? [] : await this.loadPapers();
+		const reviews = isEmpty ? [] : await this.loadReviews();
+		const reviewsDir = this.reviewsDir();
+		const paperExports = await Promise.all(papers.map(p => this.loadExports(joinPath(p.folder, 'export'))));
+		const reviewExports = await Promise.all(reviews.map(r => reviewsDir ? this.loadExports(joinPath(reviewsDir, r.execId, 'export')) : Promise.resolve([])));
+
+		if (seq !== this.refreshSeq) { return; } // a newer refresh superseded this one
+
 		clearNode(root);
 
 		// Full-width one-line summary at the top of the sidebar.
 		renderAriaTabSummary(root, 'manuscript');
 
-		if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY) {
+		if (isEmpty) {
 			this.empty(root, localize('aria.manuscript.noFolder', "Open a project folder to write and review papers."));
 			return;
 		}
@@ -105,40 +127,40 @@ export class AriaManuscriptView extends ViewPane {
 		Object.assign(newBtn.style, { width: '100%', padding: '6px 10px', marginBottom: '10px', fontSize: '12px', cursor: 'pointer', borderRadius: '4px', border: 'none', background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)' });
 		newBtn.onclick = () => void this.chooseNew();
 
-		const papers = await this.loadPapers();
-		const reviews = await this.loadReviews();
-
 		this.section(root, localize('aria.manuscript.writing', "Writing"));
 		if (papers.length === 0) {
 			this.empty(root, localize('aria.manuscript.noPapers', "No papers yet."));
 		} else {
-			for (const p of papers) {
+			papers.forEach((p, i) => {
 				this.paperRow(root, p.folder, p.title);
-				await this.renderExports(root, joinPath(p.folder, 'export'));
-			}
+				this.renderExports(root, paperExports[i]);
+			});
 		}
 
-		const reviewsDir = this.reviewsDir();
 		this.section(root, localize('aria.manuscript.reviews', "Reviews"));
 		if (reviews.length === 0) {
 			this.empty(root, localize('aria.manuscript.noReviews', "No reviews yet."));
 		} else {
-			for (const r of reviews) {
+			reviews.forEach((r, i) => {
 				this.reviewRow(root, r);
-				if (reviewsDir) { await this.renderExports(root, joinPath(reviewsDir, r.execId, 'export')); }
-			}
+				this.renderExports(root, reviewExports[i]);
+			});
 		}
 	}
 
-	/** List a row's exported files (its export/ folder) indented beneath it; clicking
-	 *  one opens it directly in the editor. Silent when there is no export folder. */
-	private async renderExports(root: HTMLElement, dir: URI): Promise<void> {
-		let files: { name: string; resource: URI }[] = [];
+	/** Read a row's export/ folder file list (sorted). [] when there is no folder. */
+	private async loadExports(dir: URI): Promise<{ name: string; resource: URI }[]> {
 		try {
 			const stat = await this.fileService.resolve(dir);
-			files = (stat.children ?? []).filter(c => !c.isDirectory).map(c => ({ name: c.name, resource: c.resource }));
-		} catch { return; }
-		files.sort((a, b) => a.name.localeCompare(b.name));
+			const files = (stat.children ?? []).filter(c => !c.isDirectory).map(c => ({ name: c.name, resource: c.resource }));
+			files.sort((a, b) => a.name.localeCompare(b.name));
+			return files;
+		} catch { return []; }
+	}
+
+	/** Render a row's exported files indented beneath it; clicking one opens it in
+	 *  the editor. Synchronous (files are pre-loaded) so it can't interleave. */
+	private renderExports(root: HTMLElement, files: { name: string; resource: URI }[]): void {
 		for (const f of files) {
 			const row = append(root, $('div'));
 			Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 6px 3px 28px', borderRadius: '4px', cursor: 'pointer' });

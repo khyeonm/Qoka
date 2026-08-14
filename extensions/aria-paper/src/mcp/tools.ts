@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import {
-	addCitation, createPaper, getAssets, getCitations, getManuscript, getMeta,
+	addCitations, createPaper, getAssets, getCitations, getManuscript, getMeta,
 	getProposal, hasUnsavedEdits, listPapers, OutlineSection, PaperFormat,
 	resolvePaper, setAssetSummary, setFocus, setFormat, setOutline, setProposal,
 	setStep, setTitle, syncManuscriptTitle, writeManuscript,
@@ -56,7 +56,7 @@ export function buildTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'get_writing_guide',
-			description: 'Read the manuscript-writing methodology Qoka expects you to follow (structure, source-exclusivity, citation keys, prose rules). Call this before drafting. Also: when the user asks to write a paper (without naming which), first call list_papers - if exactly one exists, CONFIRM it with the user ("Write this paper: <title>?") before proceeding; ASK which if several; create_paper if none - so every later tool has the right `paper`.',
+			description: 'Read the manuscript-writing methodology Qoka expects you to follow (structure, source-exclusivity, citation keys, prose rules). Call this before drafting. CRITICAL - picking WHICH paper: when the user asks to write a paper or work on a step (focus/outline/draft) WITHOUT naming which paper, you MUST NOT guess or auto-pick. First call list_papers, then LIST to the user the papers that are not yet finished (written=false, i.e. no full draft) with their titles and how far each got (step), and ASK the user which one - e.g. "Which paper? 1) <title> (focus done) 2) <title> (outline done)". Only proceed after they answer. If EXACTLY ONE unfinished paper exists, still CONFIRM it explicitly ("Work on this paper: <title>?") before doing anything. If NONE exist, offer create_paper. Never call set_focus/set_outline/set_manuscript/advance_paper_step until the user has confirmed the specific paper.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(WRITING_GUIDE),
 		},
@@ -89,7 +89,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'list_papers',
-			description: 'List paper projects in this workspace (id and title).',
+			description: 'List paper projects in this workspace. Each entry is { id, title, step (0 Format … 4 Write), written (true once a full draft exists) }. Use `written`/`step` to show the user which papers are unfinished when asking which one to work on.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(JSON.stringify(listPapers())),
 		},
@@ -383,23 +383,32 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'add_citation',
-			description: 'Add a citeable reference as a CSL-JSON object (must include a `type` and ideally `id`, `title`, `author`, `issued`). Returns the citekey to use as [@citekey].',
+			description: 'Add citeable references as CSL-JSON. Pass MANY at once via `items` (an array) - do NOT call this once per reference; a batch is written in a single pass. Each item needs a `type` and ideally `id`, `title`, `author`, `issued`. (`csl`, a single object, is still accepted for one reference.) Returns the citekeys to use as [@citekey].',
 			inputSchema: {
 				type: 'object',
 				properties: {
 					paper: { type: 'string', description: 'Paper id or title.' },
-					csl: { type: 'object', description: 'A single CSL-JSON reference item.' },
+					items: { type: 'array', items: { type: 'object' }, description: 'CSL-JSON reference items to add in one batch. Preferred over `csl` whenever adding more than one.' },
+					csl: { type: 'object', description: 'A single CSL-JSON reference item (use `items` for several).' },
 				},
-				required: ['paper', 'csl'],
+				required: ['paper'],
 				additionalProperties: false,
 			},
 			handler: async (a) => {
 				const r = resolveOrErr(a.paper);
 				if ('content' in r) { return r; }
-				if (typeof a.csl !== 'object' || a.csl === null) { return err('`csl` must be a CSL-JSON object.'); }
+				const batch: Record<string, unknown>[] = [];
+				if (Array.isArray(a.items)) {
+					for (const it of a.items) {
+						if (typeof it !== 'object' || it === null) { return err('every entry in `items` must be a CSL-JSON object.'); }
+						batch.push(it as Record<string, unknown>);
+					}
+				}
+				if (typeof a.csl === 'object' && a.csl !== null) { batch.push(a.csl as Record<string, unknown>); }
+				if (batch.length === 0) { return err('Pass `items` (an array of CSL-JSON objects) or a single `csl` object.'); }
 				try {
-					const key = addCitation(r.id, a.csl as Record<string, unknown>);
-					return ok(`Added citation [@${key}].`);
+					const keys = addCitations(r.id, batch);
+					return ok(`Added ${keys.length} citation(s): ${keys.map(k => `[@${k}]`).join(' ')}.`);
 				} catch (e) { return err(`add_citation failed: ${(e as Error).message}`); }
 			},
 		},

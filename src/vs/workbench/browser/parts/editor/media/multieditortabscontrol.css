@@ -168,8 +168,9 @@
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container > .title .tabs-container > .tab.sizing-fit {
-	width: 120px;
-	min-width: fit-content;
+	width: fit-content; /* fit the label... */
+	min-width: 120px;   /* ...but keep a comfortable floor... */
+	max-width: 50%;     /* ...and never exceed half the editor width (long titles ellipsize, see below) */
 	flex-shrink: 0;
 }
 
@@ -363,7 +364,11 @@
 
 .monaco-workbench .part.editor > .content .editor-group-container > .title .tabs-container > .tab.sizing-fit .monaco-icon-label,
 .monaco-workbench .part.editor > .content .editor-group-container > .title .tabs-container > .tab.sizing-fit .monaco-icon-label > .monaco-icon-label-container {
-	overflow-x: visible; /* fixes https://github.com/microsoft/vscode/issues/20182 by ensuring the horizontal overflow is visible */
+	/* A fit tab grows to its label but is capped at 50% of the editor width (rule
+	 * above). When a long title hits that cap, clip the label with an ellipsis
+	 * instead of letting it overflow the tab. */
+	overflow: hidden;
+	text-overflow: ellipsis;
 
 	scrollbar-width: none; /* Firefox */
 	-ms-overflow-style: none; /* Internet Explorer 10+ */

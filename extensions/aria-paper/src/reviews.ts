@@ -237,7 +237,7 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'list_open_reviews',
-			description: 'List the Peer Review windows currently OPEN in Qoka - both started runs and unstarted "New review" tabs. Call this when the user asks to run a review, BEFORE opening a new one, so you reuse an already-open tab instead of stacking another. Then: if exactly ONE is open, confirm it with the user ("Run this review?") and call start_peer_review; if SEVERAL are open, ask which and have the user click that tab, then start_peer_review; if NONE are open, call open_new_review. Returns [{ execId, title }] - execId is null for an unstarted "New review" tab.',
+			description: 'List the Peer Review windows currently OPEN in Qoka - both started runs and unstarted "New review" tabs. When the user asks to run/start a peer review WITHOUT naming which window, you MUST call this FIRST and MUST NOT guess or auto-pick. Then: if SEVERAL are open, LIST them by title and ASK the user which one, have them click that tab, then start_peer_review; if EXACTLY ONE is open, still CONFIRM it explicitly ("Run this review: <title>?") before start_peer_review; if NONE are open, call open_new_review. Never call start_peer_review until the user has confirmed the specific review window. Returns [{ execId, title }] - execId is null for an unstarted "New review" tab.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				try {
@@ -248,7 +248,7 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'start_peer_review',
-			description: 'Start the AI peer review the user set up in Qoka\'s Peer Review tab: they pick the source (a manuscript, or an uploaded file) and the reviewers there, and this runs it. Returns the review run id (execId). If it reports nothing is set up, tell the user to open the Peer Review tab and pick a source + reviewers, then call this again. After it returns an execId, call get_review(execId), run each reviewer independently, and record each reviewer\'s Major/Minor concerns with record_review - the results tab is already open with a spinner per reviewer.',
+			description: 'Start the AI peer review from the review window the user CONFIRMED. Do NOT call this until you have called list_open_reviews and the user has told you (or confirmed) which review window to run - never pick one yourself. It runs whichever new-review window is active: they pick the source (a manuscript, or an uploaded file) and the reviewers there. Returns the review run id (execId). If it reports nothing is set up, tell the user to open the Peer Review tab and pick a source + reviewers, then call this again. After it returns an execId, call get_review(execId), run each reviewer independently, and record each reviewer\'s Major/Minor concerns with record_review - the results tab is already open with a spinner per reviewer.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				try {

@@ -60,6 +60,11 @@ export interface PaperMeta {
 export interface PaperInfo {
 	id: string;
 	title: string;
+	/** Wizard step the paper last sat on (0=Format … 4=Write). */
+	step: number;
+	/** True once a manuscript draft has been written (Write step reached and saved).
+	 *  Lets the chat list only papers NOT yet finished when asking which to work on. */
+	written: boolean;
 }
 
 /** A user-provided figure (image) or supplementary source file. Stored under
@@ -147,7 +152,7 @@ export function listPapers(): PaperInfo[] {
 	const papers: PaperInfo[] = [];
 	for (const id of entries) {
 		const meta = getMeta(id);
-		if (meta) { papers.push({ id: meta.id, title: meta.title }); }
+		if (meta) { papers.push({ id: meta.id, title: meta.title, step: meta.step ?? 0, written: getManuscript(meta.id).trim().length > 0 }); }
 	}
 	return papers;
 }
@@ -440,12 +445,26 @@ export function removeAsset(id: string, assetId: string): void {
 
 /** Add (or replace by id) a single CSL-JSON citation item. Returns its citekey. */
 export function addCitation(id: string, item: Record<string, unknown>): string {
-	const key = typeof item.id === 'string' && item.id ? item.id : 'ref-' + crypto.randomBytes(3).toString('hex');
-	item.id = key;
-	const items = getCitations(id).filter(c => (c as { id?: unknown }).id !== key);
-	items.push(item);
+	return addCitations(id, [item])[0];
+}
+
+/** Add MANY citations in ONE read/write of citations.csl.json (so a batch import
+ *  does not rewrite the file once per item). Each item keeps its own `id` citekey,
+ *  generating one when absent; later items win on a key clash within the batch, and
+ *  the batch replaces any existing entry with the same key. Returns the citekeys in
+ *  input order. */
+export function addCitations(id: string, newItems: Record<string, unknown>[]): string[] {
+	const keys: string[] = [];
+	for (const item of newItems) {
+		const key = typeof item.id === 'string' && item.id ? item.id : 'ref-' + crypto.randomBytes(3).toString('hex');
+		item.id = key;
+		keys.push(key);
+	}
+	const keySet = new Set(keys);
+	const items = getCitations(id).filter(c => !keySet.has(String((c as { id?: unknown }).id ?? '')));
+	items.push(...newItems);
 	setCitations(id, items);
-	return key;
+	return keys;
 }
 
 /**

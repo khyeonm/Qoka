@@ -88,6 +88,10 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	private reviewAutoOpened = false;
 	private importing = false;
 	private outlineDragIndex: number | undefined;
+	/** The step the AI just auto-advanced us to (via advance_paper_step / set_focus /
+	 *  set_outline). On that step we hide the "send this to your AI chat" example - the
+	 *  AI already did the work, so the nudge is redundant. Cleared on manual navigation. */
+	private autoAdvancedStep: number | undefined;
 
 	private readonly inputStore = this._register(new DisposableStore());
 
@@ -125,6 +129,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		this.inputStore.clear();
 		this.folder = input.folderResource;
 		this.forcedStep = undefined;
+		this.autoAdvancedStep = undefined;
 		await this.reload();
 		this.library = await this.loadLibrary();
 		if (token.isCancellationRequested) {
@@ -145,7 +150,16 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 				return;
 			}
 			if (e.affects(folder)) {
-				void this.reload().then(() => { this.render(); this.maybeOpenReview(); });
+				const prevStep = this.step;
+				void this.reload().then(() => {
+					// The AI moved the wizard forward (advance_paper_step / set_focus /
+					// set_outline): remember it so this step hides its chat-hint example.
+					if (this.forcedStep === undefined && this.meta && (this.meta.step ?? 0) > prevStep) {
+						this.autoAdvancedStep = this.meta.step;
+					}
+					this.render();
+					this.maybeOpenReview();
+				});
 			}
 		}));
 		this.render();
@@ -222,6 +236,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	private goStep(n: number): void {
 		if (!this.meta) { return; }
 		this.forcedStep = undefined;
+		this.autoAdvancedStep = undefined; // manual navigation: show the chat hint again
 		this.meta.step = Math.max(0, Math.min(STEPS.length - 1, n));
 		void this.saveMeta();
 		this.render();
@@ -396,7 +411,17 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		}
 		tools.appendChild(this.button(
 			this.libraryPickerOpen ? localize('aria.paperWriter.hideLibrary', "Close Paper Library") : localize('aria.paperWriter.pickLibrary', "Select from Paper Library"),
-			'ghost', () => { this.libraryPickerOpen = !this.libraryPickerOpen; this.render(); }));
+			'ghost', () => {
+				this.libraryPickerOpen = !this.libraryPickerOpen;
+				// Re-read the library each time the picker is opened: it is loaded once
+				// at setInput, so papers saved to the Paper Library AFTER this tab opened
+				// would otherwise show as an empty picker.
+				if (this.libraryPickerOpen) {
+					void this.loadLibrary().then(lib => { this.library = lib; this.render(); });
+				} else {
+					this.render();
+				}
+			}));
 
 		if (this.libraryPickerOpen) {
 			this.renderLibraryPicker(root);
@@ -583,7 +608,14 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 	 *  prompt-copy buttons. The entry step (Focus) pulses to draw the eye; later
 	 *  steps show it as a plain one-line fallback (the AI usually advances those
 	 *  automatically). */
+	/** True when the AI auto-advanced us to the current step, so the "send this to
+	 *  your AI chat" example should be hidden (the AI already did that step's work). */
+	private hintSuppressed(): boolean {
+		return this.autoAdvancedStep === this.step;
+	}
+
 	private sendChatHint(root: HTMLElement, example: string, pulse: boolean): void {
+		if (this.hintSuppressed()) { return; }
 		const box = append(root, $('div'));
 		Object.assign(box.style, {
 			border: '1px solid var(--vscode-focusBorder, #4488dd)', borderRadius: '6px',
@@ -602,20 +634,18 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		}
 	}
 
-	/** A boxed "<bold question> / Say this in your AI chat: <example>" prompt used on
-	 *  the Write step for the chat-driven re-write and revise (no buttons). */
-	private askChatBox(root: HTMLElement, title: string, example: string): void {
-		const box = append(root, $('div'));
-		Object.assign(box.style, {
-			border: '1px solid var(--vscode-focusBorder, #4488dd)', borderRadius: '6px',
-			padding: '9px 12px', margin: '2px 0 10px',
-		});
-		const t = append(box, $('div'));
-		t.textContent = title;
-		Object.assign(t.style, { fontWeight: '600', fontSize: '13px', marginBottom: '3px' });
-		const ex = append(box, $('div'));
+	/** One "<bold question> Say this in your AI chat: <example>" line, appended into a
+	 *  shared subtle box on the Write step (chat-driven re-write / revise, no buttons).
+	 *  Deliberately low-key (no blue border) so it does not compete with the draft. */
+	private askLine(box: HTMLElement, title: string, example: string): void {
+		const wrap = append(box, $('div'));
+		wrap.style.margin = '3px 0';
+		const t = append(wrap, $('span'));
+		t.textContent = title + ' ';
+		t.style.fontWeight = '600';
+		const ex = append(wrap, $('span'));
 		ex.textContent = localize('aria.paperWriter.sayInChat', "Say this in your AI chat, for example: {0}", `"${example}"`);
-		Object.assign(ex.style, { fontSize: '12.5px', opacity: '0.85', lineHeight: '1.45' });
+		ex.style.opacity = '0.8';
 	}
 
 	// --- Step 3: Focus ------------------------------------------------------
@@ -774,17 +804,26 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		}
 
 		if (written) {
-			// Re-write and revise are chat-driven now (no buttons): two boxes above the
-			// draft-path note tell the user exactly what to say in their AI chat.
-			this.askChatBox(root, localize('aria.paperWriter.askRewrite', "Want to re-write the whole draft?"), "Re-write the whole draft.");
-			this.askChatBox(root, localize('aria.paperWriter.askRevise', "Want to revise a part?"), "Revise the Introduction section: <what to change>.");
-
-			// Export only.
+			// Actions first: export buttons on the left, "Review this paper" pushed to
+			// the right (hands the finished manuscript to a new peer review).
 			const bar = append(root, $('div'));
-			Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' });
+			Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginBottom: '14px' });
 			bar.appendChild(this.button('Export MD', 'ghost', () => void this.export('markdown')));
 			bar.appendChild(this.button('Export DOCX', 'ghost', () => void this.export('docx')));
 			bar.appendChild(this.button('Export LaTeX', 'ghost', () => void this.export('latex')));
+			const review = this.button(localize('aria.paperWriter.reviewThis', "Review this paper"), 'primary', () => {
+				void this.commandService.executeCommand('aria.peerReview.newForPaper', this.meta!.id);
+			});
+			review.style.marginLeft = 'auto';
+			bar.appendChild(review);
+
+			// Re-write and revise are chat-driven (no buttons): both lines sit in ONE
+			// low-key box (same tone as the notes box below), so they inform without
+			// competing with the draft.
+			const ask = append(root, $('div'));
+			Object.assign(ask.style, { padding: '11px 14px', borderRadius: '6px', background: 'rgba(127,127,127,0.08)', fontSize: '12.5px', lineHeight: '1.6', marginBottom: '14px' });
+			this.askLine(ask, localize('aria.paperWriter.askRewrite', "Want to re-write the whole draft?"), "Re-write the whole draft.");
+			this.askLine(ask, localize('aria.paperWriter.askRevise', "Want to revise a part?"), "Revise the Introduction section: <what to change>.");
 
 			const id = this.meta!.id;
 			const note = append(root, $('div'));
