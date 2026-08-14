@@ -15,6 +15,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
+import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -26,7 +27,7 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 
-interface ReviewEntry { execId: string; title: string; when: number; whenStr: string }
+interface ReviewEntry { execId: string; title: string; when: number; whenStr: string; draft: boolean }
 
 /**
  * Sidebar "Manuscript" view: the merged Paper Writing + Peer Review list. The "+"
@@ -62,6 +63,7 @@ export class AriaManuscriptView extends ViewPane {
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IEditorService private readonly editorService: IEditorService,
+		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		this._register(this.workspaceContextService.onDidChangeWorkbenchState(() => void this.refresh()));
@@ -172,6 +174,38 @@ export class AriaManuscriptView extends ViewPane {
 			const label = append(row, $('span'));
 			label.textContent = f.name;
 			Object.assign(label.style, { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', opacity: '0.85' });
+			// "Save As" download button at the right end: opens the OS save dialog so
+			// the user can copy the export anywhere. Hover reveals a "Download" label.
+			const dl = append(row, $('div'));
+			Object.assign(dl.style, { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: '0', opacity: '0.6' });
+			const dlText = append(dl, $('span'));
+			dlText.textContent = localize('aria.manuscript.download', "Download");
+			Object.assign(dlText.style, { fontSize: '11px', display: 'none' });
+			const dlIcon = append(dl, $('span.codicon.codicon-cloud-download')) as HTMLElement;
+			Object.assign(dlIcon.style, { fontSize: '14px', cursor: 'pointer' });
+			dl.title = localize('aria.manuscript.download', "Download");
+			row.addEventListener('mouseenter', () => { dlText.style.display = 'inline'; });
+			row.addEventListener('mouseleave', () => { dlText.style.display = 'none'; });
+			dl.onclick = (e) => { e.stopPropagation(); void this.saveAs(f.resource, f.name); };
+		}
+	}
+
+	/** Copy an exported file somewhere the user picks via the OS save dialog. */
+	private async saveAs(source: URI, name: string): Promise<void> {
+		const defaultUri = joinPath(await this.fileDialogService.defaultFilePath(), name);
+		const target = await this.fileDialogService.showSaveDialog({
+			title: localize('aria.manuscript.saveAsTitle', "Save exported file as"),
+			defaultUri,
+		});
+		if (!target) { return; }
+		try {
+			await this.fileService.copy(source, target, true);
+		} catch (e) {
+			// Fallback: read + write (e.g. cross-provider copies the copy API rejects).
+			try {
+				const content = await this.fileService.readFile(source);
+				await this.fileService.writeFile(target, content.value);
+			} catch { /* surfaced by the dialog staying; nothing else to do */ }
 		}
 	}
 
@@ -241,7 +275,9 @@ export class AriaManuscriptView extends ViewPane {
 		Object.assign(col.style, { flex: '1', overflow: 'hidden' });
 		const title = append(col, $('div')); title.textContent = e.title;
 		Object.assign(title.style, { fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
-		const when = append(col, $('div')); when.textContent = e.whenStr ? `${e.whenStr} · ${e.execId}` : e.execId;
+		const when = append(col, $('div'));
+		const base = e.whenStr ? `${e.whenStr} · ${e.execId}` : e.execId;
+		when.textContent = e.draft ? localize('aria.manuscript.reviewNotStarted', "Not started · {0}", e.execId) : base;
 		Object.assign(when.style, { fontSize: '11px', opacity: '0.55', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 		const del = append(row, $('span.codicon.codicon-trash')) as HTMLElement;
 		del.title = localize('aria.manuscript.deleteReview', "Delete review");
@@ -289,14 +325,14 @@ export class AriaManuscriptView extends ViewPane {
 			for (const c of (stat.children ?? []).filter(x => x.isDirectory)) {
 				const meta = await this.readReviewMeta(c.resource);
 				const when = meta?.createdAt ? Date.parse(meta.createdAt) : 0;
-				entries.push({ execId: basename(c.resource), title: meta?.title || basename(c.resource), when, whenStr: meta?.createdAt ? new Date(meta.createdAt).toLocaleString() : '' });
+				entries.push({ execId: basename(c.resource), title: meta?.title || basename(c.resource), when, whenStr: meta?.createdAt ? new Date(meta.createdAt).toLocaleString() : '', draft: meta?.draft === true });
 			}
 		} catch { return []; }
 		entries.sort((a, b) => b.when - a.when);
 		return entries;
 	}
 
-	private async readReviewMeta(folder: URI): Promise<{ title?: string; createdAt?: string } | undefined> {
+	private async readReviewMeta(folder: URI): Promise<{ title?: string; createdAt?: string; draft?: boolean } | undefined> {
 		try { return JSON.parse((await this.fileService.readFile(joinPath(folder, 'meta.json'))).value.toString()); } catch { return undefined; }
 	}
 

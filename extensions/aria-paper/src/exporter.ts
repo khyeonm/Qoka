@@ -8,7 +8,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-	citationsPath, exportDir, getMeta, manuscriptPath, withTitleHeading,
+	citationsPath, exportDir, exportFileBase, getMeta, manuscriptPath, withTitleHeading,
 } from './papers';
 import { ensurePandoc } from './download';
 
@@ -83,7 +83,8 @@ export async function exportPaper(id: string, format: ExportFormat, markdown?: s
 	}
 
 	fs.mkdirSync(outDir, { recursive: true });
-	const outputPath = path.join(outDir, `paper.${EXT[format]}`);
+	// Name the output after the paper title (AAA.docx), not a generic paper.docx.
+	const outputPath = path.join(outDir, `${exportFileBase(meta.title)}.${EXT[format]}`);
 	const style = meta.format.citationStyle || 'ieee';
 	const csl = cslFor(style);
 	const pandoc = await ensurePandoc({ resourceRoot, cacheDir, onStatus: m => console.log('[aria-paper]', m) });
@@ -104,7 +105,10 @@ export async function exportPaper(id: string, format: ExportFormat, markdown?: s
 	const tempInput = path.join(outDir, '.manuscript.export.md');
 	fs.writeFileSync(tempInput, body, 'utf8');
 
-	const args = [tempInput, '--citeproc'];
+	// --wrap=preserve: keep the manuscript's own line breaks instead of pandoc's
+	// default hard wrap at ~72 columns, which would split sentences mid-line in the
+	// exported Markdown (paragraphs stay as single lines when the source has none).
+	const args = [tempInput, '--citeproc', '--wrap=preserve'];
 	if (csl) { args.push('--csl', csl); }
 	if (hasBib) { args.push('--bibliography', bib); }
 	// Resolve relative image paths (figures/fig1.png) - relative to the paper dir

@@ -825,6 +825,13 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			this.askLine(ask, localize('aria.paperWriter.askRewrite', "Want to re-write the whole draft?"), "Re-write the whole draft.");
 			this.askLine(ask, localize('aria.paperWriter.askRevise', "Want to revise a part?"), "Revise the Introduction section: <what to change>.");
 
+			// The written draft, scrollable, right below the prompts so the user can
+			// read the result without opening the file.
+			const draftBox = append(root, $('div'));
+			applyAriaScrollbar(draftBox);
+			Object.assign(draftBox.style, { border: '1px solid rgba(127,127,127,0.3)', borderRadius: '6px', padding: '12px 14px', maxHeight: '460px', overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '13px', lineHeight: '1.6', marginBottom: '14px' });
+			draftBox.textContent = this.manuscript.trim();
+
 			const id = this.meta!.id;
 			const note = append(root, $('div'));
 			Object.assign(note.style, { marginTop: '14px', padding: '11px 14px', borderRadius: '6px', background: 'rgba(127,127,127,0.08)', fontSize: '12.5px', lineHeight: '1.65' });
@@ -843,7 +850,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 				localize('aria.paperWriter.noteOriginal', " - .qoka/manuscript/draft/{0}/manuscript.original.md. The first generated draft, kept unchanged even when you revise with AI.", id));
 			bullet(
 				localize('aria.paperWriter.noteExportLabel', "Exports"),
-				localize('aria.paperWriter.noteExport', " - .qoka/manuscript/draft/{0}/export/ (paper.md / .docx / .tex). These are snapshots: they only change when you Export again, so re-export after any update.", id));
+				localize('aria.paperWriter.noteExport', " - .qoka/manuscript/draft/{0}/export/ (named after the paper title, e.g. <title>.md / .docx / .tex). These are snapshots: they only change when you Export again, so re-export after any update.", id));
 		}
 	}
 

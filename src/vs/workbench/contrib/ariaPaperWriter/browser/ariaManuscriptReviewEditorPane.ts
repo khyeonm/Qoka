@@ -204,11 +204,28 @@ export class AriaManuscriptReviewEditorPane extends EditorPane {
 
 	private renderDone(root: HTMLElement): void {
 		const h = append(root, $('div'));
-		h.textContent = localize('aria.manuscriptReview.doneTitle', "✓ All changes resolved");
+		h.textContent = localize('aria.manuscriptReview.doneTitle', "All changes resolved");
 		Object.assign(h.style, { fontSize: '15px', fontWeight: '700', marginBottom: '4px' });
 		const sub = append(root, $('div'));
-		sub.textContent = localize('aria.manuscriptReview.doneSub', "The manuscript (paper/{0}/manuscript.md) reflects every accepted edit. Re-export to refresh the output files.", this.paperId);
-		Object.assign(sub.style, { fontSize: '12px', opacity: '0.7', marginBottom: '14px', lineHeight: '1.5' });
+		sub.textContent = localize('aria.manuscriptReview.doneSub', "This is the current manuscript (.qoka/manuscript/draft/{0}/manuscript.md) with every accepted edit. Re-export to refresh the output files.", this.paperId);
+		Object.assign(sub.style, { fontSize: '12px', opacity: '0.7', marginBottom: '10px', lineHeight: '1.5' });
+
+		// Want to change more? Point them back to the AI chat.
+		const ask = append(root, $('div'));
+		Object.assign(ask.style, { padding: '9px 12px', borderRadius: '6px', background: 'rgba(127,127,127,0.08)', fontSize: '12.5px', lineHeight: '1.55', marginBottom: '12px' });
+		const at = append(ask, $('span'));
+		at.textContent = localize('aria.manuscriptReview.reviseMore', "Want to change more? ");
+		at.style.fontWeight = '600';
+		const ax = append(ask, $('span'));
+		ax.textContent = localize('aria.manuscriptReview.reviseMoreEx', "Say it in your AI chat, for example: \"Revise the Discussion section: <what to change>.\"");
+		ax.style.opacity = '0.85';
+
+		// The latest manuscript, scrollable, so the user sees the result here instead
+		// of only export buttons.
+		const box = append(root, $('div'));
+		applyAriaScrollbar(box);
+		Object.assign(box.style, { border: '1px solid rgba(127,127,127,0.3)', borderRadius: '6px', padding: '12px 14px', maxHeight: '420px', overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '13px', lineHeight: '1.6', marginBottom: '12px' });
+		box.textContent = this.current.trim() || localize('aria.manuscriptReview.emptyManuscript', "The manuscript is empty.");
 
 		const exp = append(root, $('div'));
 		Object.assign(exp.style, { display: 'flex', flexWrap: 'wrap', gap: '8px' });

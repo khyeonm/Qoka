@@ -34,7 +34,7 @@ import { AriaPeerReviewInput } from './ariaPeerReviewInput.js';
 
 interface Concern { severity: 'major' | 'minor'; title: string; detail: string }
 type PaperFormat = 'markdown' | 'docx' | 'latex';
-interface ReviewMeta { execId: string; title: string; reviewers: string[]; paperId?: string; paperFormat?: PaperFormat; draftFile?: string; figureFiles?: string[]; supplementaryFiles?: string[]; createdAt: string; iteration: number }
+interface ReviewMeta { execId: string; title: string; reviewers: string[]; paperId?: string; paperFormat?: PaperFormat; draftFile?: string; figureFiles?: string[]; supplementaryFiles?: string[]; createdAt: string; iteration: number; /** True for a "New review" tab that has NOT been started yet (source/reviewers still being chosen). Cleared when the review runs. */ draft?: boolean }
 interface ConcernsFile { iteration: number; reviewers: Record<string, { concerns: Concern[]; recordedAt: string }> }
 interface Proposal { original: string; replacement: string; explanation: string }
 // New shape carries `proposals` + `documentKey`; older records may be flat - normalize via proposalsOf().
@@ -170,6 +170,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		if (!(input instanceof AriaPeerReviewInput)) { return; }
 		this.inputStore.clear();
 		this.execId = input.execId;
+		this.meta = undefined;
 		this.draft = undefined; this.figures = []; this.supplementary = [];
 		this.selectedPaperId = '';
 		this.reviewers = { claude: true };
@@ -180,10 +181,16 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 
 		if (this.execId) {
 			await this.reloadRun();
-			// Seed "seen" so we don't auto-jump to already-present revisions on open.
+		}
+		// A "draft" review (created by +New / "Review this paper" but not started yet)
+		// keeps its folder on disk - so it shows in the Manuscript list immediately -
+		// but the pane shows the SETUP form, not the run view. render() branches on
+		// meta.draft; here we prepare whichever state applies.
+		if (this.execId && this.meta && !this.meta.draft) {
+			// Started run: watch it and prime the revision state.
 			this.seenRevs = new Map(this.pendingRevIds().map(id => [id, this.revisions[id].recordedAt]));
 			this.paperText = await this.loadPaperText(this.activeDoc);
-			if (this.meta?.title && input instanceof AriaPeerReviewInput) { input.setName(this.meta.title); }
+			if (input instanceof AriaPeerReviewInput && this.meta.title) { input.setName(this.meta.title); }
 			const dir = this.reviewDir();
 			if (dir) {
 				this.inputStore.add(this.fileService.onDidFilesChange(e => {
@@ -191,13 +198,23 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 				}));
 			}
 		} else {
+			// New / draft review: show the setup form. Seed the source from the draft
+			// meta (or the handoff seedPaperId). Reuse this.execId so runFromForm writes
+			// into the SAME folder instead of creating a second one.
 			this.papers = await this.loadPapers();
 			this.sourceMode = 'file';
-			// Handoff from Paper Writing: if a paper was passed in and it exists, start on
-			// the "manuscript" source with that paper already picked.
-			if (input.seedPaperId && this.papers.some(p => p.id === input.seedPaperId)) {
+			const seedPaper = this.meta?.paperId ?? input.seedPaperId;
+			if (seedPaper && this.papers.some(p => p.id === seedPaper)) {
 				this.sourceMode = 'manuscript';
-				this.selectedPaperId = input.seedPaperId;
+				this.selectedPaperId = seedPaper;
+			}
+			if (input instanceof AriaPeerReviewInput && this.meta?.title) { input.setName(this.meta.title); }
+			const dir = this.reviewDir();
+			if (dir) {
+				// A draft folder exists on disk: refresh if it changes (e.g. deleted).
+				this.inputStore.add(this.fileService.onDidFilesChange(e => {
+					if (e.affects(dir)) { void this.reloadRun().then(() => this.render()); }
+				}));
 			}
 		}
 		if (token.isCancellationRequested) { return; }
@@ -327,8 +344,12 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		if (!f || !paperId) { return ['markdown']; }
 		const out: PaperFormat[] = ['markdown'];
 		const exp = joinPath(f, '.qoka', 'manuscript', 'draft', paperId, 'export');
-		if (await this.fileService.exists(joinPath(exp, 'paper.docx'))) { out.push('docx'); }
-		if (await this.fileService.exists(joinPath(exp, 'paper.tex'))) { out.push('latex'); }
+		// Exports are named after the paper title now (AAA.docx), so match by
+		// extension rather than a fixed "paper.docx" name.
+		let names: string[] = [];
+		try { names = (await this.fileService.resolve(exp)).children?.map(c => c.name.toLowerCase()) ?? []; } catch { /* no exports yet */ }
+		if (names.some(n => n.endsWith('.docx'))) { out.push('docx'); }
+		if (names.some(n => n.endsWith('.tex'))) { out.push('latex'); }
 		return out;
 	}
 
@@ -339,7 +360,7 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		if (!root) { return; }
 		if (this.menuEl) { this.menuEl.remove(); this.menuEl = undefined; }
 		clearNode(root);
-		if (this.execId && this.meta) {
+		if (this.execId && this.meta && !this.meta.draft) {
 			Object.assign(root.style, { padding: '0', display: 'flex', overflow: 'hidden' });
 			this.renderRun(root);
 		} else {
@@ -618,7 +639,9 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		const reviewers = Object.keys(this.reviewers).filter(k => this.reviewers[k]);
 		if (reviewers.length === 0) { this.notificationService.error(localize('aria.peerReview.noReviewer', "Select at least one reviewer.")); return; }
 
-		const execId = 'rev-' + generateUuid().slice(0, 8);
+		// Reuse the draft folder this tab was opened with (created by +New / "Review
+		// this paper"); only mint a new id for a legacy no-execId form.
+		const execId = this.execId ?? ('rev-' + generateUuid().slice(0, 8));
 		const dir = joinPath(folder, '.qoka', 'manuscript', 'review', execId);
 		await this.fileService.createFolder(dir);
 		const now = new Date().toISOString();

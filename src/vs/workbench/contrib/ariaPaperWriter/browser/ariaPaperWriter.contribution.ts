@@ -14,9 +14,11 @@ import { CommandsRegistry } from '../../../../platform/commands/common/commands.
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { isEqual } from '../../../../base/common/resources.js';
 import { EditorExtensions } from '../../../common/editor.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { AriaPaperWriterEditorPane } from './ariaPaperWriterEditorPane.js';
 import { AriaPaperWriterInput } from './ariaPaperWriterInput.js';
 import { AriaManuscriptReviewEditorPane } from './ariaManuscriptReviewEditorPane.js';
@@ -102,6 +104,7 @@ CommandsRegistry.registerCommand('aria.paperWriter.delete', async (accessor, res
 	// Capture services BEFORE the await - the accessor is only valid synchronously.
 	const dialogService = accessor.get(IDialogService);
 	const fileService = accessor.get(IFileService);
+	const editorGroupsService = accessor.get(IEditorGroupsService);
 	const { confirmed } = await dialogService.confirm({
 		type: 'warning',
 		message: localize('aria.paperWriter.deleteConfirm', "Delete this paper?"),
@@ -113,5 +116,13 @@ CommandsRegistry.registerCommand('aria.paperWriter.delete', async (accessor, res
 		await fileService.del(uri, { useTrash: true, recursive: true });
 	} catch {
 		await fileService.del(uri, { useTrash: false, recursive: true });
+	}
+	// Close its open tabs (the writer AND any manuscript-review tab for it), so a
+	// deleted paper doesn't leave a stale "Untitled paper" tab behind.
+	for (const group of editorGroupsService.groups) {
+		for (const editor of group.editors) {
+			const folder = (editor instanceof AriaPaperWriterInput || editor instanceof AriaManuscriptReviewInput) ? editor.folderResource : undefined;
+			if (folder && isEqual(folder, uri)) { void group.closeEditor(editor); }
+		}
 	}
 });

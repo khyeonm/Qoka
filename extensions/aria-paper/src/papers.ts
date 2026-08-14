@@ -124,6 +124,29 @@ export function exportDir(id: string): string | undefined {
 	return dir ? path.join(dir, 'export') : undefined;
 }
 
+/** Sanitized base filename for a paper's exports, derived from its title so the
+ *  output lands as "<title>.docx" rather than a generic "paper.docx". Strips the
+ *  characters no filesystem allows; empty titles fall back to "paper". */
+export function exportFileBase(title: string): string {
+	const base = (title || '').replace(/[\\/:*?"<>|\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
+	return base || 'paper';
+}
+
+/** Absolute path of a paper's export in one format, using the title-based name,
+ *  falling back to ANY existing file with that extension (older "paper.<ext>"
+ *  exports, or one saved under a previous title). Undefined when none exists. */
+export function findExportFile(id: string, ext: 'md' | 'docx' | 'tex'): string | undefined {
+	const dir = exportDir(id);
+	if (!dir) { return undefined; }
+	const meta = getMeta(id);
+	const preferred = path.join(dir, `${exportFileBase(meta?.title ?? '')}.${ext}`);
+	if (fs.existsSync(preferred)) { return preferred; }
+	try {
+		const hit = fs.readdirSync(dir).find(f => f.toLowerCase().endsWith('.' + ext));
+		return hit ? path.join(dir, hit) : undefined;
+	} catch { return undefined; }
+}
+
 /** Staged revision the user reviews before it overwrites manuscript.md. */
 export function proposalPath(id: string): string | undefined {
 	const dir = paperDir(id);

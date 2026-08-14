@@ -9,7 +9,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getPandoc } from './exporter';
-import { exportDir, getManuscript, resolvePaper } from './papers';
+import { findExportFile, getManuscript, resolvePaper } from './papers';
 import { CallToolResult, ToolDefinition } from './mcp/tools';
 
 const execFileAsync = promisify(execFile);
@@ -237,7 +237,7 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'list_open_reviews',
-			description: 'List the Peer Review windows currently OPEN in Qoka - both started runs and unstarted "New review" tabs. When the user asks to run/start a peer review WITHOUT naming which window, you MUST call this FIRST and MUST NOT guess or auto-pick. Then: if SEVERAL are open, LIST them by title and ASK the user which one, have them click that tab, then start_peer_review; if EXACTLY ONE is open, still CONFIRM it explicitly ("Run this review: <title>?") before start_peer_review; if NONE are open, call open_new_review. Never call start_peer_review until the user has confirmed the specific review window. Returns [{ execId, title }] - execId is null for an unstarted "New review" tab.',
+			description: 'List the Peer Review windows currently OPEN in Qoka. Returns [{ execId, title, started }]: started=false is an unstarted "New review" tab (its source/reviewers may already be filled in, e.g. from the paper writer\'s "Review this paper"); started=true is a review already running (use get_review on it, do NOT start it again). When the user asks to run/start a peer review WITHOUT naming which window, you MUST call this FIRST and MUST NOT guess or auto-pick. Then, considering only started=false windows: if SEVERAL, LIST them by title and ASK which one (have the user click that tab), then start_peer_review; if EXACTLY ONE, CONFIRM it ("Run this review: <title>?") then start_peer_review - do NOT tell the user to attach a paper if the window already has one; if NONE are open, call open_new_review. Never call start_peer_review until the user confirmed the specific window.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				try {
@@ -282,8 +282,7 @@ export function buildReviewTools(): ToolDefinition[] {
 						if (!text.trim()) { const r = resolvePaper(meta.paperId); text = r ? getManuscript(r.id) : ''; }
 						manuscript = { name: `${meta.title}.md`, text };
 					} else {
-						const exp = exportDir(meta.paperId);
-						const abs = exp ? path.join(exp, fmt === 'docx' ? 'paper.docx' : 'paper.tex') : undefined;
+						const abs = findExportFile(meta.paperId, fmt === 'docx' ? 'docx' : 'tex');
 						manuscript = (abs && fs.existsSync(abs))
 							? { name: path.basename(abs), text: await extractText(abs) }
 							: { name: `${meta.title}.md`, text: getManuscript(meta.paperId) || '' };

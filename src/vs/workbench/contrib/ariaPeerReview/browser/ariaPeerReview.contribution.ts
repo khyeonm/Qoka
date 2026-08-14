@@ -6,6 +6,8 @@
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { joinPath } from '../../../../base/common/resources.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
@@ -14,6 +16,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { EditorExtensions } from '../../../common/editor.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { AriaPeerReviewEditorPane } from './ariaPeerReviewEditorPane.js';
 import { AriaPeerReviewInput } from './ariaPeerReviewInput.js';
 
@@ -38,25 +41,68 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 
 // --- Commands ---------------------------------------------------------------
 
+// Create the review folder (a "draft" meta.json) up front so the new review shows
+// in the Manuscript list immediately, not only after it starts. Reused by start.
+async function createDraftReview(fileService: IFileService, workspaceContextService: IWorkspaceContextService, title: string, paperId: string | undefined): Promise<string | undefined> {
+	const folder = workspaceContextService.getWorkspace().folders[0];
+	if (!folder) { return undefined; }
+	const execId = 'rev-' + generateUuid().slice(0, 8);
+	const dir = joinPath(folder.uri, '.qoka', 'manuscript', 'review', execId);
+	await fileService.createFolder(dir);
+	const meta = { execId, title, reviewers: [] as string[], createdAt: new Date().toISOString(), iteration: 1, draft: true, ...(paperId ? { paperId } : {}) };
+	await fileService.writeFile(joinPath(dir, 'meta.json'), VSBuffer.fromString(JSON.stringify(meta, null, 2)));
+	return execId;
+}
+
 CommandsRegistry.registerCommand('aria.peerReview.new', async (accessor) => {
-	await accessor.get(IEditorService).openEditor(new AriaPeerReviewInput(undefined), { pinned: true });
+	const editorService = accessor.get(IEditorService);
+	const execId = await createDraftReview(accessor.get(IFileService), accessor.get(IWorkspaceContextService), localize('aria.peerReview.newReviewTitle', "New review"), undefined);
+	await editorService.openEditor(new AriaPeerReviewInput(execId), { pinned: true });
 });
 
 // Handoff from Paper Writing: open a NEW review with the given paper pre-selected as
 // the source (the pane reads seedPaperId and switches to the "manuscript" source).
 CommandsRegistry.registerCommand('aria.peerReview.newForPaper', async (accessor, paperId?: unknown) => {
 	const seed = typeof paperId === 'string' && paperId ? paperId : undefined;
-	await accessor.get(IEditorService).openEditor(new AriaPeerReviewInput(undefined, seed), { pinned: true });
+	const fileService = accessor.get(IFileService);
+	const workspaceContextService = accessor.get(IWorkspaceContextService);
+	const editorService = accessor.get(IEditorService);
+	// Title the draft after the paper so the Manuscript list row is recognizable.
+	let title = localize('aria.peerReview.newReviewTitle', "New review");
+	if (seed) {
+		const folder = workspaceContextService.getWorkspace().folders[0];
+		if (folder) {
+			try {
+				const raw = await fileService.readFile(joinPath(folder.uri, '.qoka', 'manuscript', 'draft', seed, 'meta.json'));
+				const t = (JSON.parse(raw.value.toString()) as { title?: unknown }).title;
+				if (typeof t === 'string' && t.trim()) { title = t.trim(); }
+			} catch { /* keep the default title */ }
+		}
+	}
+	const execId = await createDraftReview(fileService, workspaceContextService, title, seed);
+	await editorService.openEditor(new AriaPeerReviewInput(execId, seed), { pinned: true });
 });
 
 // List the Peer Review windows currently OPEN (started runs AND unstarted "new
 // review" tabs), so the chat can reuse an open one instead of opening another.
-CommandsRegistry.registerCommand('aria.peerReview.listOpen', (accessor) => {
-	const out: { execId: string | null; title: string }[] = [];
-	for (const input of accessor.get(IEditorService).editors) {
-		if (input instanceof AriaPeerReviewInput) {
-			out.push({ execId: input.execId ?? null, title: input.getName() });
+CommandsRegistry.registerCommand('aria.peerReview.listOpen', async (accessor) => {
+	const editorService = accessor.get(IEditorService);
+	const fileService = accessor.get(IFileService);
+	const workspaceContextService = accessor.get(IWorkspaceContextService);
+	const folder = workspaceContextService.getWorkspace().folders[0];
+	const inputs = editorService.editors.filter((i): i is AriaPeerReviewInput => i instanceof AriaPeerReviewInput);
+	const out: { execId: string | null; title: string; started: boolean }[] = [];
+	for (const input of inputs) {
+		// A draft (unstarted "New review") now has an execId + folder too, so read its
+		// meta.draft to tell the chat whether it still needs start_peer_review.
+		let started = false;
+		if (input.execId && folder) {
+			try {
+				const raw = await fileService.readFile(joinPath(folder.uri, '.qoka', 'manuscript', 'review', input.execId, 'meta.json'));
+				started = (JSON.parse(raw.value.toString()) as { draft?: boolean }).draft !== true;
+			} catch { started = false; }
 		}
+		out.push({ execId: input.execId ?? null, title: input.getName(), started });
 	}
 	return out;
 });
@@ -82,6 +128,7 @@ CommandsRegistry.registerCommand('aria.peerReview.delete', async (accessor, exec
 	const dialogService = accessor.get(IDialogService);
 	const fileService = accessor.get(IFileService);
 	const workspaceContextService = accessor.get(IWorkspaceContextService);
+	const editorGroupsService = accessor.get(IEditorGroupsService);
 	const folder = workspaceContextService.getWorkspace().folders[0];
 	if (!folder) { return; }
 	const { confirmed } = await dialogService.confirm({
@@ -94,4 +141,10 @@ CommandsRegistry.registerCommand('aria.peerReview.delete', async (accessor, exec
 	const dir = joinPath(folder.uri, '.qoka', 'manuscript', 'review', execId);
 	try { await fileService.del(dir, { useTrash: true, recursive: true }); }
 	catch { await fileService.del(dir, { useTrash: false, recursive: true }); }
+	// Close its open tab so a deleted review doesn't leave a stale tab behind.
+	for (const group of editorGroupsService.groups) {
+		for (const editor of group.editors) {
+			if (editor instanceof AriaPeerReviewInput && editor.execId === execId) { void group.closeEditor(editor); }
+		}
+	}
 });

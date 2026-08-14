@@ -319,7 +319,16 @@ export function buildTools(): ToolDefinition[] {
 				if (md === undefined) { return err('`markdown` is required.'); }
 				try {
 					setProposal(r.id, md);
-					return ok(`Staged a proposed revision for review. Qoka is opening a review tab where the user accepts/rejects each change. Wait for the user to review; once they accept, run export_paper and tell them the output path.`);
+					// Open (or focus) the review tab even if the paper writer tab was
+					// closed - otherwise the staged revision is invisible. Best-effort.
+					try {
+						const folder = vscode.workspace.workspaceFolders?.[0];
+						if (folder) {
+							const paperUri = vscode.Uri.joinPath(folder.uri, '.qoka', 'manuscript', 'draft', r.id);
+							await vscode.commands.executeCommand('aria.paperWriter.openReview', paperUri);
+						}
+					} catch { /* opening the review tab is best-effort */ }
+					return ok(`Staged a proposed revision and opened the review tab in Qoka (the manuscript-review tab where the user accepts/rejects each change). Tell the user you opened the review tab. Wait for them to review; once they accept, run export_paper and tell them the output path.`);
 				} catch (e) { return err(`propose_manuscript_revision failed: ${(e as Error).message}`); }
 			},
 		},

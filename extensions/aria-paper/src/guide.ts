@@ -173,5 +173,5 @@ When the user asks to change PART of an existing draft (not a full re-draft):
      Otherwise edit on top of the current manuscript.
 3. WAIT for the user to finish reviewing. After they accept, call export_paper
    (the format(s) they want) and tell them the exact output path, e.g.
-   "Updated manuscript exported to .qoka/manuscript/draft/<id>/export/paper.docx", so they can
-   find it without digging.`;
+   "Updated manuscript exported to .qoka/manuscript/draft/<id>/export/<title>.docx" (the
+   export is named after the paper title), so they can find it without digging.`;

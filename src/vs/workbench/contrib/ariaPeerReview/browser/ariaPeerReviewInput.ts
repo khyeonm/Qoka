@@ -52,6 +52,13 @@ export class AriaPeerReviewInput extends EditorInput {
 
 	override matches(other: EditorInput | IUntypedEditorInput): boolean {
 		if (super.matches(other)) { return true; }
-		return other instanceof AriaPeerReviewInput && other.execId === this.execId && other.seedPaperId === this.seedPaperId;
+		if (!(other instanceof AriaPeerReviewInput)) { return false; }
+		// An execId identifies the review folder, so match on it alone - this lets a
+		// draft opened with a seedPaperId ("Review this paper") be reused when start
+		// reopens it as AriaPeerReviewInput(execId) with no seed (otherwise a second
+		// tab for the same review would appear). Only the legacy execId-less "new"
+		// form distinguishes by seedPaperId.
+		if (this.execId || other.execId) { return other.execId === this.execId; }
+		return other.seedPaperId === this.seedPaperId;
 	}
 }
