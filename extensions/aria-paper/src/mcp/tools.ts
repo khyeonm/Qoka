@@ -56,7 +56,7 @@ export function buildTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'get_writing_guide',
-			description: 'Read the manuscript-writing methodology Qoka expects you to follow (structure, source-exclusivity, citation keys, prose rules). Call this before drafting. Also: when the user asks to write a paper (without naming which), first call list_papers - use the paper if exactly one exists, ASK the user which if several, or create_paper if none - so every later tool has the right `paper`.',
+			description: 'Read the manuscript-writing methodology Qoka expects you to follow (structure, source-exclusivity, citation keys, prose rules). Call this before drafting. Also: when the user asks to write a paper (without naming which), first call list_papers - if exactly one exists, CONFIRM it with the user ("Write this paper: <title>?") before proceeding; ASK which if several; create_paper if none - so every later tool has the right `paper`.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => ok(WRITING_GUIDE),
 		},
@@ -205,7 +205,8 @@ export function buildTools(): ToolDefinition[] {
 				if (focus === undefined) { return err('`focus` is required.'); }
 				try {
 					setFocus(r.id, focus);
-					return ok('Saved research focus.');
+					setStep(r.id, 2); // keep/move the window on the Focus step
+					return ok('Saved research focus. When the user agrees to continue, write the outline with set_outline - the window moves to the Outline step automatically.');
 				} catch (e) { return err(`set_focus failed: ${(e as Error).message}`); }
 			},
 		},
@@ -240,7 +241,8 @@ export function buildTools(): ToolDefinition[] {
 				if (!Array.isArray(a.sections)) { return err('`sections` must be an array.'); }
 				try {
 					const meta = setOutline(r.id, a.sections as OutlineSection[]);
-					return ok(`Set outline (${meta.outline.length} sections).`);
+					setStep(r.id, 3); // move the window to the Outline step so the UI follows
+					return ok(`Set outline (${meta.outline.length} sections). When the user agrees to continue, call advance_paper_step (step 4) to show the writing spinner, then write the draft with set_manuscript.`);
 				} catch (e) { return err(`set_outline failed: ${(e as Error).message}`); }
 			},
 		},

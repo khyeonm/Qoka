@@ -49,6 +49,18 @@ CommandsRegistry.registerCommand('aria.peerReview.newForPaper', async (accessor,
 	await accessor.get(IEditorService).openEditor(new AriaPeerReviewInput(undefined, seed), { pinned: true });
 });
 
+// List the Peer Review windows currently OPEN (started runs AND unstarted "new
+// review" tabs), so the chat can reuse an open one instead of opening another.
+CommandsRegistry.registerCommand('aria.peerReview.listOpen', (accessor) => {
+	const out: { execId: string | null; title: string }[] = [];
+	for (const input of accessor.get(IEditorService).editors) {
+		if (input instanceof AriaPeerReviewInput) {
+			out.push({ execId: input.execId ?? null, title: input.getName() });
+		}
+	}
+	return out;
+});
+
 // Start the review from the CURRENTLY-open new-review form (source + reviewers the
 // user picked). Triggered by the chat's start_peer_review tool - there is no button.
 // Returns the execId so the tool can tell the AI which run to drive.

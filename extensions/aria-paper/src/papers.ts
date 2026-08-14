@@ -297,7 +297,9 @@ export function writeManuscript(id: string, markdown: string): void {
 	fs.writeFileSync(p, out, 'utf8');
 	if (op) { fs.writeFileSync(op, out, 'utf8'); } // refresh frozen baseline
 	clearProposal(id); // any pending review is obsolete against the new draft
-	if (meta) { meta.drafting = false; writeMeta(meta); } // draft landed - stop the spinner
+	// Draft landed: move the window to the Write step and stop the spinner, so the
+	// UI follows the agent even if it wrote without advancing first.
+	if (meta) { meta.drafting = false; meta.step = 4; writeMeta(meta); }
 }
 
 /** Stage a proposed revision (full revised manuscript) for the user to review;

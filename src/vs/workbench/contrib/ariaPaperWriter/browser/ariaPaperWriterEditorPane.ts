@@ -590,7 +590,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			padding: '9px 12px', margin: '2px 0 10px',
 		});
 		const label = append(box, $('div'));
-		label.textContent = localize('aria.paperWriter.sendToChat', "Send this to your AI chat:");
+		label.textContent = localize('aria.paperWriter.sendToChat', "Send this to your AI chat, for example:");
 		Object.assign(label.style, { fontSize: '12px', opacity: '0.7', marginBottom: '3px' });
 		const ex = append(box, $('div'));
 		ex.textContent = example;
@@ -600,6 +600,22 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 				[{ boxShadow: '0 0 0 0 rgba(68,136,221,0.45)' }, { boxShadow: '0 0 0 7px rgba(68,136,221,0)' }],
 				{ duration: 1700, iterations: Infinity });
 		}
+	}
+
+	/** A boxed "<bold question> / Say this in your AI chat: <example>" prompt used on
+	 *  the Write step for the chat-driven re-write and revise (no buttons). */
+	private askChatBox(root: HTMLElement, title: string, example: string): void {
+		const box = append(root, $('div'));
+		Object.assign(box.style, {
+			border: '1px solid var(--vscode-focusBorder, #4488dd)', borderRadius: '6px',
+			padding: '9px 12px', margin: '2px 0 10px',
+		});
+		const t = append(box, $('div'));
+		t.textContent = title;
+		Object.assign(t.style, { fontWeight: '600', fontSize: '13px', marginBottom: '3px' });
+		const ex = append(box, $('div'));
+		ex.textContent = localize('aria.paperWriter.sayInChat', "Say this in your AI chat, for example: {0}", `"${example}"`);
+		Object.assign(ex.style, { fontSize: '12.5px', opacity: '0.85', lineHeight: '1.45' });
 	}
 
 	// --- Step 3: Focus ------------------------------------------------------
@@ -757,27 +773,18 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			}
 		}
 
-		// One responsive row: [Re-write] [Revise] │ [Export MD] [DOCX] [LaTeX].
-		// flexWrap lets it reflow when the tab is narrowed.
-		const bar = append(root, $('div'));
-		Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' });
-
 		if (written) {
-			bar.appendChild(this.button(localize('aria.paperWriter.rewrite', "Re-write with AI"), 'primary', () => void this.onWrite()));
-			bar.appendChild(this.button(localize('aria.paperWriter.revise', "Revise a part with AI"), 'ghost', () => void this.sendToChat(this.revisePrompt())));
-			const divider = append(bar, $('div'));
-			Object.assign(divider.style, { width: '1px', alignSelf: 'stretch', minHeight: '26px', background: 'rgba(127,127,127,0.4)', margin: '0 4px' });
+			// Re-write and revise are chat-driven now (no buttons): two boxes above the
+			// draft-path note tell the user exactly what to say in their AI chat.
+			this.askChatBox(root, localize('aria.paperWriter.askRewrite', "Want to re-write the whole draft?"), "Re-write the whole draft.");
+			this.askChatBox(root, localize('aria.paperWriter.askRevise', "Want to revise a part?"), "Revise the Introduction section: <what to change>.");
+
+			// Export only.
+			const bar = append(root, $('div'));
+			Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' });
 			bar.appendChild(this.button('Export MD', 'ghost', () => void this.export('markdown')));
 			bar.appendChild(this.button('Export DOCX', 'ghost', () => void this.export('docx')));
 			bar.appendChild(this.button('Export LaTeX', 'ghost', () => void this.export('latex')));
-
-			// Hand the finished (or revised) manuscript straight to a peer review, with
-			// this paper pre-selected as the source.
-			const proceed = append(root, $('div'));
-			Object.assign(proceed.style, { marginTop: '14px' });
-			proceed.appendChild(this.button(
-				localize('aria.paperWriter.toReview', "Proceed to paper review →"), 'primary',
-				() => void this.commandService.executeCommand('aria.peerReview.newForPaper', this.meta!.id)));
 
 			const id = this.meta!.id;
 			const note = append(root, $('div'));
