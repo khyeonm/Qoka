@@ -169,8 +169,12 @@ export class AriaManuscriptView extends ViewPane {
 			row.onmouseenter = () => { row.style.background = 'var(--vscode-list-hoverBackground, rgba(127,127,127,0.12))'; };
 			row.onmouseleave = () => { row.style.background = 'transparent'; };
 			row.onclick = () => { void this.editorService.openEditor({ resource: f.resource, options: { pinned: true } }); };
-			const icon = append(row, $('span.codicon.codicon-file')) as HTMLElement;
-			Object.assign(icon.style, { flexShrink: '0', opacity: '0.55', fontSize: '13px' });
+			// Leftmost format tag (md / docx / latex) so long title-based filenames
+			// stay distinguishable at a glance.
+			const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+			const tag = append(row, $('span'));
+			tag.textContent = ext === 'tex' ? 'latex' : ext;
+			Object.assign(tag.style, { flexShrink: '0', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.03em', opacity: '0.75', minWidth: '38px', textAlign: 'center', padding: '1px 5px', borderRadius: '4px', background: 'var(--vscode-badge-background, rgba(127,127,127,0.25))', color: 'var(--vscode-badge-foreground, var(--vscode-foreground))' });
 			const label = append(row, $('span'));
 			label.textContent = f.name;
 			Object.assign(label.style, { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', opacity: '0.85' });
@@ -181,7 +185,7 @@ export class AriaManuscriptView extends ViewPane {
 			const dlText = append(dl, $('span'));
 			dlText.textContent = localize('aria.manuscript.download', "Download");
 			Object.assign(dlText.style, { fontSize: '11px', display: 'none' });
-			const dlIcon = append(dl, $('span.codicon.codicon-cloud-download')) as HTMLElement;
+			const dlIcon = append(dl, $('span.codicon.codicon-desktop-download')) as HTMLElement;
 			Object.assign(dlIcon.style, { fontSize: '14px', cursor: 'pointer' });
 			dl.title = localize('aria.manuscript.download', "Download");
 			row.addEventListener('mouseenter', () => { dlText.style.display = 'inline'; });
