@@ -179,19 +179,36 @@ export class AriaManuscriptView extends ViewPane {
 			label.textContent = f.name;
 			Object.assign(label.style, { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', opacity: '0.85' });
 			// "Save As" download button at the right end: opens the OS save dialog so
-			// the user can copy the export anywhere. Hover reveals a "Download" label.
+			// the user can copy the export anywhere. A down-arrow-into-tray glyph (inline
+			// SVG - no exact codicon matches), no hover label.
 			const dl = append(row, $('div'));
-			Object.assign(dl.style, { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: '0', opacity: '0.6' });
-			const dlText = append(dl, $('span'));
-			dlText.textContent = localize('aria.manuscript.download', "Download");
-			Object.assign(dlText.style, { fontSize: '11px', display: 'none' });
-			const dlIcon = append(dl, $('span.codicon.codicon-desktop-download')) as HTMLElement;
-			Object.assign(dlIcon.style, { fontSize: '14px', cursor: 'pointer' });
-			dl.title = localize('aria.manuscript.download', "Download");
-			row.addEventListener('mouseenter', () => { dlText.style.display = 'inline'; });
-			row.addEventListener('mouseleave', () => { dlText.style.display = 'none'; });
+			Object.assign(dl.style, { display: 'flex', alignItems: 'center', flexShrink: '0', opacity: '0.6', cursor: 'pointer' });
+			dl.appendChild(this.downloadGlyph());
+			dl.addEventListener('mouseenter', () => { dl.style.opacity = '1'; });
+			dl.addEventListener('mouseleave', () => { dl.style.opacity = '0.6'; });
 			dl.onclick = (e) => { e.stopPropagation(); void this.saveAs(f.resource, f.name); };
 		}
+	}
+
+	/** Down-arrow-into-open-tray "download" glyph as an inline SVG. */
+	private downloadGlyph(): SVGSVGElement {
+		const ns = 'http://www.w3.org/2000/svg';
+		const svg = document.createElementNS(ns, 'svg');
+		svg.setAttribute('viewBox', '0 0 16 16');
+		svg.setAttribute('width', '14');
+		svg.setAttribute('height', '14');
+		svg.setAttribute('fill', 'none');
+		svg.setAttribute('stroke', 'currentColor');
+		svg.setAttribute('stroke-width', '1.5');
+		svg.setAttribute('stroke-linecap', 'round');
+		svg.setAttribute('stroke-linejoin', 'round');
+		const arrow = document.createElementNS(ns, 'path');
+		arrow.setAttribute('d', 'M8 2.5V8.8M5.1 6 8 9 10.9 6'); // shaft + downward head
+		const tray = document.createElementNS(ns, 'path');
+		tray.setAttribute('d', 'M3.5 10.5V13H12.5V10.5'); // open-top tray
+		svg.appendChild(arrow);
+		svg.appendChild(tray);
+		return svg;
 	}
 
 	/** Copy an exported file somewhere the user picks via the OS save dialog. */

@@ -129,6 +129,49 @@ function recordConcerns(execId: string, reviewer: string, concerns: Concern[]): 
 	fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8');
 }
 
+/** Flatten a run's recorded concerns to a list the assistant can address by id
+ *  (`<reviewer>#<index>`, matching the review tab). [] when none recorded yet. */
+function readConcernsList(execId: string): { id: string; reviewer: string; severity: 'major' | 'minor'; title: string; detail: string }[] {
+	const dir = reviewDir(execId);
+	if (!dir) { return []; }
+	let data: { reviewers?: Record<string, { concerns?: Concern[] }> };
+	try { data = JSON.parse(fs.readFileSync(path.join(dir, 'concerns.json'), 'utf8')); } catch { return []; }
+	const out: { id: string; reviewer: string; severity: 'major' | 'minor'; title: string; detail: string }[] = [];
+	for (const [reviewer, rec] of Object.entries(data.reviewers ?? {})) {
+		(rec?.concerns ?? []).forEach((c, i) => out.push({ id: `${reviewer}#${i}`, reviewer, severity: c.severity, title: c.title, detail: c.detail }));
+	}
+	return out;
+}
+
+/** Mark a concern resolved (or unresolved) in the run's state.json - the review
+ *  tab watches this file and dims/checks the concern card. Idempotent. */
+function setConcernResolved(execId: string, concernId: string, resolved: boolean): void {
+	const dir = reviewDir(execId);
+	if (!dir) { throw new Error('No workspace folder is open.'); }
+	fs.mkdirSync(dir, { recursive: true });
+	const p = path.join(dir, 'state.json');
+	let data: { resolved?: string[] } = {};
+	try { data = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { /* fresh */ }
+	const set = new Set(data.resolved ?? []);
+	if (resolved) { set.add(concernId); } else { set.delete(concernId); }
+	fs.writeFileSync(p, JSON.stringify({ resolved: [...set] }, null, 2), 'utf8');
+}
+
+/** Reset a run for a fresh review iteration on the (possibly revised) paper:
+ *  clear concerns/revisions/resolved and bump the iteration. */
+function resetForRerun(execId: string): void {
+	const dir = reviewDir(execId);
+	if (!dir) { throw new Error('No workspace folder is open.'); }
+	for (const f of ['concerns.json', 'revisions.json', 'state.json']) {
+		try { fs.unlinkSync(path.join(dir, f)); } catch { /* may not exist */ }
+	}
+	const meta = getReviewMeta(execId);
+	if (meta) {
+		meta.iteration = (meta.iteration ?? 1) + 1;
+		try { fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8'); } catch { /* non-fatal */ }
+	}
+}
+
 /** One candidate edit (an "Argument / Edit footprint / Risk" strategy). */
 export interface RevisionProposal { original: string; replacement: string; explanation: string }
 /** Up to 3 alternative proposals that resolve one concern, for one document. */
@@ -319,6 +362,10 @@ export function buildReviewTools(): ToolDefinition[] {
 					manuscript: { key: 'main', name: mainDoc.name, text: mainDoc.text },
 					supplementary: supplDocs,
 					figures,
+					// Already-recorded concerns, each with an id (`<reviewer>#<index>`). When
+					// the user asks to revise a specific one (e.g. "the first major concern"),
+					// match it here and pass its id to record_revision.
+					concerns: readConcernsList(execId),
 					note: 'Review the MAIN manuscript (documentKey "main"). supplementary items (each has a key like "suppl-1") are extra data/context - check the manuscript claims against them, and if a fix belongs in a supplementary document target it via that key. figures are filenames only (you cannot see the images). When proposing a revision, pass the document key as documentKey.',
 				}));
 			},
@@ -370,12 +417,12 @@ export function buildReviewTools(): ToolDefinition[] {
 		},
 		{
 			name: 'record_revision',
-			description: 'Propose UP TO 3 alternative revision strategies that resolve ONE concern from a review run. Qoka shows them in a "< N/3 >" carousel with an Accept button; the user browses the strategies and accepts one, which replaces that span in the paper. Call get_review first to read the CURRENT paper. Each proposal is a distinct strategy (different argument / edit footprint / risk) with the EXACT original span to replace (verbatim, long enough to be unique) and the full replacement. Only add reasoning/scoping/framing grounded in the existing paper - never invent data, numbers, procedures, or citations.',
+			description: 'Revise ONE concern from a review run: propose UP TO 3 alternative strategies. Call this when the user asks to fix/revise a concern (e.g. "revise the first major concern") - there is no button. First call get_review to read the CURRENT paper AND its `concerns` list, then match the concern the user named to its `id` there. Qoka shows the strategies in a "< N/3 >" carousel with an Accept button; the user accepts one, which replaces that span in the paper (Accept does NOT resolve the concern). Each proposal is a distinct strategy (different argument / edit footprint / risk) with the EXACT original span to replace (verbatim, long enough to be unique) and the full replacement. Only add reasoning/scoping/framing grounded in the existing paper - never invent data, numbers, procedures, or citations.',
 			inputSchema: {
 				type: 'object',
 				properties: {
 					execId: { type: 'string', description: 'The review run id.' },
-					concernId: { type: 'string', description: 'The concern id Qoka gave you in the Suggest Revision prompt (e.g. "claude#0").' },
+					concernId: { type: 'string', description: 'The concern id from get_review\'s `concerns` list (e.g. "claude#0"). Match it to the concern the user named ("the first major concern" = the first concerns entry with severity "major").' },
 					documentKey: { type: 'string', description: 'Which document to edit: "main" for the manuscript (default), or a supplementary key like "suppl-1" from get_review.' },
 					proposals: {
 						type: 'array',
@@ -422,7 +469,49 @@ export function buildReviewTools(): ToolDefinition[] {
 				} catch (e) {
 					return err(`record_revision failed: ${(e as Error).message}`);
 				}
-				return ok(`Recorded ${proposals.length} revision strategy(ies) for concern ${concernId}. Qoka shows them in a "< N/${proposals.length} >" carousel with an Accept button.`);
+				return ok(`Recorded ${proposals.length} revision strategy(ies) for concern ${concernId}. Qoka shows them in the paper in a "< N/${proposals.length} >" carousel with an Accept button - tell the user to review and Accept the one they prefer (that applies it to the paper). Accepting does NOT resolve the concern. AFTER that, ASK the user: "Mark this concern as resolved, or would you like to revise it differently?" - if resolved, call resolve_concern("${execId}", "${concernId}"); if they want a different revision, call record_revision again with new strategies.`);
+			},
+		},
+		{
+			name: 'resolve_concern',
+			description: 'Mark a review concern resolved (dims/strikes it through in the Manuscript review tab). Call this ONLY after the user confirms they are done with that concern - typically after they accepted a revision and you asked "mark this concern as resolved?". Get the id from get_review\'s `concerns` list. Reversible: pass resolved=false to un-resolve.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					execId: { type: 'string', description: 'The review run id.' },
+					concernId: { type: 'string', description: 'The concern id from get_review (e.g. "claude#0").' },
+					resolved: { type: 'boolean', description: 'true to mark resolved (default), false to un-resolve.' },
+				},
+				required: ['execId', 'concernId'],
+			},
+			handler: async (args) => {
+				const execId = typeof args.execId === 'string' ? args.execId : '';
+				const concernId = typeof args.concernId === 'string' ? args.concernId : '';
+				const resolved = args.resolved !== false;
+				if (!execId || !concernId) { return err('execId and concernId are required.'); }
+				if (!getReviewMeta(execId)) { return err(`No review run "${execId}".`); }
+				try { setConcernResolved(execId, concernId, resolved); }
+				catch (e) { return err(`resolve_concern failed: ${(e as Error).message}`); }
+				return ok(resolved ? `Marked concern ${concernId} resolved.` : `Un-resolved concern ${concernId}.`);
+			},
+		},
+		{
+			name: 'rerun_review',
+			description: 'Re-run the WHOLE peer review on the revised paper (a fresh iteration). Call this when the user asks to re-run after revising (e.g. "re-run the review on the revised paper"). It clears the previous concerns/revisions and bumps the iteration; the review tab then shows each reviewer as "reviewing" again. AFTER calling it, run each reviewer independently on the CURRENT paper and record their concerns with record_review, exactly like the first run.',
+			inputSchema: {
+				type: 'object',
+				properties: { execId: { type: 'string', description: 'The review run id.' } },
+				required: ['execId'],
+			},
+			handler: async (args) => {
+				const execId = typeof args.execId === 'string' ? args.execId : '';
+				if (!execId) { return err('execId is required.'); }
+				const meta = getReviewMeta(execId);
+				if (!meta) { return err(`No review run "${execId}".`); }
+				try { resetForRerun(execId); }
+				catch (e) { return err(`rerun_review failed: ${(e as Error).message}`); }
+				const after = getReviewMeta(execId);
+				return ok(`Reset review "${execId}" for iteration ${after?.iteration ?? '?'}. Now call get_review("${execId}"), run each reviewer (${meta.reviewers.join(', ')}) independently on the current paper, and record each reviewer's Major/Minor concerns with record_review. The review tab already shows a spinner per reviewer.`);
 			},
 		},
 		{

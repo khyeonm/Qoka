@@ -11,10 +11,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { basename, joinPath } from '../../../../base/common/resources.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
-import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { revealAiProviderChat } from '../../aria/browser/aiProviderChat.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
@@ -103,12 +100,10 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		@IStorageService storageService: IStorageService,
 		@IFileService private readonly fileService: IFileService,
 		@ICommandService private readonly commandService: ICommandService,
-		@IClipboardService private readonly clipboardService: IClipboardService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
-		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IExtensionService private readonly extensionService: IExtensionService,
 	) {
 		super(AriaPeerReviewEditorPane.ID, group, telemetryService, themeService, storageService);
@@ -680,21 +675,13 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		return execId;
 	}
 
-	private reviewPrompt(execId: string, _title: string, reviewers: string[]): string {
-		return `Using the Qoka peer reviewer, run an AI peer review for review run "${execId}". Follow the iterative-paper-defense skill: call get_review("${execId}"), then for each reviewer run it independently - you are the driver, so review with your own model directly and run any other reviewer's model headless via its CLI - and record each reviewer's Major/Minor concerns with record_review. Reviewers: ${reviewers.join(', ')}.`;
-	}
-
-	private revisePrompt(concernId: string, c: Concern): string {
-		return `Using the Qoka peer reviewer, suggest revisions for concern "${concernId}" ("${c.title}") in review run "${this.execId}". Follow the iterative-paper-defense skill: call get_review("${this.execId}"), devise up to 3 alternative strategies (each an Argument / Edit footprint / Risk), and record them together in ONE record_revision call as the proposals array. Set documentKey to the document you are editing - "main" for the manuscript, or a supplementary key like "suppl-1".`;
-	}
-
-	private async sendToChat(query: string): Promise<void> {
-		// Copy-and-paste is the primary path: copy the prompt, reveal whichever
-		// AI provider chat the user installed (Claude / Codex / Gemini), and tell
-		// the user to paste it and press Enter.
-		await this.clipboardService.writeText(query);
-		await revealAiProviderChat(this.commandService, this.configurationService);
-		this.notificationService.info(localize('aria.peerReview.promptCopied', "Prompt copied - paste it into your AI chat (Ctrl/Cmd+V) and press Enter."));
+	/** A subtle "<lead> \"<example>\"" hint that points the user to the AI chat
+	 *  (replaces the old prompt-copy buttons - revise, re-suggest, re-run). */
+	private chatHint(parent: HTMLElement, lead: string, example: string): void {
+		const box = append(parent, $('div'));
+		Object.assign(box.style, { padding: '9px 12px', borderRadius: '6px', background: 'rgba(127,127,127,0.06)', fontSize: '12.5px', lineHeight: '1.5', margin: '4px 0 12px' });
+		const l = append(box, $('span')); l.textContent = lead + ' '; l.style.opacity = '0.8';
+		const ex = append(box, $('span')); ex.textContent = `"${example}"`; ex.style.fontWeight = '600';
 	}
 
 	// --- run results (two columns, sticky headers) --------------------------
@@ -751,7 +738,6 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		Object.assign(rhead.style, { position: 'sticky', top: '0', zIndex: '2', background: bg, height: HEADER_H, boxSizing: 'border-box', padding: '0 18px', borderBottom: '1px solid rgba(127,127,127,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' });
 		const rh = append(rhead, $('div')); rh.textContent = localize('aria.peerReview.comments', "Review Comments");
 		Object.assign(rh.style, { fontSize: '15px', fontWeight: '600' });
-		rhead.appendChild(this.button(localize('aria.peerReview.rerun', "Re-run on revised"), 'ghost', () => void this.rerun()));
 
 		this.wireResize(root, divider, right);
 
@@ -784,15 +770,20 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 			const name = this.activeReviewer.charAt(0).toUpperCase() + this.activeReviewer.slice(1);
 			const label = append(wait, $('span'));
 			label.textContent = localize('aria.peerReview.reviewing', "{0} is reviewing…", name);
-			const paste = append(rbody, $('div'));
-			Object.assign(paste.style, { fontSize: '12.5px', opacity: '0.6', lineHeight: '1.5' });
-			paste.textContent = localize('aria.peerReview.pasteToStart', "Paste the copied prompt into your AI chat and press Enter to start.");
 		} else {
+			// Revise a concern: chat-driven (no buttons). One line above the concerns.
+			this.chatHint(rbody,
+				localize('aria.peerReview.reviseHint', "To revise a concern, tell your AI chat, for example:"),
+				localize('aria.peerReview.reviseExample', "Revise the first major concern."));
 			const withIdx = rec.concerns.map((c, i) => ({ c, id: `${this.activeReviewer}#${i}` }));
 			const major = withIdx.filter(x => x.c.severity === 'major');
 			const minor = withIdx.filter(x => x.c.severity === 'minor');
 			this.renderConcernGroup(rbody, localize('aria.peerReview.major', "Major Concerns"), major, '#e05a4e', localize('aria.peerReview.noMajor', "No major concerns - looking good!"));
 			this.renderConcernGroup(rbody, localize('aria.peerReview.minor', "Minor Concerns"), minor, '#e0b040', localize('aria.peerReview.noMinor', "No minor concerns."));
+			// Re-run the whole review on the revised paper: chat-driven, below the concerns.
+			this.chatHint(rbody,
+				localize('aria.peerReview.rerunHint', "Revised the paper? Ask your AI chat to re-run the review, for example:"),
+				localize('aria.peerReview.rerunExample', "Re-run the review on the revised paper."));
 		}
 	}
 
@@ -921,16 +912,16 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 			Object.assign(ex.style, { fontSize: '11.5px', opacity: '0.7', marginTop: '5px', fontStyle: 'italic' });
 		}
 
-		// actions row: Accept / Re-suggest on the left, "< N/M >" carousel on the right.
+		// actions row: Accept on the left, "< N/M >" carousel on the right. Re-suggesting
+		// a concern is chat-driven now (ask the AI to "revise it differently"), so there
+		// is no Re-suggest button; standalone edits keep a Discard.
 		const actions = append(w, $('div'));
 		Object.assign(actions.style, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginTop: '7px' });
 		const leftg = append(actions, $('div'));
 		Object.assign(leftg.style, { display: 'flex', gap: '6px' });
 		leftg.appendChild(this.button(localize('aria.peerReview.accept', "Accept"), 'primary', () => void this.acceptRevision(id)));
-		if (c) {
-			leftg.appendChild(this.button(localize('aria.peerReview.reSuggest', "Re-suggest"), 'ghost', () => void this.sendToChat(this.revisePrompt(id, c))));
-		} else {
-			// standalone (user-requested) edit - no concern to re-suggest against
+		if (!c) {
+			// standalone (user-requested) edit - not tied to a concern
 			leftg.appendChild(this.button(localize('aria.peerReview.discard', "Discard"), 'ghost', () => void this.discardRevision(id)));
 		}
 		if (props.length > 1) {
@@ -1049,14 +1040,10 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 				card.onclick = ev => { if (!(ev.target instanceof HTMLElement) || ev.target.tagName !== 'BUTTON') { void this.focusRevision(id); } };
 			}
 
-			// footer: Suggest Revision (left) + Resolved checkbox (right)
+			// footer: Resolved checkbox (right). Requesting a revision is chat-driven now
+			// (see the "revise a concern" hint above the list), so there is no button.
 			const foot = append(card, $('div'));
-			Object.assign(foot.style, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginTop: '10px' });
-			if (!resolved && !rev) {
-				foot.appendChild(this.button(localize('aria.peerReview.suggest', "Suggest Revision"), 'ghost', () => void this.sendToChat(this.revisePrompt(id, c))));
-			} else {
-				const sp = append(foot, $('span')); sp.textContent = ''; sp.style.flex = '1';
-			}
+			Object.assign(foot.style, { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' });
 			const rc = append(foot, $('div'));
 			Object.assign(rc.style, { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', cursor: 'pointer', opacity: '0.85' });
 			rc.appendChild(this.checkbox(resolved));
@@ -1084,14 +1071,11 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		} else if (p.original) {
 			this.notificationService.warn(localize('aria.peerReview.applyMiss', "Couldn't find the exact original text to replace (the paper may have changed)."));
 		}
-		if (this.concernById(id)) {
-			// concern-tied: keep the concern, mark it resolved (card dims + checks)
-			this.resolved.add(id);
-			await this.persistResolved();
-		} else {
-			// standalone (user-requested) edit: it's applied, drop the proposal
-			await this.deleteRevision(id);
-		}
+		// Accept APPLIES the edit only - it no longer auto-resolves the concern.
+		// Resolving is a separate step: the AI asks "mark resolved, or revise
+		// differently?" (resolve_concern), or the user ticks the Resolved checkbox.
+		// Either way the proposal is consumed so the widget clears.
+		await this.deleteRevision(id);
 		this.render();
 	}
 
@@ -1106,20 +1090,6 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		this.proposalIdx.delete(id);
 		this.seenRevs.delete(id);
 		await this.fileService.writeFile(joinPath(dir, 'revisions.json'), VSBuffer.fromString(JSON.stringify(this.revisions, null, 2)));
-	}
-
-	private async rerun(): Promise<void> {
-		const dir = this.reviewDir();
-		if (!dir || !this.meta) { return; }
-		// Fresh iteration on the current (possibly revised) paper.
-		for (const f of ['concerns.json', 'revisions.json', 'state.json']) {
-			try { await this.fileService.del(joinPath(dir, f)); } catch { /* may not exist */ }
-		}
-		this.meta.iteration = (this.meta.iteration ?? 1) + 1;
-		await this.fileService.writeFile(joinPath(dir, 'meta.json'), VSBuffer.fromString(JSON.stringify(this.meta, null, 2)));
-		this.concerns = undefined; this.revisions = {}; this.resolved = new Set(); this.proposalIdx.clear();
-		this.render();
-		await this.sendToChat(this.reviewPrompt(this.meta.execId, this.meta.title, this.meta.reviewers));
 	}
 
 	private reviewerName(id: string): string { return id === 'claude' ? 'Claude' : id === 'codex' ? 'Codex' : id; }

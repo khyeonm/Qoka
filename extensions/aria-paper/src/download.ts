@@ -37,16 +37,34 @@ export async function ensurePandoc(opts: EnsureOpts): Promise<string> {
 
 	if (opts.resourceRoot) {
 		const bundled = path.join(opts.resourceRoot, 'bin', binName);
-		if (fs.existsSync(bundled)) { return bundled; }
+		if (fs.existsSync(bundled)) { await ensureExecutable(bundled); return bundled; }
 	}
 
 	const cacheVersionDir = path.join(opts.cacheDir, `pandoc-${PANDOC_VERSION}`);
 	const cached = findFile(cacheVersionDir, binName);
-	if (cached) { return cached; }
+	// Re-assert the exec bit (and clear macOS quarantine) even for a CACHED binary:
+	// an older build downloaded pandoc without setting it, so the cached file spawns
+	// with EACCES on macOS/Linux until we fix its permissions here.
+	if (cached) { await ensureExecutable(cached); return cached; }
 
 	if (await onPath(binName)) { return binName; }
 
 	return await downloadPandoc(cacheVersionDir, binName, log);
+}
+
+/** Make a local binary runnable on macOS/Linux: ensure the exec bit, and on macOS
+ *  strip the Gatekeeper quarantine flag that blocks an unsigned downloaded binary.
+ *  No-op on Windows. Best-effort throughout. */
+async function ensureExecutable(bin: string): Promise<void> {
+	if (process.platform === 'win32') { return; }
+	try {
+		fs.accessSync(bin, fs.constants.X_OK);
+	} catch {
+		try { fs.chmodSync(bin, 0o755); } catch { /* best-effort */ }
+	}
+	if (process.platform === 'darwin') {
+		try { await execFileAsync('xattr', ['-dr', 'com.apple.quarantine', bin], { timeout: 5000 }); } catch { /* not quarantined / xattr absent */ }
+	}
 }
 
 async function onPath(cmd: string): Promise<boolean> {
@@ -104,15 +122,25 @@ async function downloadPandoc(destDir: string, binName: string, log: (m: string)
 	await httpDownload(url, archive);
 
 	log('Extracting pandoc…');
-	// `tar -xf` auto-detects gzip on Linux (GNU tar); bsdtar on macOS/Windows
-	// also extracts .zip, so one command covers all platforms.
-	await execFileAsync('tar', ['-xf', archive, '-C', destDir], { timeout: 180000 });
+	try {
+		if (archive.toLowerCase().endsWith('.zip') && process.platform === 'darwin') {
+			// macOS bsdtar (libarchive) fails on pandoc's zip ("ZIP decompression
+			// failed (-5)"); `ditto` is the native, reliable zip extractor there.
+			await execFileAsync('ditto', ['-x', '-k', archive, destDir], { timeout: 180000 });
+		} else {
+			// `tar -xf` auto-detects gzip on Linux (GNU tar); Windows bsdtar extracts .zip.
+			await execFileAsync('tar', ['-xf', archive, '-C', destDir], { timeout: 180000 });
+		}
+	} catch (e) {
+		// A failed/partial extraction can leave a corrupt archive that dooms every
+		// later attempt - remove it so the next run re-downloads a clean copy.
+		try { fs.unlinkSync(archive); } catch { /* ignore */ }
+		throw e;
+	}
 
 	const bin = findFile(destDir, binName);
 	if (!bin) { throw new Error('pandoc binary not found after extraction.'); }
-	if (process.platform !== 'win32') {
-		try { fs.chmodSync(bin, 0o755); } catch { /* best-effort */ }
-	}
+	await ensureExecutable(bin);
 	try { fs.unlinkSync(archive); } catch { /* keep going */ }
 	log('pandoc ready.');
 	return bin;
