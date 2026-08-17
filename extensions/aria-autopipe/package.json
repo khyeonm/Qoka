@@ -31,6 +31,12 @@
 				"title": "Qoka: Autopipe Status"
 			},
 			{
+				"command": "aria.autopipe.restartNotebookKernel",
+				"title": "Restart Kernel",
+				"category": "Qoka",
+				"icon": "$(debug-restart)"
+			},
+			{
 				"command": "aria.autopipe.ssh.add",
 				"title": "Qoka: Add SSH profile"
 			},
@@ -74,7 +80,16 @@
 				"command": "aria.autopipe.reregister",
 				"title": "Qoka: Re-register MCP with Claude Code"
 			}
-		]
+		],
+		"menus": {
+			"notebook/toolbar": [
+				{
+					"command": "aria.autopipe.restartNotebookKernel",
+					"group": "navigation/execute",
+					"when": "notebookType == 'jupyter-notebook'"
+				}
+			]
+		}
 	},
 	"scripts": {
 		"compile": "tsc -p ./",

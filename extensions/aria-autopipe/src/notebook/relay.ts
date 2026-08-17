@@ -28,10 +28,10 @@
  *     { "type": "fatal",   "error" }
  *
  * Kept dependency-light (stdlib + jupyter_client + ipykernel) so it installs fast
- * into a per-project uv venv.
+ * into a per-project micromamba (conda) env.
  */
 export const RELAY_PY = String.raw`
-import sys, json, threading, queue
+import sys, json, threading, queue, subprocess
 
 def emit(obj):
     try:
@@ -48,7 +48,14 @@ except Exception as e:
 
 km = KernelManager(kernel_name="python3")
 try:
-    km.start_kernel()
+    # Isolate the kernel's own stdio from OUR stdout (which carries the JSON
+    # protocol). If the kernel wrote to the inherited stdout, its bytes would
+    # interleave with our "ready"/output lines and corrupt them. Cell stdout/stderr
+    # still comes back over ZMQ (iopub), not this pipe.
+    try:
+        km.start_kernel(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except TypeError:
+        km.start_kernel()
     kc = km.client()
     kc.start_channels()
     kc.wait_for_ready(timeout=180)
@@ -58,9 +65,16 @@ except Exception as e:
 
 emit({"type": "ready"})
 
-# kernel message-id -> our cell id
-cells = {}
+# The single in-flight cell id. Cells run STRICTLY sequentially (the controller
+# waits for each cell's reply before sending the next), so one holder is enough -
+# and it avoids a race where an iopub output arrives before a msg-id -> cell-id map
+# entry is stored, which would drop the output (that broke output over SSH).
+current = {"id": None}
 lock = threading.Lock()
+
+def cur():
+    with lock:
+        return current["id"]
 
 def iopub_loop():
     while True:
@@ -70,9 +84,7 @@ def iopub_loop():
             continue
         except Exception:
             break
-        parent = (msg.get("parent_header") or {}).get("msg_id")
-        with lock:
-            cid = cells.get(parent)
+        cid = cur()
         t = msg["header"]["msg_type"]
         c = msg.get("content") or {}
         if t == "stream":
@@ -95,11 +107,8 @@ def shell_loop():
         except Exception:
             break
         if msg["header"]["msg_type"] == "execute_reply":
-            parent = (msg.get("parent_header") or {}).get("msg_id")
-            with lock:
-                cid = cells.pop(parent, None)
             c = msg.get("content") or {}
-            emit({"type": "reply", "id": cid, "status": c.get("status"), "count": c.get("execution_count")})
+            emit({"type": "reply", "id": cur(), "status": c.get("status"), "count": c.get("execution_count")})
 
 threading.Thread(target=iopub_loop, daemon=True).start()
 threading.Thread(target=shell_loop, daemon=True).start()
@@ -117,9 +126,11 @@ while True:
         continue
     ct = cmd.get("type")
     if ct == "execute":
-        mid = kc.execute(cmd.get("code", ""))
+        # Record the cell id BEFORE executing, so any iopub output is attributed to
+        # it (no race). Sequential execution guarantees one in-flight cell.
         with lock:
-            cells[mid] = cmd.get("id")
+            current["id"] = cmd.get("id")
+        kc.execute(cmd.get("code", ""))
     elif ct == "interrupt":
         try:
             km.interrupt_kernel()

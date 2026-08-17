@@ -59,7 +59,7 @@ export const NOTEBOOK_TOOLS: ToolDefinition[] = [
 				if (dir && dir !== '.') { await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(folder.uri, dir)); }
 				await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(nb, null, 1), 'utf8'));
 				try { await vscode.commands.executeCommand('vscode.openWith', uri, 'jupyter-notebook'); } catch { /* opening is best-effort */ }
-				return textResult(`Created notebook "${rel}" with ${cells.length} cell(s) and opened it. Tell the user to pick the "Qoka Run Environment" kernel (top-right of the notebook) and run the cells - do NOT run them yourself. To add packages, they can run a cell like \`!uv pip install scanpy\`.`);
+				return textResult(`Created notebook "${rel}" with ${cells.length} cell(s) and opened it. Tell the user to pick the "Qoka Run Environment" kernel (top-right of the notebook) and run the cells - do NOT run them yourself. To add packages, a cell can use conda, uv, or pip - all install into the same kernel env: \`!conda install -c conda-forge -c bioconda samtools\`, \`!uv pip install scanpy\`, or \`%pip install scanpy\`.`);
 			} catch (e) {
 				return errorResult('create_notebook failed: ' + (e as Error).message);
 			}

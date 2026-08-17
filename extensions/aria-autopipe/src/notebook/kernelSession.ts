@@ -48,19 +48,30 @@ export class KernelSession {
 		this.targetLabel = isBuiltIn ? (process.platform === 'win32' ? 'Local (WSL)' : process.platform === 'darwin' ? 'Local (vfkit)' : 'Local (VM)') : `SSH: ${profile.host}`;
 		const cmd = buildLaunch(profile, projectKey(this.workspaceRoot));
 
-		const readyPromise = new Promise<void>((resolve) => {
-			const d = this.onEvent(e => { if (e.type === 'ready' && !this.ready) { this.ready = true; d.dispose(); resolve(); } });
-		});
 		let setupErr = '';
+		const tail = () => setupErr.trim() ? ' Setup log: ' + setupErr.trim().slice(-800) : '';
+
+		// Resolve on the relay's 'ready'; fail fast on a 'fatal' or an early channel
+		// close (don't wait out the whole timeout when the kernel already died).
+		const ready = new Promise<void>((resolve, reject) => {
+			let settled = false;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const disp: vscode.Disposable[] = [];
+			const done = (fn: () => void) => { if (!settled) { settled = true; for (const d of disp) { d.dispose(); } if (timer) { clearTimeout(timer); } fn(); } };
+			disp.push(this.onEvent(e => {
+				if (e.type === 'ready') { this.ready = true; done(resolve); }
+				else if (e.type === 'fatal') { done(() => reject(new Error(String(e.error ?? 'the kernel failed to start') + tail()))); }
+			}));
+			disp.push(this.onExit(() => done(() => reject(new Error('The kernel process exited during startup.' + tail())))));
+			timer = setTimeout(() => done(() => reject(new Error('The kernel did not become ready in time.' + tail()))), 300000);
+		});
+
 		this.channel = await services().ssh.execPersistent(profile, cmd, {
 			onStdout: (chunk) => this.ingest(chunk),
 			onStderr: (chunk) => { setupErr += chunk; if (setupErr.length > 8000) { setupErr = setupErr.slice(-8000); } },
 			onClose: () => { this.ready = false; this.channel = undefined; this._onExit.fire(setupErr.trim() || undefined); },
 		});
-		await Promise.race([
-			readyPromise,
-			new Promise<void>((_r, reject) => setTimeout(() => reject(new Error('The kernel did not become ready in time.' + (setupErr ? ' Setup log: ' + setupErr.slice(-500) : ''))), 300000)),
-		]);
+		await ready;
 	}
 
 	/** Split the relay's line-delimited JSON stdout into events. */
@@ -104,23 +115,38 @@ function projectKey(root: string): string {
 function shq(s: string): string { return `'${s.replace(/'/g, `'\\''`)}'`; }
 
 /**
- * The one-line-per-statement shell script that boots the relay: ensure uv, create
- * a per-project notebook venv with ipykernel + jupyter_client, then exec the relay
- * from that venv. ALL setup output goes to stderr so stdout carries only the relay's
- * JSON protocol.
+ * The one-line-per-statement shell script that boots the relay. It creates a
+ * per-project notebook environment as a micromamba (conda) env so cells can install
+ * with conda, uv, AND pip (all three target the SAME env): `!conda install ...` /
+ * `!mamba install ...` for conda-forge/bioconda packages, `!uv pip install ...` for
+ * fast PyPI installs, and `%pip install ...` for plain pip. It ensures micromamba +
+ * uv, creates the env with python + pip + ipykernel + jupyter_client, activates it
+ * so cell subprocesses install into it, then execs the relay from that env's python.
+ * ALL setup output goes to stderr so stdout carries only the relay's JSON protocol.
  */
 function buildLaunch(profile: SshProfile, key: string): string {
 	const b64 = Buffer.from(RELAY_PY, 'utf8').toString('base64');
 	const workdir = profile.repo_path && profile.repo_path.trim() ? shq(profile.repo_path) : '"$HOME"';
 	return [
-		'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
+		'export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"',
+		'export MAMBA_ROOT_PREFIX="$HOME/.qoka/mamba"',
 		`NBENV="$HOME/.qoka/nbenv/${key}"`,
+		// micromamba (conda) - fetch the single static binary once if it is missing.
+		'if ! command -v micromamba >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/micromamba" ]; then A="linux-64"; case "$(uname -m)" in aarch64|arm64) A="linux-aarch64";; esac; mkdir -p "$HOME/.local"; curl -Ls "https://micro.mamba.pm/api/micromamba/$A/latest" | tar -xj -C "$HOME/.local" bin/micromamba 1>&2 || true; fi',
+		'MM="$(command -v micromamba 2>/dev/null || echo "$HOME/.local/bin/micromamba")"',
+		// Per-project conda env: python + pip + the kernel bits. Created once.
+		'if [ ! -x "$NBENV/bin/python" ]; then "$MM" create -y -p "$NBENV" -c conda-forge python pip ipykernel jupyter_client 1>&2; fi',
+		// Expose conda/mamba command NAMES (micromamba is CLI-compatible for install).
+		'ln -sf "$MM" "$NBENV/bin/mamba" 2>/dev/null || true; ln -sf "$MM" "$NBENV/bin/conda" 2>/dev/null || true',
+		// uv for fast `!uv pip install` (targets the env via CONDA_PREFIX below).
 		'command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh 1>&2',
-		'if [ ! -x "$NBENV/bin/python" ]; then uv venv "$NBENV" 1>&2; fi',
-		'"$NBENV/bin/python" -c "import jupyter_client, ipykernel" 2>/dev/null || uv pip install --python "$NBENV/bin/python" ipykernel jupyter_client 1>&2',
+		// Register the jupyter kernelspec inside the env.
 		'if [ ! -f "$NBENV/share/jupyter/kernels/python3/kernel.json" ]; then "$NBENV/bin/python" -m ipykernel install --sys-prefix --name python3 1>&2; fi',
-		'export VIRTUAL_ENV="$NBENV"',
-		'export PATH="$NBENV/bin:$PATH"',
+		// Activate the env so cell installs (conda/mamba/uv/pip) all target it.
+		'eval "$("$MM" shell hook -s posix 2>/dev/null)" 2>/dev/null || true',
+		'micromamba activate "$NBENV" 2>/dev/null || true',
+		'export CONDA_PREFIX="$NBENV"; export CONDA_DEFAULT_ENV="$NBENV"; unset VIRTUAL_ENV',
+		'export PATH="$NBENV/bin:$HOME/.local/bin:/usr/local/bin:$PATH"',
 		`mkdir -p ${workdir} 2>/dev/null || true`,
 		`cd ${workdir} 2>/dev/null || cd "$HOME"`,
 		`printf '%s' '${b64}' | base64 -d > "$NBENV/relay.py"`,
