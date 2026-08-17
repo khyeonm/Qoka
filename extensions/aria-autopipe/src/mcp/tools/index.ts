@@ -12,6 +12,7 @@ import { RESULT_TOOLS } from './results';
 import { PROJECT_TOOLS } from './projectSync';
 import { PLUGIN_TOOLS } from './plugins';
 import { VM_TOOLS } from './vm';
+import { NOTEBOOK_TOOLS } from './notebook';
 
 // Concatenated in the order they appear in autopipe-app's server.rs so that
 // `tools/list` returns tools in a consistent, predictable sequence.
@@ -40,6 +41,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	...WORKSPACE_TOOLS.slice(1), // get_templates, get_generation_guide
 	...PLUGIN_TOOLS,
 	...VM_TOOLS, // local run environment resources (get/set) - only for the local VM
+	...NOTEBOOK_TOOLS, // create_notebook - author a .ipynb the user runs with the Qoka Run Environment kernel
 
 ];
 

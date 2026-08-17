@@ -32,6 +32,23 @@ export interface RunOptions {
 	stdin?: string;
 }
 
+/** Callbacks wired BEFORE the remote process starts, so no early output is lost. */
+export interface PersistentHandlers {
+	onStdout: (chunk: string) => void;
+	onStderr: (chunk: string) => void;
+	onClose: (code: number | null) => void;
+}
+
+/** A long-lived remote process (unlike the one-shot exec used everywhere else):
+ *  the ssh2 connection + exec channel stay open so we can stream stdin/stdout
+ *  both ways. Used by the notebook kernel relay. */
+export interface PersistentChannel {
+	/** Write to the remote process stdin (e.g. a JSON line). */
+	write(data: string): void;
+	/** Tear the channel + connection down. */
+	close(): void;
+}
+
 const DEFAULT_TIMEOUT_MS = 20000;
 
 export class SshService {
@@ -39,6 +56,49 @@ export class SshService {
 	async run(profile: SshProfile, command: string, opts: RunOptions = {}): Promise<SshResult> {
 		const { stdout, stderr, exitCode } = await this.execRaw(profile, command, opts);
 		return { stdout: stripSuccessPrefix(stdout.toString('utf8')), stderr, exitCode };
+	}
+
+	/** Open a LONG-LIVED remote process over its own ssh2 connection (kept open,
+	 *  unlike execOnce which connects-execs-disconnects). Handlers are wired BEFORE
+	 *  the process starts so no early output is lost. Resolves with a channel once
+	 *  the exec stream is established; the connection stays up until close() or the
+	 *  remote process exits. Used by the notebook kernel relay. */
+	execPersistent(profile: SshProfile, command: string, handlers: PersistentHandlers): Promise<PersistentChannel> {
+		return new Promise((resolve, reject) => {
+			let cfg: ConnectConfig;
+			try { cfg = connectConfig(profile); } catch (e) { reject(e); return; }
+			const conn = new Client();
+			let settled = false;
+			conn.on('ready', () => {
+				conn.exec(command, (err, stream) => {
+					if (err) {
+						if (!settled) { settled = true; reject(err); }
+						try { conn.end(); } catch { /* ignore */ }
+						return;
+					}
+					stream.on('data', (d: Buffer) => handlers.onStdout(d.toString('utf8')));
+					stream.stderr.on('data', (d: Buffer) => handlers.onStderr(d.toString('utf8')));
+					stream.on('close', (code: number | null) => {
+						try { conn.end(); } catch { /* ignore */ }
+						handlers.onClose(code ?? null);
+					});
+					settled = true;
+					resolve({
+						write: (data: string) => { try { stream.write(data); } catch { /* channel gone */ } },
+						close: () => { try { stream.end(); } catch { /* ignore */ } try { conn.end(); } catch { /* ignore */ } },
+					});
+				});
+			});
+			conn.on('error', (err) => {
+				const e = err instanceof Error ? err : new Error(String(err));
+				if (!settled) { settled = true; reject(e); }
+			});
+			if (profile.auth.type === 'password' && profile.auth.password) {
+				const kbPw = profile.auth.password;
+				conn.on('keyboard-interactive', (_n, _i, _l, prompts, respond) => respond(prompts.map(() => kbPw)));
+			}
+			try { conn.connect(cfg); } catch (e) { if (!settled) { settled = true; reject(e instanceof Error ? e : new Error(String(e))); } }
+		});
 	}
 
 	async testConnection(profile: SshProfile): Promise<{ ok: boolean; message: string }> {

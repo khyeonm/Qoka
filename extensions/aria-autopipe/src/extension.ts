@@ -24,6 +24,7 @@ import { PluginService, DEFAULT_PLUGIN_NAMES } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
 import { ensureWorkspaceScaffold } from './common/workspaceSync';
+import { NotebookKernel } from './notebook/controller';
 
 let mcpServer: QokaMcpServer | undefined;
 // Second MCP server ("qoka-run"): quick one-off code execution on the same
@@ -60,6 +61,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	// three dirs + the README exist, so a freshly opened project always shows
 	// them - even for remote-only users who never start the built-in VM.
 	try { ensureWorkspaceScaffold(); } catch { /* best-effort */ }
+
+	// Native Jupyter kernel "Qoka Run Environment": opening a .ipynb and picking
+	// this kernel runs each cell in the ACTIVE run environment (WSL/vfkit/SSH) via
+	// a persistent SSH channel + in-VM relay - not on a local Python.
+	try { new NotebookKernel(context, () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath); } catch (e) { console.error('[aria-autopipe] notebook kernel init failed', e); }
 
 	// In-app PDF viewer (pdf.js) as the default editor for .pdf, so downloaded papers
 	// (Paper Library) and pipeline result PDFs render inside Qoka as an editor tab
