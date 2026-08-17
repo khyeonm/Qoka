@@ -150,10 +150,15 @@ function buildLaunch(profile: SshProfile, key: string): string {
 		// micromamba (conda) - fetch the single static binary once if it is missing.
 		'if ! command -v micromamba >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/micromamba" ]; then A="linux-64"; case "$(uname -m)" in aarch64|arm64) A="linux-aarch64";; esac; mkdir -p "$HOME/.local"; curl -Ls "https://micro.mamba.pm/api/micromamba/$A/latest" | tar -xj -C "$HOME/.local" bin/micromamba 1>&2 || true; fi',
 		'MM="$(command -v micromamba 2>/dev/null || echo "$HOME/.local/bin/micromamba")"',
-		// Per-project conda env: python + pip + the kernel bits. Created once.
-		'if [ ! -x "$NBENV/bin/python" ]; then "$MM" create -y -p "$NBENV" -c conda-forge python pip ipykernel jupyter_client 1>&2; fi',
+		'if [ ! -x "$MM" ]; then echo "[qoka] ERROR: micromamba is not available (download blocked?); conda/mamba will not work." 1>&2; fi',
+		'echo "[qoka] micromamba: $MM" 1>&2',
+		// Per-project conda env: python + pip + the kernel bits. Rebuild it when it is
+		// missing OR when it is not a real conda env (e.g. a stale uv venv left by an
+		// older build) - otherwise conda/mamba installs have nowhere to go.
+		'if [ ! -x "$NBENV/bin/python" ] || [ ! -d "$NBENV/conda-meta" ]; then echo "[qoka] creating conda env at $NBENV (first run, a few minutes)…" 1>&2; rm -rf "$NBENV"; "$MM" create -y -p "$NBENV" -c conda-forge python pip ipykernel jupyter_client 1>&2; fi',
 		// Expose conda/mamba command NAMES (micromamba is CLI-compatible for install).
 		'ln -sf "$MM" "$NBENV/bin/mamba" 2>/dev/null || true; ln -sf "$MM" "$NBENV/bin/conda" 2>/dev/null || true',
+		'echo "[qoka] env kind: $([ -d "$NBENV/conda-meta" ] && echo conda || echo NON-CONDA); conda -> $(readlink "$NBENV/bin/conda" 2>/dev/null || echo MISSING)" 1>&2',
 		// uv for fast `!uv pip install` (targets the env via CONDA_PREFIX below).
 		'command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh 1>&2',
 		// Register the jupyter kernelspec inside the env.
