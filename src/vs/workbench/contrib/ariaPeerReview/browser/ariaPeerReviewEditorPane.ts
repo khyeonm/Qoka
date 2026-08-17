@@ -166,6 +166,8 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		this.inputStore.clear();
 		this.execId = input.execId;
 		this.meta = undefined;
+		this.paperText = '';
+		this.activeReviewer = '';
 		this.draft = undefined; this.figures = []; this.supplementary = [];
 		this.selectedPaperId = '';
 		this.reviewers = { claude: true };
@@ -206,9 +208,19 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 			if (input instanceof AriaPeerReviewInput && this.meta?.title) { input.setName(this.meta.title); }
 			const dir = this.reviewDir();
 			if (dir) {
-				// A draft folder exists on disk: refresh if it changes (e.g. deleted).
+				// A draft folder exists on disk: refresh if it changes. When the draft is
+				// STARTED (meta.draft cleared by runFromForm), transition to the run view -
+				// prime the revision state AND load the paper body now, so the manuscript
+				// shows on the left immediately, not only after the reviewer runs get_review.
 				this.inputStore.add(this.fileService.onDidFilesChange(e => {
-					if (e.affects(dir)) { void this.reloadRun().then(() => this.render()); }
+					if (!e.affects(dir)) { return; }
+					void this.reloadRun().then(async () => {
+						if (this.meta && !this.meta.draft) {
+							this.seenRevs = new Map(this.pendingRevIds().map(id => [id, this.revisions[id].recordedAt]));
+							this.paperText = await this.loadPaperText(this.activeDoc);
+						}
+						this.render();
+					});
 				}));
 			}
 		}
@@ -234,7 +246,20 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 		this.revisions = (await this.readJson<Record<string, Revision>>(joinPath(dir, 'revisions.json'))) ?? {};
 		const st = await this.readJson<{ resolved?: string[] }>(joinPath(dir, 'state.json'));
 		this.resolved = new Set(st?.resolved ?? []);
-		if (this.meta && !this.activeReviewer) { this.activeReviewer = this.meta.reviewers[0] ?? 'claude'; }
+		if (this.meta) {
+			// Keep the active reviewer valid. A draft carries reviewers:[] (which would
+			// default to 'claude'), so once the real reviewers land, snap to one that was
+			// actually selected - otherwise a Codex-only run wrongly shows "Claude is reviewing".
+			if (!this.activeReviewer || !this.meta.reviewers.includes(this.activeReviewer)) {
+				this.activeReviewer = this.meta.reviewers[0] ?? 'claude';
+			}
+			// If the active reviewer has produced nothing yet but another has finished,
+			// show the finished one - so a completed reviewer's tab opens without a click.
+			if (!this.concerns?.reviewers?.[this.activeReviewer]?.concerns?.length) {
+				const done = this.meta.reviewers.find(r => this.concerns?.reviewers?.[r]?.concerns?.length);
+				if (done) { this.activeReviewer = done; }
+			}
+		}
 		this.docs = this.buildDocs();
 		if (!this.docs.some(d => d.key === this.activeDoc)) { this.activeDoc = 'main'; }
 	}
@@ -689,6 +714,14 @@ export class AriaPeerReviewEditorPane extends EditorPane {
 	private renderRun(root: HTMLElement): void {
 		const meta = this.meta!;
 		const bg = 'var(--vscode-editor-background)';
+
+		// Safety net: if the run view is showing but the main body hasn't loaded yet
+		// (e.g. we reached here via a draft->started transition), pull the manuscript
+		// now and re-render, so the left column never sits on the "reviewer loads it"
+		// placeholder while the manuscript is right there on disk.
+		if (this.activeDoc === 'main' && !this.paperText && meta.paperId) {
+			void this.loadPaperText('main').then(t => { if (t && !this.paperText) { this.paperText = t; this.render(); } });
+		}
 
 		// Both column headers share HEADER_H (kept short) so their bottom borders
 		// line up and the Save-paper / Re-run buttons sit on one horizontal line.
