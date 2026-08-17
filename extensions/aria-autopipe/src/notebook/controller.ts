@@ -16,6 +16,8 @@ import { KernelSession, RelayEvent } from './kernelSession';
 export class NotebookKernel {
 	private readonly controller: vscode.NotebookController;
 	private readonly sessions = new Map<string, KernelSession>();
+	/** Per-notebook serial queue: cells run one at a time, in click order. */
+	private readonly queues = new Map<string, Promise<void>>();
 	private order = 0;
 
 	constructor(ctx: vscode.ExtensionContext, private readonly workspaceRoot: () => string | undefined) {
@@ -24,7 +26,13 @@ export class NotebookKernel {
 		this.controller.supportsExecutionOrder = true;
 		this.controller.description = 'Runs cells in the active Qoka run environment (WSL / vfkit / SSH).';
 		this.controller.executeHandler = (cells, notebook) => this.execute(cells, notebook);
-		this.controller.interruptHandler = (notebook) => { this.sessions.get(notebook.uri.toString())?.interrupt(); };
+		this.controller.interruptHandler = (notebook) => {
+			const s = this.sessions.get(notebook.uri.toString());
+			if (!s) { return; }
+			// If a cell is running, interrupt it; if the kernel is still booting
+			// (nothing to interrupt), drop the session to abort the startup.
+			if (s.isReady) { s.interrupt(); } else { this.disposeSession(notebook.uri.toString()); }
+		};
 		ctx.subscriptions.push(this.controller);
 		ctx.subscriptions.push(vscode.workspace.onDidCloseNotebookDocument(nb => this.disposeSession(nb.uri.toString())));
 
@@ -44,6 +52,8 @@ export class NotebookKernel {
 	private disposeSession(key: string): void {
 		const s = this.sessions.get(key);
 		if (s) { s.dispose(); this.sessions.delete(key); }
+		// Drop the queue so pending cells don't keep running on the dead session.
+		this.queues.delete(key);
 	}
 
 	private sessionFor(notebook: vscode.NotebookDocument): KernelSession {
@@ -60,28 +70,52 @@ export class NotebookKernel {
 
 	private async execute(cells: vscode.NotebookCell[], notebook: vscode.NotebookDocument): Promise<void> {
 		const session = this.sessionFor(notebook);
-		for (const cell of cells) { await this.runCell(session, cell); }
+		const key = notebook.uri.toString();
+		// Chain every requested cell onto the notebook's serial queue so cells run
+		// strictly one at a time (in click order) even across separate run clicks.
+		// A queued cell stays pending - no spinner - until the cell ahead of it ends.
+		const mine: Promise<void>[] = [];
+		for (const cell of cells) {
+			const prev = this.queues.get(key) ?? Promise.resolve();
+			const p = prev.then(() => this.runCell(session, cell)).catch(() => { /* keep the chain alive */ });
+			this.queues.set(key, p);
+			mine.push(p);
+		}
+		await Promise.all(mine);
 	}
 
 	private async runCell(session: KernelSession, cell: vscode.NotebookCell): Promise<void> {
-		// Create the cell execution FIRST so the per-cell spinner + elapsed timer show
-		// immediately - including while the kernel is still booting on first run.
+		// The session may have been restarted/closed while this cell waited its turn.
+		if (session.isDisposed) { return; }
+
+		// Create the cell execution only when it is THIS cell's turn, so the per-cell
+		// spinner + timer appear as it actually starts (not while queued behind others).
 		const exec = this.controller.createNotebookCellExecution(cell);
 		exec.executionOrder = ++this.order;
 		exec.start(Date.now());
 		await exec.clearOutput();
 
 		if (!session.isReady) {
-			await exec.appendOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.stdout('Starting the Qoka Run Environment kernel (first run installs it - this can take ~30-60s)…\n')]));
+			const setupOut = new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.stdout('Starting the Qoka Run Environment kernel (first run installs it - this can take a few minutes)…\n')]);
+			await exec.appendOutput(setupOut);
+			// Stream the setup/install log live so a slow first run does not look frozen.
+			let log = '';
+			const logSub = session.onSetupLog(chunk => {
+				log += chunk;
+				if (log.length > 4000) { log = log.slice(-4000); }
+				void exec.replaceOutputItems([vscode.NotebookCellOutputItem.stdout('Starting the Qoka Run Environment kernel…\n' + log)], setupOut);
+			});
 			try {
 				await session.ensureStarted();
 				this.controller.detail = session.targetLabel;
-				await exec.clearOutput(); // drop the "Starting…" note before real output
+				await exec.clearOutput(); // drop the setup log before real output
 			} catch (e) {
 				const err = e instanceof Error ? e : new Error(String(e));
 				await exec.appendOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(err)]));
 				exec.end(false, Date.now());
 				return;
+			} finally {
+				logSub.dispose();
 			}
 		}
 

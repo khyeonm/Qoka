@@ -22,12 +22,16 @@ export class KernelSession {
 	private channel: PersistentChannel | undefined;
 	private buf = '';
 	private ready = false;
+	private disposed = false;
 	private starting: Promise<void> | undefined;
 
 	private readonly _onEvent = new vscode.EventEmitter<RelayEvent>();
 	readonly onEvent = this._onEvent.event;
 	private readonly _onExit = new vscode.EventEmitter<string | undefined>();
 	readonly onExit = this._onExit.event;
+	private readonly _onSetupLog = new vscode.EventEmitter<string>();
+	/** Live setup/stderr output emitted while the kernel is still starting. */
+	readonly onSetupLog = this._onSetupLog.event;
 
 	/** Human label of the target the kernel booted on (for the UI). */
 	targetLabel = '';
@@ -35,6 +39,7 @@ export class KernelSession {
 	constructor(private readonly workspaceRoot: string) { }
 
 	get isReady(): boolean { return this.ready; }
+	get isDisposed(): boolean { return this.disposed; }
 
 	/** Boot the kernel once; concurrent callers share the same start. */
 	ensureStarted(): Promise<void> {
@@ -68,8 +73,8 @@ export class KernelSession {
 
 		this.channel = await services().ssh.execPersistent(profile, cmd, {
 			onStdout: (chunk) => this.ingest(chunk),
-			onStderr: (chunk) => { setupErr += chunk; if (setupErr.length > 8000) { setupErr = setupErr.slice(-8000); } },
-			onClose: () => { this.ready = false; this.channel = undefined; this._onExit.fire(setupErr.trim() || undefined); },
+			onStderr: (chunk) => { setupErr += chunk; if (setupErr.length > 8000) { setupErr = setupErr.slice(-8000); } if (!this.disposed) { this._onSetupLog.fire(chunk); } },
+			onClose: () => { if (this.disposed) { return; } this.ready = false; this.channel = undefined; this._onExit.fire(setupErr.trim() || undefined); },
 		});
 		await ready;
 	}
@@ -93,12 +98,23 @@ export class KernelSession {
 	private send(obj: unknown): void { this.channel?.write(JSON.stringify(obj) + '\n'); }
 
 	dispose(): void {
+		if (this.disposed) { return; }
+		this.disposed = true;
 		try { this.send({ type: 'shutdown' }); } catch { /* ignore */ }
 		try { this.channel?.close(); } catch { /* ignore */ }
 		this.channel = undefined;
 		this.ready = false;
-		this._onEvent.dispose();
-		this._onExit.dispose();
+		this.starting = undefined;
+		// Wake anything waiting on this session (an in-flight cell's onExit handler,
+		// or an ensureStarted() still booting) so it stops NOW instead of hanging -
+		// this is what makes Restart actually halt the running cell and its spinner.
+		// Fire BEFORE tearing down the emitters, or listeners never receive it.
+		try { this._onExit.fire(undefined); } catch { /* ignore */ }
+		setTimeout(() => {
+			try { this._onEvent.dispose(); } catch { /* ignore */ }
+			try { this._onExit.dispose(); } catch { /* ignore */ }
+			try { this._onSetupLog.dispose(); } catch { /* ignore */ }
+		}, 0);
 	}
 }
 
