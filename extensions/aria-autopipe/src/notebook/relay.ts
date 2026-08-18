@@ -31,7 +31,7 @@
  * into a per-project micromamba (conda) env.
  */
 export const RELAY_PY = String.raw`
-import sys, json, threading, queue, subprocess
+import sys, os, json, signal, threading, queue, subprocess
 
 def emit(obj):
     try:
@@ -62,6 +62,26 @@ try:
 except Exception as e:
     emit({"type": "fatal", "error": "kernel start failed: %s" % e})
     sys.exit(1)
+
+# Kill the kernel if this relay is signalled - e.g. the SSH channel dropped on a
+# restart/close (no PTY, so the server may SIGHUP us) - so no orphaned kernel
+# lingers on the remote and a fresh restart starts clean.
+def _shutdown(*_a):
+    try:
+        kc.stop_channels()
+    except Exception:
+        pass
+    try:
+        km.shutdown_kernel(now=True)
+    except Exception:
+        pass
+    os._exit(0)
+
+for _signame in ("SIGTERM", "SIGHUP"):
+    try:
+        signal.signal(getattr(signal, _signame), _shutdown)
+    except Exception:
+        pass
 
 emit({"type": "ready"})
 

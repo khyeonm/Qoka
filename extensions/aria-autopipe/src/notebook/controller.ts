@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { KernelSession, RelayEvent } from './kernelSession';
+import { services } from '../common/services';
 
 /**
  * The "Qoka Run Environment" notebook kernel. A native VSCode NotebookController
@@ -19,6 +20,7 @@ export class NotebookKernel {
 	/** Per-notebook serial queue: cells run one at a time, in click order. */
 	private readonly queues = new Map<string, Promise<void>>();
 	private order = 0;
+	private lastTargetLabel = '';
 
 	constructor(ctx: vscode.ExtensionContext, private readonly workspaceRoot: () => string | undefined) {
 		this.controller = vscode.notebooks.createNotebookController('qoka-run-kernel', 'jupyter-notebook', 'Qoka Run Environment');
@@ -36,6 +38,22 @@ export class NotebookKernel {
 		ctx.subscriptions.push(this.controller);
 		ctx.subscriptions.push(vscode.workspace.onDidCloseNotebookDocument(nb => this.disposeSession(nb.uri.toString())));
 
+		// Show the CURRENTLY-active connection (WSL / vfkit / SSH) in the kernel label,
+		// and keep it live: when the user switches the active connection in Settings,
+		// update the label AND drop existing sessions so the next run boots on the new
+		// target (a running session stays on the OLD one until it is disposed). Without
+		// this the label looked stuck on "Local (WSL)" even after selecting an SSH host.
+		const syncTarget = () => {
+			const label = this.currentTargetLabel();
+			if (label === this.lastTargetLabel) { return; }
+			this.lastTargetLabel = label;
+			this.controller.detail = label;
+			for (const key of [...this.sessions.keys()]) { this.disposeSession(key); }
+		};
+		this.lastTargetLabel = this.currentTargetLabel();
+		this.controller.detail = this.lastTargetLabel;
+		ctx.subscriptions.push(services().config.onDidChange(() => syncTarget()));
+
 		// Restart command (toolbar button + Command Palette): drop the session so the
 		// next cell run boots a fresh kernel. The venv is cached, so it reconnects fast.
 		ctx.subscriptions.push(vscode.commands.registerCommand('aria.autopipe.restartNotebookKernel', (arg?: unknown) => {
@@ -47,6 +65,18 @@ export class NotebookKernel {
 			this.disposeSession(uri.toString());
 			void vscode.window.showInformationMessage('Qoka Run Environment kernel restarted - run a cell to reconnect.');
 		}));
+	}
+
+	/** The label of the currently-active run connection, read cheaply from config
+	 *  (no network probe) - mirrors KernelSession.targetLabel so the kernel dropdown
+	 *  reflects what a run WOULD use right now (WSL / vfkit / SSH host). */
+	private currentTargetLabel(): string {
+		const { config } = services();
+		if (config.isLocalVmActive()) {
+			return process.platform === 'win32' ? 'Local (WSL)' : process.platform === 'darwin' ? 'Local (vfkit)' : 'Local (VM)';
+		}
+		const p = config.activeProfile();
+		return p ? `SSH: ${p.host}` : 'No active connection';
 	}
 
 	private disposeSession(key: string): void {
@@ -96,26 +126,21 @@ export class NotebookKernel {
 		await exec.clearOutput();
 
 		if (!session.isReady) {
-			const setupOut = new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.stdout('Starting the Qoka Run Environment kernel (first run installs it - this can take a few minutes)…\n')]);
+			// Show a concise status only - NOT the raw install log (the conda/pip
+			// package-linking output is noisy). The cell's own elapsed timer shows it is
+			// alive during a slow first run; on failure the error already carries a tail
+			// of the setup log (see KernelSession.start), so nothing is lost for debugging.
+			const setupOut = new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.stdout('Setting up the Qoka Run Environment (first run installs packages, this can take a few minutes)…\n')]);
 			await exec.appendOutput(setupOut);
-			// Stream the setup/install log live so a slow first run does not look frozen.
-			let log = '';
-			const logSub = session.onSetupLog(chunk => {
-				log += chunk;
-				if (log.length > 4000) { log = log.slice(-4000); }
-				void exec.replaceOutputItems([vscode.NotebookCellOutputItem.stdout('Starting the Qoka Run Environment kernel…\n' + log)], setupOut);
-			});
 			try {
 				await session.ensureStarted();
 				this.controller.detail = session.targetLabel;
-				await exec.clearOutput(); // drop the setup log before real output
+				await exec.clearOutput(); // drop the setup notice before the real output
 			} catch (e) {
 				const err = e instanceof Error ? e : new Error(String(e));
-				await exec.appendOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(err)]));
+				await exec.replaceOutputItems([vscode.NotebookCellOutputItem.error(err)], setupOut);
 				exec.end(false, Date.now());
 				return;
-			} finally {
-				logSub.dispose();
 			}
 		}
 

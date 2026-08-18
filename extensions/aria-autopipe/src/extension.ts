@@ -62,11 +62,6 @@ export function activate(context: vscode.ExtensionContext): void {
 	// them - even for remote-only users who never start the built-in VM.
 	try { ensureWorkspaceScaffold(); } catch { /* best-effort */ }
 
-	// Native Jupyter kernel "Qoka Run Environment": opening a .ipynb and picking
-	// this kernel runs each cell in the ACTIVE run environment (WSL/vfkit/SSH) via
-	// a persistent SSH channel + in-VM relay - not on a local Python.
-	try { new NotebookKernel(context, () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath); } catch (e) { console.error('[aria-autopipe] notebook kernel init failed', e); }
-
 	// In-app PDF viewer (pdf.js) as the default editor for .pdf, so downloaded papers
 	// (Paper Library) and pipeline result PDFs render inside Qoka as an editor tab
 	// instead of an external app.
@@ -123,6 +118,12 @@ export function activate(context: vscode.ExtensionContext): void {
 		vm,
 	};
 	setServices(services);
+
+	// Native Jupyter kernel "Qoka Run Environment": opening a .ipynb and picking
+	// this kernel runs each cell in the ACTIVE run environment (WSL/vfkit/SSH) via
+	// a persistent SSH channel + in-VM relay - not on a local Python. Constructed
+	// AFTER setServices(): its constructor reads the active connection via services().
+	try { new NotebookKernel(context, () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath); } catch (e) { console.error('[aria-autopipe] notebook kernel init failed', e); }
 
 	// First run: default the built-in VM as the active target so the user has a
 	// working environment without configuring a server. Only on Mac/Win, or on

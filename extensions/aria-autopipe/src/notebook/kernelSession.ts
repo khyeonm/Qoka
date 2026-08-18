@@ -68,7 +68,12 @@ export class KernelSession {
 				else if (e.type === 'fatal') { done(() => reject(new Error(String(e.error ?? 'the kernel failed to start') + tail()))); }
 			}));
 			disp.push(this.onExit(() => done(() => reject(new Error('The kernel process exited during startup.' + tail())))));
-			timer = setTimeout(() => done(() => reject(new Error('The kernel did not become ready in time.' + tail()))), 300000);
+			// Generous: a cold FIRST run creates the whole conda env (downloads dozens of
+			// packages) before the kernel starts, which over a slow SSH link can take well
+			// over 5 minutes. A real failure rejects fast via 'fatal'/exit above, so this
+			// only bounds a genuinely-progressing setup. Subsequent runs reuse the env and
+			// are quick.
+			timer = setTimeout(() => done(() => reject(new Error('The kernel did not become ready in time.' + tail()))), 1200000);
 		});
 
 		this.channel = await services().ssh.execPersistent(profile, cmd, {
