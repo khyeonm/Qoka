@@ -224,6 +224,47 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run gulp vscode-${{ matrix.plat }}-${{ matrix.arch }}-min
 
+      # Sign the .app with the Developer ID cert BEFORE packaging, using VS Code's
+      # own signing tool (build/darwin/sign.ts = @electron/osx-sign + the darwin
+      # entitlements). No tauri-action here: we import the cert into a temp keychain
+      # ourselves, then call sign.ts. Skipped automatically if the secret is absent
+      # (unsigned build still ships, just no auto-update on macOS).
+      - name: Import Apple signing certificate (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$APPLE_CERTIFICATE" ]; then echo "APPLE_CERTIFICATE not set - shipping UNSIGNED (no macOS auto-update)."; exit 0; fi
+          # sign.ts reads the keychain from $AGENT_TEMPDIRECTORY/buildagent.keychain.
+          KEYCHAIN="$RUNNER_TEMP/buildagent.keychain"
+          KCPASS="$(openssl rand -base64 24)"
+          security create-keychain -p "$KCPASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KCPASS" "$KEYCHAIN"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPASS" "$KEYCHAIN" >/dev/null
+          # Prepend our keychain to the search list so codesign resolves the identity.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security find-identity -p codesigning -v "$KEYCHAIN"
+
+      - name: Sign Qoka.app (macOS)
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          AGENT_TEMPDIRECTORY: ${{ runner.temp }}
+          VSCODE_ARCH: ${{ matrix.arch }}
+          CODESIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -e
+          # First arg = PARENT dir holding VSCode-darwin-<arch> (same as create-dmg).
+          node --experimental-strip-types build/darwin/sign.ts "$PWD/.."
+
       - name: Package macOS (.dmg)
         if: runner.os == 'macOS'
         shell: bash
@@ -235,6 +276,37 @@ jobs:
           # First arg is the PARENT dir; create-dmg.ts appends VSCode-darwin-<arch>.
           node --experimental-strip-types build/darwin/create-dmg.ts \
             "$PWD/.." "$PWD/artifacts"
+
+      # Notarize the signed .dmg, staple it, then also produce a stapled .app .zip -
+      # the .zip is what the Squirrel.Mac auto-updater downloads (the .dmg is only the
+      # manual download). notarytool can intermittently hang on -1009, so retry with
+      # --no-s3-acceleration --wait (same workaround used for the Tauri app).
+      - name: Notarize, staple, and zip the app (macOS)
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          DMG="$(ls artifacts/*.dmg | head -1)"
+          APP="$PWD/../VSCode-darwin-${{ matrix.arch }}/Qoka.app"
+          n=0
+          until [ "$n" -ge 3 ]; do
+            if xcrun notarytool submit "$DMG" \
+                 --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_PASSWORD" \
+                 --no-s3-acceleration --wait; then
+              break
+            fi
+            n=$((n+1)); echo "notarytool attempt $n failed, retrying…"; sleep 15
+          done
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          # The app's code was notarized via the dmg, so its ticket can be stapled too.
+          xcrun stapler staple "$APP" || true
+          ditto -c -k --keepParent "$APP" "artifacts/Qoka-darwin-${{ matrix.arch }}.zip"
 
       - name: Package Windows (.exe)
         if: runner.os == 'Windows'

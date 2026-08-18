@@ -15,6 +15,7 @@ import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { AuthenticationSession, IAuthenticationService } from '../../../services/authentication/common/authentication.js';
 import { IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
 import { ARIA_MODE_SETTING } from '../common/ariaConfiguration.js';
 
 const AUTH_ID = 'aria';
@@ -22,6 +23,7 @@ const SIGN_OUT_COMMAND = 'aria.account.signOut';
 const SIGN_IN_COMMAND = 'aria.account.signIn';
 const CHANGE_PROJECT_COMMAND = 'aria.account.changeProject';
 const ACCOUNT_MENU_COMMAND = 'aria.account.menu';
+const CHECK_UPDATES_COMMAND = 'aria.account.checkUpdates';
 // Cached display label of the last signed-in account, so easy mode can paint the
 // account/Sign out entries instantly on startup instead of waiting for the auth
 // extension to activate and restore the session (which is visibly slow on cold start).
@@ -42,6 +44,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	private changeProjectEntry: IStatusbarEntryAccessor | undefined;
 	private signOutEntry: IStatusbarEntryAccessor | undefined;
 	private signInEntry: IStatusbarEntryAccessor | undefined;
+	private versionEntry: IStatusbarEntryAccessor | undefined;
 	private session: AuthenticationSession | undefined;
 	private provider: string | undefined;
 	/** False until the first getSessions resolves. Before that we may show the cached
@@ -57,6 +60,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		@IStorageService private readonly storageService: IStorageService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
+		@IProductService private readonly productService: IProductService,
 	) {
 		super();
 
@@ -64,6 +68,21 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		this._register(CommandsRegistry.registerCommand(SIGN_IN_COMMAND, () => this.signIn()));
 		this._register(CommandsRegistry.registerCommand(ACCOUNT_MENU_COMMAND, () => this.showAccountMenu()));
 		this._register(CommandsRegistry.registerCommand(CHANGE_PROJECT_COMMAND, () => this.changeProject()));
+		this._register(CommandsRegistry.registerCommand(CHECK_UPDATES_COMMAND, () => this.checkUpdates()));
+
+		// The Qoka version, to the RIGHT of Sign out/Sign in (priority 97 < 98). Read
+		// from product.json's ariaVersion at runtime, so each release shows its own
+		// version with no code change. Clicking checks for updates. Added once (it does
+		// not depend on the session), unlike the account entries repainted in reconcile.
+		const version = (this.productService as unknown as { ariaVersion?: string }).ariaVersion ?? this.productService.version;
+		this.versionEntry = this.statusbarService.addEntry({
+			name: localize('aria.version.name', "Qoka version"),
+			text: `v${version}`,
+			ariaLabel: localize('aria.version.ariaLabel', "Qoka version {0}", version),
+			tooltip: localize('aria.version.tooltip', "Qoka v{0} - click to check for updates", version),
+			command: CHECK_UPDATES_COMMAND,
+		}, 'aria.version', StatusbarAlignment.RIGHT, 97);
+		this._register(this.versionEntry);
 
 		// Paint the last-known account immediately (from cache) so easy mode's
 		// bottom-right isn't blank while the auth extension activates + restores.
@@ -237,6 +256,17 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 			await this.commandService.executeCommand('workbench.action.closeFolder');
 		} catch {
 			// ignore - e.g. already an empty workbench.
+		}
+	}
+
+	/** Clicking the version item checks for updates (native update service). Falls
+	 *  back to the About dialog if the update service is unavailable (e.g. a dev
+	 *  build with no updateUrl). */
+	private async checkUpdates(): Promise<void> {
+		try {
+			await this.commandService.executeCommand('update.checkForUpdate');
+		} catch {
+			try { await this.commandService.executeCommand('workbench.action.showAboutDialog'); } catch { /* ignore */ }
 		}
 	}
 
