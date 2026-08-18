@@ -344,3 +344,6 @@ jobs:
           VER="${GITHUB_REF_NAME#qoka-v}"
           gh release create "${GITHUB_REF_NAME}" --title "Qoka ${VER}" --notes "Qoka ${VER}" 2>/dev/null || true
           for f in artifacts/*; do gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; done
+          # Publish the release (a re-tag can leave it as an unlisted draft, whose
+          # assets 404 for anonymous download / the qoka.org buttons).
+          gh release edit "${GITHUB_REF_NAME}" --draft=false --latest 2>/dev/null || true
