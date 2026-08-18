@@ -1,40 +1,31 @@
-# One-off release for Windows on ARM (win32 arm64). The Intel macOS (.dmg) leg
-# already shipped in the `qoka-0.3.9-intel` release, so this now builds ONLY the
-# Windows ARM64 installer and adds it to that same release.
+# Cross-arch installers for an existing app tag: Intel macOS (.dmg + .zip) AND
+# Windows on ARM (win32 arm64 .exe), published to a SEPARATE release (default
+# title "intel winarm") so the main qoka-v* release (Apple Silicon .dmg + Windows
+# x64 .exe) is NEVER touched.
 #
-# Why a NATIVE ARM runner (not a cross-build on x64):
-#   build/.npmrc pins `build_from_source=true`, so build-time native modules
-#   (tree-sitter) are COMPILED, not downloaded. Cross-compiling them to arm64 on
-#   an x64 runner fails - the arm64 `node.lib` import library isn't in node-gyp's
-#   cache (LNK1181), and an arm64 build tool can't run on an x64 host anyway.
-#   Building on `windows-11-arm` makes host==target==arm64, so the exact path the
-#   working x64 build uses just works, natively. GitHub's windows-11-arm hosted
-#   runner is free for public repos.
+# Manual only (workflow_dispatch). The app SOURCE is cloned from a FIXED tag
+# (source_tag), so the build reflects exactly that tree - never this branch.
 #
-# Design notes:
-#   * Manual only (workflow_dispatch) - never fires on a tag push.
-#   * The app SOURCE is always cloned from a FIXED tag (default qoka-v0.3.9), so
-#     the build reflects exactly that tree - never this branch, never a local
-#     uncommitted change.
-#   * The release tag (default `qoka-0.3.9-intel`) deliberately does NOT match
-#     release-app.yml's `qoka-v*` trigger glob, so it can never kick off the
-#     normal arm64-.dmg / x64-.exe build. Those releases stay untouched, and the
-#     Intel .dmg already on this release is left in place (we only add the .exe).
+# The release_tag deliberately does NOT match release-app.yml's `qoka-v*` trigger
+# glob, so creating it can never kick off the normal arm64-.dmg / x64-.exe build.
 #
-# UNSIGNED build: SmartScreen warns (More info -> Run anyway). Cross-arch app
-# behaviour is not validated on real ARM-Windows hardware - smoke-test first.
-name: Release (Windows ARM64)
+# macOS Intel: cross-built on the macos-14 (arm64) runner - host node stays arm64
+# while npm_config_arch=x64 targets Intel (GitHub's macos-13 Intel runner hangs);
+# signed + notarized when the Apple secrets are present (same path as release-app).
+# Windows ARM64: native windows-11-arm runner, UNSIGNED (SmartScreen warns ->
+# More info -> Run anyway). Cross-arch behaviour is not validated on real hardware.
+name: Release (Intel macOS + Windows ARM64)
 
 on:
   workflow_dispatch:
     inputs:
       source_tag:
         description: 'Existing app tag to build from (the source tree).'
-        default: 'qoka-v0.3.9'
+        default: 'qoka-v0.4.10'
         required: true
       release_tag:
         description: 'Tag for THIS release. Must NOT match qoka-v* or it would trigger the normal build.'
-        default: 'qoka-0.3.9-intel'
+        default: 'qoka-0.4.10-intel'
         required: true
       release_title:
         description: 'Release name shown on GitHub.'
@@ -45,8 +36,7 @@ permissions:
   contents: write
 
 jobs:
-  # Ensure the release exists (it already does from the Intel run; this is a
-  # no-op re-run guard so the workflow also works if the release was deleted).
+  # Ensure the separate cross-arch release exists (no-op re-run guard).
   init:
     runs-on: ubuntu-latest
     env:
@@ -70,10 +60,141 @@ jobs:
           gh release create "${{ inputs.release_tag }}" \
             --target "${{ steps.resolve.outputs.sha }}" \
             --title "${{ inputs.release_title }}" \
-            --notes "Cross-arch installers for ${{ inputs.source_tag }}. Unsigned; not validated on native hardware." \
+            --notes "Cross-arch installers for ${{ inputs.source_tag }} (Intel macOS + Windows ARM64). Windows is unsigned; cross-arch behaviour not validated on native hardware." \
             2>/dev/null || echo "Release ${{ inputs.release_tag }} already exists - reusing it."
 
-  build:
+  # Intel macOS (.dmg + .zip), cross-built on the arm64 runner and signed/notarized.
+  build-mac-intel:
+    needs: [init]
+    runs-on: macos-14
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ github.token }}
+      # Cross-build Intel on the arm64 host: host node is arm64, target modules x64.
+      npm_config_arch: x64
+      npm_config_target_arch: x64
+    steps:
+      - name: Clone the source tag
+        shell: bash
+        run: git clone --depth 1 --branch "${{ inputs.source_tag }}" "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" .
+
+      - name: Install Node from .nvmrc (macOS arm64 host)
+        shell: bash
+        run: |
+          V="$(tr -d '[:space:]' < .nvmrc)"
+          F="node-v$V-darwin-arm64"
+          curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
+          echo "$PWD/$F/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npm install
+
+      - name: Build Qoka extensions
+        shell: bash
+        run: |
+          set -e
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          transpile_tasks=""
+          for d in extensions/aria-*/; do
+            name="$(basename "$d")"
+            if [ -f "$d/build.mjs" ]; then
+              echo "== $name (esbuild) =="
+              (cd "$d" && npm install && node build.mjs)
+            elif [ -f "$d/tsconfig.json" ]; then
+              transpile_tasks="$transpile_tasks transpile-extension:$name"
+            fi
+          done
+          if [ -n "$transpile_tasks" ]; then
+            echo "== gulp$transpile_tasks =="
+            npm run gulp -- $transpile_tasks
+          fi
+
+      - name: Build app tree (darwin x64)
+        shell: bash
+        run: |
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npm run gulp vscode-darwin-x64-min
+
+      # Sign + notarize with the Apple Developer ID (same path as release-app.yml).
+      # Skipped automatically if the secret is absent (then ships unsigned).
+      - name: Import Apple signing certificate
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$APPLE_CERTIFICATE" ]; then echo "APPLE_CERTIFICATE not set - shipping UNSIGNED."; exit 0; fi
+          KEYCHAIN="$RUNNER_TEMP/buildagent.keychain"
+          KCPASS="$(openssl rand -base64 24)"
+          security create-keychain -p "$KCPASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KCPASS" "$KEYCHAIN"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPASS" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security find-identity -p codesigning -v "$KEYCHAIN"
+
+      - name: Sign Qoka.app
+        if: env.APPLE_CERTIFICATE != ''
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          AGENT_TEMPDIRECTORY: ${{ runner.temp }}
+          VSCODE_ARCH: x64
+          CODESIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -e
+          node --experimental-strip-types build/darwin/sign.ts "$PWD/.."
+
+      - name: Package macOS (.dmg)
+        shell: bash
+        env:
+          VSCODE_ARCH: x64
+          VSCODE_QUALITY: stable
+        run: |
+          mkdir -p artifacts
+          node --experimental-strip-types build/darwin/create-dmg.ts "$PWD/.." "$PWD/artifacts"
+
+      - name: Notarize, staple, and zip the app
+        if: env.APPLE_CERTIFICATE != ''
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          DMG="$(ls artifacts/*.dmg | head -1)"
+          APP="$PWD/../VSCode-darwin-x64/Qoka.app"
+          n=0
+          until [ "$n" -ge 3 ]; do
+            if xcrun notarytool submit "$DMG" \
+                 --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_PASSWORD" \
+                 --no-s3-acceleration --wait; then
+              break
+            fi
+            n=$((n+1)); echo "notarytool attempt $n failed, retrying…"; sleep 15
+          done
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          xcrun stapler staple "$APP" || true
+          ditto -c -k --keepParent "$APP" "artifacts/Qoka-darwin-x64.zip"
+
+      - name: Upload installers to the release
+        shell: bash
+        run: |
+          for f in artifacts/*; do gh release upload "${{ inputs.release_tag }}" "$f" --clobber; done
+
+  # Windows on ARM (win32 arm64) - native runner, unsigned.
+  build-winarm:
     needs: [init]
     # Native ARM64 Windows runner - host==target==arm64, so no cross-compile.
     runs-on: windows-11-arm
@@ -83,8 +204,6 @@ jobs:
       # @vscode/ripgrep (and other prebuilt downloaders) query the GitHub API;
       # unauthenticated CI hits the 60/hr limit and 403s. Authenticate it.
       GITHUB_TOKEN: ${{ github.token }}
-      # Host arch == arm64, so this is NOT a cross-build; node-gyp downloads the
-      # arm64 node.lib for the target the same way the x64 build does for x64.
       npm_config_arch: arm64
       npm_config_target_arch: arm64
     steps:
@@ -92,8 +211,6 @@ jobs:
         shell: bash
         run: git clone --depth 1 --branch "${{ inputs.source_tag }}" "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" .
 
-      # Node comes straight from nodejs.org - the arm64 Windows build to match
-      # the native runner. PowerShell + Expand-Archive (Git Bash tar can't read .zip).
       - name: Install Node from .nvmrc (Windows ARM64)
         shell: pwsh
         run: |
@@ -103,8 +220,6 @@ jobs:
           Expand-Archive -Path node.zip -DestinationPath . -Force
           "$PWD\$F" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
-      # preinstall.ts checks default VS install paths and can miss the runner's
-      # edition; point it straight at the real install via vswhere.
       - name: Locate Visual Studio
         shell: pwsh
         run: |
@@ -114,9 +229,6 @@ jobs:
           "vs2022_install=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Found Visual Studio at: $vs"
 
-      # patchWin32DependenciesTask strips/verifies Authenticode signatures with
-      # signtool.exe (from the Windows SDK), which isn't on PATH by default. Pick
-      # whichever arch's signtool the SDK ships (arm64 or x64 both work).
       - name: Add Windows SDK (signtool) to PATH
         shell: pwsh
         run: |
@@ -127,8 +239,6 @@ jobs:
           Write-Host "Found signtool at: $($sdk.FullName)"
           Split-Path $sdk.FullName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
-      # node-gyp can pick a too-new Python (3.14) that crashes native builds.
-      # Prefer a stable 3.12/3.11 from the toolcache (either arch folder) if present.
       - name: Pin a node-gyp-friendly Python
         shell: pwsh
         run: |
@@ -144,15 +254,10 @@ jobs:
           # child processes can crash the Windows build with 0xC0000409.
           "VSCODE_POSTINSTALL_CONCURRENCY=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # Use `npm install`, not `npm ci`: some Qoka extensions ship without a
-      # committed package-lock.json, and the root postinstall runs the same
-      # command in every workspace dir - `npm ci` aborts there.
       - name: Install dependencies
         shell: bash
         run: npm install
 
-      # Build every bundled Qoka extension so its compiled output ships in the
-      # app (gulp packaging only COPIES existing output, it never compiles).
       - name: Build Qoka extensions
         shell: bash
         run: |
@@ -181,7 +286,7 @@ jobs:
           npm run gulp vscode-win32-arm64-inno-updater
           npm run gulp vscode-win32-arm64-user-setup
           mkdir -p artifacts
-          # Rename so the arch is unmistakable (the raw Inno output is QokaSetup.exe
+          # Rename so the arch is unmistakable (raw Inno output is QokaSetup.exe
           # with no arch suffix, indistinguishable from the x64 installer).
           src="$(ls .build/win32-arm64/user-setup/*.exe | head -n1)"
           cp "$src" "artifacts/QokaSetup-arm64.exe"
