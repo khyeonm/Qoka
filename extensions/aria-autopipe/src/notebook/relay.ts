@@ -31,7 +31,7 @@
  * into a per-project micromamba (conda) env.
  */
 export const RELAY_PY = String.raw`
-import sys, os, json, signal, threading, queue, subprocess
+import sys, os, json, signal, threading, queue, subprocess, tempfile
 
 def emit(obj):
     try:
@@ -47,20 +47,36 @@ except Exception as e:
     sys.exit(1)
 
 km = KernelManager(kernel_name="python3")
+_kerr_path = None
 try:
     # Isolate the kernel's own stdio from OUR stdout (which carries the JSON
-    # protocol). If the kernel wrote to the inherited stdout, its bytes would
-    # interleave with our "ready"/output lines and corrupt them. Cell stdout/stderr
-    # still comes back over ZMQ (iopub), not this pipe.
+    # protocol). Its stdout goes to DEVNULL so kernel prints can't corrupt our
+    # "ready"/output lines; its STDERR is captured to a file so that if the kernel
+    # crashes on startup (why "launching kernel" would hang) we can report the reason.
+    # Cell stdout/stderr still comes back over ZMQ (iopub), not these pipes.
     try:
-        km.start_kernel(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _kerr = tempfile.NamedTemporaryFile(mode="w+", suffix=".qoka-kernel-err", delete=False)
+        _kerr_path = _kerr.name
+        km.start_kernel(stdout=subprocess.DEVNULL, stderr=_kerr)
     except TypeError:
         km.start_kernel()
     kc = km.client()
     kc.start_channels()
     kc.wait_for_ready(timeout=180)
 except Exception as e:
-    emit({"type": "fatal", "error": "kernel start failed: %s" % e})
+    tail = ""
+    try:
+        if _kerr_path:
+            with open(_kerr_path) as f:
+                tail = f.read()[-2000:]
+    except Exception:
+        pass
+    alive = None
+    try:
+        alive = km.is_alive()
+    except Exception:
+        pass
+    emit({"type": "fatal", "error": "kernel start failed (alive=%s): %s\n%s" % (alive, e, tail.strip())})
     sys.exit(1)
 
 # Kill the kernel if this relay is signalled - e.g. the SSH channel dropped on a
