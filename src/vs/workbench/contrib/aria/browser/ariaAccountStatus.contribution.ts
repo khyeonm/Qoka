@@ -45,6 +45,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	private signOutEntry: IStatusbarEntryAccessor | undefined;
 	private signInEntry: IStatusbarEntryAccessor | undefined;
 	private versionEntry: IStatusbarEntryAccessor | undefined;
+	private checkUpdatesEntry: IStatusbarEntryAccessor | undefined;
 	private session: AuthenticationSession | undefined;
 	private provider: string | undefined;
 	/** False until the first getSessions resolves. Before that we may show the cached
@@ -70,18 +71,28 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		this._register(CommandsRegistry.registerCommand(CHANGE_PROJECT_COMMAND, () => this.changeProject()));
 		this._register(CommandsRegistry.registerCommand(CHECK_UPDATES_COMMAND, () => this.checkUpdates()));
 
-		// The Qoka version, to the RIGHT of Sign out/Sign in (priority 97 < 98). Read
-		// from product.json's ariaVersion at runtime, so each release shows its own
-		// version with no code change. Clicking checks for updates. Added once (it does
-		// not depend on the session), unlike the account entries repainted in reconcile.
+		// To the RIGHT of Sign out/Sign in (higher priority = further left, so 97/96
+		// sit to their right): a clickable "Check for updates" button, then the Qoka
+		// version as a plain label. Both are session-independent, so add them once here
+		// (not in reconcile, which only repaints the account entries).
 		const version = (this.productService as unknown as { ariaVersion?: string }).ariaVersion ?? this.productService.version;
+		this.checkUpdatesEntry = this.statusbarService.addEntry({
+			name: localize('aria.checkUpdates.name', "Check for updates"),
+			text: localize('aria.checkUpdates.text', "Check for updates"),
+			ariaLabel: localize('aria.checkUpdates.text', "Check for updates"),
+			tooltip: localize('aria.checkUpdates.tooltip', "Check for Qoka updates now"),
+			command: CHECK_UPDATES_COMMAND,
+		}, 'aria.checkUpdates', StatusbarAlignment.RIGHT, 97);
+		this._register(this.checkUpdatesEntry);
+
+		// The Qoka version - a plain LABEL at the far right (no click), read from
+		// product.json's ariaVersion so each release shows its own version.
 		this.versionEntry = this.statusbarService.addEntry({
 			name: localize('aria.version.name', "Qoka version"),
 			text: `v${version}`,
 			ariaLabel: localize('aria.version.ariaLabel', "Qoka version {0}", version),
-			tooltip: localize('aria.version.tooltip', "Qoka v{0} - click to check for updates", version),
-			command: CHECK_UPDATES_COMMAND,
-		}, 'aria.version', StatusbarAlignment.RIGHT, 97);
+			tooltip: localize('aria.version.tooltip', "Qoka version {0}", version),
+		}, 'aria.version', StatusbarAlignment.RIGHT, 96);
 		this._register(this.versionEntry);
 
 		// Paint the last-known account immediately (from cache) so easy mode's
