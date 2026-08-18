@@ -126,12 +126,22 @@ export class NotebookKernel {
 		await exec.clearOutput();
 
 		if (!session.isReady) {
-			// Show a concise status only - NOT the raw install log (the conda/pip
-			// package-linking output is noisy). The cell's own elapsed timer shows it is
-			// alive during a slow first run; on failure the error already carries a tail
-			// of the setup log (see KernelSession.start), so nothing is lost for debugging.
+			// Show a concise status: a heading + only the [qoka] MILESTONE lines (env
+			// created, kernel launching, …) - NOT the raw conda/pip package-linking spam.
+			// This keeps the cell clean but reveals WHERE a slow first run is (esp. over a
+			// slow SSH link). On failure the error already carries a tail of the setup log.
 			const setupOut = new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.stdout('Setting up the Qoka Run Environment (first run installs packages, this can take a few minutes)…\n')]);
 			await exec.appendOutput(setupOut);
+			const steps: string[] = [];
+			const logSub = session.onSetupLog(chunk => {
+				for (const line of chunk.split('\n')) {
+					const t = line.trim();
+					if (t.startsWith('[qoka]')) { steps.push(t.replace(/^\[qoka\]\s*/, '')); }
+				}
+				if (steps.length) {
+					void exec.replaceOutputItems([vscode.NotebookCellOutputItem.stdout('Setting up the Qoka Run Environment…\n' + steps.slice(-8).join('\n'))], setupOut);
+				}
+			});
 			try {
 				await session.ensureStarted();
 				this.controller.detail = session.targetLabel;
@@ -141,6 +151,8 @@ export class NotebookKernel {
 				await exec.replaceOutputItems([vscode.NotebookCellOutputItem.error(err)], setupOut);
 				exec.end(false, Date.now());
 				return;
+			} finally {
+				logSub.dispose();
 			}
 		}
 

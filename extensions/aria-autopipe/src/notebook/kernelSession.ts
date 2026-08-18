@@ -169,8 +169,10 @@ function buildLaunch(profile: SshProfile, key: string): string {
 		'echo "[qoka] env kind: $([ -d "$NBENV/conda-meta" ] && echo conda || echo NON-CONDA); conda -> $(readlink "$NBENV/bin/conda" 2>/dev/null || echo MISSING)" 1>&2',
 		// uv for fast `!uv pip install` (targets the env via CONDA_PREFIX below).
 		'command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh 1>&2',
+		'echo "[qoka] uv ready" 1>&2',
 		// Register the jupyter kernelspec inside the env.
 		'if [ ! -f "$NBENV/share/jupyter/kernels/python3/kernel.json" ]; then "$NBENV/bin/python" -m ipykernel install --sys-prefix --name python3 1>&2; fi',
+		'echo "[qoka] kernelspec ready" 1>&2',
 		// Activate the env so cell installs (conda/mamba/uv/pip) all target it.
 		'eval "$("$MM" shell hook -s posix 2>/dev/null)" 2>/dev/null || true',
 		'micromamba activate "$NBENV" 2>/dev/null || true',
@@ -179,6 +181,7 @@ function buildLaunch(profile: SshProfile, key: string): string {
 		`mkdir -p ${workdir} 2>/dev/null || true`,
 		`cd ${workdir} 2>/dev/null || cd "$HOME"`,
 		`printf '%s' '${b64}' | base64 -d > "$NBENV/relay.py"`,
+		'echo "[qoka] launching kernel (up to a minute)…" 1>&2',
 		'exec "$NBENV/bin/python" -u "$NBENV/relay.py"',
 	].join('\n');
 }
