@@ -111,7 +111,11 @@ function buildWin32Setup(arch: string, target: string): task.CallbackTask {
 			Quality: quality
 		};
 
-		if (quality === 'stable' || quality === 'insider') {
+		// Only wire the APPX package + Explorer context menu into the installer when
+		// the product actually ships them (win32ContextMenu + appx assets). Qoka is a
+		// stable build distributed via Inno (.exe) only, without those assets; leaving
+		// AppxPackageName undefined makes code.iss skip the appx Files lines (#ifdef).
+		if ((quality === 'stable' || quality === 'insider') && (product as { win32ContextMenu?: unknown }).win32ContextMenu) {
 			definitions['AppxPackage'] = `${quality === 'stable' ? 'code' : 'code_insider'}_${arch}.appx`;
 			definitions['AppxPackageDll'] = `${quality === 'stable' ? 'code' : 'code_insider'}_explorer_command_${arch}.dll`;
 			definitions['AppxPackageName'] = `${product.win32AppUserModelId}`;
