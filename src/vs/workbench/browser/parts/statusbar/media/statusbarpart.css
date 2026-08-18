@@ -260,6 +260,8 @@
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.account"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.switchProject"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.signout"],
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.checkUpdates"],
+.monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="aria.version"],
 .monaco-workbench.aria-mode-easy .part.statusbar > .items-container > .statusbar-item[id="status.notifications"] {
 	display: inline-block;
 }

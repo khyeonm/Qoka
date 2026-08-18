@@ -137,13 +137,12 @@ export class UpdateTooltip extends Disposable {
 	}
 
 	private updateCurrentVersion() {
-		const productVersion = this.productService.version;
+		// Show the Qoka version (ariaVersion, e.g. 0.4.10), NOT the base VS Code
+		// version, and never the git commit - users only care current vs update version.
+		const productVersion = (this.productService as unknown as { ariaVersion?: string }).ariaVersion ?? this.productService.version;
 		if (productVersion) {
-			const currentCommitId = this.productService.commit?.substring(0, 7);
-			this.currentVersionNode.textContent = currentCommitId
-				? localize('updateTooltip.currentVersionLabelWithCommit', "Current Version: {0} ({1})", productVersion, currentCommitId)
-				: localize('updateTooltip.currentVersionLabel', "Current Version: {0}", productVersion);
-			this.currentVersionCopyValue.value = currentCommitId ? `${productVersion} (${this.productService.commit})` : productVersion;
+			this.currentVersionNode.textContent = localize('updateTooltip.currentVersionLabel', "Current Version: {0}", productVersion);
+			this.currentVersionCopyValue.value = productVersion;
 			this.currentVersionNode.parentElement!.style.display = '';
 		} else {
 			this.currentVersionNode.parentElement!.style.display = 'none';
@@ -368,14 +367,11 @@ export class UpdateTooltip extends Disposable {
 	private renderTitleAndInfo(title: string, update?: IUpdate) {
 		this.titleNode.textContent = title;
 
-		// Latest version
+		// Latest version - the update's productVersion (e.g. 0.4.11) only, no commit.
 		const version = update?.productVersion;
 		if (version) {
-			const updateCommitId = update.version?.substring(0, 7);
-			this.latestVersionNode.textContent = updateCommitId
-				? localize('updateTooltip.latestVersionLabelWithCommit', "Latest Version: {0} ({1})", version, updateCommitId)
-				: localize('updateTooltip.latestVersionLabel', "Latest Version: {0}", version);
-			this.latestVersionCopyValue.value = updateCommitId ? `${version} (${update.version})` : version;
+			this.latestVersionNode.textContent = localize('updateTooltip.latestVersionLabel', "Latest Version: {0}", version);
+			this.latestVersionCopyValue.value = version;
 			this.latestVersionNode.parentElement!.style.display = '';
 		} else {
 			this.latestVersionNode.parentElement!.style.display = 'none';
