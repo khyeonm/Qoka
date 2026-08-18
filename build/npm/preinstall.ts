@@ -114,6 +114,28 @@ function hasSupportedVisualStudioVersion() {
 	return availableVersions.length;
 }
 
+/**
+ * Run `node-gyp install` for a header set, retrying a few times on failure. The
+ * header download can crash transiently on CI - observed on the Windows runner as
+ * a 0xC0000409 (stack buffer overrun) mid-download - and a single failure would
+ * otherwise abort the whole release build. A short synchronous backoff between
+ * attempts (Atomics.wait works cross-platform in this sync preinstall) rides out a
+ * transient network/process hiccup.
+ */
+function gypInstallWithRetry(node_gyp: string, disturl: string, target: string): void {
+	const attempts = 3;
+	for (let i = 1; i <= attempts; i++) {
+		try {
+			child_process.execFileSync(node_gyp, ['install', '--dist-url', disturl, target], { shell: true });
+			return;
+		} catch (err) {
+			if (i === attempts) { throw err; }
+			console.error(`node-gyp install for ${target} failed (attempt ${i}/${attempts}); retrying in 5s…`);
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000);
+		}
+	}
+}
+
 function installHeaders() {
 	const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 	child_process.execSync(`${npm} ${process.env.npm_command || 'ci'}`, {
@@ -134,12 +156,12 @@ function installHeaders() {
 
 	if (local !== undefined) {
 		// Both disturl and target come from a file checked into our repository
-		child_process.execFileSync(node_gyp, ['install', '--dist-url', local.disturl, local.target], { shell: true });
+		gypInstallWithRetry(node_gyp, local.disturl, local.target);
 	}
 
 	if (remote !== undefined) {
 		// Both disturl and target come from a file checked into our repository
-		child_process.execFileSync(node_gyp, ['install', '--dist-url', remote.disturl, remote.target], { shell: true });
+		gypInstallWithRetry(node_gyp, remote.disturl, remote.target);
 	}
 
 	// Overlay any custom headers shipped in build/npm/gyp/custom-headers on top of
