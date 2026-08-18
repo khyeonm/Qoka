@@ -130,7 +130,13 @@ export class NotebookKernel {
 			// created, kernel launching, …) - NOT the raw conda/pip package-linking spam.
 			// This keeps the cell clean but reveals WHERE a slow first run is (esp. over a
 			// slow SSH link). On failure the error already carries a tail of the setup log.
-			const setupOut = new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.stdout('Setting up the Qoka Run Environment (first run installs packages, this can take a few minutes)…\n')]);
+			// On an SSH connection the kernel runs ON the remote server, which has no
+			// mount of the user's local disk - so cells can only read data that already
+			// lives on that server. Surface it here so it is visible in the notebook.
+			const sshNote = this.currentTargetLabel().startsWith('SSH:')
+				? 'Note: connected via SSH, so this notebook runs on the SSH server. Cells can only read data that exists ON the SSH server - a local path will not be found.\n'
+				: '';
+			const setupOut = new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.stdout(sshNote + 'Setting up the Qoka Run Environment (first run installs packages, this can take a few minutes)…\n')]);
 			await exec.appendOutput(setupOut);
 			const steps: string[] = [];
 			const logSub = session.onSetupLog(chunk => {
