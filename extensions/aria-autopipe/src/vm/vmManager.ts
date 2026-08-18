@@ -738,7 +738,7 @@ export class VMManager {
 		// Bump the instance-id whenever runcmd changes: cloud-init runs runcmd only on a
 		// NEW instance-id, so existing disk.raw users would otherwise never get the
 		// virtio-fs mount / uid fix. Everything in runcmd is idempotent.
-		fs.writeFileSync(path.join(dir, 'meta-data'), 'instance-id: aria-builtin-vfs1\nlocal-hostname: aria\n');
+		fs.writeFileSync(path.join(dir, 'meta-data'), 'instance-id: aria-builtin-vfs2\nlocal-hostname: aria\n');
 		fs.writeFileSync(path.join(dir, 'network-config'), [
 			'version: 2',
 			'ethernets:',
@@ -757,8 +757,6 @@ export class VMManager {
 			'    groups: [sudo]',
 			'    sudo: ALL=(ALL) NOPASSWD:ALL',
 			'    shell: /bin/bash',
-			// Fresh disk: create the user AT the Mac uid so shared files match.
-			...(share ? [`    uid: ${share.uid}`] : []),
 			'    ssh_authorized_keys:',
 			`      - ${pub}`,
 		];
@@ -768,13 +766,11 @@ export class VMManager {
 			`  - usermod -aG docker ${GUEST_USER} || true`,
 		];
 		if (share) {
-			// Existing disk: move the guest user's uid/gid to the Mac user's so the
-			// virtio-fs files (owned by that uid on the host) are read/writable - no
-			// permission block. Then mount the share now AND persist it in fstab
-			// (nofail) so it re-mounts every boot (cloud-init runcmd runs only once).
-			runcmd.push(`  - usermod -u ${share.uid} ${GUEST_USER} 2>/dev/null || true`);
-			runcmd.push(`  - groupmod -g ${share.uid} ${GUEST_USER} 2>/dev/null || true`);
-			runcmd.push(`  - chown -R ${share.uid}:${share.uid} /home/${GUEST_USER} 2>/dev/null || true`);
+			// Mount the virtio-fs share now AND persist it in fstab (nofail) so it
+			// re-mounts on every boot. Guest reads world-readable host files; new files
+			// it writes are owned by the guest uid on the host but stay accessible.
+			// (The uid-matching a prior version did is GONE - it broke sshd auth; see
+			// the bootcmd corrective below.)
 			runcmd.push(`  - mkdir -p ${share.mount}`);
 			runcmd.push(`  - grep -q ' ${share.mount} virtiofs' /etc/fstab || echo '${share.tag} ${share.mount} virtiofs defaults,nofail 0 0' >> /etc/fstab`);
 			runcmd.push(`  - mount -t virtiofs ${share.tag} ${share.mount} 2>/dev/null || mount ${share.mount} 2>/dev/null || true`);
@@ -784,6 +780,11 @@ export class VMManager {
 			'users:',
 			...userLines,
 			'ssh_pwauth: false',
+			// bootcmd runs EARLY on EVERY boot (before sshd) - repair any home-ownership
+			// damage a prior build left (chown home back to aria by NAME) so sshd key auth
+			// holds and the VM actually connects, instead of being restarted mid-boot.
+			'bootcmd:',
+			`  - chown -R ${GUEST_USER}:${GUEST_USER} /home/${GUEST_USER} 2>/dev/null || true`,
 			'runcmd:',
 			...runcmd,
 			'',

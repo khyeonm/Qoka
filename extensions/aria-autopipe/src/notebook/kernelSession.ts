@@ -181,6 +181,10 @@ function buildLaunch(profile: SshProfile, key: string): string {
 		`mkdir -p ${workdir} 2>/dev/null || true`,
 		`cd ${workdir} 2>/dev/null || cd "$HOME"`,
 		`printf '%s' '${b64}' | base64 -d > "$NBENV/relay.py"`,
+		// Keep jupyter's connection file + ZMQ ipc sockets on a LOCAL disk. On many
+		// remote servers $HOME is NFS, where the kernel's runtime dir can stall/lock and
+		// the kernel never becomes ready (the "launching kernel" hang). /tmp is local.
+		'export JUPYTER_RUNTIME_DIR="${TMPDIR:-/tmp}/qoka-jupyter-$(id -u)"; mkdir -p "$JUPYTER_RUNTIME_DIR" 2>/dev/null || true',
 		'echo "[qoka] launching kernel (up to a minute)…" 1>&2',
 		'exec "$NBENV/bin/python" -u "$NBENV/relay.py"',
 	].join('\n');

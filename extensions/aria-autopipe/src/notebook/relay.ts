@@ -48,6 +48,32 @@ except Exception as e:
 
 km = KernelManager(kernel_name="python3")
 _kerr_path = None
+_ready_evt = threading.Event()
+
+def _startup_watchdog():
+    # Fires if the kernel is not ready within 100s NO MATTER where startup hangs -
+    # km.start_kernel(), kc.start_channels() and kc.wait_for_ready() can ALL block
+    # (e.g. on a remote server whose NFS home stalls the connection file). Reports
+    # the kernel's captured stderr so the hang is diagnosable, then exits.
+    if _ready_evt.wait(100):
+        return
+    tail = ""
+    try:
+        if _kerr_path:
+            with open(_kerr_path) as f:
+                tail = f.read()[-2000:]
+    except Exception:
+        pass
+    a = None
+    try:
+        a = km.is_alive()
+    except Exception:
+        pass
+    emit({"type": "fatal", "error": "kernel start hung (>100s, alive=%s):\n%s" % (a, tail.strip())})
+    os._exit(1)
+
+threading.Thread(target=_startup_watchdog, daemon=True).start()
+
 try:
     # Isolate the kernel's own stdio from OUR stdout (which carries the JSON
     # protocol). Its stdout goes to DEVNULL so kernel prints can't corrupt our
@@ -115,6 +141,7 @@ for _signame in ("SIGTERM", "SIGHUP"):
     except Exception:
         pass
 
+_ready_evt.set()  # kernel is up - stand the startup watchdog down
 emit({"type": "ready"})
 
 # The single in-flight cell id. Cells run STRICTLY sequentially (the controller
