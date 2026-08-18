@@ -63,6 +63,7 @@ export const AUTOPIPE_MCP_INSTRUCTIONS = [
 	'  2) Then run on THAT connection:',
 	'     - a QUICK one-off (a version/"is anndata installed" check, a short script, a single analysis) -> run_code on the qoka-run MCP. To check whether a package is installed, run a tiny script THERE (e.g. python that imports it) - never check your own machine.',
 	'     - a LONG / multi-step / reproducible pipeline -> execute_pipeline on this server.',
+	'  ASK FIRST BY DEFAULT: when the request is just "run/execute this code" (실행/돌려/run) and does NOT clearly specify quick-vs-pipeline, ASK before running: "간단하게 바로 실행할까요(run_code), 아니면 autopipe 파이프라인으로 만들까요?". Do NOT default to building an autopipe pipeline - it needs a Snakefile/config/Dockerfile and is much heavier than run_code, and having used autopipe before in this project is NOT a reason to assume a pipeline this time. Only skip the question when the user was explicit (e.g. "그냥 빨리 돌려줘" -> run_code; "파이프라인으로 만들어줘" -> execute_pipeline).',
 	'FALLBACK: if you ever run something in your own terminal and it errors or looks wrong, STOP - that was the wrong tool. Call get_workspace_info to find the run environment, then redo it with run_code / execute_pipeline.',
 	'When a Qoka skill (anndata, scanpy, …) matches the task, follow the skill - but still EXECUTE everything through run_code / execute_pipeline on the run connection, never locally.',
 	'',

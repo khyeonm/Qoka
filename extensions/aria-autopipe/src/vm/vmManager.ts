@@ -45,6 +45,12 @@ interface StandinSpec { host: string; port: number; username: string; key_path: 
 
 const GUEST_USER = 'aria';
 const GUEST_REPO = `/home/${GUEST_USER}/aria`;
+// virtio-fs host share (Mac vfkit): the open project is mounted here so the guest
+// reads/writes the user's local disk directly (no SFTP copy, no disk.raw size cap) -
+// the "mounted repo" model WSL gets from /mnt. Tag + mount are fixed; the host
+// sharedDir varies per launch. Mirrored in isMountedRepo() (common/types.ts).
+const VFKIT_SHARE_TAG = 'qoka-data';
+const VFKIT_SHARE_MOUNT = '/mnt/qoka';
 // Generous: a FIRST boot runs cloud-init (which mounts the seed, creates the
 // user + SSH key, then starts sshd) and, on a software-emulated (TCG) fallback,
 // the whole guest runs many times slower. 180s wasn't enough - the guest was
@@ -439,7 +445,21 @@ export class VMManager {
 
 		this.set('booting');
 		const key = await this.ensureKey();
-		const seed = await this.buildVfkitSeed(key + '.pub');
+		// virtio-fs host share: mount the OPEN project into the guest so it reads and
+		// writes on the Mac's local disk directly (no SFTP copy, no disk.raw size cap).
+		// The guest user's uid is set to the Mac user's so shared files are owned by
+		// the same uid on both sides - no read/write permission block. Falls back to
+		// the guest's own disk when no folder is open.
+		const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		const share = wsRoot ? {
+			hostDir: wsRoot,
+			mount: VFKIT_SHARE_MOUNT,
+			tag: VFKIT_SHARE_TAG,
+			uid: typeof process.getuid === 'function' ? process.getuid() : 501,
+		} : undefined;
+		if (share) { ensureWorkspaceScaffold(share.hostDir); }
+		const repo = share ? share.mount : GUEST_REPO;
+		const seed = await this.buildVfkitSeed(key + '.pub', share);
 		const port = await this.freePort();
 		const disk = path.join(this.dir, 'disk.raw');
 		const efi = path.join(this.dir, 'efi-vars.nvram');
@@ -460,7 +480,7 @@ export class VMManager {
 		for (const f of [efi, netSock, vfkitSock]) { try { fs.rmSync(f, { force: true }); } catch { /* ignore */ } }
 
 		const vm = this.hostSafeSpec();
-		const sshProfile = this.profileFor('127.0.0.1', port, GUEST_USER, key, GUEST_REPO);
+		const sshProfile = this.profileFor('127.0.0.1', port, GUEST_USER, key, repo);
 
 		// 1) gvproxy: creates the vfkit datagram socket + an API socket. Guest gets
 		//    192.168.127.2 with gateway 192.168.127.1.
@@ -480,6 +500,9 @@ export class VMManager {
 			'--device', `virtio-blk,path=${seed}`,
 			'--device', `virtio-net,unixSocketPath=${vfkitSock}`,
 			'--device', `virtio-serial,logFilePath=${consoleLog}`,
+			// Share the open project into the guest (mounted at VFKIT_SHARE_MOUNT by the
+			// cloud-init seed) so data lives on the Mac disk, not copied into disk.raw.
+			...(share ? ['--device', `virtio-fs,sharedDir=${share.hostDir},mountTag=${share.tag}`] : []),
 		];
 		const errLog = fs.openSync(path.join(this.dir, 'vfkit-stderr.log'), 'w');
 		const proc = spawn(vfkit, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
@@ -708,11 +731,14 @@ export class VMManager {
 	 *  hands out .3/.4/... unpredictably across boots; (2) no 9p mount (VZ has no
 	 *  host share). Built as an ISO because that is the seed format verified to
 	 *  mount under Apple VZ (the pure-JS FAT image is only proven under qemu). */
-	private async buildVfkitSeed(pubPath: string): Promise<string> {
+	private async buildVfkitSeed(pubPath: string, share?: { hostDir: string; mount: string; tag: string; uid: number }): Promise<string> {
 		const dir = path.join(this.dir, 'seed-src');
 		fs.mkdirSync(dir, { recursive: true });
 		const pub = fs.readFileSync(pubPath, 'utf8').trim();
-		fs.writeFileSync(path.join(dir, 'meta-data'), 'instance-id: aria-builtin\nlocal-hostname: aria\n');
+		// Bump the instance-id whenever runcmd changes: cloud-init runs runcmd only on a
+		// NEW instance-id, so existing disk.raw users would otherwise never get the
+		// virtio-fs mount / uid fix. Everything in runcmd is idempotent.
+		fs.writeFileSync(path.join(dir, 'meta-data'), 'instance-id: aria-builtin-vfs2\nlocal-hostname: aria\n');
 		fs.writeFileSync(path.join(dir, 'network-config'), [
 			'version: 2',
 			'ethernets:',
@@ -726,20 +752,41 @@ export class VMManager {
 			'      addresses: [192.168.127.1]',
 			'',
 		].join('\n'));
-		fs.writeFileSync(path.join(dir, 'user-data'), [
-			'#cloud-config',
-			'users:',
+		const userLines = [
 			`  - name: ${GUEST_USER}`,
 			'    groups: [sudo]',
 			'    sudo: ALL=(ALL) NOPASSWD:ALL',
 			'    shell: /bin/bash',
 			'    ssh_authorized_keys:',
 			`      - ${pub}`,
-			'ssh_pwauth: false',
-			'runcmd:',
+		];
+		const runcmd = [
 			// Docker is baked into the image; this is an idempotent fallback only.
 			'  - command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)',
 			`  - usermod -aG docker ${GUEST_USER} || true`,
+		];
+		if (share) {
+			// Mount the virtio-fs share now AND persist it in fstab (nofail) so it
+			// re-mounts on every boot. Guest reads world-readable host files; new files
+			// it writes are owned by the guest uid on the host but stay accessible.
+			// (The uid-matching a prior version did is GONE - it broke sshd auth; see
+			// the bootcmd corrective below.)
+			runcmd.push(`  - mkdir -p ${share.mount}`);
+			runcmd.push(`  - grep -q ' ${share.mount} virtiofs' /etc/fstab || echo '${share.tag} ${share.mount} virtiofs defaults,nofail 0 0' >> /etc/fstab`);
+			runcmd.push(`  - mount -t virtiofs ${share.tag} ${share.mount} 2>/dev/null || mount ${share.mount} 2>/dev/null || true`);
+		}
+		fs.writeFileSync(path.join(dir, 'user-data'), [
+			'#cloud-config',
+			'users:',
+			...userLines,
+			'ssh_pwauth: false',
+			// bootcmd runs EARLY on EVERY boot (before sshd) - repair any home-ownership
+			// damage a prior build left (chown home back to aria by NAME) so sshd key auth
+			// holds and the VM actually connects, instead of being restarted mid-boot.
+			'bootcmd:',
+			`  - chown -R ${GUEST_USER}:${GUEST_USER} /home/${GUEST_USER} 2>/dev/null || true`,
+			'runcmd:',
+			...runcmd,
 			'',
 		].join('\n'));
 		const iso = path.join(this.dir, 'seed.iso');
