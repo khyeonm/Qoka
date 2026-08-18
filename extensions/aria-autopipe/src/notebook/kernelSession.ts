@@ -148,7 +148,10 @@ function buildLaunch(profile: SshProfile, key: string): string {
 		'export MAMBA_ROOT_PREFIX="$HOME/.qoka/mamba"',
 		`NBENV="$HOME/.qoka/nbenv/${key}"`,
 		// micromamba (conda) - fetch the single static binary once if it is missing.
-		'if ! command -v micromamba >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/micromamba" ]; then A="linux-64"; case "$(uname -m)" in aarch64|arm64) A="linux-aarch64";; esac; mkdir -p "$HOME/.local"; curl -Ls "https://micro.mamba.pm/api/micromamba/$A/latest" | tar -xj -C "$HOME/.local" bin/micromamba 1>&2 || true; fi',
+		// Download the raw binary directly (no tar/bzip2): the micro.mamba.pm archive is
+		// .tar.bz2 and `tar -xj` needs a `bzip2` executable, which some run environments
+		// (e.g. a minimal WSL) do not have - that made the whole kernel fail to start.
+		'if ! command -v micromamba >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/micromamba" ]; then A="linux-64"; case "$(uname -m)" in aarch64|arm64) A="linux-aarch64";; esac; mkdir -p "$HOME/.local/bin"; curl -Ls "https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-$A" -o "$HOME/.local/bin/micromamba" 1>&2 && chmod +x "$HOME/.local/bin/micromamba" || true; fi',
 		'MM="$(command -v micromamba 2>/dev/null || echo "$HOME/.local/bin/micromamba")"',
 		'if [ ! -x "$MM" ]; then echo "[qoka] ERROR: micromamba is not available (download blocked?); conda/mamba will not work." 1>&2; fi',
 		'echo "[qoka] micromamba: $MM" 1>&2',
