@@ -158,6 +158,9 @@ export class UpdateTooltip extends Disposable {
 		this.actionButton.style.display = 'none';
 		this.actionButton.dataset.commandId = '';
 		this.releaseNotesButton.style.marginRight = '';
+		// Qoka: the tooltip is info-only. No Download / Release Notes buttons - the
+		// user acts by clicking the update indicator itself. Keep the bar hidden.
+		this.buttonBar.style.display = 'none';
 	}
 
 	public renderState(state: State) {
@@ -386,11 +389,11 @@ export class UpdateTooltip extends Disposable {
 			this.releaseDateNode.style.display = 'none';
 		}
 
-		// Release notes button
-		this.releaseNotesVersion = version ?? this.productService.version;
-		this.releaseNotesButton.style.display = this.releaseNotesVersion ? '' : 'none';
-		this.releaseNotesButton.style.marginRight = this.releaseNotesVersion ? 'auto' : '';
-		this.buttonBar.style.display = this.releaseNotesVersion ? '' : 'none';
+		// Qoka: no Release Notes button and no action button - the tooltip shows info
+		// only; the user acts by clicking the update indicator itself. Keep hidden.
+		this.releaseNotesVersion = undefined;
+		this.releaseNotesButton.style.display = 'none';
+		this.buttonBar.style.display = 'none';
 	}
 
 	private renderActionButton(label: string, commandId: string) {
