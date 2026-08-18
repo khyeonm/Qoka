@@ -209,8 +209,13 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 	}
 
 	protected override async doDownloadUpdate(state: AvailableForDownload): Promise<void> {
-		// Rebuild feed URL and trigger download via Electron's auto-updater
-		this.buildUpdateFeedUrl(this.quality!, state.update.version, { internalOrg: this.getInternalOrg() });
+		// Rebuild the feed URL with OUR CURRENT commit, NOT the target update's commit.
+		// The server returns 204 ("up to date") when the requested commit equals the
+		// pinned latest, so asking with the target commit (state.update.version) makes
+		// Squirrel see "no update" and download nothing. Asking with our current commit
+		// yields the update. Then trigger the download via Electron's auto-updater.
+		void state;
+		this.buildUpdateFeedUrl(this.quality!, this.productService.commit!, { internalOrg: this.getInternalOrg() });
 		this.setState(State.CheckingForUpdates(true));
 		electron.autoUpdater.checkForUpdates();
 	}
