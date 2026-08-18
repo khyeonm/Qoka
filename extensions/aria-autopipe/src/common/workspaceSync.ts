@@ -124,13 +124,14 @@ export function uniqueRunName(base: string): string {
 }
 
 /**
- * True when the run target's workspace lives on a WSL Windows mount
- * (`/mnt/<drive>/…`) - i.e. the guest writes straight to the user's local disk.
- * In that "mounted" mode the SFTP save/mirror steps are redundant (and would
- * copy a file onto itself over SFTP), so callers skip them.
+ * True when the run target's workspace lives on a host mount - WSL's Windows
+ * mount (`/mnt/<drive>/…`) OR the Mac vfkit virtio-fs share (`/mnt/qoka`) - i.e.
+ * the guest writes straight to the user's local disk. In that "mounted" mode the
+ * SFTP save/mirror steps are redundant (and would copy a file onto itself over
+ * SFTP), so callers skip them.
  */
 export function isMountedRepo(profile: SshProfile): boolean {
-	return /^\/mnt\/[a-z]\//i.test(profile.repo_path);
+	return /^\/mnt\/([a-z]\/|qoka(\/|$))/i.test(profile.repo_path);
 }
 
 /**

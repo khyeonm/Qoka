@@ -31,7 +31,7 @@
  * into a per-project micromamba (conda) env.
  */
 export const RELAY_PY = String.raw`
-import sys, os, json, signal, threading, queue, subprocess, tempfile
+import sys, os, json, signal, threading, queue, subprocess, tempfile, time
 
 def emit(obj):
     try:
@@ -62,7 +62,23 @@ try:
         km.start_kernel()
     kc = km.client()
     kc.start_channels()
-    kc.wait_for_ready(timeout=180)
+    # Poll for readiness with our OWN bounded deadline instead of one long
+    # wait_for_ready(), which can hang indefinitely if the kernel died or its
+    # channels never connected. Check is_alive() each round so a crashed kernel is
+    # reported FAST (with its stderr), rather than waiting out a long timeout.
+    _deadline = time.time() + 90
+    _ready = False
+    while time.time() < _deadline:
+        if not km.is_alive():
+            raise RuntimeError("the kernel process exited before it became ready")
+        try:
+            kc.wait_for_ready(timeout=3)
+            _ready = True
+            break
+        except Exception:
+            pass
+    if not _ready:
+        raise RuntimeError("the kernel did not become ready within 90s")
 except Exception as e:
     tail = ""
     try:
