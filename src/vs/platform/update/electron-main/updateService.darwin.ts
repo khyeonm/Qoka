@@ -129,8 +129,12 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 			return;
 		}
 
-		this.logService.trace('update#doCheckForUpdates - using Electron autoUpdater', { url, explicit, background });
-		electron.autoUpdater.checkForUpdates();
+		// Qoka: check WITHOUT auto-downloading, so a found update surfaces an "Update"
+		// button and the download starts only when the user clicks it (doDownloadUpdate),
+		// instead of Squirrel.Mac silently downloading on every check. This reuses the
+		// same no-download path VS Code already uses on metered connections.
+		this.logService.trace('update#doCheckForUpdates - checking without auto-download', { url, explicit, background });
+		this.checkForUpdateNoDownload(url);
 	}
 
 	/**
@@ -177,10 +181,20 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 			return;
 		}
 
+		const explicit = this.state.explicit;
 		this.setState(State.Downloaded(update, this.state.explicit, this._overwrite));
 		this.logService.info(`Update downloaded: ${JSON.stringify(update)}`);
 
 		this.setState(State.Ready(update, this.state.explicit, this._overwrite));
+
+		// Qoka: a user-initiated update (they clicked "Update", which now downloads
+		// first instead of Squirrel auto-downloading on every check) applies right
+		// away - quit-and-install through the normal lifecycle quit, which still
+		// prompts to save dirty editors. This spares the user a second "Update" click
+		// just to restart.
+		if (explicit) {
+			this.quitAndInstall();
+		}
 	}
 
 	private onUpdateNotAvailable(): void {
