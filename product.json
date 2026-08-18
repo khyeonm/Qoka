@@ -3,6 +3,9 @@
 	"nameLong": "Qoka (beta)",
 	"applicationName": "qoka",
 	"ariaVersion": "0.4.11",
+	"updateUrl": "https://qoka.org",
+	"quality": "stable",
+	"downloadUrl": "https://qoka.org/download",
 	"trustedExtensionAuthAccess": {
 		"aria": [
 			"aria.aria-memory",
