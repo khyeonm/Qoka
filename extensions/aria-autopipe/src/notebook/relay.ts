@@ -197,17 +197,7 @@ def shell_loop():
 threading.Thread(target=iopub_loop, daemon=True).start()
 threading.Thread(target=shell_loop, daemon=True).start()
 
-while True:
-    raw = sys.stdin.readline()
-    if not raw:
-        break
-    line = raw.strip()
-    if not line:
-        continue
-    try:
-        cmd = json.loads(line)
-    except Exception:
-        continue
+def _handle_cmd(cmd):
     ct = cmd.get("type")
     try:
         sys.stderr.write("[relay] recv %s\n" % ct)
@@ -232,8 +222,34 @@ while True:
             emit({"type": "ready"})
         except Exception as e:
             emit({"type": "fatal", "error": "restart failed: %s" % e})
-    elif ct == "shutdown":
+    return ct == "shutdown"
+
+# Read commands as RAW bytes from fd 0 (os.read), NOT sys.stdin.readline(): over a
+# remote SSH exec channel Python's text-mode stdin buffering can hold a small,
+# newline-terminated command until more data arrives, hanging the cell right after
+# 'ready'. os.read returns whatever bytes are available immediately.
+_inbuf = b""
+_stop = False
+while not _stop:
+    try:
+        chunk = os.read(0, 65536)
+    except Exception:
         break
+    if not chunk:
+        break  # stdin closed
+    _inbuf += chunk
+    while b"\n" in _inbuf:
+        rawline, _inbuf = _inbuf.split(b"\n", 1)
+        line = rawline.strip()
+        if not line:
+            continue
+        try:
+            cmd = json.loads(line.decode("utf-8"))
+        except Exception:
+            continue
+        if _handle_cmd(cmd):
+            _stop = True
+            break
 
 try:
     kc.stop_channels()

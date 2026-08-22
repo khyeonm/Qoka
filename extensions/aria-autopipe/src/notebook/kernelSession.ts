@@ -126,7 +126,11 @@ export class KernelSession {
 	interrupt(): void { this.send({ type: 'interrupt' }); }
 	restart(): void { this.ready = true; this.send({ type: 'restart' }); }
 
-	private send(obj: unknown): void { this.channel?.write(JSON.stringify(obj) + '\n'); }
+	private send(obj: unknown): void {
+		const line = JSON.stringify(obj) + '\n';
+		nbLog.append(`[send${this.channel ? '' : ' NO-CHANNEL'}] ${line}`);
+		this.channel?.write(line);
+	}
 
 	dispose(): void {
 		if (this.disposed) { return; }
