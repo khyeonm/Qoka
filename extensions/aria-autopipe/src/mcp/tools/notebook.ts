@@ -73,6 +73,7 @@ export const NOTEBOOK_TOOLS: ToolDefinition[] = [
 					description: 'Ordered cells. Each: { source: string, kind?: "code" | "markdown" }.',
 					items: { type: 'object' },
 				},
+				python: { type: 'string', description: 'OPTIONAL python version for THIS notebook\'s conda env, e.g. "3.11". Omit to use the default 3.12 (a stable version with broad wheel support - correct for almost every package). Set a different version ONLY when a package the user needs requires it (no wheel for 3.12, or its docs pin an older python). Do NOT set it speculatively - changing it later rebuilds the env (packages reinstall). You cannot change python from inside a cell; it must be set here (or in the .ipynb metadata) and takes effect on kernel (re)start.' },
 			},
 			required: ['cells'],
 		},
@@ -84,9 +85,17 @@ export const NOTEBOOK_TOOLS: ToolDefinition[] = [
 
 			const mapping = getRunPathMapping();
 			const cells = cellsIn.map((c) => normalizeCell(c, mapping));
+			// Optional per-notebook python version, stored in the notebook metadata so
+			// the kernel builds this notebook's env on it (default 3.12). Only a
+			// well-formed 3.x value is honoured.
+			const py = typeof args.python === 'string' && /^3\.\d{1,2}$/.test(args.python.trim()) ? args.python.trim() : undefined;
 			const nb = {
 				cells: cells.map(toNbJsonCell),
-				metadata: { kernelspec: { name: 'python3', display_name: 'Python 3' }, language_info: { name: 'python' } },
+				metadata: {
+					kernelspec: { name: 'python3', display_name: 'Python 3' },
+					language_info: { name: 'python' },
+					...(py ? { qoka: { python: py } } : {}),
+				},
 				nbformat: 4,
 				nbformat_minor: 5,
 			};
@@ -149,17 +158,19 @@ export const NOTEBOOK_TOOLS: ToolDefinition[] = [
 				path: { type: 'string', description: 'Notebook path relative to the project root, e.g. "analysis/qc.ipynb".' },
 				edits: {
 					type: 'array',
-					description: 'Ordered edits, each { op: "replace"|"insert"|"delete", index: number, source?: string, kind?: "code"|"markdown" }.',
+					description: 'Ordered edits, each { op: "replace"|"insert"|"delete", index: number, source?: string, kind?: "code"|"markdown" }. May be empty/omitted when only changing `python`.',
 					items: { type: 'object' },
 				},
+				python: { type: 'string', description: 'OPTIONAL: change THIS notebook\'s python version, e.g. "3.11" (stored in metadata.qoka.python). Use to RESOLVE a real version conflict - e.g. a package the user needs has no wheel for the current python, or its docs pin an older one. On the next kernel (re)start the env is REBUILT on this version and packages must be reinstalled, so only change it for a genuine incompatibility, and tell the user to restart the kernel. `edits` can be empty when you only change python.' },
 			},
-			required: ['path', 'edits'],
+			required: ['path'],
 		},
 		handler: async (args) => {
 			const folder = vscode.workspace.workspaceFolders?.[0];
 			if (!folder) { return errorResult('Open a project folder first.'); }
 			const editsIn = Array.isArray(args.edits) ? args.edits : [];
-			if (editsIn.length === 0) { return errorResult('`edits` must be a non-empty array of { op, index, source?, kind? }.'); }
+			const py = typeof args.python === 'string' && /^3\.\d{1,2}$/.test(args.python.trim()) ? args.python.trim() : undefined;
+			if (editsIn.length === 0 && !py) { return errorResult('Provide `edits` (cell changes) and/or `python` (version change).'); }
 			const { rel, uri } = resolveNbPath(folder, args.path, 'analysis/notebook.ipynb');
 
 			let doc: vscode.NotebookDocument;
@@ -210,11 +221,22 @@ export const NOTEBOOK_TOOLS: ToolDefinition[] = [
 				if (!ok) { return errorResult(`Failed to apply an edit (op "${e.op}" at index ${e.index}).`); }
 			}
 			try { await doc.save(); } catch (e) { return errorResult('edit_notebook applied but saving failed: ' + (e as Error).message); }
+			// Change the per-notebook python version by patching metadata.qoka.python in the
+			// .ipynb FILE (the kernel reads it on (re)start and rebuilds the env). Patched on
+			// the file after save so it holds regardless of the editor's metadata mapping.
+			if (py) {
+				try {
+					const raw = await vscode.workspace.fs.readFile(uri);
+					const nbjson = JSON.parse(Buffer.from(raw).toString('utf8')) as { metadata?: Record<string, unknown> };
+					nbjson.metadata = { ...(nbjson.metadata || {}), qoka: { ...((nbjson.metadata?.qoka as object) || {}), python: py } };
+					await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(nbjson, null, 1), 'utf8'));
+				} catch (e) { return errorResult('edit_notebook set python but writing the metadata failed: ' + (e as Error).message); }
+			}
 			try { await vscode.commands.executeCommand('vscode.openWith', uri, 'jupyter-notebook'); } catch { /* best-effort */ }
 
 			const summary = [
-				`Edited "${rel}": ${replaced} replaced, ${inserted} inserted, ${deleted} deleted. It now has ${doc.cellCount} cell(s).`,
-				'Tell the user to run the changed cells with the "Qoka Run Environment" kernel - do NOT run them yourself.',
+				`Edited "${rel}": ${replaced} replaced, ${inserted} inserted, ${deleted} deleted${py ? `, python -> ${py}` : ''}. It now has ${doc.cellCount} cell(s).`,
+				py ? `Tell the user to RESTART the kernel: the env will be rebuilt on python ${py} and packages reinstalled.` : 'Tell the user to run the changed cells with the "Qoka Run Environment" kernel - do NOT run them yourself.',
 			];
 			const note = pathMappingNote(mapping);
 			if (note) { summary.push('', note); }

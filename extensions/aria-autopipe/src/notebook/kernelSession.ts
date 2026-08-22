@@ -56,8 +56,10 @@ export class KernelSession {
 	private async start(): Promise<void> {
 		const { profile, isBuiltIn } = await resolveRunTarget();
 		this.targetLabel = isBuiltIn ? (process.platform === 'win32' ? 'Local (WSL)' : process.platform === 'darwin' ? 'Local (vfkit)' : 'Local (VM)') : `SSH: ${profile.host}`;
-		const cmd = buildLaunch(profile, envKey(this.workspaceRoot, this.notebookPath));
-		nbLog.appendLine(`\n=== kernel start on ${this.targetLabel} (env ${envKey(this.workspaceRoot, this.notebookPath)}) ===`);
+		const key = envKey(this.workspaceRoot, this.notebookPath);
+		const pyVersion = await this.readNotebookPython();
+		const cmd = buildLaunch(profile, key, pyVersion);
+		nbLog.appendLine(`\n=== kernel start on ${this.targetLabel} (env ${key}, python ${pyVersion}) ===`);
 
 		let setupErr = '';
 		const tail = () => setupErr.trim() ? ' Setup log: ' + setupErr.trim().slice(-800) : '';
@@ -100,6 +102,24 @@ export class KernelSession {
 			if (!line) { continue; }
 			try { this._onEvent.fire(JSON.parse(line) as RelayEvent); } catch { /* ignore non-JSON noise */ }
 		}
+	}
+
+	/** The python version this notebook's env should use, read straight from the
+	 *  .ipynb file's `metadata.qoka.python` (so it does not depend on VS Code's
+	 *  metadata mapping). Defaults to 3.12 - a stable version with broad wheel
+	 *  support - and only honours a well-formed `3.x` value, so it is safe to inject
+	 *  into the env-create shell command. The AI sets this when a package needs a
+	 *  python other than 3.12; changing it rebuilds the env (see buildLaunch). */
+	private async readNotebookPython(): Promise<string> {
+		const dflt = '3.12';
+		if (!this.notebookPath) { return dflt; }
+		try {
+			const buf = await vscode.workspace.fs.readFile(vscode.Uri.file(this.notebookPath));
+			const nb = JSON.parse(Buffer.from(buf).toString('utf8')) as { metadata?: { qoka?: { python?: unknown } } };
+			const v = nb?.metadata?.qoka?.python;
+			if (typeof v === 'string' && /^3\.\d{1,2}$/.test(v)) { return v; }
+		} catch { /* missing/unreadable/invalid -> default */ }
+		return dflt;
 	}
 
 	execute(id: string, code: string): void { this.send({ type: 'execute', id, code }); }
@@ -159,7 +179,7 @@ function shq(s: string): string { return `'${s.replace(/'/g, `'\\''`)}'`; }
  * so cell subprocesses install into it, then execs the relay from that env's python.
  * ALL setup output goes to stderr so stdout carries only the relay's JSON protocol.
  */
-function buildLaunch(profile: SshProfile, key: string): string {
+function buildLaunch(profile: SshProfile, key: string, pyVersion: string): string {
 	const b64 = Buffer.from(RELAY_PY, 'utf8').toString('base64');
 	const workdir = profile.repo_path && profile.repo_path.trim() ? shq(profile.repo_path) : '"$HOME"';
 	return [
@@ -177,7 +197,14 @@ function buildLaunch(profile: SshProfile, key: string): string {
 		// Per-project conda env: python + pip + the kernel bits. Rebuild it when it is
 		// missing OR when it is not a real conda env (e.g. a stale uv venv left by an
 		// older build) - otherwise conda/mamba installs have nowhere to go.
-		'if [ ! -x "$NBENV/bin/python" ] || [ ! -d "$NBENV/conda-meta" ]; then echo "[qoka] creating conda env at $NBENV (first run, a few minutes)…" 1>&2; rm -rf "$NBENV"; "$MM" create -y -p "$NBENV" -c conda-forge python=3.12 pip ipykernel jupyter_client 1>&2; fi',
+		// Per-notebook conda env at the requested python (default 3.12). A marker file
+		// records the version the env was built with; if the notebook now asks for a
+		// DIFFERENT python (metadata.qoka.python changed), the env is rebuilt from
+		// scratch on that version - packages must be reinstalled, since a python change
+		// means a fresh env. pyVersion is validated as `3.x` upstream, so it is safe here.
+		`REQ_PY="${pyVersion}"`,
+		'CUR_PY="$(cat "$NBENV/.qoka-python" 2>/dev/null || echo none)"',
+		'if [ ! -x "$NBENV/bin/python" ] || [ ! -d "$NBENV/conda-meta" ] || [ "$CUR_PY" != "$REQ_PY" ]; then echo "[qoka] creating conda env at $NBENV (python $REQ_PY, first run or version change, a few minutes)…" 1>&2; rm -rf "$NBENV"; "$MM" create -y -p "$NBENV" -c conda-forge "python=$REQ_PY" pip ipykernel jupyter_client 1>&2 && printf %s "$REQ_PY" > "$NBENV/.qoka-python"; fi',
 		// Expose conda/mamba command NAMES (micromamba is CLI-compatible for install).
 		'ln -sf "$MM" "$NBENV/bin/mamba" 2>/dev/null || true; ln -sf "$MM" "$NBENV/bin/conda" 2>/dev/null || true',
 		'echo "[qoka] env kind: $([ -d "$NBENV/conda-meta" ] && echo conda || echo NON-CONDA); conda -> $(readlink "$NBENV/bin/conda" 2>/dev/null || echo MISSING)" 1>&2',
