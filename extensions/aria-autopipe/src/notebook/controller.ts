@@ -104,19 +104,23 @@ export class NotebookKernel {
 		// Chain every requested cell onto the notebook's serial queue so cells run
 		// strictly one at a time (in click order) even across separate run clicks.
 		// A queued cell stays pending - no spinner - until the cell ahead of it ends.
-		const mine: Promise<void>[] = [];
-		for (const cell of cells) {
-			const prev = this.queues.get(key) ?? Promise.resolve();
-			const p = prev.then(() => this.runCell(session, cell)).catch(() => { /* keep the chain alive */ });
-			this.queues.set(key, p);
-			mine.push(p);
-		}
-		await Promise.all(mine);
+		// Run this batch (all cells from one run click) as ONE queue entry that STOPS at
+		// the first failed cell - Jupyter "Run All" semantics. Cells after a failure are
+		// left un-executed (no checkmark, no spinner), NOT run on the broken state.
+		const prev = this.queues.get(key) ?? Promise.resolve();
+		const batch = prev.then(async () => {
+			for (const cell of cells) {
+				const ok = await this.runCell(session, cell);
+				if (!ok) { break; }
+			}
+		}).catch(() => { /* keep the chain alive */ });
+		this.queues.set(key, batch);
+		await batch;
 	}
 
-	private async runCell(session: KernelSession, cell: vscode.NotebookCell): Promise<void> {
+	private async runCell(session: KernelSession, cell: vscode.NotebookCell): Promise<boolean> {
 		// The session may have been restarted/closed while this cell waited its turn.
-		if (session.isDisposed) { return; }
+		if (session.isDisposed) { return false; }
 
 		// Create the cell execution only when it is THIS cell's turn, so the per-cell
 		// spinner + timer appear as it actually starts (not while queued behind others).
@@ -156,19 +160,19 @@ export class NotebookKernel {
 				const err = e instanceof Error ? e : new Error(String(e));
 				await exec.replaceOutputItems([vscode.NotebookCellOutputItem.error(err)], setupOut);
 				exec.end(false, Date.now());
-				return;
+				return false;
 			} finally {
 				logSub.dispose();
 			}
 		}
 
-		await new Promise<void>((resolve) => {
+		return await new Promise<boolean>((resolve) => {
 			const id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 			let stream: { out: vscode.NotebookCellOutput; name: 'stdout' | 'stderr'; text: string } | undefined;
 			let done = false;
 			let sub: vscode.Disposable | undefined;
 			let exitSub: vscode.Disposable | undefined;
-			const finish = (ok: boolean) => { if (done) { return; } done = true; sub?.dispose(); exitSub?.dispose(); exec.end(ok, Date.now()); resolve(); };
+			const finish = (ok: boolean) => { if (done) { return; } done = true; sub?.dispose(); exitSub?.dispose(); exec.end(ok, Date.now()); resolve(ok); };
 
 			// Serialize output edits so fast events can't interleave/reorder.
 			let chain: Promise<void> = Promise.resolve();
