@@ -13,6 +13,11 @@ import { RELAY_PY } from './relay';
 /** One decoded JSON line from the relay (see relay.ts for the shapes). */
 export interface RelayEvent { type: string; id?: string | null;[k: string]: unknown; }
 
+/** Diagnostic channel: logs the RAW stdout/stderr the kernel connection delivers,
+ *  so an SSH kernel that connects locally but hangs over a remote server can be
+ *  inspected (View -> Output -> "Qoka Notebook"). */
+const nbLog = vscode.window.createOutputChannel('Qoka Notebook');
+
 /**
  * A live IPython kernel running in the active run environment (WSL/vfkit/SSH),
  * reached through a single persistent SSH exec channel that runs the Python
@@ -36,7 +41,7 @@ export class KernelSession {
 	/** Human label of the target the kernel booted on (for the UI). */
 	targetLabel = '';
 
-	constructor(private readonly workspaceRoot: string) { }
+	constructor(private readonly workspaceRoot: string, private readonly notebookPath?: string) { }
 
 	get isReady(): boolean { return this.ready; }
 	get isDisposed(): boolean { return this.disposed; }
@@ -51,7 +56,8 @@ export class KernelSession {
 	private async start(): Promise<void> {
 		const { profile, isBuiltIn } = await resolveRunTarget();
 		this.targetLabel = isBuiltIn ? (process.platform === 'win32' ? 'Local (WSL)' : process.platform === 'darwin' ? 'Local (vfkit)' : 'Local (VM)') : `SSH: ${profile.host}`;
-		const cmd = buildLaunch(profile, projectKey(this.workspaceRoot));
+		const cmd = buildLaunch(profile, envKey(this.workspaceRoot, this.notebookPath));
+		nbLog.appendLine(`\n=== kernel start on ${this.targetLabel} (env ${envKey(this.workspaceRoot, this.notebookPath)}) ===`);
 
 		let setupErr = '';
 		const tail = () => setupErr.trim() ? ' Setup log: ' + setupErr.trim().slice(-800) : '';
@@ -77,8 +83,8 @@ export class KernelSession {
 		});
 
 		this.channel = await services().ssh.execPersistent(profile, cmd, {
-			onStdout: (chunk) => this.ingest(chunk),
-			onStderr: (chunk) => { setupErr += chunk; if (setupErr.length > 8000) { setupErr = setupErr.slice(-8000); } if (!this.disposed) { this._onSetupLog.fire(chunk); } },
+			onStdout: (chunk) => { nbLog.append('[stdout] ' + chunk); this.ingest(chunk); },
+			onStderr: (chunk) => { nbLog.append('[stderr] ' + chunk); setupErr += chunk; if (setupErr.length > 8000) { setupErr = setupErr.slice(-8000); } if (!this.disposed) { this._onSetupLog.fire(chunk); } },
 			onClose: () => { if (this.disposed) { return; } this.ready = false; this.channel = undefined; this._onExit.fire(setupErr.trim() || undefined); },
 		});
 		await ready;
@@ -123,13 +129,21 @@ export class KernelSession {
 	}
 }
 
-/** Stable per-project key (slug + short hash), mirroring run_code's sandbox key. */
-function projectKey(root: string): string {
-	const base = (root.split(/[\\/]/).pop() || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
-	// A tiny non-crypto hash is enough to disambiguate two same-named projects.
+/** Stable per-NOTEBOOK env key so each notebook gets its OWN conda env (its own
+ *  python + packages), created on first run and reused whenever that notebook is
+ *  reopened. Readable prefix (project + notebook name) + a hash of the full
+ *  project+notebook path so two same-named files never collide. Falls back to a
+ *  per-project key when the notebook path is unknown. */
+function envKey(root: string, notebookPath?: string): string {
+	const slug = (s: string) => (s.split(/[\\/]/).pop() || '').toLowerCase().replace(/\.ipynb$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+	const projectSlug = slug(root) || 'project';
+	const identity = notebookPath ? `${root} ${notebookPath}` : root;
+	// A tiny non-crypto hash is enough to disambiguate paths.
 	let h = 0;
-	for (let i = 0; i < root.length; i++) { h = (Math.imul(h, 31) + root.charCodeAt(i)) | 0; }
-	return `${base}-${(h >>> 0).toString(16).padStart(8, '0')}`;
+	for (let i = 0; i < identity.length; i++) { h = (Math.imul(h, 31) + identity.charCodeAt(i)) | 0; }
+	const hash = (h >>> 0).toString(16).padStart(8, '0');
+	const nbSlug = notebookPath ? slug(notebookPath) : '';
+	return nbSlug ? `${projectSlug}-${nbSlug}-${hash}` : `${projectSlug}-${hash}`;
 }
 
 /** Shell single-quote a path safely. */
@@ -163,7 +177,7 @@ function buildLaunch(profile: SshProfile, key: string): string {
 		// Per-project conda env: python + pip + the kernel bits. Rebuild it when it is
 		// missing OR when it is not a real conda env (e.g. a stale uv venv left by an
 		// older build) - otherwise conda/mamba installs have nowhere to go.
-		'if [ ! -x "$NBENV/bin/python" ] || [ ! -d "$NBENV/conda-meta" ]; then echo "[qoka] creating conda env at $NBENV (first run, a few minutes)…" 1>&2; rm -rf "$NBENV"; "$MM" create -y -p "$NBENV" -c conda-forge python pip ipykernel jupyter_client 1>&2; fi',
+		'if [ ! -x "$NBENV/bin/python" ] || [ ! -d "$NBENV/conda-meta" ]; then echo "[qoka] creating conda env at $NBENV (first run, a few minutes)…" 1>&2; rm -rf "$NBENV"; "$MM" create -y -p "$NBENV" -c conda-forge python=3.12 pip ipykernel jupyter_client 1>&2; fi',
 		// Expose conda/mamba command NAMES (micromamba is CLI-compatible for install).
 		'ln -sf "$MM" "$NBENV/bin/mamba" 2>/dev/null || true; ln -sf "$MM" "$NBENV/bin/conda" 2>/dev/null || true',
 		'echo "[qoka] env kind: $([ -d "$NBENV/conda-meta" ] && echo conda || echo NON-CONDA); conda -> $(readlink "$NBENV/bin/conda" 2>/dev/null || echo MISSING)" 1>&2',

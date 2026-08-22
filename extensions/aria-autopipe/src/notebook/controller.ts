@@ -91,7 +91,7 @@ export class NotebookKernel {
 		let s = this.sessions.get(key);
 		if (!s) {
 			const root = this.workspaceRoot() || path.dirname(notebook.uri.fsPath);
-			s = new KernelSession(root);
+			s = new KernelSession(root, notebook.uri.fsPath);
 			s.onExit(err => { this.sessions.delete(key); if (err) { void vscode.window.showWarningMessage('Qoka kernel stopped: ' + err); } });
 			this.sessions.set(key, s);
 		}
