@@ -83,7 +83,12 @@ try:
     try:
         _kerr = tempfile.NamedTemporaryFile(mode="w+", suffix=".qoka-kernel-err", delete=False)
         _kerr_path = _kerr.name
-        km.start_kernel(stdout=subprocess.DEVNULL, stderr=_kerr)
+        # Give the kernel its OWN empty stdin (DEVNULL), NOT this relay's stdin. Over a
+        # remote SSH exec channel the kernel subprocess would otherwise inherit the SSH
+        # channel's stdin and swallow the controller's execute commands, so the relay's
+        # readline() never sees them - the cell hangs right after 'ready' (works locally
+        # because the timing differs). DEVNULL leaves the relay the SOLE stdin reader.
+        km.start_kernel(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=_kerr)
     except TypeError:
         km.start_kernel()
     kc = km.client()
@@ -204,6 +209,11 @@ while True:
     except Exception:
         continue
     ct = cmd.get("type")
+    try:
+        sys.stderr.write("[relay] recv %s\n" % ct)
+        sys.stderr.flush()
+    except Exception:
+        pass
     if ct == "execute":
         # Record the cell id BEFORE executing, so any iopub output is attributed to
         # it (no race). Sequential execution guarantees one in-flight cell.
