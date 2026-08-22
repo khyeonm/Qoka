@@ -220,7 +220,10 @@ function buildLaunch(profile: SshProfile, key: string, pyVersion: string): strin
 		'echo "[qoka] kernelspec ready" 1>&2',
 		// Activate the env so cell installs (conda/mamba/uv/pip) all target it.
 		'eval "$("$MM" shell hook -s posix 2>/dev/null)" 2>/dev/null || true',
-		'micromamba activate "$NBENV" 2>/dev/null || true',
+		// Redirect stdout too (not just stderr): some micromamba builds print a JSON
+		// status like {"success": true} to stdout on activate, which would otherwise
+		// corrupt the relay's first message on the shared channel.
+		'micromamba activate "$NBENV" >/dev/null 2>&1 || true',
 		'export CONDA_PREFIX="$NBENV"; export CONDA_DEFAULT_ENV="$NBENV"; unset VIRTUAL_ENV',
 		'export PATH="$NBENV/bin:$HOME/.local/bin:/usr/local/bin:$PATH"',
 		`mkdir -p ${workdir} 2>/dev/null || true`,

@@ -40,6 +40,17 @@ def emit(obj):
     except Exception:
         pass
 
+# Terminate any PARTIAL line the setup left on stdout before this relay took over.
+# Some tools (e.g. micromamba) print a status like {"success": true} WITHOUT a
+# trailing newline; without this it would concatenate with our first message
+# ({"success": true}{"type": "ready"}) and the controller could not parse it, so the
+# cell hung right after 'ready'. A leading newline puts our messages on their own line.
+try:
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+except Exception:
+    pass
+
 try:
     from jupyter_client import KernelManager
 except Exception as e:
