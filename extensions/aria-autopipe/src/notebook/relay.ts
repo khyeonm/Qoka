@@ -171,6 +171,23 @@ def cur():
     with lock:
         return current["id"]
 
+# Emit a cell's terminal "reply" only after BOTH the shell execute_reply (which
+# carries ok/error) AND the iopub status:idle (which the kernel sends AFTER every
+# output for the cell) have arrived. Emitting on the shell reply alone raced ahead
+# of a late display_data on the separate iopub channel, so a figure was dropped and
+# the cell sometimes looked stuck. Cells run strictly one at a time, so one slot is
+# enough. Guarded by the shared 'lock'.
+_done = {"id": None, "status": None, "idle": False, "reply": False}
+
+def _maybe_done():
+    # Must be called with 'lock' held.
+    if _done["reply"] and _done["idle"] and _done["id"] is not None:
+        emit({"type": "reply", "id": _done["id"], "status": _done["status"]})
+        _done["id"] = None
+        _done["status"] = None
+        _done["idle"] = False
+        _done["reply"] = False
+
 def iopub_loop():
     while True:
         try:
@@ -191,7 +208,12 @@ def iopub_loop():
         elif t == "execute_input":
             emit({"type": "input", "id": cid, "count": c.get("execution_count")})
         elif t == "status":
-            emit({"type": "status", "id": cid, "state": c.get("execution_state")})
+            state = c.get("execution_state")
+            emit({"type": "status", "id": cid, "state": state})
+            if state == "idle":
+                with lock:
+                    _done["idle"] = True
+                    _maybe_done()
 
 def shell_loop():
     while True:
@@ -203,7 +225,10 @@ def shell_loop():
             break
         if msg["header"]["msg_type"] == "execute_reply":
             c = msg.get("content") or {}
-            emit({"type": "reply", "id": cur(), "status": c.get("status"), "count": c.get("execution_count")})
+            with lock:
+                _done["status"] = c.get("status")
+                _done["reply"] = True
+                _maybe_done()
 
 threading.Thread(target=iopub_loop, daemon=True).start()
 threading.Thread(target=shell_loop, daemon=True).start()
@@ -217,9 +242,15 @@ def _handle_cmd(cmd):
         pass
     if ct == "execute":
         # Record the cell id BEFORE executing, so any iopub output is attributed to
-        # it (no race). Sequential execution guarantees one in-flight cell.
+        # it (no race). Sequential execution guarantees one in-flight cell. Reset the
+        # done-tracker for this cell so a stale idle from startup / the previous cell
+        # cannot fire its reply early.
         with lock:
             current["id"] = cmd.get("id")
+            _done["id"] = cmd.get("id")
+            _done["status"] = None
+            _done["idle"] = False
+            _done["reply"] = False
         kc.execute(cmd.get("code", ""))
     elif ct == "interrupt":
         try:

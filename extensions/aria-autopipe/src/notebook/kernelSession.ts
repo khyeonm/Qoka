@@ -233,6 +233,12 @@ function buildLaunch(profile: SshProfile, key: string, pyVersion: string): strin
 		// remote servers $HOME is NFS, where the kernel's runtime dir can stall/lock and
 		// the kernel never becomes ready (the "launching kernel" hang). /tmp is local.
 		'export JUPYTER_RUNTIME_DIR="${TMPDIR:-/tmp}/qoka-jupyter-$(id -u)"; mkdir -p "$JUPYTER_RUNTIME_DIR" 2>/dev/null || true',
+		// Force matplotlib's INLINE backend (ships with ipykernel) whenever the user
+		// imports matplotlib. Without it a headless kernel may pick a GUI backend, so
+		// plt.show() opens no window (figure never appears inline) and can BLOCK in the
+		// kernel event loop (the cell then hangs with no idle). Inline renders every
+		// figure to a display_data image and never blocks.
+		'export MPLBACKEND="module://matplotlib_inline.backend_inline"',
 		'echo "[qoka] launching kernel (up to a minute)…" 1>&2',
 		'exec "$NBENV/bin/python" -u "$NBENV/relay.py"',
 	].join('\n');
