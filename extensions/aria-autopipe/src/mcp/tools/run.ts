@@ -11,8 +11,9 @@ import { ToolDefinition, textResult, errorResult } from './types';
 import { services } from '../../common/services';
 import { resolveRunTarget } from '../../runtime/builtinServer';
 import { windowsToWsl, builtInLabel } from '../../common/dockerEnv';
-import { workspaceFolderPath, copyRemoteDirToLocal, listLocalFiles, uniqueRunName } from '../../common/workspaceSync';
+import { workspaceFolderPath, copyRemoteDirToLocal, listLocalFiles, uniqueRunName, isMountedRepo } from '../../common/workspaceSync';
 import { humanSize } from '../../common/workspaceSync';
+import { workspacePathsFor } from '../../common/types';
 import { openResultsInEditor, describeOpenedResults } from '../../common/openResults';
 
 /**
@@ -246,7 +247,13 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// remote SSH host, neither of which can see the local /mnt path - the
 				// run dir lives on the server and is SFTP-copied back below.
 				const isWslBuiltin = isBuiltIn && process.platform === 'win32';
-				const mounted = isWslBuiltin && !!wsRoot;
+				// The local run environment mounts the OPEN project into the guest - WSL at
+				// /mnt/<drive>/…, Mac vfkit at /mnt/qoka - so the run dir can BE the local
+				// results/<id> folder and every output streams straight to the user's disk
+				// as it is written. That survives a mid-run VM crash (the files are already
+				// local) and needs no copy-back. True for BOTH WSL and vfkit whenever a
+				// project is open; a remote SSH host has no such mount and still copies back.
+				const mounted = isBuiltIn && !!wsRoot && isMountedRepo(ep);
 				// Per-project sandbox key (WSL bubblewrap home). Falls back to a shared
 				// scratch sandbox when no project is open.
 				const projectKey = wsRoot ? projectSandboxKey(wsRoot) : '_scratch';
@@ -257,12 +264,17 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				let runDirExpr: string;
 				let localDir: string | undefined;
 				if (mounted && wsRoot) {
-					// Mounted (WSL): the run dir IS the project dir via /mnt. Outputs go
-					// to results/<id>/; the script source is written separately into
-					// analysis/<id>/ below (CODE and OUTPUTS kept apart).
+					// Mounted (WSL or vfkit): the run dir IS the project's results/<id> on the
+					// local disk, seen through the guest mount. Outputs go there directly; the
+					// script source is written separately into analysis/<id>/ below (CODE and
+					// OUTPUTS kept apart). The guest-visible path differs per backend: WSL sees
+					// the drive at /mnt/<drive>/…; vfkit sees the open project at /mnt/qoka, so
+					// its results dir is workspacePathsFor(...).output_dir (/mnt/qoka/results).
 					localDir = path.join(wsRoot, 'results', id);
 					fs.mkdirSync(localDir, { recursive: true });
-					runDirExpr = `'${windowsToWsl(localDir)}'`;
+					runDirExpr = isWslBuiltin
+						? `'${windowsToWsl(localDir)}'`
+						: `'${workspacePathsFor(ep).output_dir}/${id}'`;
 				} else if (!isBuiltIn) {
 					// A user-provided SSH server: stay INSIDE the workspace directory the
 					// user configured for that connection (repo_path). Writing to $HOME
@@ -302,6 +314,10 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				}
 				const encoded = Buffer.from(source, 'utf8').toString('base64');
 				const ensure = language === 'python' ? `${ENSURE_UV}\n` : '';
+				// Unbuffer python stdout/stderr so stdout.log / stderr.log land on the (now
+				// often mounted, local) run dir line-by-line as they print - a crash then
+				// keeps the log up to the last line, not just to the last 4KB flush.
+				const pyBuf = language === 'python' ? 'export PYTHONUNBUFFERED=1\n' : '';
 				const runCmd = spec.run(file);
 				// The block that runs the user's code and writes stdout.log / stderr.log into
 				// the run dir. On the WSL local run environment it runs inside a PER-PROJECT
@@ -321,7 +337,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					// home so its own quoting can't collide with the outer shell AND $HOME
 					// resolves to the sandbox (bwrap --setenv), not the WSL user home.
 					const runnerB64 = Buffer.from(
-						`export PATH="/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"\n${ensure}${runCmd}\n`,
+						`export PATH="/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"\n${pyBuf}${ensure}${runCmd}\n`,
 						'utf8').toString('base64');
 					const dataDir = mounted && wsRoot ? path.join(wsRoot, 'data') : undefined;
 					const dataBind = dataDir && fs.existsSync(dataDir)
@@ -353,12 +369,12 @@ export const RUN_TOOLS: ToolDefinition[] = [
 						'else',
 						'  echo "[qoka] bubblewrap not installed in the run environment - running WITHOUT sandbox isolation. Restart Qoka to finish setup." >&2',
 						'  export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
-						`  ${ensure}${runCmd} > stdout.log 2> stderr.log`,
+						`  ${pyBuf}${ensure}${runCmd} > stdout.log 2> stderr.log`,
 						'fi',
 					].join('\n');
 				} else {
 					execBlock = 'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"\n'
-						+ `${ensure}${runCmd} > stdout.log 2> stderr.log`;
+						+ `${pyBuf}${ensure}${runCmd} > stdout.log 2> stderr.log`;
 				}
 				// ONE login for the whole run: mkdir + write the script + execute + report
 				// the resolved dir and the files produced. Kept to a single connection
