@@ -6,7 +6,7 @@
 import { ToolDefinition, textResult, errorResult } from './types';
 import { ensureAutopipeTabOpen } from './autopipeTab';
 import { services } from '../../common/services';
-import { workspacePathsFor } from '../../common/types';
+import { workspacePathsFor, SshProfile } from '../../common/types';
 import { shellEscape } from '../../common/roCrate';
 import {
 	windowsToWsl,
@@ -31,6 +31,105 @@ function requireProfile() {
 		throw new Error('No active SSH profile. Configure one via Qoka > Autopipe > SSH.');
 	}
 	return profile;
+}
+
+export interface LaunchPipelineOpts {
+	imageName: string;
+	runName: string;
+	inputDir: string;
+	cores?: number;
+	needsDockerSocket?: boolean;
+}
+
+export interface LaunchedPipeline {
+	pid: string;
+	outputDir: string;
+	logPath: string;
+	containerName: string;
+}
+
+/**
+ * Start a pipeline container in the background (nohup) and return immediately with
+ * its run identity - WITHOUT the ~90s early-failure watch. Shared by the
+ * execute_pipeline MCP tool (which then watches) and the input-form tab's Save
+ * button (which just launches and closes). Throws on a failed launch.
+ */
+export async function launchPipeline(profile: SshProfile, opts: LaunchPipelineOpts): Promise<LaunchedPipeline> {
+	const { ssh } = services();
+	const cores = Number.isInteger(opts.cores) ? Number(opts.cores) : 8;
+	const runName = String(opts.runName ?? '');
+	const imageName = String(opts.imageName ?? '');
+	const inputDir = windowsToWsl(String(opts.inputDir ?? ''));
+	if (!runName || !imageName || !inputDir) {
+		throw new Error('launchPipeline: image_name, run_name and input_dir are required');
+	}
+	const outputDir = resolveOutputDir(profile, runName);
+	const containerName = `${runName}-run`;
+	const logPath = `${outputDir.replace(/\/+$/, '')}/pipeline.log`;
+
+	const pipelineDir = await findPipelineDir(profile, imageName);
+	const pipelineMount = pipelineDir ? `-v '${shellEscape(pipelineDir)}:/pipeline'` : '';
+
+	const symlinkTargets = await resolveSymlinkTargets(profile, inputDir);
+	const symlinkMounts = symlinkTargets.map(t => ` -v '${shellEscape(t)}:${shellEscape(t)}:ro'`).join('');
+
+	let dockerSocketMount = '';
+	let hostPathMounts = '';
+	let hostEnvVars = '';
+	if (opts.needsDockerSocket === true) {
+		dockerSocketMount = await resolveDockerSocketMount(profile);
+		hostPathMounts = ` -v '${shellEscape(inputDir)}:${shellEscape(inputDir)}:ro' -v '${shellEscape(outputDir)}:${shellEscape(outputDir)}'`;
+		if (pipelineDir) {
+			hostPathMounts += ` -v '${shellEscape(pipelineDir)}:${shellEscape(pipelineDir)}'`;
+		}
+		for (const t of symlinkTargets) {
+			hostPathMounts += ` -v '${shellEscape(t)}:${shellEscape(t)}:ro'`;
+		}
+		hostEnvVars = ` -e HOST_INPUT_DIR='${shellEscape(inputDir)}' -e HOST_OUTPUT_DIR='${shellEscape(outputDir)}'`;
+		if (pipelineDir) {
+			hostEnvVars += ` -e HOST_PIPELINE_DIR='${shellEscape(pipelineDir)}'`;
+		}
+	}
+
+	await ssh.run(profile, `docker rm -f '${shellEscape(containerName)}' 2>/dev/null`);
+	// Create BOTH mount dirs as the (aria) SSH user BEFORE docker runs. Docker
+	// auto-creates a missing bind-mount source dir as ROOT, which then blocks
+	// prepare_input / symlinks / uploads with "Permission denied".
+	await ssh.run(profile, `mkdir -p '${shellEscape(inputDir)}' '${shellEscape(outputDir)}'`);
+
+	const runMeta = JSON.stringify({
+		run_name: runName,
+		image_name: imageName,
+		container_name: containerName,
+		input_dir: inputDir,
+		started_at: new Date().toISOString(),
+	});
+	const metaPath = `${outputDir.replace(/\/+$/, '')}/.autopipe-run.json`;
+	try { await ssh.writeFile(profile, metaPath, runMeta); } catch { /* best-effort */ }
+
+	// Mark the local results/<run>/ folder as a pipeline output so the result
+	// viewer can offer a dedicated pipeline-type plugin for it.
+	writePipelineMarker(runName, imageName);
+
+	// Run the container as the server-side user so result files land user-owned.
+	// Skipped for the docker-socket (nextflow) path, which needs root.
+	const userFlag = dockerSocketMount ? '' : `--user "$(id -u):$(id -g)" `;
+	const cmd =
+		`nohup docker run --entrypoint snakemake --name '${shellEscape(containerName)}' `
+		+ `${userFlag}${pipelineMount}${dockerSocketMount}${hostPathMounts}${hostEnvVars} `
+		+ `-v '${shellEscape(inputDir)}:/input:ro'${symlinkMounts} `
+		+ `-v '${shellEscape(outputDir)}:/output' -w /output `
+		+ `'${shellEscape(imageName)}' --cores ${cores} --rerun-incomplete `
+		+ `--snakefile /pipeline/Snakefile --configfile /pipeline/config.yaml `
+		+ `> '${shellEscape(logPath)}' 2>&1 &\necho $!`;
+
+	const startRes = await ssh.run(profile, cmd);
+	if (startRes.exitCode !== 0) {
+		throw new Error(`Failed to start pipeline:\n${startRes.stdout || startRes.stderr}`);
+	}
+	const startLines = startRes.stdout.trim().split('\n');
+	const pid = startLines[startLines.length - 1] || 'unknown';
+	return { pid, outputDir, logPath, containerName };
 }
 
 export const EXECUTION_TOOLS: ToolDefinition[] = [
@@ -242,84 +341,21 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 			try {
 				const profile = requireProfile();
 				const { ssh } = services();
-				const cores = Number.isInteger(args.cores) ? Number(args.cores) : 8;
 				const runName = String(args.run_name ?? '');
 				const imageName = String(args.image_name ?? '');
-				const inputDir = windowsToWsl(String(args.input_dir ?? ''));
-				if (!runName || !imageName || !inputDir) {
-					return errorResult('execute_pipeline: `image_name`, `run_name`, `input_dir` are required');
+				let launched: LaunchedPipeline;
+				try {
+					launched = await launchPipeline(profile, {
+						imageName,
+						runName,
+						inputDir: String(args.input_dir ?? ''),
+						cores: args.cores as number | undefined,
+						needsDockerSocket: args.needs_docker_socket === true,
+					});
+				} catch (e) {
+					return errorResult((e as Error).message);
 				}
-				const outputDir = resolveOutputDir(profile, runName);
-				const containerName = `${runName}-run`;
-				const logPath = `${outputDir.replace(/\/+$/, '')}/pipeline.log`;
-
-				const pipelineDir = await findPipelineDir(profile, imageName);
-				const pipelineMount = pipelineDir ? `-v '${shellEscape(pipelineDir)}:/pipeline'` : '';
-
-				const symlinkTargets = await resolveSymlinkTargets(profile, inputDir);
-				const symlinkMounts = symlinkTargets.map(t => ` -v '${shellEscape(t)}:${shellEscape(t)}:ro'`).join('');
-
-				let dockerSocketMount = '';
-				let hostPathMounts = '';
-				let hostEnvVars = '';
-				if (args.needs_docker_socket === true) {
-					dockerSocketMount = await resolveDockerSocketMount(profile);
-					hostPathMounts = ` -v '${shellEscape(inputDir)}:${shellEscape(inputDir)}:ro' -v '${shellEscape(outputDir)}:${shellEscape(outputDir)}'`;
-					if (pipelineDir) {
-						hostPathMounts += ` -v '${shellEscape(pipelineDir)}:${shellEscape(pipelineDir)}'`;
-					}
-					for (const t of symlinkTargets) {
-						hostPathMounts += ` -v '${shellEscape(t)}:${shellEscape(t)}:ro'`;
-					}
-					hostEnvVars = ` -e HOST_INPUT_DIR='${shellEscape(inputDir)}' -e HOST_OUTPUT_DIR='${shellEscape(outputDir)}'`;
-					if (pipelineDir) {
-						hostEnvVars += ` -e HOST_PIPELINE_DIR='${shellEscape(pipelineDir)}'`;
-					}
-				}
-
-				await ssh.run(profile, `docker rm -f '${shellEscape(containerName)}' 2>/dev/null`);
-				// Create BOTH mount dirs as the (aria) SSH user BEFORE docker runs.
-				// Docker auto-creates a missing bind-mount source dir as ROOT, which then
-				// blocks prepare_input / symlinks / uploads with "Permission denied". So
-				// ensure the input dir exists user-owned here too, not just the output dir.
-				await ssh.run(profile, `mkdir -p '${shellEscape(inputDir)}' '${shellEscape(outputDir)}'`);
-
-				const runMeta = JSON.stringify({
-					run_name: runName,
-					image_name: imageName,
-					container_name: containerName,
-					input_dir: inputDir,
-					started_at: new Date().toISOString(),
-				});
-				const metaPath = `${outputDir.replace(/\/+$/, '')}/.autopipe-run.json`;
-				try { await ssh.writeFile(profile, metaPath, runMeta); } catch { /* best-effort */ }
-
-				// Mark the local results/<run>/ folder as a pipeline output so the
-				// result viewer can offer a dedicated pipeline-type plugin for it.
-				// The pipeline identity is its docker image name. Best-effort.
-				writePipelineMarker(runName, imageName);
-
-				// Run the container as the server-side user (computed on the server)
-				// so result files land user-owned - important for the local VM,
-				// whose workspace is a 9p share back to the host: otherwise root-owned
-				// outputs would be awkward for the user to open/delete. Skipped for the
-				// docker-socket (nextflow) path, which needs root to drive the socket.
-				const userFlag = dockerSocketMount ? '' : `--user "$(id -u):$(id -g)" `;
-				const cmd =
-					`nohup docker run --entrypoint snakemake --name '${shellEscape(containerName)}' `
-					+ `${userFlag}${pipelineMount}${dockerSocketMount}${hostPathMounts}${hostEnvVars} `
-					+ `-v '${shellEscape(inputDir)}:/input:ro'${symlinkMounts} `
-					+ `-v '${shellEscape(outputDir)}:/output' -w /output `
-					+ `'${shellEscape(imageName)}' --cores ${cores} --rerun-incomplete `
-					+ `--snakefile /pipeline/Snakefile --configfile /pipeline/config.yaml `
-					+ `> '${shellEscape(logPath)}' 2>&1 &\necho $!`;
-
-				const startRes = await ssh.run(profile, cmd);
-				if (startRes.exitCode !== 0) {
-					return errorResult(`Failed to start pipeline:\n${startRes.stdout || startRes.stderr}`);
-				}
-				const startLines = startRes.stdout.trim().split('\n');
-				const pid = startLines[startLines.length - 1] || 'unknown';
+				const { pid, outputDir, logPath, containerName } = launched;
 
 				const checkIntervals = [10000, 20000, 30000, 30000];
 				for (const waitMs of checkIntervals) {

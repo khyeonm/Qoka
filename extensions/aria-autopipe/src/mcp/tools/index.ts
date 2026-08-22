@@ -13,6 +13,7 @@ import { PROJECT_TOOLS } from './projectSync';
 import { PLUGIN_TOOLS } from './plugins';
 import { VM_TOOLS } from './vm';
 import { NOTEBOOK_TOOLS } from './notebook';
+import { CONFIGURE_INPUT_TOOLS } from './configureInput';
 
 // Concatenated in the order they appear in autopipe-app's server.rs so that
 // `tools/list` returns tools in a consistent, predictable sequence.
@@ -25,6 +26,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	PIPELINE_TOOLS[5], // unpublish_pipeline
 	PIPELINE_TOOLS[7], // validate_pipeline
 	...EXECUTION_TOOLS,
+	...CONFIGURE_INPUT_TOOLS, // configure_input - open the input-form tab (after download / before run)
 	PIPELINE_TOOLS[6], // delete_pipeline (after execution group)
 	FILE_TOOLS[3], FILE_TOOLS[4], // create_symlink, remove_symlink
 	FILE_TOOLS[0], FILE_TOOLS[1], // list_files, read_file
@@ -75,6 +77,7 @@ export const AUTOPIPE_MCP_INSTRUCTIONS = [
 	'NOTEBOOK RESULTS (where saved files land): a notebook writes to its cwd = the ACTIVE run environment. On the LOCAL run environment (WSL or vfkit) the open project is MOUNTED, so anything the notebook saves under results/ appears on the user\'s local disk immediately - nothing to copy back. On an SSH server there is NO mount: files the notebook saves stay ON the server and do NOT return by themselves (unlike run_code / execute_pipeline, which auto-copy). So for an SSH notebook, tell the user up front that outputs are saved on the SSH server and to ask when they want them locally; when they do, bring the results/ folder back with list_files + save_results_to_project (or download_results). Do NOT claim SSH notebook results are already local.',
 	'NOTEBOOK PLOTS: figures render inline from the kernel\'s default inline backend. When a notebook makes plots, put `%matplotlib inline` in an early cell so they render reliably regardless of kernel state. If a figure does NOT appear right after matplotlib was installed in the SAME session, the kernel must be RESTARTED (a fresh kernel loads the newly-installed package and its inline backend) - image size is NOT the cause, and adding matplotlib.get_backend() only PRINTS the backend, it fixes nothing. Save important figures to results/ with plt.savefig(...) as well, so they persist even if the inline image is missed.',
 	'',
+	'PIPELINE INPUTS (configure_input): after download_pipeline succeeds, or before running a pipeline, call configure_input(pipeline) so the USER sets the pipeline\'s config values and picks its input data in a Qoka tab. Do NOT run execute_pipeline with the config\'s placeholder/default values without offering configure_input first. Pass a `descriptions` map (config key -> one-line help you write from reading the Snakefile/config) so each field is explained. The tab\'s "Save and run" button stages the inputs, writes config.yaml, and STARTS the run ITSELF - so after calling configure_input do NOT also call execute_pipeline, and do NOT poll check_status. Just tell the user to fill the tab and click "Save and run", then WAIT and ask them to tell you once they have; when they confirm, use list_running_pipelines / check_status. Data follows the same rule as notebooks: a LOCAL run (WSL/vfkit) picks a file on the user\'s computer (the tab has a native file button); an SSH run references data that already lives ON the server. Only call execute_pipeline directly when the user explicitly wants to run with the existing config and no input form.',
 	'RESULTS COME BACK BY THEMSELVES: when check_status sees a pipeline finish cleanly, its outputs are copied into the project at results/<run>/ on the user\'s LOCAL disk automatically - including runs on a remote SSH server. run_code does the same into results/<run-name>/. So never chain read_file (server) + write_file (local) to "bring results back", and do not ask the user for permission to save what is already saved. Just tell them the folder to open in the Analysis tab, and read from the LOCAL path if you need the contents. The only files still on the server are ones the tool explicitly reported as skipped for being over the auto-copy size limit, or as failed - handle those with list_run_outputs + save_results_to_project.',
 ].join('\n');
 

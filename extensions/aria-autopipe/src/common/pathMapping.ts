@@ -107,6 +107,33 @@ export function rewriteCellPaths(source: string, m: RunPathMapping): string {
 }
 
 /**
+ * Map ONE local absolute path (the user's own disk) to where it is reachable
+ * inside the active LOCAL run environment, for staging pipeline input data.
+ *   - WSL: any drive path -> /mnt/<drive>/… (the whole disk is mounted).
+ *   - vfkit: only the OPEN PROJECT is mounted at /mnt/qoka, so a path INSIDE the
+ *     project maps to /mnt/qoka/…; anything outside returns an error (the user
+ *     must move the file into the project first - we never silently copy).
+ * `{ path }` on success, `{ error }` when the file is unreachable. SSH/none is a
+ * caller error (server paths are used verbatim there), so it echoes the input.
+ */
+export function localToRunEnvPath(localPath: string): { path: string } | { error: string } {
+	const m = getRunPathMapping();
+	if (m.kind === 'wsl') {
+		const match = /^[A-Za-z]:[\\/].*$/.test(localPath);
+		return { path: match ? winToWsl(localPath) : localPath };
+	}
+	if (m.kind === 'vfkit' && m.hostRoot && m.mountRoot) {
+		const norm = localPath.replace(/\\/g, '/').replace(/\/+$/, '');
+		const root = m.hostRoot.replace(/\\/g, '/').replace(/\/+$/, '');
+		if (norm === root || norm.startsWith(root + '/')) {
+			return { path: m.mountRoot + norm.slice(root.length) };
+		}
+		return { error: 'On the Mac run environment only the open project folder is mounted. Move this file into the project (e.g. into data/) and pick it again.' };
+	}
+	return { path: localPath };
+}
+
+/**
  * A short, model-facing note about how the active target treats data paths, to
  * append to a create_notebook / edit_notebook result so the assistant relays it.
  * `undefined` when there is nothing worth saying.
