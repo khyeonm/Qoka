@@ -118,7 +118,10 @@ export async function launchPipeline(profile: SshProfile, opts: LaunchPipelineOp
 	// container-root to the host user, so outputs are user-owned without the flag.
 	let userFlag = '';
 	if (!dockerSocketMount) {
-		const rootless = await ssh.run(profile, `docker info 2>/dev/null | grep -qi rootless && echo rootless || echo normal`);
+		// Detect rootless via EITHER docker info's Security Options (robust, not tied to
+		// the context name) OR `docker context show` (the signal the on-server diagnosis
+		// used). Either one -> omit --user.
+		const rootless = await ssh.run(profile, `{ docker info 2>/dev/null | grep -qi rootless || docker context show 2>/dev/null | grep -qi rootless; } && echo rootless || echo normal`);
 		if (!rootless.stdout.includes('rootless')) {
 			userFlag = `--user "$(id -u):$(id -g)" `;
 		}
