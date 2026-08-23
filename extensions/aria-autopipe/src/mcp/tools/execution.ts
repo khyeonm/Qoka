@@ -112,8 +112,17 @@ export async function launchPipeline(profile: SshProfile, opts: LaunchPipelineOp
 	writePipelineMarker(runName, imageName);
 
 	// Run the container as the server-side user so result files land user-owned.
-	// Skipped for the docker-socket (nextflow) path, which needs root.
-	const userFlag = dockerSocketMount ? '' : `--user "$(id -u):$(id -g)" `;
+	// Skipped for the docker-socket (nextflow) path, which needs root. ALSO skipped on
+	// ROOTLESS docker: there the host uid is outside the container's subuid range, so
+	// `--user <hostuid>` dies with "setgroups: invalid argument"; rootless already maps
+	// container-root to the host user, so outputs are user-owned without the flag.
+	let userFlag = '';
+	if (!dockerSocketMount) {
+		const rootless = await ssh.run(profile, `docker info 2>/dev/null | grep -qi rootless && echo rootless || echo normal`);
+		if (!rootless.stdout.includes('rootless')) {
+			userFlag = `--user "$(id -u):$(id -g)" `;
+		}
+	}
 	const cmd =
 		`nohup docker run --entrypoint snakemake --name '${shellEscape(containerName)}' `
 		+ `${userFlag}${pipelineMount}${dockerSocketMount}${hostPathMounts}${hostEnvVars} `

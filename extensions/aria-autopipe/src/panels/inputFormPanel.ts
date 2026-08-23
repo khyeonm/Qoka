@@ -133,16 +133,13 @@ async function handleSave(
 		// No data yet: do not stage or rewrite the file fields; note them for the AI.
 		if (noData && f.isFile) { dataKeys.push(f.key); continue; }
 		const raw = String(values[f.key] ?? f.value).trim();
-		// Only rewrite fields the user actually CHANGED. Leaving untouched keys alone
-		// keeps the original line verbatim - important for a key that heads a nested
-		// mapping (e.g. `groups:` with indented children), which parses as an empty
-		// scalar here and would otherwise be clobbered into `groups: ""`, orphaning
-		// the block below it.
-		if (raw === String(f.value).trim()) { continue; }
-		// A file field with a NEW source path (not already the container /input/ form)
-		// is staged: symlink it into the run's input dir, then point the config at the
-		// container path. Everything else is written back with its detected type.
-		if (f.isFile && raw !== '' && !raw.startsWith('/input/')) {
+		if (f.isFile) {
+			// Stage ONLY a real NEW source path. An empty box, or a value that is still
+			// the container /input/ form (the existing default), means "no new file" -
+			// leave the config's current value exactly as it is. NEVER overwrite a file
+			// path with "" (that was the empty-clobber bug: clearing/leaving a file box
+			// saved an empty path).
+			if (raw === '' || raw.startsWith('/input/') || raw === String(f.value).trim()) { continue; }
 			let src = raw;
 			if (isBuiltIn) {
 				const mapped = localToRunEnvPath(src);
@@ -157,9 +154,14 @@ async function handleSave(
 				return;
 			}
 			yaml = setYamlValue(yaml, f.key, formatValue(`/input/${base}`, 'string'));
-		} else {
-			yaml = setYamlValue(yaml, f.key, formatValue(raw, f.type));
+			continue;
 		}
+		// Non-file: only rewrite fields the user actually CHANGED. Leaving untouched
+		// keys alone keeps the original line verbatim - important for a key that heads a
+		// nested mapping (e.g. `groups:` with indented children), which parses as an
+		// empty scalar and would otherwise be clobbered into `groups: ""`.
+		if (raw === String(f.value).trim()) { continue; }
+		yaml = setYamlValue(yaml, f.key, formatValue(raw, f.type));
 	}
 
 	await ssh.writeFile(profile, configPath, yaml);
@@ -260,6 +262,7 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 		.modal-list { overflow-y: auto; padding: 6px 0; }
 		.mrow { padding: 5px 14px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		.mrow:hover { background: var(--vscode-list-hoverBackground); }
+		.mrow-up { font-weight: 600; border-bottom: 1px solid var(--vscode-widget-border, transparent); margin-bottom: 4px; padding-bottom: 7px; }
 		.micon { width: 14px; text-align: center; opacity: 0.8; }
 	</style>
 </head>
@@ -282,9 +285,9 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 				<input type="number" id="cores" value="${availCores}" min="1" max="${availCores}">
 			</div>
 		</div>
+		<div class="nodata"><label class="cbx"><input type="checkbox" id="noData"> The input data is not on the ${serverHint ? 'server' : 'computer'} yet - I will download it with the assistant. (Clears and disables the file fields; the assistant will ask where to get the data.)</label></div>
 		${noFields}
 		${rows}
-		<div class="nodata"><label class="cbx"><input type="checkbox" id="noData"> The input data is not on the ${serverHint ? 'server' : 'computer'} yet - I will download it with the assistant. (Clears and disables the file fields; the assistant will ask where to get the data.)</label></div>
 	</div>
 	<div class="footer">
 		<button type="button" class="btn btn-primary" id="save">Save</button>
@@ -337,7 +340,10 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 			noData.onchange = () => {
 				const on = noData.checked;
 				document.querySelectorAll('[data-file="1"]').forEach(inp => {
-					if (on) inp.value = '';
+					// Preserve a picked path across a toggle: stash on check, restore on
+					// uncheck (so ticking then unticking never silently loses the value).
+					if (on) { inp.dataset.prev = inp.value; inp.value = ''; }
+					else if (inp.dataset.prev !== undefined) { inp.value = inp.dataset.prev; }
 					inp.disabled = on;
 					const f = inp.closest('.field');
 					if (f) f.classList.toggle('disabled', on);
@@ -350,7 +356,7 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 			browseCwd = cwd;
 			$('modal-cwd').textContent = cwd;
 			const parent = cwd.replace(/\\/+$/, '').split('/').slice(0, -1).join('/') || '/';
-			let html = '<div class="mrow" data-nav="' + escapeHtml(parent) + '"><span class="micon">📁</span><span>..</span></div>';
+			let html = '<div class="mrow mrow-up" data-nav="' + escapeHtml(parent) + '"><span class="micon">⬆</span><span>Up one folder</span></div>';
 			for (const e of entries) {
 				if (e.isDir) {
 					html += '<div class="mrow" data-nav="' + escapeHtml(cwd.replace(/\\/$/, '') + '/' + e.name) + '"><span class="micon">📁</span><span>' + escapeHtml(e.name) + '</span></div>';
