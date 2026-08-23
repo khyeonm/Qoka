@@ -8,7 +8,6 @@ import { services } from '../common/services';
 import { resolveRunTarget } from '../runtime/builtinServer';
 import { localToRunEnvPath } from '../common/pathMapping';
 import { parseConfigFields, formatValue, setYamlValue, ConfigField } from '../common/configFields';
-import { launchPipeline } from '../mcp/tools/execution';
 import { workspacePathsFor, SshProfile } from '../common/types';
 import { shellEscape } from '../common/roCrate';
 import { findPipelineDir } from '../common/dockerEnv';
@@ -158,10 +157,16 @@ async function handleSave(
 
 	await ssh.writeFile(profile, configPath, yaml);
 
+	// Save does NOT run the pipeline. It records what the run will need in a marker
+	// beside config.yaml; the user then tells the chat, and the AI starts it with
+	// run_configured_pipeline (which reads this file). Keeps the AI in control of the
+	// actual run, matching "click Save, then tell the chat to run it".
+	const markerPath = configPath.replace(/[^/]*$/, '.qoka-configured.json');
+	const marker = JSON.stringify({ run_name: runName, cores, input_dir: inputDir, image_name: imageName });
 	try {
-		await launchPipeline(profile, { imageName, runName, inputDir, cores });
+		await ssh.writeFile(profile, markerPath, marker);
 	} catch (e) {
-		panel.webview.postMessage({ type: 'aria.input.error', error: `The run could not start: ${(e as Error).message}` });
+		panel.webview.postMessage({ type: 'aria.input.error', error: `Could not save the run configuration: ${(e as Error).message}` });
 		return;
 	}
 	panel.dispose();
@@ -247,7 +252,7 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 <body>
 	<div class="header">
 		<h1>autopipe input: ${escapeHtml(pipelineName)}</h1>
-		<div class="sub">Set the pipeline's parameters and pick input data, then Save and run. ${serverHint ? 'This run uses an SSH server, so input files must already exist on that server.' : 'Files you pick are read from your computer through the local run environment.'}</div>
+		<div class="sub">Set the pipeline's parameters and pick input data, then Save. Saving stores these inputs; tell the chat when you are done and it will start the run. ${serverHint ? 'This run uses an SSH server, so input files must already exist on that server.' : 'Files you pick are read from your computer through the local run environment.'}</div>
 	</div>
 	<div class="err" id="err"></div>
 	<div class="scroll">
@@ -267,7 +272,7 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 		${rows}
 	</div>
 	<div class="footer">
-		<button type="button" class="btn btn-primary" id="save">Save and run</button>
+		<button type="button" class="btn btn-primary" id="save">Save</button>
 		<button type="button" class="btn btn-secondary" id="cancel">Cancel</button>
 	</div>
 
@@ -341,7 +346,7 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 			if (!runName) { showErr('Please enter a run name.'); return; }
 			const cores = parseInt($('cores').value, 10) || 4;
 			document.body.classList.add('busy');
-			$('save').textContent = 'Starting…';
+			$('save').textContent = 'Saving…';
 			vscode.postMessage({ type: 'aria.input.save', runName, cores, values });
 		};
 
@@ -354,7 +359,7 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 				renderServerList(msg.cwd, msg.entries || []);
 			} else if (msg.type === 'aria.input.error') {
 				document.body.classList.remove('busy');
-				$('save').textContent = 'Save and run';
+				$('save').textContent = 'Save';
 				showErr(msg.error);
 			}
 		});

@@ -132,6 +132,55 @@ export async function launchPipeline(profile: SshProfile, opts: LaunchPipelineOp
 	return { pid, outputDir, logPath, containerName };
 }
 
+/**
+ * Watch a just-launched pipeline for ~90s and return a run-status result: completed,
+ * failed-early, or still-running. Shared by execute_pipeline and (after the input
+ * tab's Save) run_configured_pipeline, so both report the same way.
+ */
+export async function watchPipelineStart(profile: SshProfile, launched: LaunchedPipeline, runName: string, imageName: string) {
+	const { ssh } = services();
+	const { pid, outputDir, logPath, containerName } = launched;
+	const checkIntervals = [10000, 20000, 30000, 30000];
+	for (const waitMs of checkIntervals) {
+		await new Promise(r => setTimeout(r, waitMs));
+		const inspect = await ssh.run(profile, `docker inspect -f '{{.State.Running}}' '${shellEscape(containerName)}' 2>/dev/null`);
+		const stillRunning = inspect.exitCode === 0 && inspect.stdout.trim() === 'true';
+		if (!stillRunning) {
+			const tail = await ssh.run(profile, `tail -30 '${shellEscape(logPath)}' 2>/dev/null`);
+			const logTail = tail.exitCode === 0 ? tail.stdout : '(no log available)';
+			const hasError = /Error|error|FAILED|failed|Exiting because a job execution failed/.test(logTail);
+			const completedOk = logTail.includes('steps (100%) done') || logTail.includes('Nothing to be done');
+			if (completedOk) {
+				try {
+					await autoSavePipelineCodeOnCompletion(profile, imageName);
+				} catch { /* never fail the run over a save */ }
+				return textResult(
+					`Pipeline completed successfully!\n`
+					+ `Output directory: ${outputDir}\n`
+					+ `Log: ${logPath}\n\n${logTail}\n\n`
+					+ `Pipeline code was auto-saved to the project folder (analysis/). `
+					+ `The results are in results/${runName}/. Local run environment: they are ALREADY there (the environment writes directly via the local mount) - just tell the user to open that folder in the Analysis tab, no save needed. Remote SSH server: ASK whether to save the results; if yes, call list_run_outputs for run '${runName}' then save_results_to_project (it warns before large copies), then tell the user to open results/${runName}/.`,
+				);
+			}
+			if (hasError) {
+				return errorResult(
+					`Pipeline FAILED early (within 90s). Do NOT call cleanup_failed - intermediate results are preserved.\n`
+					+ `Fix the Snakefile and re-run with the SAME run_name. Snakemake will skip completed steps automatically.\n`
+					+ `Container: ${containerName}\n`
+					+ `Output directory: ${outputDir}\n`
+					+ `Log: ${logPath}\n\n${logTail}`,
+				);
+			}
+		}
+	}
+	return textResult(
+		`Pipeline is running (no errors in first 90s). PID: ${pid}, container: '${containerName}'.\n`
+		+ `Output directory: ${outputDir}\n`
+		+ `Log file: ${logPath}\n`
+		+ `The user can check progress anytime (even in a new session) with list_running_pipelines.`,
+	);
+}
+
 export const EXECUTION_TOOLS: ToolDefinition[] = [
 	{
 		name: 'build_image',
@@ -340,7 +389,6 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 			ensureAutopipeTabOpen();
 			try {
 				const profile = requireProfile();
-				const { ssh } = services();
 				const runName = String(args.run_name ?? '');
 				const imageName = String(args.image_name ?? '');
 				let launched: LaunchedPipeline;
@@ -355,51 +403,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 				} catch (e) {
 					return errorResult((e as Error).message);
 				}
-				const { pid, outputDir, logPath, containerName } = launched;
-
-				const checkIntervals = [10000, 20000, 30000, 30000];
-				for (const waitMs of checkIntervals) {
-					await new Promise(r => setTimeout(r, waitMs));
-					const inspect = await ssh.run(profile, `docker inspect -f '{{.State.Running}}' '${shellEscape(containerName)}' 2>/dev/null`);
-					const stillRunning = inspect.exitCode === 0 && inspect.stdout.trim() === 'true';
-					if (!stillRunning) {
-						const tail = await ssh.run(profile, `tail -30 '${shellEscape(logPath)}' 2>/dev/null`);
-						const logTail = tail.exitCode === 0 ? tail.stdout : '(no log available)';
-						const hasError = /Error|error|FAILED|failed|Exiting because a job execution failed/.test(logTail);
-						const completedOk = logTail.includes('steps (100%) done') || logTail.includes('Nothing to be done');
-						if (completedOk) {
-							// Best-effort: durably copy the (small) pipeline code into the
-							// open project folder. The local VM's disk is scratch, so
-							// this is the code's only durable home. Never fails the run.
-							try {
-								await autoSavePipelineCodeOnCompletion(profile, imageName);
-							} catch { /* never fail the run over a save */ }
-							return textResult(
-								`Pipeline completed successfully!\n`
-								+ `Output directory: ${outputDir}\n`
-								+ `Log: ${logPath}\n\n${logTail}\n\n`
-								+ `Pipeline code was auto-saved to the project folder (analysis/). `
-								+ `The results are in results/${runName}/. Local run environment: they are ALREADY there (the environment writes directly via the local mount) - just tell the user to open that folder in the Analysis tab, no save needed. Remote SSH server: ASK whether to save the results; if yes, call list_run_outputs for run '${runName}' then save_results_to_project (it warns before large copies), then tell the user to open results/${runName}/.`,
-							);
-						}
-						if (hasError) {
-							return errorResult(
-								`Pipeline FAILED early (within 90s). Do NOT call cleanup_failed - intermediate results are preserved.\n`
-								+ `Fix the Snakefile and re-run execute_pipeline with the SAME run_name. Snakemake will skip completed steps automatically.\n`
-								+ `Container: ${containerName}\n`
-								+ `Output directory: ${outputDir}\n`
-								+ `Log: ${logPath}\n\n${logTail}`,
-							);
-						}
-					}
-				}
-
-				return textResult(
-					`Pipeline is running (no errors in first 90s). PID: ${pid}, container: '${containerName}'.\n`
-					+ `Output directory: ${outputDir}\n`
-					+ `Log file: ${logPath}\n`
-					+ `The user can check progress anytime (even in a new session) with list_running_pipelines.`,
-				);
+				return await watchPipelineStart(profile, launched, runName, imageName);
 			} catch (err) {
 				return errorResult((err as Error).message);
 			}
