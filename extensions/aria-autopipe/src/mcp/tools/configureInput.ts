@@ -22,7 +22,7 @@ import { launchPipeline, watchPipelineStart, LaunchedPipeline } from './executio
 export const CONFIGURE_INPUT_TOOLS: ToolDefinition[] = [
 	{
 		name: 'configure_input',
-		description: 'Open a Qoka tab where the USER fills in a pipeline\'s config values and picks its input data files, then clicks "Save". Use this AFTER download_pipeline, or BEFORE running a pipeline, so the user sets real inputs instead of running with the config\'s placeholder defaults. `pipeline` is the pipeline name (its folder name, i.e. the part after "autopipe-" in the image name). Provide `descriptions` - a map of each config key to a short one-line help string you write (from reading the Snakefile/config/scripts) shown under that field; write them in ENGLISH (the tab UI is English) and cover EVERY editable key. Saving does NOT run the pipeline: it stages the input data, rewrites config.yaml, and records the run settings. After calling this, tell the user (in their language) to fill the tab, pick input files, and click Save, then to tell you once they have. When they confirm, call run_configured_pipeline(pipeline) to START it. Do NOT poll check_status while waiting.',
+		description: 'Open a Qoka tab where the USER fills in a pipeline\'s config values and picks its input data files, then clicks "Save". Use this AFTER download_pipeline, or BEFORE running a pipeline, so the user sets real inputs instead of running with the config\'s placeholder defaults. `pipeline` is the pipeline name (its folder name, i.e. the part after "autopipe-" in the image name). Provide `descriptions` - a map of each config key to a short one-line help string you write (from reading the Snakefile/config/scripts) shown under that field; write them in ENGLISH (the tab UI is English) and cover EVERY editable key. Saving does NOT run the pipeline: it stages the input data, rewrites config.yaml, and records the run settings. The tab also has a checkbox for when the user does NOT have the input data yet - if they tick it, run_configured_pipeline will tell you to help them download/stage the data first (prepare_input) before running. After calling this, tell the user (in their language) to fill the tab, pick input files, and click Save, then to tell you once they have. When they confirm, call run_configured_pipeline(pipeline) to START it. Do NOT poll check_status while waiting.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -78,11 +78,22 @@ export const CONFIGURE_INPUT_TOOLS: ToolDefinition[] = [
 				if (r.exitCode !== 0 || !r.stdout.trim()) {
 					return errorResult('No saved input configuration was found for this pipeline. Ask the user to open the input form (configure_input) and click Save first. If they want to run with the config as-is, use execute_pipeline.');
 				}
-				let cfg: { run_name?: string; cores?: number; input_dir?: string; image_name?: string };
+				let cfg: { run_name?: string; cores?: number; input_dir?: string; image_name?: string; needs_data?: boolean; data_keys?: string[] };
 				try { cfg = JSON.parse(r.stdout); } catch { return errorResult('The saved input configuration could not be read. Ask the user to re-open configure_input and Save again.'); }
 				const runName = String(cfg.run_name ?? '').trim();
 				const inputDir = String(cfg.input_dir ?? '').trim();
 				if (!runName || !inputDir) { return errorResult('The saved input configuration is incomplete. Ask the user to re-open configure_input and Save again.'); }
+				// The user ticked "I don't have the input data yet" in the tab. Do NOT run:
+				// help them fetch the data first, then run.
+				if (cfg.needs_data) {
+					const keys = Array.isArray(cfg.data_keys) && cfg.data_keys.length ? cfg.data_keys.join(', ') : 'the file inputs';
+					return textResult(
+						`The user marked in the input tab that the input data is NOT available yet (config keys: ${keys}). Do NOT start the run. `
+						+ `Ask the user, in their language, where and how to get the data - a download URL, or a path that already exists on the run target. `
+						+ `Then stage it with prepare_input into '${inputDir}', set the config key(s) [${keys}] to /input/<filename> by editing config.yaml with write_file, `
+						+ `and start the run with execute_pipeline(image_name='${cfg.image_name || imageName}', run_name='${runName}', input_dir='${inputDir}').`,
+					);
+				}
 				let launched: LaunchedPipeline;
 				try {
 					launched = await launchPipeline(profile, { imageName: cfg.image_name || imageName, runName, inputDir, cores: cfg.cores });

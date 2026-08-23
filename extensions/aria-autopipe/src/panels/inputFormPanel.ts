@@ -66,7 +66,7 @@ export async function openInputFormPanel(pipelineName: string, descriptions: Rec
 	panel.onDidDispose(() => { openPanels.delete(name); });
 	panel.webview.html = renderHtml(panel.webview, name, fields, isBuiltIn, availCores);
 
-	panel.webview.onDidReceiveMessage(async (msg: { type?: string; key?: string; dir?: string; runName?: string; cores?: number; values?: Record<string, string> }) => {
+	panel.webview.onDidReceiveMessage(async (msg: { type?: string; key?: string; dir?: string; runName?: string; cores?: number; values?: Record<string, string>; noData?: boolean }) => {
 		try {
 			if (msg?.type === 'aria.input.pickLocal' && msg.key) {
 				const uris = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Use this file' });
@@ -106,13 +106,18 @@ async function handleSave(
 	configPath: string,
 	originalYaml: string,
 	fields: ConfigField[],
-	msg: { runName?: string; cores?: number; values?: Record<string, string> },
+	msg: { runName?: string; cores?: number; values?: Record<string, string>; noData?: boolean },
 ): Promise<void> {
 	const { ssh } = services();
 	const runName = String(msg.runName ?? '').trim();
 	if (!runName) { panel.webview.postMessage({ type: 'aria.input.error', error: 'Please enter a run name.' }); return; }
 	const cores = Number.isInteger(msg.cores) && Number(msg.cores) > 0 ? Number(msg.cores) : 4;
 	const values = msg.values ?? {};
+	// The user checked "I don't have the input data yet": skip staging the file fields
+	// entirely and record which keys still need data, so the assistant asks where to
+	// download it (via prepare_input) before the run instead of running now.
+	const noData = msg.noData === true;
+	const dataKeys: string[] = [];
 
 	// NOTE: `required` is only a visual hint (a red *), never a hard block. Pipelines
 	// are often staged - e.g. a "run_meme: false" flag makes the meme-only fields
@@ -125,6 +130,8 @@ async function handleSave(
 
 	let yaml = originalYaml;
 	for (const f of fields) {
+		// No data yet: do not stage or rewrite the file fields; note them for the AI.
+		if (noData && f.isFile) { dataKeys.push(f.key); continue; }
 		const raw = String(values[f.key] ?? f.value).trim();
 		// Only rewrite fields the user actually CHANGED. Leaving untouched keys alone
 		// keeps the original line verbatim - important for a key that heads a nested
@@ -162,7 +169,10 @@ async function handleSave(
 	// run_configured_pipeline (which reads this file). Keeps the AI in control of the
 	// actual run, matching "click Save, then tell the chat to run it".
 	const markerPath = configPath.replace(/[^/]*$/, '.qoka-configured.json');
-	const marker = JSON.stringify({ run_name: runName, cores, input_dir: inputDir, image_name: imageName });
+	const marker = JSON.stringify({
+		run_name: runName, cores, input_dir: inputDir, image_name: imageName,
+		needs_data: noData && dataKeys.length > 0, data_keys: dataKeys,
+	});
 	try {
 		await ssh.writeFile(profile, markerPath, marker);
 	} catch (e) {
@@ -236,6 +246,10 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 		.btn-secondary { color: var(--vscode-foreground); background: var(--vscode-button-secondaryBackground, transparent); border: 1px solid var(--vscode-widget-border, currentColor); }
 		.footer { flex-shrink: 0; padding: 14px 22px; border-top: 1px solid var(--vscode-widget-border, transparent); display: flex; gap: 10px; align-items: center; }
 		.empty { opacity: 0.7; font-size: 12px; margin-bottom: 16px; }
+		.field.disabled { opacity: 0.45; }
+		.nodata { margin: 4px 0 8px; max-width: 640px; }
+		.cbx { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; opacity: 0.9; cursor: pointer; }
+		.cbx input { width: auto; margin-top: 2px; }
 		.err { display: none; margin: 0 22px 12px; padding: 10px 12px; background: var(--vscode-inputValidation-errorBackground, #fee); color: var(--vscode-inputValidation-errorForeground, #c44); border: 1px solid var(--vscode-inputValidation-errorBorder, #c44); border-radius: 3px; font-size: 12px; }
 		.busy { opacity: 0.6; pointer-events: none; }
 		.modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); align-items: center; justify-content: center; }
@@ -259,17 +273,18 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 		<div class="runbar">
 			<div class="field">
 				<label><span class="fkey">Run name</span></label>
+				<div class="fdesc">Names this run's output folder (results/&lt;name&gt;/), its log file and container.</div>
 				<input type="text" id="runName" value="${escapeHtml(defaultRun)}">
-				<div class="fhint">Names this run's output folder (results/&lt;name&gt;/), its log file and container.</div>
 			</div>
 			<div class="field">
 				<label><span class="fkey">Cores</span></label>
+				<div class="fdesc">CPU cores for this run (available: ${availCores}).</div>
 				<input type="number" id="cores" value="${availCores}" min="1" max="${availCores}">
-				<div class="fhint">Available on the run target: ${availCores}.</div>
 			</div>
 		</div>
 		${noFields}
 		${rows}
+		<div class="nodata"><label class="cbx"><input type="checkbox" id="noData"> The input data is not on the ${serverHint ? 'server' : 'computer'} yet - I will download it with the assistant. (Clears and disables the file fields; the assistant will ask where to get the data.)</label></div>
 	</div>
 	<div class="footer">
 		<button type="button" class="btn btn-primary" id="save">Save</button>
@@ -304,11 +319,32 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 			b.onclick = () => {
 				browseKey = b.getAttribute('data-browse');
 				const cur = sel(browseKey);
-				const start = cur && cur.value.trim() ? cur.value.trim().replace(/\\/[^\\/]*$/, '') : '';
+				const v = cur && cur.value.trim() ? cur.value.trim() : '';
+				// Start at the field's own dir ONLY if it is a real absolute server path
+				// the user picked before. A default like "/input/x.csv" is the container
+				// mount path (does not exist on the server), so fall back to '' -> the
+				// host opens the SSH working dir (repo_path).
+				const start = (v.startsWith('/') && !v.startsWith('/input/')) ? v.replace(/\\/[^\\/]*$/, '') : '';
 				vscode.postMessage({ type: 'aria.input.browseServer', key: browseKey, dir: start });
 			};
 		});
 		$('modal-close').onclick = () => $('modal').classList.remove('open');
+
+		// "No data yet" checkbox: clears + disables the file fields (and their buttons).
+		// On save this is recorded so the assistant asks where to download the data.
+		const noData = $('noData');
+		if (noData) {
+			noData.onchange = () => {
+				const on = noData.checked;
+				document.querySelectorAll('[data-file="1"]').forEach(inp => {
+					if (on) inp.value = '';
+					inp.disabled = on;
+					const f = inp.closest('.field');
+					if (f) f.classList.toggle('disabled', on);
+				});
+				document.querySelectorAll('[data-pick],[data-browse]').forEach(b => { b.disabled = on; });
+			};
+		}
 
 		function renderServerList(cwd, entries) {
 			browseCwd = cwd;
@@ -345,9 +381,10 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 			const runName = $('runName').value.trim();
 			if (!runName) { showErr('Please enter a run name.'); return; }
 			const cores = parseInt($('cores').value, 10) || 4;
+			const noDataChecked = !!(noData && noData.checked);
 			document.body.classList.add('busy');
 			$('save').textContent = 'Saving…';
-			vscode.postMessage({ type: 'aria.input.save', runName, cores, values });
+			vscode.postMessage({ type: 'aria.input.save', runName, cores, values, noData: noDataChecked });
 		};
 
 		window.addEventListener('message', (e) => {
