@@ -223,10 +223,15 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 					return Promise.resolve(null);
 				}
 
-				// When connection is metered and this is not an explicit check,
-				// show update is available but don't start downloading
-				if (!explicit && this.meteredConnectionService.isConnectionMetered) {
-					this.logService.info('update#doCheckForUpdates - update available but skipping download because connection is metered');
+				// Qoka: a background/startup check must only SURFACE that an update is
+				// available (so the version-label Update button lights up) and must NEVER
+				// auto-download or auto-apply. The download + install runs only when the user
+				// clicks the button (an explicit check/download). This also prevents a stale
+				// qoka.org feed from silently downgrading the app on the next restart. The
+				// original metered-connection guard is subsumed by this (both cases show the
+				// button without downloading).
+				if (!explicit) {
+					this.logService.info('update#doCheckForUpdates - update available; not downloading (background check, user must click Update)');
 					this.setState(State.AvailableForDownload(update));
 					return Promise.resolve(null);
 				}

@@ -98,9 +98,9 @@ function showWslPrompt(commandService: ICommandService, mode: WslPromptMode): vo
 		body.replaceChildren(
 			doc.createTextNode('Qoka runs your code and pipelines inside a private Linux environment powered by '),
 			strong,
-			doc.createTextNode('.'),
+			doc.createTextNode(' and Ubuntu.'),
 			doc.createElement('br'),
-			doc.createTextNode('Install it now to enable the built-in local environment.'),
+			doc.createTextNode('Install it now, then restart your PC to finish setting up the local environment.'),
 		);
 		hint.textContent = 'Only using your own SSH server? You can skip this installation.';
 

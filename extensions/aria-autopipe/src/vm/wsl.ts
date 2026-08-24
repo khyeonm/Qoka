@@ -182,17 +182,20 @@ export async function installUbuntuDistro(): Promise<void> {
 	);
 }
 
-/** Enable the WSL ENGINE (and install Ubuntu) for the first time, FROM THE APP.
- *  `wsl --install` turns on the Windows VM-platform / WSL features and installs
- *  Ubuntu; enabling those features needs ADMIN (UAC) and a reboot. So we self-elevate
- *  via PowerShell exactly as the old exe installer's finish-page item did (an elevated
- *  cmd runs the install and `pause`s so a fast failure stays readable). After this the
- *  user reboots; on the next launch the engine is present and the normal runtime flow
- *  (Ubuntu account OOBE + provisioning) takes over. Used by the first-run "Install WSL?"
- *  prompt so a Store/MSIX build - which cannot run installer scripts - can still set WSL
- *  up. Resolves when the elevated window closes; rejects if the user declines UAC. */
+/** Enable the WSL ENGINE (+ Ubuntu) for the first time, FROM THE APP. Uses the EXACT same
+ *  command the old exe installer's finish-page item ran (see build/win32/code.iss), just
+ *  moved into the first-run prompt so a Store/MSIX build - which cannot run installer
+ *  scripts - can still set WSL up, and so the reboot guidance shows in Qoka's unified
+ *  styled prompt instead of the old mismatched native MsgBox.
+ *  `wsl --install --web-download -d Ubuntu --no-launch` turns on the Windows VM-platform /
+ *  WSL features and installs the Ubuntu distro; enabling those features needs ADMIN (UAC)
+ *  and a reboot, so we self-elevate via PowerShell (an elevated cmd runs it and `pause`s so
+ *  a fast failure stays readable). --no-launch skips Ubuntu's interactive account OOBE
+ *  (Qoka opens that on the next launch, after the reboot). Resolves when the elevated
+ *  window closes; rejects if the user declines UAC. */
 export async function installWslEngine(): Promise<void> {
-	// Static command (no interpolation): elevate cmd, run wsl --install, hold with pause.
+	// Static command (no interpolation) - identical to build/win32/code.iss's [Run] item:
+	// elevate cmd, run wsl --install (engine + Ubuntu), hold with pause.
 	const ps = "Start-Process cmd.exe -ArgumentList '/c','wsl --install --web-download -d Ubuntu --no-launch & pause' -Verb RunAs -Wait";
 	await execFileAsync(
 		'powershell.exe',

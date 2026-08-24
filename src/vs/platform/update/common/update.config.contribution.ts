@@ -19,6 +19,11 @@ configurationRegistry.registerConfiguration({
 		'update.mode': {
 			type: 'string',
 			enum: ['none', 'manual', 'start', 'default'],
+			// Qoka keeps 'start': it CHECKS on startup so the Update button appears
+			// automatically when a build is available. Crucially, the win32 update service is
+			// patched so a background/startup check stops at "AvailableForDownload" (button
+			// only) and NEVER auto-downloads or auto-applies - the download+install happens
+			// only when the user clicks the button. (See updateService.win32.ts.)
 			default: 'start',
 			scope: ConfigurationScope.APPLICATION,
 			description: localize('updateMode', "Configure whether you receive automatic updates. Requires a restart after change. The updates are fetched from a Microsoft online service."),
