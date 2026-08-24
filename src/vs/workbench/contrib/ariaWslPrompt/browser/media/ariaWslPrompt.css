@@ -10,7 +10,9 @@
 .aria-wsl-overlay {
 	position: fixed;
 	inset: 0;
-	z-index: 100000;
+	/* Above the "Preparing Qoka…" loader (999997) and the first-run overlay (999999)
+	 * so the prompt is not painted behind them. */
+	z-index: 1000001;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -148,6 +150,22 @@
 }
 .aria-wsl-btn-ghost:hover { background: rgba(255, 255, 255, 0.045); border-color: #4a3d2b; }
 
+/* Shown in place of the buttons while `wsl --install` runs. */
+.aria-wsl-spinner {
+	width: 30px;
+	height: 30px;
+	margin: 6px auto 2px;
+	border-radius: 50%;
+	border: 3px solid rgba(224, 192, 137, 0.22);
+	border-top-color: #e0c089;
+	animation: aria-wsl-spin 820ms linear infinite;
+}
+
+@keyframes aria-wsl-spin {
+	to { transform: rotate(360deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.aria-wsl-card { animation: none; }
+	.aria-wsl-spinner { animation-duration: 1600ms; }
 }

@@ -52,6 +52,27 @@ let extensionContext: vscode.ExtensionContext | undefined;
 // only auto-start when the environment is already ready. Cleared on explicit setup.
 const WSL_SKIP_KEY = 'aria.autopipe.wslSetupSkipped';
 
+// globalState flag: the elevated `wsl --install` finished but the engine only takes
+// effect after a restart. While set, a relaunch BEFORE the reboot must not re-ask
+// "Install WSL?" (it is already installed) - it shows a "restart to finish" notice
+// instead. Cleared once the engine is actually available, or if the user opts out.
+const WSL_REBOOT_PENDING_KEY = 'aria.autopipe.wslInstallPendingReboot';
+
+/**
+ * First-run WSL setup phase, surfaced to the startup loader (via aria.autopipe.vm.status)
+ * so "Preparing Qoka…" does NOT clear while the WSL engine is still being installed. The
+ * built-in VM is not running during this whole phase (it only starts after a reboot once
+ * the engine exists), so vm.status() alone would report 'stopped' and the loader would
+ * drop into the workbench mid-setup. This flag keeps the loader up until setup resolves.
+ *  - 'checking'   : probing whether the WSL engine is present (before the prompt shows)
+ *  - 'prompting'  : the "Install WSL & Ubuntu" prompt is up, awaiting the user's choice
+ *  - 'installing' : the elevated `wsl --install` is running
+ *  - 'reboot'     : install finished; the user must restart the PC to continue
+ *  - 'idle'       : not gating (engine present and starting, or the user opted out)
+ */
+type WslSetupPhase = 'idle' | 'checking' | 'prompting' | 'installing' | 'reboot';
+let wslSetupPhase: WslSetupPhase = 'idle';
+
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
 	extensionContext = context;
@@ -152,17 +173,34 @@ export function activate(context: vscode.ExtensionContext): void {
 		// by the first-run WSL prompt's "Install WSL & Ubuntu" button. Rejects if the
 		// user declines the UAC prompt, so the prompt can re-enable and let them retry.
 		vscode.commands.registerCommand('aria.autopipe.vm.installEngine', async () => {
-			await installWslEngine();
-			return true;
+			wslSetupPhase = 'installing';
+			try {
+				await installWslEngine();
+				// Installed: the engine now exists but only takes effect after a restart, so
+				// keep gating the loader until the user reboots (the prompt shows the notice).
+				// Remember it so a relaunch before the reboot shows "restart to finish", not
+				// the install prompt again.
+				await context.globalState.update(WSL_REBOOT_PENDING_KEY, true);
+				wslSetupPhase = 'reboot';
+				return true;
+			} catch (err) {
+				// UAC declined / install could not start: back to the prompt so the loader
+				// stays up and the user can retry.
+				wslSetupPhase = 'prompting';
+				throw err;
+			}
 		}),
 		// The user pressed "Continue without the run environment": remember it so we
 		// stop auto-installing/gating on every launch. On-demand setup (vm.setup) or an
 		// already-ready environment clears it again.
 		vscode.commands.registerCommand('aria.autopipe.vm.skipSetup', () => {
+			// Opted out: stop gating so the loader clears and the workbench becomes usable.
+			wslSetupPhase = 'idle';
 			void context.globalState.update(WSL_SKIP_KEY, true);
+			void context.globalState.update(WSL_REBOOT_PENDING_KEY, false);
 			void vm.stop();
 		}),
-		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress() })),
+		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress(), wslPhase: wslSetupPhase })),
 		// Distinguish "WSL/Ubuntu not installed" from "installed but not connected" for
 		// the Connections section. On non-Windows these probes harmlessly return false/[].
 		vscode.commands.registerCommand('aria.autopipe.vm.wslProbe', async () => {
@@ -500,13 +538,33 @@ async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: 
 		}
 		return;
 	}
+	// Probe for the engine. Keep the loader up ('checking') so it does not clear during
+	// the wslAvailable() retries and briefly flash the workbench before the prompt shows.
+	wslSetupPhase = 'checking';
 	if (await wslAvailable()) {
+		// Engine is present (post-reboot, or already had WSL): clear any pending-reboot
+		// marker and start normally (installs Ubuntu / opens the account OOBE / provisions).
+		wslSetupPhase = 'idle';
+		void context.globalState.update(WSL_REBOOT_PENDING_KEY, false);
 		startBuiltinVmTracked(vm);
 		return;
 	}
+	// Engine not available. If we already ran the installer this device but the user has
+	// not rebooted yet, don't re-ask to install - show a "restart to finish" notice.
+	if (context.globalState.get<boolean>(WSL_REBOOT_PENDING_KEY)) {
+		wslSetupPhase = 'reboot';
+		try {
+			await vscode.commands.executeCommand('aria.wslPrompt.show', 'reboot');
+		} catch (err) {
+			console.error('[aria-autopipe] could not show the WSL restart notice:', err);
+		}
+		return;
+	}
 	// WSL engine is not installed and the user has not opted out: offer to install it.
+	// Stay in a gating phase so the loader keeps showing until the user decides.
+	wslSetupPhase = 'prompting';
 	try {
-		await vscode.commands.executeCommand('aria.wslPrompt.show');
+		await vscode.commands.executeCommand('aria.wslPrompt.show', 'install');
 	} catch (err) {
 		console.error('[aria-autopipe] could not show the WSL install prompt:', err);
 	}

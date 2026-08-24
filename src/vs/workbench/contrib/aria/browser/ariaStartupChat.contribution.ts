@@ -669,11 +669,31 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				// the loader clear so the workbench is usable now.
 				return;
 			}
-			let st: { status?: string; progress?: { message?: string } } | undefined;
+			let st: { status?: string; progress?: { message?: string }; wslPhase?: string } | undefined;
 			try {
 				st = await this.commandService.executeCommand('aria.autopipe.vm.status');
 			} catch {
 				return; // command missing / extension not up - never block on it
+			}
+			// WSL engine setup runs BEFORE the built-in VM can start (it needs a reboot), so
+			// vm.status is still 'stopped' throughout. Gate on the setup phase instead so the
+			// loader never clears mid-install: keep it up (and reflect the step) until the
+			// user opts out ('idle') or the environment is genuinely ready.
+			const phase = st?.wslPhase;
+			if (phase === 'checking' || phase === 'prompting') {
+				// Probing / the install prompt is up. Keep loading (the prompt paints over us).
+				await timeout(1500);
+				continue;
+			}
+			if (phase === 'installing') {
+				setText('Installing WSL & Ubuntu…');
+				await timeout(1500);
+				continue;
+			}
+			if (phase === 'reboot') {
+				setText('Restart your PC to finish setting up Qoka…');
+				await timeout(1500);
+				continue;
 			}
 			const s = st?.status;
 			if (s === 'provisioning' || s === 'booting') {
