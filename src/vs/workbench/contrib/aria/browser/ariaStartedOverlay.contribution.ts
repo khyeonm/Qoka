@@ -5,6 +5,7 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { timeout } from '../../../../base/common/async.js';
+import { isWindows } from '../../../../base/common/platform.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -358,7 +359,47 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 * Only an explicit action lands on the picker/sign-in; everything else returns
 	 * the user straight to where they were working.
 	 */
+	/** Hold the sign-in flow until the Windows WSL install prompt (if any) is resolved, so
+	 *  the prompt appears BEFORE login. aria-autopipe decides on launch whether the prompt
+	 *  shows and reports it via aria.autopipe.vm.status (wslLaunchDecided + wslPhase). We
+	 *  poll: wait for the decision, then while a prompt phase is active hold; 'idle' (no
+	 *  prompt / resolved) lets login proceed. Bounded so a stuck or absent extension never
+	 *  blocks login. No-op off Windows. */
+	private async _awaitWslPromptResolved(): Promise<void> {
+		if (!isWindows) { return; }
+		const start = Date.now();
+		const DECISION_GRACE = 15000;          // extension never decided -> stop waiting, run login
+		const HARD_DEADLINE = 20 * 60 * 1000;  // an active prompt is a legit gate, but never forever
+		while (Date.now() - start < HARD_DEADLINE) {
+			let st: { wslPhase?: string; wslLaunchDecided?: boolean } | undefined;
+			try {
+				st = await this.commandService.executeCommand('aria.autopipe.vm.status');
+			} catch {
+				st = undefined; // aria-autopipe not activated yet (or no such command)
+			}
+			if (!st || !st.wslLaunchDecided) {
+				// Not decided yet. Wait briefly, but give up (proceed to login) if the
+				// extension never reports a decision - so login can never hang on this.
+				if (Date.now() - start >= DECISION_GRACE) { return; }
+				await timeout(400);
+				continue;
+			}
+			const phase = st.wslPhase;
+			if (phase === 'checking' || phase === 'prompting' || phase === 'installing' || phase === 'reboot') {
+				// The WSL install prompt is up - keep sign-in behind it until it resolves.
+				await timeout(500);
+				continue;
+			}
+			return; // 'idle'/undefined after a decision -> no prompt or already resolved
+		}
+	}
+
 	private async decideEmptyWorkbench(): Promise<void> {
+		// Windows first-run: if WSL is missing, the "Install WSL & Ubuntu" prompt must come
+		// up BEFORE sign-in. Hold the whole sign-in / picker / auto-reopen decision until
+		// aria-autopipe has resolved that prompt. No-op off Windows and when WSL is present.
+		await this._awaitWslPromptResolved();
+
 		// Explicit "Change project" always wins - consume the one-shot flag and show
 		// the picker.
 		let wantPicker = false;

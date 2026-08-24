@@ -79,6 +79,11 @@ function wslDiag(message: string): void {
 type WslSetupPhase = 'idle' | 'checking' | 'prompting' | 'installing' | 'reboot';
 let wslSetupPhase: WslSetupPhase = 'idle';
 
+/** True once the Windows launch has DECIDED whether the WSL install prompt will show
+ *  (so wslSetupPhase is meaningful). The sign-in overlay polls this + wslSetupPhase to
+ *  hold sign-in until the WSL prompt is resolved, so the prompt appears BEFORE login. */
+let wslLaunchDecided = false;
+
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
 	extensionContext = context;
@@ -170,14 +175,20 @@ export function activate(context: vscode.ExtensionContext): void {
 	if (process.platform === 'win32') { wslDiag(`launch: ${launchDiag}`); }
 	if (config.isLocalVmActive()) {
 		if (process.platform === 'win32') {
+			// handleWindowsBuiltinLaunch flips wslLaunchDecided once it knows if the prompt
+			// shows; the sign-in overlay waits on that so the prompt appears before login.
 			void handleWindowsBuiltinLaunch(context, vm);
 		} else {
+			wslLaunchDecided = true; // no WSL prompt on Mac/Linux
 			startBuiltinVmTracked(vm);
 		}
-	} else if (process.platform === 'win32') {
+	} else {
 		// The built-in WSL environment is NOT the active target (e.g. a saved SSH profile
-		// from earlier testing is active). That legitimately suppresses the WSL prompt.
-		wslDiag('launch: built-in VM NOT active -> no WSL prompt (active target is an SSH profile).');
+		// from earlier testing is active). No WSL prompt - let sign-in proceed immediately.
+		wslLaunchDecided = true;
+		if (process.platform === 'win32') {
+			wslDiag('launch: built-in VM NOT active -> no WSL prompt (active target is an SSH profile).');
+		}
 	}
 	context.subscriptions.push(
 		vscode.commands.registerCommand('aria.autopipe.vm.setActive', () => config.activateLocalVm()),
@@ -214,7 +225,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			void context.globalState.update(WSL_SKIP_KEY, true);
 			void vm.stop();
 		}),
-		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress(), wslPhase: wslSetupPhase })),
+		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress(), wslPhase: wslSetupPhase, wslLaunchDecided })),
 		// Distinguish "WSL/Ubuntu not installed" from "installed but not connected" for
 		// the Connections section. On non-Windows these probes harmlessly return false/[].
 		vscode.commands.registerCommand('aria.autopipe.vm.wslProbe', async () => {
@@ -547,6 +558,7 @@ async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: 
 	if (context.globalState.get<boolean>(WSL_SKIP_KEY)) {
 		const ready = await vm.isWslReady();
 		wslDiag(`handleWindowsBuiltinLaunch: skip flag set; wslReady=${ready}. No prompt.`);
+		wslLaunchDecided = true; // opted out earlier -> no prompt, let sign-in proceed
 		if (ready) {
 			void context.globalState.update(WSL_SKIP_KEY, false);
 			startBuiltinVmTracked(vm);
@@ -563,12 +575,16 @@ async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: 
 		// Ubuntu / opens the account OOBE / provisions). This is also what makes a relaunch
 		// AFTER the reboot skip the install prompt - the engine now exists.
 		wslSetupPhase = 'idle';
+		wslLaunchDecided = true; // no prompt -> sign-in can proceed
 		startBuiltinVmTracked(vm);
 		return;
 	}
 	// WSL engine is not installed and the user has not opted out: offer to install it.
 	// Stay in a gating phase so the loader keeps showing until the user decides.
+	// Set the phase FIRST, then mark decided, so the sign-in overlay that is waiting sees
+	// the pending prompt (not a momentary 'idle') and holds login until it is resolved.
 	wslSetupPhase = 'prompting';
+	wslLaunchDecided = true;
 	try {
 		await vscode.commands.executeCommand('aria.wslPrompt.show', 'install');
 		wslDiag('handleWindowsBuiltinLaunch: requested aria.wslPrompt.show OK (popup should be visible).');

@@ -696,7 +696,9 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				continue;
 			}
 			const s = st?.status;
-			if (s === 'provisioning' || s === 'booting') {
+			if (s === 'provisioning') {
+				// Installing Ubuntu / waiting for the account. HOLD the loader here (this is
+				// the part the user must see and act on - the account OOBE window).
 				seenActive = true;
 				const msg = st?.progress?.message;
 				if (msg) {
@@ -712,12 +714,14 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					});
 					escapeShown = true;
 				}
-			} else if (s === 'ready' || s === 'error') {
-				// Definitive: the run env is already up (ready) or has failed (error) -
-				// either way there is nothing to wait for, so DON'T sit out the grace
-				// period. On a relaunch where WSL is already running (e.g. another Qoka
-				// window keeps it up, or many windows are open) this returns at once
-				// instead of blocking the loader ~8s every launch.
+			} else if (s === 'booting' || s === 'ready' || s === 'error') {
+				// 'booting' means the Ubuntu account is created and the run environment is now
+				// provisioning (docker/sshd) - the SLOW part. Clear the loader here instead of
+				// blocking on it: vm.start() keeps running in the background and the
+				// Connections panel reflects progress until it reaches 'ready'. So the loader
+				// disappears as soon as the account is recognized, not minutes later. On a
+				// relaunch where WSL is already running this also returns at once (ready /
+				// error are terminal too).
 				return;
 			} else {
 				// 'stopped' | 'unknown': the built-in start is async, so this may just
