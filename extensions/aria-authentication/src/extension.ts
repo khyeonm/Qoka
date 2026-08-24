@@ -61,6 +61,12 @@ export function activate(context: vscode.ExtensionContext): void {
 			// (Setup is NOT re-run - its completion flag persists.)
 			await vscode.commands.executeCommand('workbench.action.closeFolder');
 		}),
+		// Permanently delete the account: the server drops the account row + all
+		// cross-project memory, then the local session is cleared. The workbench's
+		// aria.account.deleteAccount confirms first and closes the folder after.
+		vscode.commands.registerCommand('aria.auth.deleteAccount', async () => {
+			return provider.deleteAccount();
+		}),
 		provider,
 	);
 

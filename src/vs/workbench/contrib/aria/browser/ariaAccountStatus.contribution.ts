@@ -16,6 +16,7 @@ import { AuthenticationSession, IAuthenticationService } from '../../../services
 import { IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ARIA_MODE_SETTING } from '../common/ariaConfiguration.js';
 
 const AUTH_ID = 'aria';
@@ -24,6 +25,7 @@ const SIGN_IN_COMMAND = 'aria.account.signIn';
 const CHANGE_PROJECT_COMMAND = 'aria.account.changeProject';
 const ACCOUNT_MENU_COMMAND = 'aria.account.menu';
 const CHECK_UPDATES_COMMAND = 'aria.account.checkUpdates';
+const DELETE_ACCOUNT_COMMAND = 'aria.account.deleteAccount';
 // Cached display label of the last signed-in account, so easy mode can paint the
 // account/Sign out entries instantly on startup instead of waiting for the auth
 // extension to activate and restore the session (which is visibly slow on cold start).
@@ -62,6 +64,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IProductService private readonly productService: IProductService,
+		@IDialogService private readonly dialogService: IDialogService,
 	) {
 		super();
 
@@ -70,6 +73,7 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		this._register(CommandsRegistry.registerCommand(ACCOUNT_MENU_COMMAND, () => this.showAccountMenu()));
 		this._register(CommandsRegistry.registerCommand(CHANGE_PROJECT_COMMAND, () => this.changeProject()));
 		this._register(CommandsRegistry.registerCommand(CHECK_UPDATES_COMMAND, () => this.checkUpdates()));
+		this._register(CommandsRegistry.registerCommand(DELETE_ACCOUNT_COMMAND, () => this.deleteAccount()));
 
 		// To the RIGHT of Sign out/Sign in (higher priority = further left, so 97/96
 		// sit to their right): a clickable "Check for updates" button, then the Qoka
@@ -336,6 +340,34 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION);
 		this.reconcile();
 		return;
+	}
+
+	/** Permanently delete the account. Confirms first (destructive + irreversible),
+	 *  then asks the auth extension to delete it on the server and clear the local
+	 *  session, and finally returns to the picker like Sign out. */
+	private async deleteAccount(): Promise<void> {
+		const confirmation = await this.dialogService.confirm({
+			type: 'warning',
+			message: localize('aria.deleteAccount.message', "Delete your Qoka account?"),
+			detail: localize('aria.deleteAccount.detail', "This permanently deletes your account and ALL of your data - including your cross-project memory - from our servers. This cannot be undone."),
+			primaryButton: localize('aria.deleteAccount.confirm', "Delete account"),
+		});
+		if (!confirmation.confirmed) { return; }
+		let ok = false;
+		try {
+			ok = (await this.commandService.executeCommand<boolean>('aria.auth.deleteAccount')) ?? false;
+		} catch { ok = false; }
+		this.session = undefined;
+		this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION);
+		this.reconcile();
+		if (ok) {
+			// Return to the directory picker on the next launch, like Sign out.
+			await this.commandService.executeCommand('workbench.action.closeFolder');
+		} else {
+			await this.dialogService.info(
+				localize('aria.deleteAccount.failed', "Your account could not be deleted. Check your connection and try again, or contact pnucolab@gmail.com."),
+			);
+		}
 	}
 
 }

@@ -140,14 +140,17 @@ export class AriaSettingsEditorPane extends EditorPane {
 			borderTop: '1px solid var(--vscode-editorWidget-border, rgba(127,127,127,0.25))',
 			marginLeft: '-24px', marginRight: '-24px', paddingLeft: '24px', paddingRight: '24px',
 		});
-		const button = (label: string, command: string) => {
+		const button = (label: string, command: string, danger = false) => {
 			const btn = append(foot, $('button')) as HTMLButtonElement;
 			btn.textContent = label;
 			Object.assign(btn.style, {
 				padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
 				border: '1px solid var(--vscode-button-border, transparent)',
 				background: 'var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2))',
-				color: 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
+				// Destructive action (Delete account) is drawn in red text.
+				color: danger
+					? 'var(--vscode-errorForeground, #f14c4c)'
+					: 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
 			});
 			btn.onclick = () => { void this.commandService.executeCommand(command); };
 		};
@@ -160,6 +163,8 @@ export class AriaSettingsEditorPane extends EditorPane {
 		button('Change project', 'aria.account.changeProject');
 		if (signedIn) {
 			button('Sign out', 'aria.account.signOut');
+			// Destructive account deletion, in red, right next to Sign out.
+			button('Delete account', 'aria.account.deleteAccount', true);
 		} else {
 			button('Sign in', 'aria.account.signIn');
 		}

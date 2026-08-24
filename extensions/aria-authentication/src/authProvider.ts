@@ -263,6 +263,57 @@ export class AriaAuthProvider implements vscode.AuthenticationProvider, vscode.D
 		}
 	}
 
+	/**
+	 * Permanently delete the account on the server (all cross-project memory + the
+	 * user record) and then clear the local session. Returns true when the server
+	 * confirmed the deletion. A best-effort token refresh runs first so the call is
+	 * not rejected on an expired access token. The local session is ALWAYS cleared
+	 * afterwards, so the user ends up signed out even if the server call failed.
+	 */
+	async deleteAccount(): Promise<boolean> {
+		if (FAKE_AUTH) { return true; }
+		const stored = await this._read();
+		let ok = true;
+		if (stored) {
+			const access = (stored.refresh ? await this._refreshAccess(stored.refresh) : undefined) ?? stored.access;
+			ok = await this._deleteAccountRequest(access);
+		}
+		// Clear the local session regardless (mirrors removeSession) so the app ends
+		// up signed out even when the server call could not be made.
+		try {
+			await this.secrets.delete(SECRET_KEY);
+			if (stored) { this._onDidChangeSessions.fire({ added: [], removed: [this._toSession(stored)], changed: [] }); }
+		} catch { /* best-effort */ }
+		return ok;
+	}
+
+	/** DELETE /api/account with the bearer token; resolves true on a 2xx response. */
+	private _deleteAccountRequest(access: string): Promise<boolean> {
+		return new Promise(resolve => {
+			try {
+				const url = new URL('/api/account', SERVER_URL);
+				const isHttps = url.protocol === 'https:';
+				const lib = isHttps ? https : http;
+				const options: https.RequestOptions = {
+					method: 'DELETE',
+					headers: { authorization: `Bearer ${access}` },
+					timeout: 20000,
+				};
+				if (isHttps && ALLOW_SELF_SIGNED) { options.rejectUnauthorized = false; }
+				const req = lib.request(url, options, res => {
+					const code = res.statusCode ?? 0;
+					res.on('data', () => { /* drain */ });
+					res.on('end', () => resolve(code >= 200 && code < 300));
+				});
+				req.on('error', () => resolve(false));
+				req.on('timeout', () => { req.destroy(); resolve(false); });
+				req.end();
+			} catch {
+				resolve(false);
+			}
+		});
+	}
+
 	// --- helpers ------------------------------------------------------------
 
 	/**
