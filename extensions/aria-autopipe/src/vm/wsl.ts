@@ -64,7 +64,17 @@ function stripNuls(s: string): string {
 export async function wslAvailable(): Promise<boolean> {
 	for (let attempt = 0; attempt < 6; attempt++) {
 		try {
-			await execFileAsync(wslExePath(), ['--status'], { windowsHide: true, env: WSL_ENV, timeout: 15_000 });
+			const { stdout, stderr } = await execFileAsync(wslExePath(), ['--status'], { windowsHide: true, env: WSL_ENV, timeout: 15_000 });
+			// CRITICAL: when WSL is NOT installed, wsl.exe (the Store stub that ships with
+			// Windows) still prints a "not installed - run wsl.exe --install" message and
+			// EXITS 0. Trusting the exit code alone reports the engine as present, so the
+			// launch path tries to start the VM (which fails) instead of showing the install
+			// prompt. Reject the not-installed signature too. The `--install` flag and the
+			// `wslinstall` URL token are not localized, so they match on any Windows language.
+			const out = stripNuls(`${stdout ?? ''} ${stderr ?? ''}`).toLowerCase();
+			if (out.includes('wslinstall') || out.includes('--install')) {
+				return false;
+			}
 			return true;
 		} catch {
 			/* cold/transient - retry below */
