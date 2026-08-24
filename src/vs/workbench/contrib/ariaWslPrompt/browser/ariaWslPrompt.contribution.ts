@@ -74,6 +74,7 @@ function showWslPrompt(commandService: ICommandService, mode: WslPromptMode): vo
 	// reads it (localStorage) and in the extension (globalState via skipSetup), so the
 	// prompt never returns and the normal MCP/CLI setup proceeds.
 	const skipSetup = () => {
+		console.log('[aria-wsl] continue-without (skip) clicked');
 		try { localStorage.setItem('aria.autopipe.wslSetupSkipped', '1'); } catch { /* storage unavailable */ }
 		void commandService.executeCommand('aria.autopipe.vm.skipSetup');
 		dismiss();
@@ -114,6 +115,7 @@ function showWslPrompt(commandService: ICommandService, mode: WslPromptMode): vo
 		actions.replaceChildren(install, skip);
 
 		install.addEventListener('click', () => {
+			console.log('[aria-wsl] install button clicked');
 			// Morph the whole card into an in-progress loading state. The install must NOT
 			// let the app fall through to a usable workbench, so the prompt stays up (opaque,
 			// on top) and keeps showing progress until the reboot notice.
@@ -128,13 +130,29 @@ function showWslPrompt(commandService: ICommandService, mode: WslPromptMode): vo
 			void Promise.resolve(commandService.executeCommand('aria.autopipe.vm.installEngine')).then(
 				() => {
 					// Installed (the elevated window closed). Swap the card to a reboot notice.
+					console.log('[aria-wsl] installEngine resolved -> reboot notice');
 					renderRebootNotice();
 				},
-				() => {
-					// UAC declined or the install could not start - restore the prompt so the
-					// user can retry.
-					renderInstallPrompt();
-					(actions.firstElementChild as HTMLElement | null)?.focus();
+				(err) => {
+					// UAC declined or the install could not start. Show WHY (instead of a
+					// silent revert that looks like the button did nothing), plus a retry.
+					console.error('[aria-wsl] installEngine rejected:', err);
+					h1.textContent = 'Could not start the installer';
+					body.replaceChildren(doc.createTextNode(
+						(err && (err.message || String(err))) || 'The WSL installer could not be started. Please try again.'));
+					hint.textContent = '';
+					const retry = doc.createElement('button');
+					retry.className = 'aria-wsl-btn aria-wsl-btn-primary';
+					retry.type = 'button';
+					retry.textContent = 'Try again';
+					retry.addEventListener('click', renderInstallPrompt);
+					const skip2 = doc.createElement('button');
+					skip2.className = 'aria-wsl-btn aria-wsl-btn-ghost';
+					skip2.type = 'button';
+					skip2.textContent = 'Continue without the run environment';
+					skip2.addEventListener('click', skipSetup);
+					actions.replaceChildren(retry, skip2);
+					retry.focus();
 				},
 			);
 		});

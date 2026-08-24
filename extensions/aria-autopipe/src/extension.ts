@@ -188,15 +188,18 @@ export function activate(context: vscode.ExtensionContext): void {
 		// user declines the UAC prompt, so the prompt can re-enable and let them retry.
 		vscode.commands.registerCommand('aria.autopipe.vm.installEngine', async () => {
 			wslSetupPhase = 'installing';
+			wslDiag('installEngine: starting elevated wsl --install');
 			try {
 				await installWslEngine();
 				// Installed: the engine now exists but only takes effect after a restart, so
 				// keep gating the loader until the user reboots (the prompt shows the notice).
+				wslDiag('installEngine: completed OK (awaiting reboot)');
 				wslSetupPhase = 'reboot';
 				return true;
 			} catch (err) {
 				// UAC declined / install could not start: back to the prompt so the loader
 				// stays up and the user can retry.
+				wslDiag(`installEngine: FAILED: ${err instanceof Error ? err.message : String(err)}`);
 				wslSetupPhase = 'prompting';
 				throw err;
 			}
@@ -206,6 +209,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		// already-ready environment clears it again.
 		vscode.commands.registerCommand('aria.autopipe.vm.skipSetup', () => {
 			// Opted out: stop gating so the loader clears and the workbench becomes usable.
+			wslDiag('skipSetup: user chose Continue without the run environment');
 			wslSetupPhase = 'idle';
 			void context.globalState.update(WSL_SKIP_KEY, true);
 			void vm.stop();

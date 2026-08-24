@@ -10,9 +10,16 @@
 .aria-wsl-overlay {
 	position: fixed;
 	inset: 0;
-	/* Above the "Preparing Qoka…" loader (999997) and the first-run overlay (999999)
-	 * so the prompt is not painted behind them. */
-	z-index: 1000001;
+	/* Above the "Preparing Qoka…" loader (999997), the first-run overlay (999999) and
+	 * the sign-in overlay (1000000) so the prompt is never painted behind them. Use the
+	 * max stacking value so nothing can cover it. */
+	z-index: 2147483647;
+	/* CRITICAL: the workbench title bar marks regions as `-webkit-app-region: drag`, which
+	 * makes the OS eat clicks (for window-move) before the DOM sees them - the prompt then
+	 * looks like a static image whose buttons do nothing. Force this whole overlay back to
+	 * an interactive, non-drag region. */
+	-webkit-app-region: no-drag;
+	pointer-events: auto;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -39,6 +46,8 @@
 
 .aria-wsl-card {
 	position: relative;
+	-webkit-app-region: no-drag;
+	pointer-events: auto;
 	width: 100%;
 	max-width: 740px;
 	background: linear-gradient(180deg, #2a2016, #221a12);
@@ -131,6 +140,8 @@
 	padding: 12px 18px;
 	cursor: pointer;
 	border: 1px solid transparent;
+	-webkit-app-region: no-drag;
+	pointer-events: auto;
 	transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
 }
 .aria-wsl-btn:active { transform: translateY(1px); }
