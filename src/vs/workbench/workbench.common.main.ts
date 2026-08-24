@@ -394,6 +394,7 @@ import './contrib/ariaSettings/browser/ariaSettings.contribution.js';
 import './contrib/ariaMemory/browser/ariaMemory.contribution.js';
 import './contrib/ariaPaperSearch/browser/ariaPaperSearch.contribution.js';
 import './contrib/ariaFirstRunOverlay/browser/ariaFirstRunOverlay.contribution.js';
+import './contrib/ariaWslPrompt/browser/ariaWslPrompt.contribution.js';
 import './contrib/ariaLoginGate/browser/ariaLoginGate.contribution.js';
 import './contrib/ariaRoadmapWizard/browser/ariaRoadmapWizard.contribution.js';
 import './contrib/ariaNotes/browser/ariaNotes.contribution.js';

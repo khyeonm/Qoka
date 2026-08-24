@@ -13,7 +13,7 @@ import { registerWithCodex } from './registration/codexMcp';
 import { ConfigService } from './config/configService';
 import { SshService } from './ssh/sshService';
 import { VMManager } from './vm/vmManager';
-import { wslAvailable, listDistrosStrict, isWslServiceError, pickDistro } from './vm/wsl';
+import { wslAvailable, listDistrosStrict, isWslServiceError, pickDistro, installWslEngine } from './vm/wsl';
 import { QokaPdfEditorProvider } from './viewer/pdfEditor';
 import { openResultsViewer, viewFileInViewer } from './viewer/viewerPanel';
 import { HubApiClient } from './hub/apiClient';
@@ -138,17 +138,8 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Bring the VM up if it's the active target (dev: eager start; production
 	// lazy-start-on-first-pipeline lands in M4). Fire-and-forget.
 	if (config.isLocalVmActive()) {
-		if (process.platform === 'win32' && context.globalState.get<boolean>(WSL_SKIP_KEY)) {
-			// The user previously chose "Continue without the run environment". Don't
-			// gate or install again - only auto-start when WSL/Ubuntu is ALREADY set up
-			// (they may have installed it since), and clear the flag once it is so the
-			// normal experience resumes.
-			void vm.isWslReady().then(ready => {
-				if (ready) {
-					void context.globalState.update(WSL_SKIP_KEY, false);
-					startBuiltinVmTracked(vm);
-				}
-			});
+		if (process.platform === 'win32') {
+			void handleWindowsBuiltinLaunch(context, vm);
 		} else {
 			startBuiltinVmTracked(vm);
 		}
@@ -157,6 +148,13 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('aria.autopipe.vm.setActive', () => config.activateLocalVm()),
 		vscode.commands.registerCommand('aria.autopipe.vm.start', () => vm.start()),
 		vscode.commands.registerCommand('aria.autopipe.vm.stop', () => vm.stop()),
+		// Enable the WSL engine (+ Ubuntu) with a self-elevated `wsl --install`. Invoked
+		// by the first-run WSL prompt's "Install WSL & Ubuntu" button. Rejects if the
+		// user declines the UAC prompt, so the prompt can re-enable and let them retry.
+		vscode.commands.registerCommand('aria.autopipe.vm.installEngine', async () => {
+			await installWslEngine();
+			return true;
+		}),
 		// The user pressed "Continue without the run environment": remember it so we
 		// stop auto-installing/gating on every launch. On-demand setup (vm.setup) or an
 		// already-ready environment clears it again.
@@ -483,6 +481,37 @@ export function activate(context: vscode.ExtensionContext): void {
  * overlay clear. Windows-only: Mac/Linux use vfkit/QEMU with no account step, so
  * they keep the plain fire-and-forget start.
  */
+/**
+ * Windows launch decision for the built-in run environment:
+ *  - user opted out before -> only resume once WSL is FULLY set up (engine + Ubuntu +
+ *    account); otherwise leave them alone (no prompt, no install).
+ *  - WSL engine present -> start normally (installs Ubuntu if needed, opens the account
+ *    OOBE, provisions), all behind the loader.
+ *  - WSL engine missing -> show the first-run "Install WSL & Ubuntu" prompt.
+ * wslAvailable() retries internally, so a cold-but-installed WSL is not mistaken for a
+ * missing engine (which would have wrongly shown the install prompt).
+ */
+async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: VMManager): Promise<void> {
+	if (context.globalState.get<boolean>(WSL_SKIP_KEY)) {
+		const ready = await vm.isWslReady();
+		if (ready) {
+			void context.globalState.update(WSL_SKIP_KEY, false);
+			startBuiltinVmTracked(vm);
+		}
+		return;
+	}
+	if (await wslAvailable()) {
+		startBuiltinVmTracked(vm);
+		return;
+	}
+	// WSL engine is not installed and the user has not opted out: offer to install it.
+	try {
+		await vscode.commands.executeCommand('aria.wslPrompt.show');
+	} catch (err) {
+		console.error('[aria-autopipe] could not show the WSL install prompt:', err);
+	}
+}
+
 function startBuiltinVmTracked(vm: VMManager): void {
 	if (process.platform !== 'win32') {
 		void vm.start().catch(err => console.error('[aria-autopipe] built-in VM start failed:', err));

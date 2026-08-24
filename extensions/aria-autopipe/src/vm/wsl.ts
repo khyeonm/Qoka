@@ -52,14 +52,26 @@ function stripNuls(s: string): string {
 	return s.split('\u0000').join('').split('\r').join('');
 }
 
-/** True when the WSL feature is present and responsive (`wsl --status` exits 0). */
+/** True when the WSL feature is present and responsive (`wsl --status` exits 0).
+ *
+ *  RETRIES: the very first `wsl` call after the app launches (especially right
+ *  after the WSL-enabling reboot) often hits a still-cold lightweight VM and fails
+ *  transiently - exactly why defaultUser retries. A single try here was misreading a
+ *  cold-but-installed WSL as "not available", so startWsl bailed with "restart your
+ *  PC" BEFORE reaching the Ubuntu/account steps (the account window never opened).
+ *  So try a few times: any success returns at once (a healthy machine pays nothing);
+ *  only a genuinely-absent WSL runs out the attempts and returns false. */
 export async function wslAvailable(): Promise<boolean> {
-	try {
-		await execFileAsync(wslExePath(), ['--status'], { windowsHide: true, env: WSL_ENV, timeout: 15_000 });
-		return true;
-	} catch {
-		return false;
+	for (let attempt = 0; attempt < 6; attempt++) {
+		try {
+			await execFileAsync(wslExePath(), ['--status'], { windowsHide: true, env: WSL_ENV, timeout: 15_000 });
+			return true;
+		} catch {
+			/* cold/transient - retry below */
+		}
+		if (attempt < 5) { await new Promise(r => setTimeout(r, 2500)); }
 	}
+	return false;
 }
 
 /** Fully reset the WSL lightweight VM WITHOUT deleting anything. `wsl --shutdown`
@@ -142,6 +154,25 @@ export async function installUbuntuDistro(): Promise<void> {
 	await execFileAsync(
 		wslExePath(), ['--install', '--web-download', '-d', 'Ubuntu', '--no-launch'],
 		{ windowsHide: true, env: WSL_ENV, timeout: PROVISION_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 },
+	);
+}
+
+/** Enable the WSL ENGINE (and install Ubuntu) for the first time, FROM THE APP.
+ *  `wsl --install` turns on the Windows VM-platform / WSL features and installs
+ *  Ubuntu; enabling those features needs ADMIN (UAC) and a reboot. So we self-elevate
+ *  via PowerShell exactly as the old exe installer's finish-page item did (an elevated
+ *  cmd runs the install and `pause`s so a fast failure stays readable). After this the
+ *  user reboots; on the next launch the engine is present and the normal runtime flow
+ *  (Ubuntu account OOBE + provisioning) takes over. Used by the first-run "Install WSL?"
+ *  prompt so a Store/MSIX build - which cannot run installer scripts - can still set WSL
+ *  up. Resolves when the elevated window closes; rejects if the user declines UAC. */
+export async function installWslEngine(): Promise<void> {
+	// Static command (no interpolation): elevate cmd, run wsl --install, hold with pause.
+	const ps = "Start-Process cmd.exe -ArgumentList '/c','wsl --install --web-download -d Ubuntu --no-launch & pause' -Verb RunAs -Wait";
+	await execFileAsync(
+		'powershell.exe',
+		['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps],
+		{ windowsHide: true, timeout: 20 * 60_000 },
 	);
 }
 
@@ -239,6 +270,13 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		'  done',
 		'  return 1',
 		'}',
+		// A freshly-installed WSL/Ubuntu often has a broken or empty /etc/resolv.conf,
+		// so apt cannot resolve the Ubuntu mirrors and EVERY install fails ("Temporary
+		// failure resolving archive.ubuntu.com") - the common cause of "local server
+		// won't connect" after account creation. Only when DNS is actually broken
+		// (bounded by a 3s check, so a working resolver costs nothing) drop in public
+		// resolvers for this provisioning run. Best-effort: never abort under `set -e`.
+		'if ! timeout 3 getent hosts archive.ubuntu.com >/dev/null 2>&1; then printf \'nameserver 1.1.1.1\\nnameserver 8.8.8.8\\n\' > /etc/resolv.conf 2>/dev/null || true; fi',
 		// Decide by the REAL artifact the keeper execs - the sshd BINARY at its
 		// absolute path - not `command -v sshd` (a Docker Desktop box injects a docker
 		// CLI but that never puts an sshd on PATH) and not `-f /etc/ssh/sshd_config`
