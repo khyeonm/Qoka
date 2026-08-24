@@ -61,23 +61,38 @@ function stripNuls(s: string): string {
  *  PC" BEFORE reaching the Ubuntu/account steps (the account window never opened).
  *  So try a few times: any success returns at once (a healthy machine pays nothing);
  *  only a genuinely-absent WSL runs out the attempts and returns false. */
+/** True iff wsl.exe output carries the "WSL is not installed - run wsl.exe --install"
+ *  message. The `--install` flag and the `wslinstall` URL (https://aka.ms/wslinstall)
+ *  are NOT localized, so they match on any Windows display language. This is a DEFINITIVE
+ *  "engine absent" signal (not a cold/transient hiccup), so callers can stop retrying. */
+function isWslNotInstalledText(...parts: unknown[]): boolean {
+	const text = stripNuls(parts.map(v => (typeof v === 'string' ? v : '')).join(' ')).toLowerCase();
+	return text.includes('wslinstall') || text.includes('--install');
+}
+
 export async function wslAvailable(): Promise<boolean> {
 	for (let attempt = 0; attempt < 6; attempt++) {
 		try {
 			const { stdout, stderr } = await execFileAsync(wslExePath(), ['--status'], { windowsHide: true, env: WSL_ENV, timeout: 15_000 });
-			// CRITICAL: when WSL is NOT installed, wsl.exe (the Store stub that ships with
-			// Windows) still prints a "not installed - run wsl.exe --install" message and
-			// EXITS 0. Trusting the exit code alone reports the engine as present, so the
-			// launch path tries to start the VM (which fails) instead of showing the install
-			// prompt. Reject the not-installed signature too. The `--install` flag and the
-			// `wslinstall` URL token are not localized, so they match on any Windows language.
-			const out = stripNuls(`${stdout ?? ''} ${stderr ?? ''}`).toLowerCase();
-			if (out.includes('wslinstall') || out.includes('--install')) {
+			// When WSL is NOT installed, wsl.exe (the Store stub that ships with Windows)
+			// prints a "not installed - run wsl.exe --install" message. Depending on the
+			// build it EXITS 0 (falls here) OR non-zero (throws, handled below), so the exit
+			// code alone is unreliable - check the message either way.
+			if (isWslNotInstalledText(stdout, stderr)) {
 				return false;
 			}
 			return true;
-		} catch {
-			/* cold/transient - retry below */
+		} catch (e) {
+			// wsl.exe usually reports "not installed" by writing that message to stderr AND
+			// exiting non-zero (e.g. 50). That is DEFINITIVE, not a cold/transient failure,
+			// so bail immediately instead of burning ~12s on retries - the sooner the launch
+			// decides, the sooner the install prompt shows, before the sign-in flow reloads
+			// the window and drops it.
+			const err = e as { stdout?: unknown; stderr?: unknown; message?: unknown };
+			if (isWslNotInstalledText(err?.stdout, err?.stderr, err?.message)) {
+				return false;
+			}
+			/* genuinely cold/transient - retry below */
 		}
 		if (attempt < 5) { await new Promise(r => setTimeout(r, 2500)); }
 	}
