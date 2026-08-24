@@ -51,6 +51,13 @@ const GUEST_REPO = `/home/${GUEST_USER}/aria`;
 // sharedDir varies per launch. Mirrored in isMountedRepo() (common/types.ts).
 const VFKIT_SHARE_TAG = 'qoka-data';
 const VFKIT_SHARE_MOUNT = '/mnt/qoka';
+// Second virtio-fs share: the WHOLE host filesystem (/) mounted read-through at
+// /mnt/mac, so ANY local file the user picks - not only files inside the open
+// project - is reachable in the guest, matching WSL where the entire drive is at
+// /mnt/c. The project keeps its own /mnt/qoka mount for the write-through repo model.
+// Mirrored in common/pathMapping.ts (localToRunEnvPath).
+const VFKIT_HOST_TAG = 'qoka-host';
+const VFKIT_HOST_MOUNT = '/mnt/mac';
 // Generous: a FIRST boot runs cloud-init (which mounts the seed, creates the
 // user + SSH key, then starts sshd) and, on a software-emulated (TCG) fallback,
 // the whole guest runs many times slower. 180s wasn't enough - the guest was
@@ -503,6 +510,9 @@ export class VMManager {
 			// Share the open project into the guest (mounted at VFKIT_SHARE_MOUNT by the
 			// cloud-init seed) so data lives on the Mac disk, not copied into disk.raw.
 			...(share ? ['--device', `virtio-fs,sharedDir=${share.hostDir},mountTag=${share.tag}`] : []),
+			// Also share the WHOLE host fs (/) at /mnt/mac so any local file the user
+			// picks is reachable, like WSL's /mnt/c. Always present, even with no folder.
+			'--device', `virtio-fs,sharedDir=/,mountTag=${VFKIT_HOST_TAG}`,
 		];
 		const errLog = fs.openSync(path.join(this.dir, 'vfkit-stderr.log'), 'w');
 		const proc = spawn(vfkit, args, { stdio: ['ignore', 'ignore', errLog], windowsHide: true });
@@ -738,7 +748,7 @@ export class VMManager {
 		// Bump the instance-id whenever runcmd changes: cloud-init runs runcmd only on a
 		// NEW instance-id, so existing disk.raw users would otherwise never get the
 		// virtio-fs mount / uid fix. Everything in runcmd is idempotent.
-		fs.writeFileSync(path.join(dir, 'meta-data'), 'instance-id: aria-builtin-vfs2\nlocal-hostname: aria\n');
+		fs.writeFileSync(path.join(dir, 'meta-data'), 'instance-id: aria-builtin-vfs3\nlocal-hostname: aria\n');
 		fs.writeFileSync(path.join(dir, 'network-config'), [
 			'version: 2',
 			'ethernets:',
@@ -764,6 +774,11 @@ export class VMManager {
 			// Docker is baked into the image; this is an idempotent fallback only.
 			'  - command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)',
 			`  - usermod -aG docker ${GUEST_USER} || true`,
+			// Mount the WHOLE host fs at /mnt/mac so ANY local file is reachable (like
+			// WSL's /mnt/c). Persisted in fstab (nofail) to re-mount every boot.
+			`  - mkdir -p ${VFKIT_HOST_MOUNT}`,
+			`  - grep -q ' ${VFKIT_HOST_MOUNT} virtiofs' /etc/fstab || echo '${VFKIT_HOST_TAG} ${VFKIT_HOST_MOUNT} virtiofs defaults,nofail 0 0' >> /etc/fstab`,
+			`  - mount -t virtiofs ${VFKIT_HOST_TAG} ${VFKIT_HOST_MOUNT} 2>/dev/null || mount ${VFKIT_HOST_MOUNT} 2>/dev/null || true`,
 		];
 		if (share) {
 			// Mount the virtio-fs share now AND persist it in fstab (nofail) so it

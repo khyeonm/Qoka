@@ -33,6 +33,9 @@ import { workspaceFolderPath } from './workspaceSync';
 
 /** Mount point of the Mac vfkit virtio-fs share (see vmManager VFKIT_SHARE_MOUNT). */
 const VFKIT_MOUNT = '/mnt/qoka';
+/** Mount point of the whole-host vfkit share (see vmManager VFKIT_HOST_MOUNT), so a
+ *  local file OUTSIDE the open project is still reachable, like WSL's /mnt/c. */
+const VFKIT_HOST_MOUNT = '/mnt/mac';
 
 export type RunPathMappingKind = 'wsl' | 'vfkit' | 'ssh' | 'none';
 
@@ -122,13 +125,18 @@ export function localToRunEnvPath(localPath: string): { path: string } | { error
 		const match = /^[A-Za-z]:[\\/].*$/.test(localPath);
 		return { path: match ? winToWsl(localPath) : localPath };
 	}
-	if (m.kind === 'vfkit' && m.hostRoot && m.mountRoot) {
+	if (m.kind === 'vfkit') {
 		const norm = localPath.replace(/\\/g, '/').replace(/\/+$/, '');
-		const root = m.hostRoot.replace(/\\/g, '/').replace(/\/+$/, '');
-		if (norm === root || norm.startsWith(root + '/')) {
+		const root = (m.hostRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
+		// A file inside the OPEN project maps through the project share (/mnt/qoka), for
+		// consistency with the write-through repo model.
+		if (root && m.mountRoot && (norm === root || norm.startsWith(root + '/'))) {
 			return { path: m.mountRoot + norm.slice(root.length) };
 		}
-		return { error: 'On the Mac run environment only the open project folder is mounted. Move this file into the project (e.g. into data/) and pick it again.' };
+		// Any other absolute local path maps through the whole-host share (/mnt/mac +
+		// the absolute path), matching WSL where any drive path resolves under /mnt/<drive>.
+		if (norm.startsWith('/')) { return { path: VFKIT_HOST_MOUNT + norm }; }
+		return { error: 'This file path could not be mapped into the Mac run environment.' };
 	}
 	return { path: localPath };
 }
