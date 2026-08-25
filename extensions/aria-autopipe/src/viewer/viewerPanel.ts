@@ -305,6 +305,17 @@ async function renderFileInPanel(panel: vscode.WebviewPanel, filePath: string): 
 	// URL. Reading a multi-GB file just to hand it a blob would crash the
 	// extension host, so skip the blob read when a data_source exists.
 	const hasDataSource = !!plugin.manifest.data_source;
+	// On Windows, data_source plugins read the file through a WSL shell
+	// (sed/awk/wc); with WSL absent nothing can be read. Show a plain notice
+	// (not the plugin's red "Error:") and skip mounting the plugin.
+	if (process.platform === 'win32' && hasDataSource && !(await wslAvailable())) {
+		panel.webview.postMessage({
+			type: 'aria.viewer.fileNotice',
+			filePath,
+			text: `To open result files on Windows, Qoka needs WSL (the Windows Subsystem for Linux), which isn't installed on this machine yet. Install it from Settings > Connections (Local (WSL)), then reopen this file.`,
+		});
+		return;
+	}
 	let bytesBase64 = '';
 	let byteLength = 0;
 	if (!hasDataSource) {
@@ -664,6 +675,7 @@ function renderShellHtml(webview: vscode.Webview): string {
 		.viewer-host { flex: 1; overflow: auto; position: relative; }
 		.placeholder { padding: 32px; text-align: center; opacity: 0.6; font-size: 12px; }
 		.err { padding: 12px; background: var(--vscode-inputValidation-errorBackground, #fee); color: var(--vscode-inputValidation-errorForeground, #c44); border: 1px solid var(--vscode-inputValidation-errorBorder, #c44); border-radius: 3px; margin: 12px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+		.notice { padding: 16px; margin: 12px; color: var(--vscode-foreground); font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 	</style>
 </head>
 <body>
@@ -922,6 +934,9 @@ function renderShellHtml(webview: vscode.Webview): string {
 			} else if (msg.type === 'aria.viewer.fileError') {
 				$('right-header').innerHTML = '<span class="name">' + escapeHtml(String(msg.filePath).split('/').pop()) + '</span>';
 				$('viewer-host').innerHTML = '<div class="err">' + escapeHtml(msg.error) + '</div>';
+			} else if (msg.type === 'aria.viewer.fileNotice') {
+				$('right-header').innerHTML = '<span class="name">' + escapeHtml(String(msg.filePath).split('/').pop()) + '</span>';
+				$('viewer-host').innerHTML = '<div class="notice">' + escapeHtml(msg.text) + '</div>';
 			} else if (msg.type === 'aria.viewer.placeholder') {
 				$('right-header').innerHTML = '<span class="meta">No file selected</span>';
 				$('viewer-host').innerHTML = '<div class="placeholder">' + escapeHtml(msg.text) + '</div>';

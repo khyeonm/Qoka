@@ -26,7 +26,14 @@ async function git(args: string[], cwd: string, opts: { maxBuffer?: number } = {
 	if (mode.mode === 'iso') {
 		return runIso(args, cwd);
 	}
-	const { stdout } = await execFileAsync(mode.gitPath, args, { cwd, maxBuffer: opts.maxBuffer });
+	// Force line-ending conversion OFF: research files are snapshotted as-is.
+	// Without this the bundled MinGit (core.autocrlf=true by default on Windows)
+	// prints LF->CRLF warnings - and can exit non-zero - on `git add`, which
+	// surfaces to the user as "Could not save snapshot". iso mode never converts,
+	// so this keeps native and iso behaviour identical.
+	const { stdout } = await execFileAsync(mode.gitPath,
+		['-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false', ...args],
+		{ cwd, maxBuffer: opts.maxBuffer });
 	return stdout;
 }
 
