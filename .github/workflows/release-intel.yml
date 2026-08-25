@@ -93,6 +93,21 @@ jobs:
           ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
           npm install
 
+      - name: Inject Qoka API key into extensions
+        shell: bash
+        env:
+          QOKA_API_KEY: ${{ secrets.QOKA_API_KEY }}
+        run: |
+          set -e
+          if [ -z "$QOKA_API_KEY" ]; then
+            echo "WARNING: QOKA_API_KEY secret is empty - gated server calls (methods/hypothesis) will 403." >&2
+          fi
+          for ext in aria-hypothesis aria-methods-search; do
+            printf "export const QOKA_API_KEY = '%s';\n" "$QOKA_API_KEY" \
+              > "extensions/$ext/src/qokaKey.ts"
+          done
+          echo "Injected Qoka API key into aria-hypothesis, aria-methods-search."
+
       - name: Build Qoka extensions
         shell: bash
         run: |
@@ -257,6 +272,21 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: npm install
+
+      - name: Inject Qoka API key into extensions
+        shell: bash
+        env:
+          QOKA_API_KEY: ${{ secrets.QOKA_API_KEY }}
+        run: |
+          set -e
+          if [ -z "$QOKA_API_KEY" ]; then
+            echo "WARNING: QOKA_API_KEY secret is empty - gated server calls (methods/hypothesis) will 403." >&2
+          fi
+          for ext in aria-hypothesis aria-methods-search; do
+            printf "export const QOKA_API_KEY = '%s';\n" "$QOKA_API_KEY" \
+              > "extensions/$ext/src/qokaKey.ts"
+          done
+          echo "Injected Qoka API key into aria-hypothesis, aria-methods-search."
 
       - name: Build Qoka extensions
         shell: bash

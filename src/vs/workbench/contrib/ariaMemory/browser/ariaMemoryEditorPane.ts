@@ -14,7 +14,6 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { IAuthenticationService } from '../../../services/authentication/common/authentication.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
@@ -26,7 +25,6 @@ import { AriaMemoryEditorInput } from './ariaMemoryEditorInput.js';
 const MAX_WIDTH_PX = 820;
 
 interface ProjectMemory { slug: string; title: string; type: string; body: string; updated?: string }
-interface GlobalMemory { id: string; memory: string; created_at?: string }
 
 const PROJECT_TYPES = ['project', 'decision', 'feedback', 'reference', 'other'];
 
@@ -52,7 +50,6 @@ export class AriaMemoryEditorPane extends EditorPane {
 		@ICommandService private readonly commandService: ICommandService,
 		@IDialogService private readonly dialogService: IDialogService,
 		@INotificationService private readonly notificationService: INotificationService,
-		@IAuthenticationService private readonly authenticationService: IAuthenticationService,
 	) {
 		super(AriaMemoryEditorPane.ID, group, telemetryService, themeService, storageService);
 	}
@@ -299,93 +296,103 @@ export class AriaMemoryEditorPane extends EditorPane {
 		};
 	}
 
-	// --- global memory (mem0, needs sign-in) -------------------------------
+	// --- global memory (local wiki at ~/.qoka/memory/wiki, shared across projects) ---
 
 	private buildGlobalSection(column: HTMLElement, first: boolean): void {
-		let items: GlobalMemory[] = [];
+		let items: ProjectMemory[] = [];
 		let query = '';
-		let signedIn = false;
 
 		const refresh = async () => {
 			try {
-				signedIn = await this.commandService.executeCommand<boolean>('aria.memory.tab.globalSignedIn') ?? false;
-				items = signedIn ? (await this.commandService.executeCommand<GlobalMemory[]>('aria.memory.tab.globalList') ?? []) : [];
+				items = await this.commandService.executeCommand<ProjectMemory[]>('aria.memory.tab.globalList') ?? [];
 			} catch {
-				signedIn = false; items = [];
+				items = [];
 			}
-			render();
+			renderList();
 		};
 
 		const ctx: { addHost?: HTMLElement } = {};
 		const showAdd = () => {
 			const host = ctx.addHost;
-			if (!host) { return; } // signed out: nothing to add to
-			const form = $('div');
-			Object.assign(form.style, { display: 'flex', flexDirection: 'column', gap: '8px', margin: '4px 0 14px', padding: '10px', borderRadius: '6px', border: '1px solid var(--vscode-editorWidget-border, rgba(127,127,127,0.25))' });
-			const area = append(form, $('textarea')) as HTMLTextAreaElement;
-			area.placeholder = 'Something Qoka should remember about you (e.g. your field, how you like to work)';
-			area.rows = 2;
-			this.styleField(area);
-			area.style.resize = 'vertical';
-			this.formButtons(form,
-				async () => {
-					if (!area.value.trim()) { return; }
-					await this.commandService.executeCommand('aria.memory.tab.globalAdd', area.value.trim());
-					clearNode(host);
-					await refresh();
-				},
-				() => clearNode(host));
+			if (!host) { return; }
+			const form = this.buildGlobalForm(undefined, async (data) => {
+				await this.commandService.executeCommand('aria.memory.tab.globalSave', data);
+				clearNode(host);
+				await refresh();
+			}, () => clearNode(host));
 			clearNode(host);
 			host.appendChild(form);
 		};
 
-		const body = this.makeSection(column, 'Global', 'Things Qoka remembers about you across all your projects.', first, showAdd, () => void refresh());
-		const container = append(body, $('div'));
+		const body = this.makeSection(column, 'Global', 'Things Qoka remembers about you across all your projects on this computer.', first, showAdd, () => void refresh());
+		ctx.addHost = append(body, $('div'));
+		this.makeSearch(body, q => { query = q; renderList(); });
+		const list = append(body, $('div'));
 
-		const render = () => {
-			clearNode(container);
-			ctx.addHost = undefined;
-			if (!signedIn) {
-				const note = append(container, $('div'));
-				note.textContent = 'Sign in to let Qoka remember you across all your projects.';
-				Object.assign(note.style, { fontSize: '13px', opacity: '0.75' });
+		const renderList = () => {
+			clearNode(list);
+			const filtered = items.filter(i =>
+				!query || i.title.toLowerCase().includes(query) || i.body.toLowerCase().includes(query));
+			if (!filtered.length) {
+				this.emptyNote(list, items.length ? 'No matches.' : 'No memories saved yet.');
 				return;
 			}
-			ctx.addHost = append(container, $('div'));
-			this.makeSearch(container, q => { query = q; renderList(); });
-			const list = append(container, $('div'));
-
-			const renderList = () => {
-				clearNode(list);
-				const filtered = items.filter(i => !query || (i.memory ?? '').toLowerCase().includes(query));
-				if (!filtered.length) {
-					this.emptyNote(list, items.length ? 'No matches.' : 'No memories saved yet.');
-					return;
-				}
-				for (const item of filtered) { this.renderGlobalItem(list, item, refresh); }
-			};
-
-			renderList();
+			for (const item of filtered) {
+				this.renderGlobalItem(list, item, refresh);
+			}
 		};
-
-		// Keep the global section honest across sign in / sign out: a session change
-		// (e.g. Sign out from the status bar) must re-check and clear the list, so
-		// signed-out never shows the previously-loaded memories.
-		this.sectionStore.add(this.authenticationService.onDidChangeSessions(e => {
-			if (e.providerId === 'aria') { void refresh(); }
-		}));
 
 		void refresh();
 	}
 
-	private renderGlobalItem(list: HTMLElement, item: GlobalMemory, refresh: () => Promise<void>): void {
+	private buildGlobalForm(existing: ProjectMemory | undefined, onSave: (data: { title: string; type: string; body: string; originalSlug?: string }) => Promise<void>, onCancel: () => void): HTMLElement {
+		const GLOBAL_TYPES = ['preference', 'identity', 'convention', 'reference'];
+		const form = $('div');
+		Object.assign(form.style, { display: 'flex', flexDirection: 'column', gap: '8px', margin: '4px 0 14px', padding: '10px', borderRadius: '6px', border: '1px solid var(--vscode-editorWidget-border, rgba(127,127,127,0.25))' });
+
+		const titleInput = append(form, $('input')) as HTMLInputElement;
+		titleInput.type = 'text';
+		titleInput.placeholder = 'Title';
+		titleInput.value = existing?.title ?? '';
+		this.styleField(titleInput);
+
+		const typeSelect = append(form, $('select')) as HTMLSelectElement;
+		this.styleField(typeSelect);
+		const types = existing && !GLOBAL_TYPES.includes(existing.type) ? [existing.type, ...GLOBAL_TYPES] : GLOBAL_TYPES;
+		for (const t of types) {
+			const opt = append(typeSelect, $('option')) as HTMLOptionElement;
+			opt.value = t; opt.textContent = t;
+		}
+		typeSelect.value = existing?.type ?? 'preference';
+
+		const bodyArea = append(form, $('textarea')) as HTMLTextAreaElement;
+		bodyArea.placeholder = 'Something Qoka should remember about you (e.g. your field, how you like to work)';
+		bodyArea.value = existing?.body ?? '';
+		bodyArea.rows = 4;
+		this.styleField(bodyArea);
+		bodyArea.style.resize = 'vertical';
+
+		this.formButtons(form,
+			async () => {
+				if (!titleInput.value.trim() || !bodyArea.value.trim()) { return; }
+				await onSave({ title: titleInput.value.trim(), type: typeSelect.value, body: bodyArea.value.trim(), originalSlug: existing?.slug });
+			},
+			onCancel);
+		return form;
+	}
+
+	private renderGlobalItem(list: HTMLElement, item: ProjectMemory, refresh: () => Promise<void>): void {
 		const row = this.makeCardRow(list);
 		const header = append(row, $('div'));
 		Object.assign(header.style, { display: 'flex', alignItems: 'center', gap: '10px' });
 
-		const text = append(header, $('div'));
-		text.textContent = item.memory ?? '';
-		Object.assign(text.style, { flex: '1 1 auto', cursor: 'pointer', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
+		const titleEl = append(header, $('div'));
+		titleEl.textContent = item.title;
+		Object.assign(titleEl.style, { fontWeight: '600', flex: '1 1 auto', cursor: 'pointer', fontSize: '13px' });
+
+		const typeLabel = append(header, $('div'));
+		typeLabel.textContent = item.type;
+		Object.assign(typeLabel.style, { fontSize: '11px', opacity: '0.5' });
 
 		const editBtn = this.iconButton(header, 'edit', 'Edit');
 		const delBtn = this.iconButton(header, 'trash', 'Delete');
@@ -393,38 +400,22 @@ export class AriaMemoryEditorPane extends EditorPane {
 		const detail = append(row, $('div'));
 		detail.style.display = 'none';
 		Object.assign(detail.style, { marginTop: '6px', fontSize: '12.5px', opacity: '0.85', whiteSpace: 'pre-wrap', lineHeight: '1.5' });
-		const full = append(detail, $('div'));
-		full.textContent = item.memory ?? '';
-		if (item.created_at) {
-			const date = append(detail, $('div'));
-			date.textContent = `Saved ${item.created_at.slice(0, 10)}`;
-			Object.assign(date.style, { fontSize: '11px', opacity: '0.5', marginTop: '4px' });
-		}
+		detail.textContent = item.body;
 
-		text.onclick = () => { detail.style.display = detail.style.display === 'none' ? 'block' : 'none'; };
+		titleEl.onclick = () => { detail.style.display = detail.style.display === 'none' ? 'block' : 'none'; };
 
 		editBtn.onclick = () => {
-			const form = $('div');
-			Object.assign(form.style, { display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' });
-			const area = append(form, $('textarea')) as HTMLTextAreaElement;
-			area.value = item.memory ?? '';
-			area.rows = 2;
-			this.styleField(area);
-			area.style.resize = 'vertical';
-			this.formButtons(form,
-				async () => {
-					if (!area.value.trim()) { return; }
-					await this.commandService.executeCommand('aria.memory.tab.globalUpdate', { id: item.id, content: area.value.trim() });
-					await refresh();
-				},
-				() => void refresh());
+			const form = this.buildGlobalForm(item, async (data) => {
+				await this.commandService.executeCommand('aria.memory.tab.globalSave', data);
+				await refresh();
+			}, () => void refresh());
 			clearNode(row);
 			row.appendChild(form);
 		};
 		delBtn.onclick = async () => {
-			if (!(await this.confirmDelete(item.memory ?? 'this memory'))) { return; }
+			if (!(await this.confirmDelete(item.title))) { return; }
 			try {
-				await this.commandService.executeCommand('aria.memory.tab.globalDelete', item.id);
+				await this.commandService.executeCommand('aria.memory.tab.globalDelete', item.slug);
 				await refresh();
 			} catch (e) { this.reportError(e); }
 		};

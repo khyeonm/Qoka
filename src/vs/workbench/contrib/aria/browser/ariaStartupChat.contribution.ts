@@ -308,29 +308,23 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		if (explicit.length > 0) {
 			providers = explicit;
 		} else {
-			// No explicit list: offer only providers the user actually HAS installed
-			// (CLI present) - a provider without a CLI has no MCP config to reconnect.
-			const all: ConcreteProvider[] = ['claude', 'codex'];
-			const availability = await Promise.all(all.map(p => this._cliAvailable(p)));
-			const available = all.filter((_, i) => availability[i]);
-			if (available.length === 0) {
-				this.notificationService.info('No AI command-line tool is installed yet, so there are no Qoka MCP tools to reconnect.');
-				return;
-			}
-			// One installed provider: reconnect it directly. Two: let the user tick
-			// which to reconnect (both pre-checked), then confirm.
-			if (available.length === 1) {
-				providers = available;
+			// No explicit list (e.g. command palette): target the providers the user
+			// opted into (aria.aiProvider; `auto` = both). Fall back to letting them
+			// pick when no preference is set yet.
+			const chosen = this._chosenProviders();
+			if (chosen.length > 0) {
+				providers = chosen;
 			} else {
-				const items: (IQuickPickItem & { provider: ConcreteProvider })[] = available.map(p => ({
+				const all: ConcreteProvider[] = ['claude', 'codex'];
+				const items: (IQuickPickItem & { provider: ConcreteProvider })[] = all.map(p => ({
 					label: PROVIDER_LABEL[p],
 					provider: p,
 					picked: true,
 				}));
 				const picked = await this.quickInputService.pick(items, {
 					canPickMany: true,
-					title: 'Reconnect MCP tools',
-					placeHolder: 'Select which AI tools to reconnect',
+					title: 'Set up AI tools',
+					placeHolder: 'Select which AI tools to install and connect',
 				});
 				if (!picked || picked.length === 0) {
 					return; // cancelled or nothing ticked
@@ -340,17 +334,38 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		}
 
 		const labels = providers.map(p => PROVIDER_LABEL[p]).join(' and ');
+		// Reconnect = make each target USABLE: install its CLI if missing
+		// (_installAndVerifyCli is idempotent - a present CLI returns at once), then
+		// (re)register every Qoka MCP with it. Hold a loader while a CLI installs.
+		const { hide: hideLoading } = this._showLoadingOverlay(`Setting up ${labels}…`);
+		let usable: ConcreteProvider[] = [];
+		let failed: ConcreteProvider[] = [];
 		let ok = false;
 		try {
-			ok = await this._registerMcpFast(providers);
-			try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+			try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
+			const results = await Promise.all(providers.map(p => this._installAndVerifyCli(p)));
+			usable = providers.filter((_, i) => results[i]);
+			failed = providers.filter((_, i) => !results[i]);
+			if (usable.length > 0) {
+				await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+				ok = await this._registerMcpFast(usable);
+				try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+			}
 		} catch {
 			ok = false;
+		} finally {
+			hideLoading();
 		}
-		if (ok) {
-			this.notificationService.info(`Reconnected Qoka tools for ${labels}. Open a new chat in your AI chat to use them.`);
-		} else {
-			this.notificationService.warn(`Couldn't reconnect all Qoka tools for ${labels}. Open a new chat in your AI chat; if they are still missing, reload the window.`);
+		if (failed.length > 0) {
+			const fl = failed.map(p => PROVIDER_LABEL[p]).join(' and ');
+			this.notificationService.warn(`Couldn't install the ${fl} command-line tool. Check your internet connection, then try again.`);
+		}
+		if (usable.length > 0 && ok) {
+			const ul = usable.map(p => PROVIDER_LABEL[p]).join(' and ');
+			this.notificationService.info(`${ul} ready. Open a new chat in your AI chat to use the Qoka tools.`);
+		} else if (usable.length > 0 && !ok) {
+			const ul = usable.map(p => PROVIDER_LABEL[p]).join(' and ');
+			this.notificationService.warn(`Couldn't connect all Qoka tools for ${ul}. Open a new chat; if they are still missing, reload the window.`);
 		}
 	}
 

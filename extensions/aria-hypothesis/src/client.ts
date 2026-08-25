@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
+import { QOKA_API_KEY } from './qokaKey.js';
 
 /**
  * Client for the hypothesis-search endpoint on the Qoka server, behind login.
@@ -24,23 +24,13 @@ import { URL } from 'url';
  */
 
 const SERVER_URL = process.env.ARIA_HYPOTHESIS_SERVER_URL || 'https://qoka.org';
-const AUTH_ID = 'aria';
 const ALLOW_SELF_SIGNED = process.env.ARIA_HYPOTHESIS_INSECURE_TLS === '1';
 
 // The server greps the whole corpus (~4-5s) per query; allow generous headroom
 // above the server's own 60s subprocess cap so a slow-but-valid search is not cut.
 const SEARCH_TIMEOUT_MS = 70000;
 
-/** The current user's JWT access token, or throw if not signed in. */
-async function authToken(): Promise<string> {
-	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
-	if (!session) {
-		throw new Error('Not signed in to Qoka - hypothesis search requires sign-in.');
-	}
-	return session.accessToken;
-}
-
-function postJson(path: string, body: unknown, token: string, timeoutMs: number): Promise<unknown> {
+function postJson(path: string, body: unknown, timeoutMs: number): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		const url = new URL(path, SERVER_URL);
 		const payload = JSON.stringify(body);
@@ -51,7 +41,7 @@ function postJson(path: string, body: unknown, token: string, timeoutMs: number)
 			headers: {
 				'content-type': 'application/json',
 				'content-length': Buffer.byteLength(payload),
-				'authorization': `Bearer ${token}`,
+				'x-qoka-key': QOKA_API_KEY,
 			},
 			timeout: timeoutMs,
 		};
@@ -84,12 +74,10 @@ function postJson(path: string, body: unknown, token: string, timeoutMs: number)
  * context[] }] }`.
  */
 export async function searchHypothesis(primary: string, kw: string[], topn: number): Promise<unknown> {
-	const token = await authToken();
-	return postJson('/api/hypothesis/search', { primary, kw, topn }, token, SEARCH_TIMEOUT_MS);
+	return postJson('/api/hypothesis/search', { primary, kw, topn }, SEARCH_TIMEOUT_MS);
 }
 
 /** Pull one paper's full packed content line (abstract+body, refs removed) for a wider read. */
 export async function getFulltext(pmcid: string): Promise<unknown> {
-	const token = await authToken();
-	return postJson('/api/hypothesis/fulltext', { pmcid }, token, SEARCH_TIMEOUT_MS);
+	return postJson('/api/hypothesis/fulltext', { pmcid }, SEARCH_TIMEOUT_MS);
 }

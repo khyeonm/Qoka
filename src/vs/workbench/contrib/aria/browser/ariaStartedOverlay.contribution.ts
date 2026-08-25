@@ -21,6 +21,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IAuthenticationService, AuthenticationSession } from '../../../services/authentication/common/authentication.js';
+import { ARIA_MARK } from './ariaLogo.js';
 import { ROADMAP_SCHEME } from '../../ariaRoadmapWizard/browser/ariaRoadmapWizardCommon.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -1088,6 +1089,33 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		const mode = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
 
+		// Header: the Qoka face mark at the far left (its left edge aligns with the
+		// mode/start sections below), title + subtitle stacked to its right. The mark's
+		// height spans from the title down through the subtitle.
+		const header = document.createElement('div');
+		header.style.display = 'flex';
+		header.style.alignItems = 'stretch';
+		header.style.gap = '18px';
+		header.style.margin = '0 0 32px 0';
+
+		const markWrap = document.createElement('div');
+		markWrap.style.display = 'flex';
+		markWrap.style.alignItems = 'center';
+		markWrap.style.flex = '0 0 auto';
+		const mark = document.createElement('img');
+		mark.src = ARIA_MARK;
+		mark.alt = '';
+		mark.setAttribute('aria-hidden', 'true');
+		mark.style.height = '100%';
+		mark.style.width = 'auto';
+		mark.style.objectFit = 'contain';
+		markWrap.appendChild(mark);
+
+		const textCol = document.createElement('div');
+		textCol.style.display = 'flex';
+		textCol.style.flexDirection = 'column';
+		textCol.style.justifyContent = 'center';
+
 		const title = document.createElement('h1');
 		title.textContent = mode === 'easy'
 			? 'Qoka - Easy Mode'
@@ -1097,7 +1125,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		title.style.fontSize = '32px';
 		title.style.fontWeight = '300';
 		title.style.margin = '0 0 8px 0';
-		content.appendChild(title);
+		textCol.appendChild(title);
 
 		const subtitle = document.createElement('p');
 		subtitle.textContent = mode === ''
@@ -1105,10 +1133,15 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			: 'Pick or create a project to begin.';
 		subtitle.style.fontSize = '14px';
 		subtitle.style.opacity = '0.7';
-		subtitle.style.margin = '0 0 32px 0';
-		content.appendChild(subtitle);
+		subtitle.style.margin = '0';
+		textCol.appendChild(subtitle);
 
-		this.renderSignedInBanner(content);
+		header.appendChild(markWrap);
+		header.appendChild(textCol);
+		content.appendChild(header);
+
+		// Signed-in banner intentionally not rendered (login is being retired; the
+		// picker no longer shows account info at the top).
 		this.renderModeSection(content, mode);
 		this.renderStartSection(content);
 		void this.renderRecentProjects(content);

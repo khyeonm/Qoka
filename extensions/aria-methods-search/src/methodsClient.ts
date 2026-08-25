@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
+import { QOKA_API_KEY } from './qokaKey.js';
 
 /**
  * Client for the logic-graph methods recommendation on the Qoka server. The
@@ -26,7 +26,6 @@ import { URL } from 'url';
  */
 
 const SERVER_URL = process.env.ARIA_METHODS_SERVER_URL || 'https://qoka.org';
-const AUTH_ID = 'aria';
 const ALLOW_SELF_SIGNED = process.env.ARIA_METHODS_INSECURE_TLS === '1';
 
 /** A single recommended method row. */
@@ -53,16 +52,7 @@ export interface HypothesisMatch {
 	score: number;
 }
 
-/** The current user's JWT access token, or throw if not signed in. */
-async function authToken(): Promise<string> {
-	const session = await vscode.authentication.getSession(AUTH_ID, [], { createIfNone: false });
-	if (!session) {
-		throw new Error('Not signed in to Qoka - methods search requires sign-in.');
-	}
-	return session.accessToken;
-}
-
-function postJson(path: string, body: unknown, token: string, timeoutMs = 30000): Promise<unknown> {
+function postJson(path: string, body: unknown, timeoutMs = 30000): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		const url = new URL(path, SERVER_URL);
 		const payload = JSON.stringify(body);
@@ -73,7 +63,7 @@ function postJson(path: string, body: unknown, token: string, timeoutMs = 30000)
 			headers: {
 				'content-type': 'application/json',
 				'content-length': Buffer.byteLength(payload),
-				'authorization': `Bearer ${token}`,
+				'x-qoka-key': QOKA_API_KEY,
 			},
 			timeout: timeoutMs,
 		};
@@ -105,8 +95,7 @@ function postJson(path: string, body: unknown, token: string, timeoutMs = 30000)
  * or embeddings are still being loaded.
  */
 export async function recommendMethods(hypothesis: string, topK = 10): Promise<Recommendation> {
-	const token = await authToken();
-	const res = await postJson('/api/methods/recommend', { hypothesis, top_k: topK }, token) as Recommendation;
+	const res = await postJson('/api/methods/recommend', { hypothesis, top_k: topK }) as Recommendation;
 	return {
 		keyword: res?.keyword ?? [],
 		semantic: res?.semantic ?? [],
@@ -115,7 +104,6 @@ export async function recommendMethods(hypothesis: string, topK = 10): Promise<R
 
 /** Inspect which stored hypotheses match a query (transparency / debugging). */
 export async function searchHypotheses(query: string, limit = 10): Promise<HypothesisMatch[]> {
-	const token = await authToken();
-	const res = await postJson('/api/methods/hypotheses', { query, limit }, token) as HypothesisMatch[];
+	const res = await postJson('/api/methods/hypotheses', { query, limit }) as HypothesisMatch[];
 	return Array.isArray(res) ? res : [];
 }
