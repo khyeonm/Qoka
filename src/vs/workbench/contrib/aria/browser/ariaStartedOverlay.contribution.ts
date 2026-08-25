@@ -225,7 +225,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	// signed-in banner + picker (session present).
 	private ariaSession: AuthenticationSession | undefined;
 	private ariaProvider: string | undefined;
-	private authChecked = false;
+	private authChecked = true; // login removed: never wait on an auth check
 	private authLoading = false;
 	// True once the user chose "Continue without signing in" (this window), OR the
 	// persisted LOGIN_SKIPPED_FLAG is set. Lets the overlay skip the login screen and
@@ -463,7 +463,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// Sign-in is optional: a guest who already skipped login (and picked an AI)
 		// is treated like a signed-in user for auto-reopen, so they aren't sent back
 		// to the login screen every launch.
-		const mayProceed = hasSession || this.loginSkipped();
+		const mayProceed = true; // login removed: never gate the picker / auto-reopen on a session
 		if (!mayProceed || !pickedAi) {
 			pushTrail(`decideEmptyWorkbench: hasSession=${hasSession}, loginSkipped=${this.loginSkipped()}, pickedAi=${pickedAi} -> showing sign-in/picker`);
 			this.showOverlayAndWireAuth();
@@ -556,18 +556,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 *  Split out of the constructor so decideEmptyWorkbench can defer to it on every
 	 *  non-auto-reopen path. */
 	private showOverlayAndWireAuth(): void {
+		// Login removed: just show the overlay (goes straight to the AI/mode/project
+		// picker). No auth session wiring, no sign-in.
 		this.show();
-
-		// The overlay doubles as the sign-in gate: re-check and re-render on every
-		// session change (login success dismisses login → banner + picker; sign
-		// out from the banner returns to the login view).
-		this._register(this.authService.onDidChangeSessions(e => {
-			if (e.providerId === AUTH_ID) {
-				this.authLoading = false;
-				void this.refreshAuth();
-			}
-		}));
-		void this.refreshAuth();
 	}
 
 	/** Read the current Qoka session and re-render the overlay to match. */
@@ -1048,10 +1039,8 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			this.renderLoadingSection(content, this.authLoading);
 			return;
 		}
-		if (!this.ariaSession && !this.guestMode && !this.loginSkipped() && !this.explicitPicker) {
-			this.renderLoginSection(content);
-			return;
-		}
+		// Login removed: the overlay never shows a sign-in screen - it goes straight
+		// to the AI-provider / mode / project picker.
 
 		// Right after Continue on the AI picker: installing the CLI + registering
 		// MCP. Blocks the picker until the tools are ready. (hasPickedAiProvider is
@@ -1094,7 +1083,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// height spans from the title down through the subtitle.
 		const header = document.createElement('div');
 		header.style.display = 'flex';
-		header.style.alignItems = 'stretch';
+		header.style.alignItems = 'center';
 		header.style.gap = '18px';
 		header.style.margin = '0 0 32px 0';
 
@@ -1106,7 +1095,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		mark.src = ARIA_MARK;
 		mark.alt = '';
 		mark.setAttribute('aria-hidden', 'true');
-		mark.style.height = '100%';
+		mark.style.height = '88px';
 		mark.style.width = 'auto';
 		mark.style.objectFit = 'contain';
 		markWrap.appendChild(mark);

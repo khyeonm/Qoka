@@ -183,6 +183,24 @@ export class ConnectionsSection extends SettingsSection {
 					void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh());
 				}
 			};
+			// Windows: a dedicated "Install WSL & Ubuntu" button on the row so a user who
+			// earlier opted out (or whose WSL/Ubuntu is missing) can re-open the first-run
+			// WSL install popup any time. Shown whenever the built-in server is not ready.
+			if (isWindows && !(active && vm?.status === 'ready')) {
+				const install = append(row, $('span')) as HTMLElement;
+				install.textContent = 'Install WSL & Ubuntu';
+				install.title = 'Install the WSL engine and Ubuntu for Local (WSL)';
+				Object.assign(install.style, {
+					cursor: 'pointer', flexShrink: '0', fontSize: '11px', padding: '2px 8px', marginLeft: '8px',
+					borderRadius: '4px', border: '1px solid var(--vscode-button-border, transparent)',
+					background: 'var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2))',
+					color: 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
+				});
+				install.onclick = (e) => {
+					e.stopPropagation();
+					void this.commandService.executeCommand('aria.wslPrompt.show', 'install');
+				};
+			}
 		}
 
 		// Saved SSH servers.

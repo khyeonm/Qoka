@@ -101,18 +101,9 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 
 		// Paint the last-known account immediately (from cache) so easy mode's
 		// bottom-right isn't blank while the auth extension activates + restores.
+		// Login removed: no session read/subscription. Just paint the session-independent
+		// bottom-right entries (Change project, added in reconcile).
 		this.reconcile();
-		void this.refresh();
-		this._register(this.authService.onDidChangeSessions(e => {
-			if (e.providerId === AUTH_ID) {
-				void this.refresh();
-			}
-		}));
-		this._register(this.configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(ARIA_MODE_SETTING)) {
-				this.reconcile();
-			}
-		}));
 	}
 
 	private async refresh(): Promise<void> {
@@ -168,29 +159,17 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 	 * clears it (see signOut).
 	 */
 	private reconcile(): void {
-		// The Qoka account / Change project / Sign out items live at the bottom-right
-		// (status bar) in BOTH modes now - advanced mode used to keep the stock bar,
-		// but the account menu (where AI providers is chosen) and Sign out belong
-		// with the account in every mode, so they sit on the right consistently.
-		if (this.session) {
-			const name = this.session.account.label || localize('aria.account.fallback', "Qoka user");
-			// The provider (google / orcid) comes from the extension (scopes are []).
-			const label = this.provider ? `${name} (${this.provider})` : name;
-			this.storageService.store(ACCOUNT_CACHE_KEY, JSON.stringify({ label }), StorageScope.APPLICATION, StorageTarget.MACHINE);
-			this.paint(label);
-			return;
-		}
-		// No live session. Before the first auth check resolves, keep the last-known
-		// account rather than blanking/flipping during the restore race. Once auth IS
-		// checked, a missing session is a genuine sign-out: drop the stale cache and
-		// show "Sign in" (never a stale account + Sign out).
-		const cached = this.cachedLabel();
-		if (!this.authChecked && cached) {
-			this.paint(cached);
-			return;
-		}
-		if (cached) { this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION); }
-		this.paintSignedOut();
+		// Login removed: the bottom-right shows only "Change project" (plus the
+		// session-independent Check-for-updates / version added in the constructor).
+		// No account label, no sign in/out, no AI-provider menu here.
+		this.disposeEntries();
+		this.changeProjectEntry = this.statusbarService.addEntry({
+			name: localize('aria.changeProject.name', "Change project"),
+			text: localize('aria.changeProject.text', "Change project"),
+			ariaLabel: localize('aria.changeProject.ariaLabel', "Change project"),
+			tooltip: localize('aria.changeProject.tooltip', "Open a different project"),
+			command: CHANGE_PROJECT_COMMAND,
+		}, 'aria.switchProject', StatusbarAlignment.RIGHT, 99);
 	}
 
 	/** Signed-out state: "Change project" + "Sign in" at the bottom-right, no account
