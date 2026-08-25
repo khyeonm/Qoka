@@ -327,9 +327,10 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 
 	private async signOut(): Promise<void> {
 		console.log('[aria] sign out triggered');
-		// Sign-in is optional, so signing out KEEPS the project open (no folder close).
-		// Remove the session, clear the cached account, and repaint to the signed-out
-		// "Sign in" entry. Features needing the server identity gate themselves.
+		// Sign out AND return to the login screen (what users expect from "Sign out"):
+		// remove the session, clear the cached account, drop any guest/skip flag so the
+		// login screen shows (not the guest picker), then close the folder -> empty
+		// workbench -> the Started overlay shows login.
 		try {
 			const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
 			for (const s of sessions) {
@@ -338,8 +339,13 @@ export class AriaAccountStatusContribution extends Disposable implements IWorkbe
 		} catch { /* ignore - best-effort */ }
 		this.session = undefined;
 		this.storageService.remove(ACCOUNT_CACHE_KEY, StorageScope.APPLICATION);
+		try { localStorage.removeItem('aria.login.skipped'); } catch { /* ignore */ }
 		this.reconcile();
-		return;
+		try {
+			await this.commandService.executeCommand('workbench.action.closeFolder');
+		} catch {
+			// Already an empty workbench: the overlay's login screen is (or will be) up.
+		}
 	}
 
 	/** Permanently delete the account. Confirms first (destructive + irreversible),

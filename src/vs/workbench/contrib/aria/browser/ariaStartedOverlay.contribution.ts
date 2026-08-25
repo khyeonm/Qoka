@@ -246,6 +246,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	/** Windows only: while true, the overlay shows a neutral "Preparing Qoka" cover (not
 	 *  the sign-in view) so the WSL install prompt can be resolved FIRST, before login. */
 	private wslGateWaiting = false;
+	/** Set when the user explicitly asked for the project picker (the "Change project"
+	 *  button). Sign-in is optional, so an explicit picker request shows the picker even
+	 *  when signed out - it must not be bounced to the login screen. */
+	private explicitPicker = false;
 
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
@@ -414,7 +418,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		try { wantPicker = localStorage.getItem(WANT_PICKER_FLAG) === '1'; } catch { /* ignore */ }
 		if (wantPicker) {
 			try { localStorage.removeItem(WANT_PICKER_FLAG); } catch { /* ignore */ }
-			pushTrail('decideEmptyWorkbench: WANT_PICKER flag set -> showing picker');
+			// Show the picker directly - even when signed out. "Change project" is an
+			// explicit in-app action and sign-in is optional, so it must NOT bounce to login.
+			this.explicitPicker = true;
+			pushTrail('decideEmptyWorkbench: WANT_PICKER flag set -> showing picker (login not forced)');
 			this.showOverlayAndWireAuth();
 			return;
 		}
@@ -1040,7 +1047,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			this.renderLoadingSection(content, this.authLoading);
 			return;
 		}
-		if (!this.ariaSession && !this.guestMode && !this.loginSkipped()) {
+		if (!this.ariaSession && !this.guestMode && !this.loginSkipped() && !this.explicitPicker) {
 			this.renderLoginSection(content);
 			return;
 		}
