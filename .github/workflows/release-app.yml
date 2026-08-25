@@ -174,7 +174,17 @@ jobs:
           # 256) so those concurrent installs don't EMFILE. No-op on Windows Git
           # Bash / Linux.
           ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
-          npm install
+          # npm install crashes flakily on Windows runners (e.g. @vscode/ripgrep's
+          # postinstall aborting with exit 3221226505 / 0xC0000409 while fetching its
+          # prebuilt binary, or EPERM cleanup under antivirus file locks). Retry a few
+          # times so a transient crash does not fail the whole release.
+          n=0
+          until npm install; do
+            n=$((n+1))
+            if [ "$n" -ge 3 ]; then echo "npm install failed after $n attempts"; exit 1; fi
+            echo "npm install attempt $n failed; retrying in 15s..."
+            sleep 15
+          done
 
       # Build every bundled Qoka extension so its compiled output ships in the
       # app. The gulp packaging only COPIES existing output (fromLocalNormal via
