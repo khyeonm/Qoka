@@ -164,19 +164,26 @@ function showWslPrompt(commandService: ICommandService, mode: WslPromptMode): vo
 	// ---- reboot notice (installer ran; engine active only after a restart) -----------
 	function renderRebootNotice(): void {
 		card.setAttribute('aria-label', 'Restart to finish setup');
-		h1.textContent = 'Almost there';
+		h1.textContent = 'Restart your PC to finish';
 		body.replaceChildren(
-			doc.createTextNode('WSL and Ubuntu have been installed.'),
+			doc.createTextNode('WSL and Ubuntu are installed. Two steps left:'),
 			doc.createElement('br'),
-			doc.createTextNode('Restart your PC, then reopen Qoka to finish setup and create your Ubuntu account.'),
+			doc.createTextNode('1) Restart your PC.   2) Open Qoka again.'),
+			doc.createElement('br'),
+			doc.createTextNode('Qoka will then finish setup and create your Ubuntu account.'),
 		);
-		hint.textContent = '';
+		hint.textContent = 'Clicking below closes Qoka now so you can restart.';
 
 		const ok = doc.createElement('button');
 		ok.className = 'aria-wsl-btn aria-wsl-btn-primary';
 		ok.type = 'button';
-		ok.textContent = 'OK';
-		ok.addEventListener('click', dismiss);
+		ok.textContent = 'Close Qoka';
+		// WSL only takes effect after a reboot, so there is nothing to do inside this
+		// session: quit the app for the user instead of leaving them on a dead loader
+		// they have to close by hand.
+		ok.addEventListener('click', () => {
+			void commandService.executeCommand('workbench.action.quit');
+		});
 		const skip = doc.createElement('button');
 		skip.className = 'aria-wsl-btn aria-wsl-btn-ghost';
 		skip.type = 'button';

@@ -555,11 +555,17 @@ export function activate(context: vscode.ExtensionContext): void {
  * missing engine (which would have wrongly shown the install prompt).
  */
 async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: VMManager): Promise<void> {
+	// Only START the run environment (installs Ubuntu, opens the account OOBE terminal,
+	// provisions) in a PROJECT window - never in the empty sign-in / picker window, so the
+	// Ubuntu account terminal cannot pop up over login. The WSL install PROMPT still shows
+	// in the empty window (it must come before login). When a project opens, this runs
+	// again in that window and starts the VM there.
+	const hasFolder = !!vscode.workspace.workspaceFolders?.length;
 	if (context.globalState.get<boolean>(WSL_SKIP_KEY)) {
 		const ready = await vm.isWslReady();
-		wslDiag(`handleWindowsBuiltinLaunch: skip flag set; wslReady=${ready}. No prompt.`);
+		wslDiag(`handleWindowsBuiltinLaunch: skip flag set; wslReady=${ready}, hasFolder=${hasFolder}. No prompt.`);
 		wslLaunchDecided = true; // opted out earlier -> no prompt, let sign-in proceed
-		if (ready) {
+		if (ready && hasFolder) {
 			void context.globalState.update(WSL_SKIP_KEY, false);
 			startBuiltinVmTracked(vm);
 		}
@@ -569,14 +575,16 @@ async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: 
 	// the wslAvailable() retries and briefly flash the workbench before the prompt shows.
 	wslSetupPhase = 'checking';
 	const engineReady = await wslAvailable();
-	wslDiag(`handleWindowsBuiltinLaunch: wslAvailable=${engineReady}.`);
+	wslDiag(`handleWindowsBuiltinLaunch: wslAvailable=${engineReady}, hasFolder=${hasFolder}.`);
 	if (engineReady) {
-		// Engine is present (post-reboot, or already had WSL): start normally (installs
-		// Ubuntu / opens the account OOBE / provisions). This is also what makes a relaunch
-		// AFTER the reboot skip the install prompt - the engine now exists.
+		// Engine is present (post-reboot, or already had WSL). Start ONLY in a project
+		// window (installs Ubuntu / opens the account OOBE / provisions); in the empty
+		// window just let sign-in proceed - the VM starts when a project opens.
 		wslSetupPhase = 'idle';
 		wslLaunchDecided = true; // no prompt -> sign-in can proceed
-		startBuiltinVmTracked(vm);
+		if (hasFolder) {
+			startBuiltinVmTracked(vm);
+		}
 		return;
 	}
 	// WSL engine is not installed and the user has not opted out: offer to install it.

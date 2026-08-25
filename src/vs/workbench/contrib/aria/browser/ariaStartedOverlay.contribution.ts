@@ -243,6 +243,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	// the chosen provider's CLI and register the MCP servers. The overlay shows a
 	// loading page during this so the user can't proceed until the tools are ready.
 	private setupInProgress = false;
+	/** Windows only: while true, the overlay shows a neutral "Preparing Qoka" cover (not
+	 *  the sign-in view) so the WSL install prompt can be resolved FIRST, before login. */
+	private wslGateWaiting = false;
 
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
@@ -359,12 +362,13 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 * Only an explicit action lands on the picker/sign-in; everything else returns
 	 * the user straight to where they were working.
 	 */
-	/** Hold the sign-in flow until the Windows WSL install prompt (if any) is resolved, so
-	 *  the prompt appears BEFORE login. aria-autopipe decides on launch whether the prompt
-	 *  shows and reports it via aria.autopipe.vm.status (wslLaunchDecided + wslPhase). We
-	 *  poll: wait for the decision, then while a prompt phase is active hold; 'idle' (no
-	 *  prompt / resolved) lets login proceed. Bounded so a stuck or absent extension never
-	 *  blocks login. No-op off Windows. */
+	/** Hold the sign-in / picker until the Windows WSL install prompt (if any) is resolved,
+	 *  so the prompt appears BEFORE login. While waiting, the overlay shows a neutral
+	 *  loading cover (wslGateWaiting) so the workbench is never blank. aria-autopipe reports
+	 *  whether the prompt shows via aria.autopipe.vm.status (wslLaunchDecided + wslPhase):
+	 *  wait for the decision, then while a prompt phase is active hold; 'idle' (no prompt /
+	 *  resolved) lets login proceed. Bounded so a stuck / absent extension never blocks
+	 *  login. No-op off Windows. */
 	private async _awaitWslPromptResolved(): Promise<void> {
 		if (!isWindows) { return; }
 		const start = Date.now();
@@ -378,16 +382,13 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 				st = undefined; // aria-autopipe not activated yet (or no such command)
 			}
 			if (!st || !st.wslLaunchDecided) {
-				// Not decided yet. Wait briefly, but give up (proceed to login) if the
-				// extension never reports a decision - so login can never hang on this.
 				if (Date.now() - start >= DECISION_GRACE) { return; }
 				await timeout(400);
 				continue;
 			}
 			const phase = st.wslPhase;
 			if (phase === 'checking' || phase === 'prompting' || phase === 'installing' || phase === 'reboot') {
-				// The WSL install prompt is up - keep sign-in behind it until it resolves.
-				await timeout(500);
+				await timeout(500); // WSL prompt is up - keep the cover, hold sign-in behind it
 				continue;
 			}
 			return; // 'idle'/undefined after a decision -> no prompt or already resolved
@@ -395,10 +396,17 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	}
 
 	private async decideEmptyWorkbench(): Promise<void> {
-		// Windows first-run: if WSL is missing, the "Install WSL & Ubuntu" prompt must come
-		// up BEFORE sign-in. Hold the whole sign-in / picker / auto-reopen decision until
-		// aria-autopipe has resolved that prompt. No-op off Windows and when WSL is present.
-		await this._awaitWslPromptResolved();
+		// Windows first-run: bring up the overlay as a neutral loading cover and hold until
+		// the WSL install prompt (if WSL is missing) is resolved, so it appears BEFORE
+		// sign-in. No-op off Windows / when WSL is present (returns almost immediately).
+		if (isWindows) {
+			this.wslGateWaiting = true;
+			this.show(); // overlay shows the loading cover (render sees wslGateWaiting)
+			await this._awaitWslPromptResolved();
+			this.wslGateWaiting = false;
+			// Fall through to the normal decision below; the overlay is already up, so the
+			// sign-in path just re-renders it and the auto-reopen path hides it + reloads.
+		}
 
 		// Explicit "Change project" always wins - consume the one-shot flag and show
 		// the picker.
@@ -1014,6 +1022,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		// A prior render's loading-message cycle points at a now-removed node.
 		this.stopMessageCycle();
+
+		// Windows first-run gate: while the WSL install prompt is being resolved, show a
+		// neutral loading cover (never the sign-in view, and never a blank workbench) so
+		// the WSL prompt comes up FIRST, before login. Cleared once WSL is resolved.
+		if (this.wslGateWaiting) {
+			this.renderLoadingSection(content);
+			return;
+		}
 
 		// Sign-in gate: until authenticated, this overlay shows login (or the
 		// loading spinner mid sign-in), NOT the project picker.

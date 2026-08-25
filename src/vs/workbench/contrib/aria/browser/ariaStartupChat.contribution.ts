@@ -132,39 +132,42 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			//    real FAILURE signal - so a failed install (e.g. offline) ends the wait
 			//    instead of spinning forever, and is surfaced when the loader clears.
 			try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
-			const results = await Promise.all(chosen.map(p => this._installAndVerifyCli(p)));
-			const usable = chosen.filter((_, i) => results[i]);
-			const failed = chosen.filter((_, i) => !results[i]);
 
-			if (usable.length === 0) {
-				this._setupGateDone = true;
-				hideLoading();
-				this.notificationService.warn('Qoka could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
-				return;
-			}
-
-			// 3) Wait for the MCP servers to come up, then register every Qoka MCP
-			//    with the usable provider CLI(s) and HOLD the loader until they ALL
-			//    report registered - a real completion signal (registeredCount), not a
-			//    timer. MCP ports are per-window, so THIS project window's registration
-			//    is the one that counts. Because both chosen CLIs are confirmed present
-			//    above, one reconcile registers every server with each - so "all 9
-			//    registered" also means "with every chosen provider".
-			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-			const allRegistered = await this._registerMcpFast(usable);
-			// Always prune pre-rename duplicate MCP entries, even when the fast path
-			// was skipped (a straggler that hadn't bound). Otherwise the old aria-*
-			// entries linger beside the new qoka-* ones and every tool shows twice.
-			try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
-			// On Windows, ALSO hold the loader until the built-in run environment (WSL +
-			// Ubuntu) is set up: installing Ubuntu, creating the account in the Ubuntu
-			// window, and provisioning happen here, driven by aria-autopipe. Without this
-			// the workbench would appear mid-setup with a red "starting" connection. We
-			// poll the vm status and stream its progress into the loader text.
-			await this._waitForBuiltinRunEnv(setLoadingText, showLoadingEscape);
+			// Run the CLI+MCP chain AND the built-in run-environment gate IN PARALLEL:
+			// they are independent (CLI/MCP are host-side; the run env is WSL/Ubuntu). We
+			// still HOLD the loader until MCP registration completes (so the chat opens
+			// with every tool - no "open a new chat" dance), but by overlapping it with the
+			// Ubuntu-account wait the total is max(CLI/MCP, account) instead of the sum.
+			let usable: ConcreteProvider[] = [];
+			let failed: ConcreteProvider[] = [];
+			let allRegistered = true;
+			const cliMcp = (async () => {
+				// Install + verify each chosen provider's CLI. "installed but still absent
+				// after one retry" is a real FAILURE, so a failed install ends the wait
+				// instead of spinning forever.
+				const results = await Promise.all(chosen.map(p => this._installAndVerifyCli(p)));
+				usable = chosen.filter((_, i) => results[i]);
+				failed = chosen.filter((_, i) => !results[i]);
+				if (usable.length === 0) { return; }
+				// Wait for the MCP servers, then register every Qoka MCP with the usable
+				// CLI(s) and hold until they ALL report registered (real completion signal).
+				await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+				allRegistered = await this._registerMcpFast(usable);
+				// Prune pre-rename duplicate MCP entries so tools don't show twice.
+				try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+			})();
+			// On Windows the run env (installing Ubuntu, the account OOBE terminal,
+			// provisioning) is set up by aria-autopipe concurrently; stream its progress
+			// into the loader text. _waitForBuiltinRunEnv clears once the account exists
+			// (provisioning finishes in the background).
+			await Promise.all([cliMcp, this._waitForBuiltinRunEnv(setLoadingText, showLoadingEscape)]);
 			this._setupGateDone = true;
 			hideLoading();
 
+			if (usable.length === 0) {
+				this.notificationService.warn('Qoka could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
+				return;
+			}
 			if (failed.length > 0) {
 				const labels = failed.map(p => PROVIDER_LABEL[p]).join(' and ');
 				this.notificationService.warn(`Couldn't set up ${labels}. The other AI tools are ready; reload the window later to retry ${labels}.`);
