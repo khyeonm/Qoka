@@ -449,11 +449,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		// Need a signed-in session AND a completed onboarding (AI provider chosen) to
 		// auto-reopen; otherwise the first-run sign-in / AI-picker flow must run.
-		let hasSession = false;
-		try {
-			const sessions = await this.authService.getSessions(AUTH_ID, undefined, undefined, true);
-			hasSession = sessions.length > 0;
-		} catch { /* treat as no session */ }
+		// Login removed: there is no session concept. Auto-reopen is gated only on
+		// whether an AI provider was chosen (pickedAi), below.
+		const hasSession = false;
 		// "Onboarding done" = the localStorage picked flag OR an explicit
 		// aria.aiProvider setting (claude/codex). The setting persists reliably even
 		// if the localStorage flag was lost, so a returning user isn't wrongly sent
