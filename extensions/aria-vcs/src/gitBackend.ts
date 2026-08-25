@@ -45,7 +45,59 @@ async function canRun(bin: string): Promise<boolean> {
 	}
 }
 
+/** Windows only: a MinGit archive ships at <ext>/resources/MinGit.zip and is
+ *  extracted once, on first use, into the per-user Qoka data dir. This gives a
+ *  fast native git on machines with no system git installed, so the Versions
+ *  view (Changes/Snapshots) works out of the box. Best-effort: any failure
+ *  returns undefined and detection falls back to system git / iso. */
+async function ensureBundledGit(): Promise<string | undefined> {
+	try {
+		const localAppData = process.env.LOCALAPPDATA;
+		if (!localAppData) { return undefined; }
+		const dest = path.join(localAppData, 'Qoka', 'mingit');
+		const gitExe = path.join(dest, 'cmd', 'git.exe');
+		if (fs.existsSync(gitExe)) { return gitExe; }
+
+		// Shipped next to the compiled code: out/ -> ../resources/MinGit.zip. Absent
+		// on non-Windows builds, in which case we fall through to system git / iso.
+		const zipPath = path.join(__dirname, '..', 'resources', 'MinGit.zip');
+		if (!fs.existsSync(zipPath)) { return undefined; }
+
+		// Extract into a pid-scoped temp dir, then rename into place, so two windows
+		// racing the first launch can't leave a half-written tree behind.
+		const tmp = `${dest}.tmp${process.pid}`;
+		fs.rmSync(tmp, { recursive: true, force: true });
+		fs.mkdirSync(tmp, { recursive: true });
+		try {
+			// Windows 10 1803+ ships bsdtar as tar.exe, which unpacks .zip.
+			await execFileAsync('tar.exe', ['-xf', zipPath, '-C', tmp], { timeout: 180000 });
+		} catch {
+			// Fall back to PowerShell's Expand-Archive on older builds.
+			await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+				`Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${tmp.replace(/'/g, "''")}' -Force`],
+				{ timeout: 180000 });
+		}
+		const tmpGit = path.join(tmp, 'cmd', 'git.exe');
+		if (!fs.existsSync(tmpGit)) { fs.rmSync(tmp, { recursive: true, force: true }); return undefined; }
+		if (!fs.existsSync(gitExe)) {
+			fs.mkdirSync(path.dirname(dest), { recursive: true });
+			try { fs.renameSync(tmp, dest); } catch { fs.rmSync(tmp, { recursive: true, force: true }); }
+		} else {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+		return fs.existsSync(gitExe) ? gitExe : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 async function detectWindows(): Promise<GitMode> {
+	// Bundled MinGit (extracted on first use) - preferred so a machine with no
+	// system git still gets fast native git for the Versions view.
+	const bundled = await ensureBundledGit();
+	if (bundled && await canRun(bundled)) {
+		return { mode: 'native', gitPath: bundled };
+	}
 	// System git often isn't on a GUI app's PATH; probe the usual install spots.
 	if (await canRun('git')) {
 		return { mode: 'native', gitPath: 'git' };

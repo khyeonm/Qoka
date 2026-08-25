@@ -10,6 +10,7 @@ import { spawn } from 'child_process';
 import { services } from '../common/services';
 import { InstalledPlugin, DataSourceCommands } from '../plugins/pluginService';
 import { windowsToWsl } from '../common/dockerEnv';
+import { wslAvailable } from '../vm/wsl';
 
 /**
  * The Autopipe Viewer renders pipeline result files with the installed
@@ -401,6 +402,14 @@ async function handleDataFetch(url: string): Promise<unknown> {
 		}
 	}
 	if (!active) {
+		// On Windows the data_source shell (sed/awk/wc) runs inside WSL, so when
+		// WSL isn't installed the probe can never succeed. Surface a clear,
+		// actionable message instead of the generic "no data source" error.
+		if (process.platform === 'win32' && !(await wslAvailable())) {
+			return {
+				error: `To open result files on Windows, Qoka needs WSL (the Windows Subsystem for Linux), which isn't installed on this machine yet. Install it from Settings > Connections (Local (WSL)), then reopen this file.`,
+			};
+		}
 		return {
 			error: `No working data source for ${filename}. Plugin: ${entry.plugin.manifest.name}. Check the Qoka DevTools console (Ctrl+Shift+I) for the probe commands and their stderr.`,
 		};

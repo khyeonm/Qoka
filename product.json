@@ -6,6 +6,9 @@
 	"updateUrl": "https://qoka.org",
 	"quality": "stable",
 	"downloadUrl": "https://qoka.org/download",
+	"configurationDefaults": {
+		"git.ignoreMissingGitWarning": true
+	},
 	"extensionEnabledApiProposals": {
 		"openai.chatgpt": [
 			"chatSessionsProvider",

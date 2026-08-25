@@ -204,6 +204,23 @@ jobs:
           done
           echo "Injected Qoka API key into aria-hypothesis, aria-methods-search."
 
+      # Bundle MinGit (Git for Windows, embed edition) so the Versions view
+      # (Changes/Snapshots) works on machines with no system git. aria-vcs ships
+      # this zip and extracts it once, on first launch, into %LOCALAPPDATA%\Qoka.
+      # Windows-only; best-effort (aria-vcs falls back to pure-JS git if absent).
+      - name: Bundle MinGit into aria-vcs (Windows)
+        if: matrix.plat == 'win32'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ver = '2.47.1'
+          $url = "https://github.com/git-for-windows/git/releases/download/v$ver.windows.1/MinGit-$ver-64-bit.zip"
+          $dir = "extensions/aria-vcs/resources"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile "$dir/MinGit.zip"
+          $len = (Get-Item "$dir/MinGit.zip").Length
+          Write-Host "MinGit bundled: $len bytes"
+
       # Build every bundled Qoka extension so its compiled output ships in the
       # app. The gulp packaging only COPIES existing output (fromLocalNormal via
       # vsce.listFiles) — it never compiles TypeScript — so a fresh CI clone

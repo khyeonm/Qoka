@@ -54,7 +54,7 @@ import { ConcreteProvider, PROVIDER_EXTENSION_ID, PROVIDER_LABEL, hasPickedAiPro
 		const style = document.createElement('style');
 		style.id = 'aria-started-hide-workbench';
 		style.textContent = `
-			body > *:not(#aria-started-overlay):not(#aria-login-gate-overlay):not(style):not(script):not(link) {
+			body > *:not(#aria-started-overlay):not(#aria-login-gate-overlay):not(.aria-wsl-overlay):not(style):not(script):not(link) {
 				visibility: hidden !important;
 			}
 		`;
@@ -647,7 +647,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		const style = document.createElement('style');
 		style.id = 'aria-started-hide-workbench';
 		style.textContent = `
-			body > *:not(#aria-started-overlay):not(#aria-login-gate-overlay):not(style):not(script):not(link) {
+			body > *:not(#aria-started-overlay):not(#aria-login-gate-overlay):not(.aria-wsl-overlay):not(style):not(script):not(link) {
 				visibility: hidden !important;
 			}
 		`;
