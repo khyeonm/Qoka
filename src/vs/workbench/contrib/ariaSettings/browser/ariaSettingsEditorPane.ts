@@ -128,46 +128,31 @@ export class AriaSettingsEditorPane extends EditorPane {
 		// The extension refreshes the Skills UI through aria.skills.requestRefresh.
 		this.sectionStore.add(onDidRequestSkillsRefresh(() => void skills.refresh()));
 
-		void this.buildFooter(column);
+		this.buildFooter(column);
 	}
 
-	/** Account actions at the very bottom of the settings page. Auth-aware: shows
-	 *  Sign out when signed in, Sign in when signed out (sign-in is optional). */
-	private async buildFooter(column: HTMLElement): Promise<void> {
+	/** Actions at the very bottom of the settings page. Login removed: just
+	 *  Change project + Check for updates (no sign in/out or delete account). */
+	private buildFooter(column: HTMLElement): void {
 		const foot = append(column, $('div'));
 		Object.assign(foot.style, {
 			display: 'flex', gap: '10px', marginTop: '30px', paddingTop: '18px',
 			borderTop: '1px solid var(--vscode-editorWidget-border, rgba(127,127,127,0.25))',
 			marginLeft: '-24px', marginRight: '-24px', paddingLeft: '24px', paddingRight: '24px',
 		});
-		const button = (label: string, command: string, danger = false) => {
+		const button = (label: string, command: string) => {
 			const btn = append(foot, $('button')) as HTMLButtonElement;
 			btn.textContent = label;
 			Object.assign(btn.style, {
 				padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
 				border: '1px solid var(--vscode-button-border, transparent)',
 				background: 'var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2))',
-				// Destructive action (Delete account) is drawn in red text.
-				color: danger
-					? 'var(--vscode-errorForeground, #f14c4c)'
-					: 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
+				color: 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
 			});
 			btn.onclick = () => { void this.commandService.executeCommand(command); };
 		};
-		let signedIn = false;
-		try {
-			const sessions = await this.authenticationService.getSessions('aria', undefined, undefined, true);
-			signedIn = sessions.length > 0;
-		} catch { /* treat as signed out */ }
-		if (!this.column) { return; } // editor cleared while awaiting
 		button('Change project', 'aria.account.changeProject');
-		if (signedIn) {
-			button('Sign out', 'aria.account.signOut');
-			// Destructive account deletion, in red, right next to Sign out.
-			button('Delete account', 'aria.account.deleteAccount', true);
-		} else {
-			button('Sign in', 'aria.account.signIn');
-		}
+		button('Check for updates', 'aria.account.checkUpdates');
 	}
 
 	override clearInput(): void {

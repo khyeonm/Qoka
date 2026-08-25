@@ -557,8 +557,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 *  non-auto-reopen path. */
 	private showOverlayAndWireAuth(): void {
 		// Login removed: just show the overlay (goes straight to the AI/mode/project
-		// picker). No auth session wiring, no sign-in.
+		// picker). No auth session wiring, no sign-in. rerender() AFTER show() so a
+		// re-entry - e.g. the Windows WSL gate already created the overlay as a loading
+		// cover - repaints it as the picker instead of staying stuck on "loading".
 		this.show();
+		this.rerender();
 	}
 
 	/** Read the current Qoka session and re-render the overlay to match. */
