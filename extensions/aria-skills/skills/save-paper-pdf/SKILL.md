@@ -128,5 +128,24 @@ and institutional subscriptions. You resolve the best accessible source yourself
   variable in `curl`/`mv`.
 - **Don't spam requests.** Resolve one good source and fetch once; retry a failed
   download at most once before reporting it as not downloadable.
-- **Batch requests** ("save all these papers"): process them one at a time, report
-  per paper which saved and which couldn't, and keep going past a failure.
+- **Batch requests** ("save all these papers"): run the papers IN PARALLEL, not one
+  at a time - each paper's download + `%PDF` verify + save is independent, so launch
+  them concurrently and wait for all to finish (much faster than serial). Keep the
+  per-paper flow intact (dedup check -> download to temp -> verify `%PDF-` -> save
+  the verified one or discard). Report per paper which saved and which couldn't; a
+  failure on one never blocks the others. A simple pattern backgrounds each paper's
+  fetch and `wait`s (mkdir stays on-demand - only a verified PDF creates the folder):
+  ```bash
+  # resolve each paper's URL + filename first (steps 1-3), then run them at once:
+  fetch_one() { url="$1"; out="$2"; tmp="$(mktemp --suffix=.pdf)"
+    curl -sL -A "Mozilla/5.0" --max-time 60 -o "$tmp" "$url"
+    if [ "$(head -c 5 "$tmp")" = "%PDF-" ] && [ "$(wc -c <"$tmp")" -gt 10000 ]; then
+      mkdir -p "$(dirname "$out")"; mv "$tmp" "$out"; echo "OK   $out"
+    else rm -f "$tmp"; echo "FAIL $url"; fi; }
+  fetch_one "<url1>" "$root/.qoka/references/pdfs/<name1>.pdf" &
+  fetch_one "<url2>" "$root/.qoka/references/pdfs/<name2>.pdf" &
+  wait
+  ```
+  Still "fetch once, retry a failed one at most once". Do NOT fire many parallel
+  requests at the SAME host - if several papers come from one publisher, stagger
+  those so the parallelism is across distinct sources, not a hammering of one server.
