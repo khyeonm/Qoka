@@ -110,31 +110,13 @@ Name: "{autodesktop}\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Tasks: 
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Tasks: quicklaunchicon; AppUserModelID: "{#AppUserId}"; Check: ShouldUpdateShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}.lnk'))
 
 [Run]
-; Install WSL2 (Ubuntu) for Qoka's built-in Run environment. Only offered when
-; WSL is missing (Check: WslNotInstalled). PrivilegesRequired=lowest means this
-; installer is NOT elevated, so we self-elevate via PowerShell's Start-Process
-; -Verb RunAs (triggers UAC).
-;
-; This runs the EXACT command verified to work by hand:
-;   Start-Process cmd.exe -ArgumentList '/c','wsl --install --web-download -d Ubuntu --no-launch & pause' -Verb RunAs -Wait
-; Two things make it work where earlier attempts flash-closed with a red error:
-;  1) {sysnative} launches the 64-BIT PowerShell, so the elevated cmd it spawns is
-;     also 64-bit and a bare `wsl` resolves to the real System32 wsl.exe. A 32-bit
-;     PowerShell here computed a `Sysnative\wsl.exe` path that was invalid in the
-;     elevated cmd ("path not found" -> cmd exits before `pause` -> flash close).
-;  2) We pass a bare `wsl` (not a precomputed path) inside an INTERACTIVE cmd
-;     console: wsl blocks and shows progress, and the trailing `& pause` holds the
-;     window until the install actually finishes, so a reboot can't cut it off.
-; --web-download fetches WSL from GitHub (the Store path never installs from this
-; context); -d Ubuntu installs the distro; --no-launch skips the OOBE - Qoka opens
-; Ubuntu for the account + does provisioning on first launch.
-Filename: "{sysnative}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Start-Process cmd.exe -ArgumentList '/c','wsl --install --web-download -d Ubuntu --no-launch & pause' -Verb RunAs -Wait"""; Description: "Install WSL (Ubuntu) for the built-in run environment (recommended)"; Flags: postinstall waituntilterminated skipifsilent; AfterInstall: WslPostInstallMsg; Check: WslNotInstalled
+; WSL (Ubuntu) is no longer installed from the installer: Qoka checks for WSL and
+; installs it on first APP launch (with an in-app prompt), so the old post-install
+; "Install WSL" checkbox is gone. The installer just offers to launch Qoka.
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
-; Launch Qoka - only when WSL is already installed. If WSL is missing the user must
-; reboot and create a Linux account first, so launching now would hit a not-ready
-; built-in server (see WslInstalledAndNotSilent). WSL-missing installs get the
-; "Install WSL" item + its guidance MsgBox instead.
-Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WslInstalledAndNotSilent
+; Launch Qoka - always offered on an interactive install (regardless of whether WSL
+; is present), since WSL setup now happens in-app on first launch.
+Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: not WizardSilent
 
 [Registry]
 #if "user" == InstallTarget
