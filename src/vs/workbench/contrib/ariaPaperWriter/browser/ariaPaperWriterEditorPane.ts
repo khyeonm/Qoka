@@ -524,6 +524,13 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const existingDois = new Set(this.citations.map(c => String((c as { DOI?: unknown }).DOI ?? '').toLowerCase()).filter(Boolean));
 		const candidates = this.library.filter(p => !(p.doi && existingDois.has(p.doi.toLowerCase())));
 		const tags = Array.from(new Set(this.library.flatMap(p => p.tags ?? []))).sort();
+
+		// Small hint at the top: the tag filter below only appears once papers carry
+		// tags, so users who never tagged anything don't know the filter exists.
+		const tagHint = append(panel, $('div'));
+		tagHint.textContent = localize('aria.paperWriter.libTagHint', "Tip: tag papers in the Paper Library, then filter them by tag here.");
+		Object.assign(tagHint.style, { fontSize: '11.5px', opacity: '0.6', marginBottom: '8px' });
+
 		if (tags.length) {
 			const chips = append(panel, $('div'));
 			Object.assign(chips.style, { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' });
@@ -538,11 +545,33 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			for (const t of tags) { mkChip(`#${t}`, t); }
 		}
 
+		const filtered = this.activeTag ? candidates.filter(p => (p.tags ?? []).includes(this.activeTag)) : candidates;
+		const selected = new Set<LibraryEntry>();
+		const rowCbs: HTMLInputElement[] = [];
+
+		// "Select all" header row above the list: toggles every currently-shown
+		// (filtered) row, so it doubles as a per-tag "select all" when a tag chip is
+		// active (filtered is the active tag's papers). Individual toggles keep it in
+		// sync (checked when all are on, indeterminate when only some are).
+		let master: HTMLInputElement | undefined;
+		if (filtered.length > 0) {
+			const head = append(panel, $('label'));
+			Object.assign(head.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', fontSize: '13px', fontWeight: '600', cursor: 'pointer', borderBottom: '1px solid rgba(127,127,127,0.2)', marginBottom: '2px' });
+			master = append(head, $('input')) as HTMLInputElement;
+			master.type = 'checkbox'; master.style.flexShrink = '0';
+			const mlabel = append(head, $('span'));
+			mlabel.textContent = localize('aria.paperWriter.selectAll', "Select all ({0})", filtered.length);
+			master.onchange = () => {
+				const on = master!.checked;
+				selected.clear();
+				for (const cb of rowCbs) { cb.checked = on; }
+				if (on) { for (const p of filtered) { selected.add(p); } }
+			};
+		}
+
 		const list = append(panel, $('div'));
 		applyAriaScrollbar(list);
 		Object.assign(list.style, { maxHeight: '220px', overflowY: 'auto' });
-		const filtered = this.activeTag ? candidates.filter(p => (p.tags ?? []).includes(this.activeTag)) : candidates;
-		const selected = new Set<LibraryEntry>();
 		if (filtered.length === 0) {
 			const e = append(list, $('div'));
 			e.textContent = localize('aria.paperWriter.allAdded', "Nothing to add here.");
@@ -553,7 +582,14 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0', fontSize: '13px', cursor: 'pointer' });
 			const cb = append(row, $('input')) as HTMLInputElement;
 			cb.type = 'checkbox'; cb.style.flexShrink = '0';
-			cb.onchange = () => { if (cb.checked) { selected.add(p); } else { selected.delete(p); } };
+			rowCbs.push(cb);
+			cb.onchange = () => {
+				if (cb.checked) { selected.add(p); } else { selected.delete(p); }
+				if (master) {
+					master.checked = rowCbs.every(c => c.checked);
+					master.indeterminate = !master.checked && rowCbs.some(c => c.checked);
+				}
+			};
 			const txt = append(row, $('span'));
 			txt.textContent = `${p.authors?.[0] ?? ''}${p.year ? ` (${p.year})` : ''} - ${p.title}`;
 			Object.assign(txt.style, { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
