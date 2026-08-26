@@ -481,7 +481,13 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			'ghost', () => void this.addAssets(kind)));
 		const pending = items.filter(i => !i.summary).length;
 		if (pending > 0) {
-			tools.appendChild(this.button(localize('aria.paperWriter.summarize', "Summarize {0} new with AI", pending), 'ghost', () => void this.sendToChat(this.summarizePrompt())));
+			// No prompt-copy: show an example to send to the AI chat (like the Focus
+			// step). Sending it makes the AI read THESE files and write each summary
+			// into this section via set_asset_summary. Figures and sources each get
+			// their own line, since a user may have added only one of the two.
+			this.sendChatHint(root, kind === 'figure'
+				? "Read the figures I added and write a short summary of each."
+				: "Read the supplementary files I added and write a short summary of each.", false);
 		}
 	}
 
@@ -491,9 +497,9 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		const added = await this.commandService.executeCommand<PaperAssetUI[]>(cmd, this.meta.id);
 		if (added && added.length > 0) {
 			await this.reload();
+			// The re-render shows a "send this to your AI chat" example for the new,
+			// unsummarized files (see renderAssetSection) - no prompt is copied.
 			this.render();
-			// Summarize-on-add: ask Claude to read the new files and save summaries.
-			void this.sendToChat(this.summarizePrompt());
 		}
 	}
 
@@ -502,10 +508,6 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		await this.commandService.executeCommand('aria.paper.removeAsset', this.meta.id, assetId);
 		await this.reload();
 		this.render();
-	}
-
-	private summarizePrompt(): string {
-		return `Using the Qoka paper writer, summarize the newly added figures/sources for the paper "${this.meta!.id}". Read get_paper (or list_assets), then for each figure or source whose summary is empty, read the file at its path (view images, read data/PDF/code files) and save a concise 3-4 sentence description with set_asset_summary.`;
 	}
 
 	private renderLibraryPicker(root: HTMLElement): void {
