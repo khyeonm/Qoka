@@ -22,7 +22,7 @@ import { ActionType } from '../../common/state/sessionActions.js';
 import { PendingMessage, SessionInputAnswer, SessionInputRequest, SessionInputResponseKind, ToolCallPendingConfirmationState, type AgentSelection, type ModelSelection, type ToolDefinition } from '../../common/state/protocol/state.js';
 import type { Customization, ToolCallResult } from '../../common/state/sessionState.js';
 import { IClaudeAgentSdkService } from './claudeAgentSdkService.js';
-import { buildClientMcpServers, buildOptions } from './claudeSdkOptions.js';
+import { buildClientMcpServers, buildOptions, readWorkspaceQokaMcpServers } from './claudeSdkOptions.js';
 import { ClaudeSessionMetadataStore } from './claudeSessionMetadataStore.js';
 import { convertToolCallResult } from './clientTools/claudeClientToolResult.js';
 import { readClaudePermissionMode } from './claudeSessionPermissionMode.js';
@@ -232,7 +232,14 @@ export class ClaudeAgentSession extends Disposable {
 		}
 
 		const permissionMode = readClaudePermissionMode(this._configurationService, this.sessionUri) ?? this._permissionModeFallback;
-		const mcpServers = await buildClientMcpServers(this.toolDiff, this._pendingClientToolCalls, this._sdkService);
+		const clientMcp = await buildClientMcpServers(this.toolDiff, this._pendingClientToolCalls, this._sdkService);
+		// Inject THIS window's Qoka MCP servers explicitly (keyed by this session's
+		// cwd) so each window connects to its OWN servers - the shared agent-host
+		// process's own settingSources scan only wired up the first window. Client
+		// tools override on name collision (there are none in practice).
+		const qokaMcp = readWorkspaceQokaMcpServers(this.workingDirectory?.fsPath);
+		const merged = { ...qokaMcp, ...(clientMcp ?? {}) };
+		const mcpServers = Object.keys(merged).length > 0 ? merged : undefined;
 
 		const options = await buildOptions(
 			{
@@ -329,7 +336,10 @@ export class ClaudeAgentSession extends Disposable {
 		pipeline.attachRematerializer(async (_reason) => {
 			const liveMode = readClaudePermissionMode(this._configurationService, this.sessionUri) ?? this._permissionModeFallback;
 			try {
-				const rebuildMcp = await buildClientMcpServers(this.toolDiff, this._pendingClientToolCalls, this._sdkService);
+				const rebuildClientMcp = await buildClientMcpServers(this.toolDiff, this._pendingClientToolCalls, this._sdkService);
+				const rebuildQoka = readWorkspaceQokaMcpServers(this.workingDirectory?.fsPath);
+				const rebuildMerged = { ...rebuildQoka, ...(rebuildClientMcp ?? {}) };
+				const rebuildMcp = Object.keys(rebuildMerged).length > 0 ? rebuildMerged : undefined;
 				const rebuildAbort = new AbortController();
 				const rebuildOptions = await buildOptions(
 					{

@@ -3,9 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk';
+import type { McpSdkServerConfigWithInstance, McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { delimiter, dirname } from '../../../../base/common/path.js';
+import * as fs from 'fs';
+import * as os from 'os';
+import { delimiter, dirname, join } from '../../../../base/common/path.js';
 import { URI } from '../../../../base/common/uri.js';
 import { rgDiskPath } from '../../../../base/node/ripgrep.js';
 import { ClaudePermissionMode } from '../../common/claudeSessionConfigKeys.js';
@@ -31,7 +33,7 @@ export interface IBuildOptionsInput {
 	readonly permissionMode: ClaudePermissionMode;
 	readonly canUseTool: NonNullable<Options['canUseTool']>;
 	readonly isResume: boolean;
-	readonly mcpServers: Record<string, McpSdkServerConfigWithInstance> | undefined;
+	readonly mcpServers: Record<string, McpServerConfig> | undefined;
 	/**
 	 * Local plugin directories to load at SDK startup. Projected onto
 	 * `Options.plugins` as `{ type: 'local', path }`. Omitted from the
@@ -145,6 +147,43 @@ export async function buildOptions(
 		systemPrompt: { type: 'preset', preset: 'claude_code', append: ARIA_MEMORY_APPEND },
 		stderr: logStderr,
 	};
+}
+
+/** Match mcpConfig.claudeProjectKey: forward slashes + lowercase drive letter so
+ *  the key we look up equals the one the extension WROTE for this window. */
+function claudeProjectKey(p: string): string {
+	return p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m, d: string) => `${d.toLowerCase()}:`);
+}
+
+/**
+ * Read THIS session's Qoka MCP servers straight from
+ * `<CLAUDE_CONFIG_DIR>/.claude.json` -> `projects[<cwd>].mcpServers` and return
+ * them as SDK sse configs, to INJECT explicitly into `Options.mcpServers`.
+ *
+ * Why not just let the SDK's own `settingSources: ['local', …]` scan find them?
+ * The agent host is ONE shared process running every window's chat session; that
+ * per-process SDK scan did not reliably re-resolve the per-session cwd, so only
+ * the FIRST window's chat connected and the rest opened with "MCP not connected"
+ * (or routed a tool into the wrong window). A direct, cwd-keyed file read here is
+ * deterministic per session, so each window connects to ITS OWN servers. Returns
+ * `{}` on any failure (missing file, no block) so injection is best-effort.
+ */
+export function readWorkspaceQokaMcpServers(workspaceFsPath: string | undefined): Record<string, McpServerConfig> {
+	const out: Record<string, McpServerConfig> = {};
+	if (!workspaceFsPath) { return out; }
+	try {
+		const dir = process.env['CLAUDE_CONFIG_DIR'] || join(os.homedir(), '.qoka', 'claude');
+		const obj = JSON.parse(fs.readFileSync(join(dir, '.claude.json'), 'utf8')) as {
+			projects?: Record<string, { mcpServers?: Record<string, { type?: string; url?: string }> }>;
+		};
+		const servers = obj.projects?.[claudeProjectKey(workspaceFsPath)]?.mcpServers ?? {};
+		for (const [name, cfg] of Object.entries(servers)) {
+			if (cfg && cfg.type === 'sse' && typeof cfg.url === 'string') {
+				out[name] = { type: 'sse', url: cfg.url };
+			}
+		}
+	} catch { /* best-effort: leave empty */ }
+	return out;
 }
 
 /**
