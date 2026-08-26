@@ -25,7 +25,7 @@ import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConf
  *  it never deletes a name still in use (a future rename could reuse an old one).
  *  Kept in sync with each extension's MCP_NAME. */
 const QOKA_MCP_NAMES = [
-	'qoka-autopipe', 'qoka-run', 'qoka-paper', 'qoka-paper-library', 'qoka-memory',
+	'qoka-autopipe', 'qoka-run', 'qoka-environment', 'qoka-paper', 'qoka-paper-library', 'qoka-memory',
 	'qoka-notes', 'qoka-roadmap', 'qoka-methods-search', 'qoka-hypothesis', 'qoka-overview',
 ];
 

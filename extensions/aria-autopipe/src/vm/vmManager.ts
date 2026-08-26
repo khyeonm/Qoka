@@ -72,6 +72,10 @@ export class VMManager {
 	private proc: ChildProcess | undefined;
 	private gvproxyProc: ChildProcess | undefined;   // macOS vfkit networking helper
 	private starting: Promise<void> | undefined;
+	// vfkit multi-window: true when THIS window only CONNECTED to a shared VM that
+	// another window booted (so stop() must not kill it). false when this window is
+	// the owner that booted the VM (or on WSL/QEMU, which are single-owner anyway).
+	private vfkitJoined = false;
 	private readonly _onDidChange = new vscode.EventEmitter<VmStatus>();
 	readonly onDidChangeStatus = this._onDidChange.event;
 	private readonly _onProgress = new vscode.EventEmitter<{ message: string; pct?: number }>();
@@ -478,6 +482,23 @@ export class VMManager {
 		// differs per window - mirroring WSL's /mnt/<drive>/<wsRoot>. Falls back to the
 		// guest's own dir when no folder is open.
 		const repo = wsRoot ? `${VFKIT_HOST_MOUNT}${wsRoot}` : GUEST_REPO;
+
+		// MULTI-WINDOW: if another window already booted the shared vfkit VM, CONNECT
+		// to it rather than booting a second VM on the same disk.raw (that corrupts
+		// it). Each window still routes results to its OWN project via /mnt/mac/<wsRoot>.
+		const running = this.readVfkitOwner();
+		if (running && await this.vfkitReachable(running.port) && await this.joinVfkit(running.port, key, repo)) {
+			return;
+		}
+		// Become the owner. Serialize concurrent first-boots with an atomic lock so two
+		// windows starting at once don't both boot. If another window is booting, wait
+		// for its VM and join; only boot ourselves if that fails.
+		if (!this.acquireVfkitBootLock()) {
+			if (await this.joinBootingVfkit(key, repo)) { return; }
+			this.acquireVfkitBootLock();
+		}
+		this.vfkitJoined = false;
+
 		const seed = await this.buildVfkitSeed(key + '.pub', share);
 		const port = await this.freePort();
 		const disk = path.join(this.dir, 'disk.raw');
@@ -543,6 +564,8 @@ export class VMManager {
 
 		try {
 			await this.waitForSsh(sshProfile);
+			// Record ownership so later windows CONNECT to this VM instead of booting.
+			this.writeVfkitOwner(port);
 			this.config.setLocalVmEndpoint(sshProfile);
 			this.set('ready');
 		} catch (err) {
@@ -550,6 +573,8 @@ export class VMManager {
 			try { this.gvproxyProc?.kill('SIGKILL'); } catch { /* ignore */ }
 			this.proc = undefined; this.gvproxyProc = undefined;
 			throw err instanceof Error ? err : new Error(String(err));
+		} finally {
+			this.releaseVfkitBootLock();
 		}
 	}
 
@@ -597,9 +622,100 @@ export class VMManager {
 		];
 	}
 
+	// --- vfkit multi-window owner.lock (Mac) ---------------------------------
+	// One shared vfkit VM across all windows: the FIRST window boots it (owner) and
+	// records its SSH port in vfkit-owner.json; later windows just CONNECT to that
+	// port. The VM is the owner's child process, so when the owner window closes the
+	// VM dies - a surviving window then finds the marker unreachable on its next run
+	// and re-boots, becoming the new owner. So the VM lives as long as any window
+	// uses it, with no detached/orphan process ever. A short atomic boot lock keeps
+	// two windows starting at once from booting two VMs on the same disk.
+
+	private get vfkitOwnerFile(): string { return path.join(this.dir, 'vfkit-owner.json'); }
+	private get vfkitBootLockDir(): string { return path.join(this.dir, 'vfkit-boot.lock'); }
+
+	private readVfkitOwner(): { port: number } | undefined {
+		try {
+			const o = JSON.parse(fs.readFileSync(this.vfkitOwnerFile, 'utf8')) as { port?: unknown };
+			return typeof o.port === 'number' ? { port: o.port } : undefined;
+		} catch { return undefined; }
+	}
+	private writeVfkitOwner(port: number): void {
+		try { fs.writeFileSync(this.vfkitOwnerFile, JSON.stringify({ port, pid: process.pid, at: Date.now() })); } catch { /* best-effort */ }
+	}
+	private removeVfkitOwner(): void { try { fs.rmSync(this.vfkitOwnerFile, { force: true }); } catch { /* ignore */ } }
+
+	/** Quick TCP probe of the shared VM's forwarded SSH port - a dead owner (its
+	 *  vfkit + gvproxy died with it) means the port refuses, so we know to re-boot. */
+	private vfkitReachable(port: number, timeoutMs = 1500): Promise<boolean> {
+		return new Promise(resolve => {
+			const sock = net.connect({ host: '127.0.0.1', port });
+			const done = (ok: boolean): void => { try { sock.destroy(); } catch { /* ignore */ } resolve(ok); };
+			sock.setTimeout(timeoutMs);
+			sock.once('connect', () => done(true));
+			sock.once('timeout', () => done(false));
+			sock.once('error', () => done(false));
+		});
+	}
+
+	/** Atomically claim the right to boot (mkdir throws if it exists). Steals a lock
+	 *  older than 90s (a window that crashed mid-boot). Returns true if we hold it. */
+	private acquireVfkitBootLock(): boolean {
+		try {
+			try {
+				const st = fs.statSync(this.vfkitBootLockDir);
+				if (Date.now() - st.mtimeMs > 90_000) { fs.rmSync(this.vfkitBootLockDir, { recursive: true, force: true }); }
+			} catch { /* no lock yet */ }
+			fs.mkdirSync(this.vfkitBootLockDir);
+			return true;
+		} catch { return false; }
+	}
+	private releaseVfkitBootLock(): void { try { fs.rmSync(this.vfkitBootLockDir, { recursive: true, force: true }); } catch { /* ignore */ } }
+
+	/** Connect to an already-running shared vfkit VM at `port` as a non-owner. */
+	private async joinVfkit(port: number, key: string, repo: string): Promise<boolean> {
+		const sshProfile = this.profileFor('127.0.0.1', port, GUEST_USER, key, repo);
+		try {
+			await this.waitForSsh(sshProfile);
+			this.vfkitJoined = true;
+			this.config.setLocalVmEndpoint(sshProfile);
+			this.set('ready');
+			return true;
+		} catch { return false; }
+	}
+
+	/** Another window holds the boot lock: poll for its owner marker + reachable port
+	 *  and join it. Returns false (so the caller boots itself) if the booter gives up
+	 *  or does not come up in time. */
+	private async joinBootingVfkit(key: string, repo: string): Promise<boolean> {
+		const deadline = Date.now() + 60_000;
+		while (Date.now() < deadline) {
+			const owner = this.readVfkitOwner();
+			if (owner && await this.vfkitReachable(owner.port)) {
+				if (await this.joinVfkit(owner.port, key, repo)) { return true; }
+			}
+			// If the boot lock is free again but still no reachable owner, the booter
+			// gave up - boot ourselves.
+			if (this.acquireVfkitBootLock()) { this.releaseVfkitBootLock(); if (!this.readVfkitOwner()) { return false; } }
+			await new Promise(r => setTimeout(r, 1000));
+		}
+		return false;
+	}
+
 	async stop(): Promise<void> {
 		this.set('stopped');
 		this.config.setLocalVmEndpoint(null);
+		if (this.vfkitJoined) {
+			// We only CONNECTED to another window's shared VM - never kill it. Drop our
+			// reference; the owning window manages the VM's lifetime.
+			this.vfkitJoined = false;
+			this.proc = undefined;
+			this.gvproxyProc = undefined;
+			return;
+		}
+		// We own the VM (or it is WSL/QEMU). Remove the vfkit owner marker so a
+		// surviving window re-boots and takes over (no-op file for WSL/QEMU).
+		this.removeVfkitOwner();
 		const procs = [this.proc, this.gvproxyProc].filter((p): p is ChildProcess => !!p);
 		this.proc = undefined;
 		this.gvproxyProc = undefined;
