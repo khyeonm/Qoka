@@ -57,7 +57,7 @@ import { AgentHostSnapshotController } from './agentHostSnapshotController.js';
 import { toolDataToDefinition } from './agentHostToolUtils.js';
 import { IAgentHostUntitledProvisionalSessionService } from './agentHostUntitledProvisionalSessionService.js';
 import { activeTurnToProgress, completedToolCallToEditParts, completedToolCallToSerialized, finalizeToolInvocation, getTerminalContentUri, isSubagentTool, makeAhpTerminalToolSessionId, messageToVariableData, parseAhpTerminalToolSessionId, rawMarkdownToString, stringOrMarkdownToString, toolCallStateToInvocation, turnsToHistory, updateRunningToolSpecificData, usageInfoToChatUsage, type IToolCallFileEdit, type TurnModelLookup } from './stateToProgressAdapter.js';
-import { whenAriaSetupReady } from '../../../../aria/browser/ariaSetupReady.js';
+import { whenAriaMcpRegistered } from '../../../../aria/browser/ariaSetupReady.js';
 export { toolDataToDefinition };
 
 // =============================================================================
@@ -576,7 +576,7 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 		// until Qoka's setup has finished booting those servers — otherwise a
 		// session restored on window load attaches before MCP is up and the
 		// servers show "Failed". Resolves immediately once setup is done.
-		await whenAriaSetupReady();
+		await whenAriaMcpRegistered();
 
 		// For new sessions, defer backend session creation until the first request
 		// arrives so the user-selected model is available. The chat resource still
@@ -2489,7 +2489,7 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 	/** Creates a new backend session and subscribes to its state. */
 	private async _createAndSubscribe(sessionResource: URI, model: ModelSelection | undefined, fork?: { session: URI; turnIndex: number; turnId: string }, config?: Record<string, unknown>): Promise<URI> {
 		// Qoka: gate session creation (which connects to MCP) on setup completion.
-		await whenAriaSetupReady();
+		await whenAriaMcpRegistered();
 		const workingDirectory = this._resolveRequestedWorkingDirectory(sessionResource);
 		const requestedSession = fork ? undefined : this._resolveSessionUri(sessionResource);
 

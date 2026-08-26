@@ -17,7 +17,7 @@ import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser
 import { timeout } from '../../../../base/common/async.js';
 import { isWindows } from '../../../../base/common/platform.js';
 import { revealAiProviderChat } from './aiProviderChat.js';
-import { whenAriaSetupReady } from './ariaSetupReady.js';
+import { whenAriaSetupReady, markAriaMcpRegistered } from './ariaSetupReady.js';
 import { ConcreteProvider, hasPickedAiProvider, takePendingInstall, PROVIDER_EXTENSION_ID, PROVIDER_LABEL } from './ariaAiProviderChoice.js';
 import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConfiguration.js';
 
@@ -142,19 +142,28 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			let failed: ConcreteProvider[] = [];
 			let allRegistered = true;
 			const cliMcp = (async () => {
-				// Install + verify each chosen provider's CLI. "installed but still absent
-				// after one retry" is a real FAILURE, so a failed install ends the wait
-				// instead of spinning forever.
-				const results = await Promise.all(chosen.map(p => this._installAndVerifyCli(p)));
-				usable = chosen.filter((_, i) => results[i]);
-				failed = chosen.filter((_, i) => !results[i]);
-				if (usable.length === 0) { return; }
-				// Wait for the MCP servers, then register every Qoka MCP with the usable
-				// CLI(s) and hold until they ALL report registered (real completion signal).
-				await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-				allRegistered = await this._registerMcpFast(usable);
-				// Prune pre-rename duplicate MCP entries so tools don't show twice.
-				try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+				try {
+					// Install + verify each chosen provider's CLI. "installed but still absent
+					// after one retry" is a real FAILURE, so a failed install ends the wait
+					// instead of spinning forever.
+					const results = await Promise.all(chosen.map(p => this._installAndVerifyCli(p)));
+					usable = chosen.filter((_, i) => results[i]);
+					failed = chosen.filter((_, i) => !results[i]);
+					if (usable.length === 0) { return; }
+					// Wait for the MCP servers, then register every Qoka MCP with the usable
+					// CLI(s) and hold until they ALL report registered (real completion signal).
+					await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+					allRegistered = await this._registerMcpFast(usable);
+					// Prune pre-rename duplicate MCP entries so tools don't show twice.
+					try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+				} finally {
+					// Registration (config write) is DONE (or was skipped) - now let the chat
+					// session connect to MCP. Without this the chat connected at server-START
+					// (markAriaSetupReady) and raced ahead of its own config, so every server
+					// showed "failed" until a manual /mcp reconnect. On Windows the minutes-long
+					// WSL setup masked the race; Mac has no such wait, so it surfaced there.
+					markAriaMcpRegistered();
+				}
 			})();
 			// On Windows the run env (installing Ubuntu, the account OOBE terminal,
 			// provisioning) is set up by aria-autopipe concurrently; stream its progress
