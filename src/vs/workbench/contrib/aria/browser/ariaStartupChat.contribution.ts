@@ -153,7 +153,20 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					// Wait for the MCP servers, then register every Qoka MCP with the usable
 					// CLI(s) and hold until they ALL report registered (real completion signal).
 					await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-					allRegistered = await this._registerMcpFast(usable);
+					// Retry until EVERY server is actually registered, not just whatever bound
+					// in the first few seconds. _registerMcpFast used to give up after ~4s and
+					// return a PARTIAL set; the chat then connected (its gate fires in finally)
+					// before the slow-to-bind servers existed, showing them "failed" until a
+					// manual /mcp reconnect. Windows accidentally hid this because its
+					// minutes-long WSL setup delayed the chat past registration; Mac has no such
+					// delay. So loop until allRegistered is genuinely true - THAT is the "done"
+					// signal - with a safety cap so a truly-broken server can't hang the loader.
+					const regDeadline = Date.now() + 20000;
+					do {
+						allRegistered = await this._registerMcpFast(usable);
+						if (allRegistered) { break; }
+						await timeout(1000);
+					} while (Date.now() < regDeadline);
 					// Prune pre-rename duplicate MCP entries so tools don't show twice.
 					try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
 				} finally {
