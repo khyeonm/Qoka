@@ -161,12 +161,30 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		this.update(false);
 
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(ARIA_MODE_SETTING)) {
-				this.update(true);
-				// A mode change while a project is open is (almost always) a user
-				// action - remember it for this folder so reopening restores it.
-				savePerFolderMode(this.storageService, this.contextService, this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '');
+			if (!e.affectsConfiguration(ARIA_MODE_SETTING)) {
+				return;
 			}
+			const current = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
+			// aria.mode is a non-persisted MEMORY override, and VS Code drops MEMORY
+			// overrides whenever the settings file reloads - e.g. another window
+			// writing aria.aiProvider when a new project is created. That leaves the
+			// value unset and would silently reset THIS window's mode (the "opening a
+			// new window resets every window's mode" bug). Self-heal: when the value
+			// falls back to unset but this folder has a remembered mode, re-apply it
+			// (MEMORY). The re-apply fires another change that runs the normal path
+			// below with the restored value, so the mode survives the settings reload.
+			if (current !== 'easy' && current !== 'advanced') {
+				const key = folderModeKey(this.contextService);
+				const remembered = key ? readFolderMode(this.storageService, key) : undefined;
+				if (remembered === 'easy' || remembered === 'advanced') {
+					void this.configurationService.updateValue(ARIA_MODE_SETTING, remembered, {}, ConfigurationTarget.MEMORY, { donotNotifyError: true });
+					return;
+				}
+			}
+			this.update(true);
+			// A mode change while a project is open is (almost always) a user
+			// action - remember it for this folder so reopening restores it.
+			savePerFolderMode(this.storageService, this.contextService, current);
 		}));
 
 		// New windows (auxiliary editor windows) get the class too, so their
