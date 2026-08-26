@@ -340,9 +340,17 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					const runnerB64 = Buffer.from(
 						`export PATH="/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"\n${pyBuf}${ensure}${runCmd}\n`,
 						'utf8').toString('base64');
-					const dataDir = mounted && wsRoot ? path.join(wsRoot, 'data') : undefined;
-					const dataBind = dataDir && fs.existsSync(dataDir)
-						? `--ro-bind '${windowsToWsl(dataDir)}' '${windowsToWsl(dataDir)}' `
+					// Bind the WHOLE open project READ-ONLY so a run can read prior outputs
+					// (results/<other-run>/) and code (analysis/) - iterative analysis needs
+					// run B to read run A's .h5ad, and binding only data/ hid everything else,
+					// so a follow-up run hit FileNotFound on a file that IS on disk. This is a
+					// mount, NOT a copy: the project already lives on the Windows disk (/mnt/c),
+					// so it only widens what the sandbox can SEE, storing nothing in WSL. The
+					// run's OWN dir is bound read-WRITE just below (a later bwrap bind overrides
+					// the ro-bind for that subpath), so writes still land ONLY in results/<run>/.
+					// Sibling projects are OUTSIDE wsRoot and stay invisible (isolation kept).
+					const projectBind = mounted && wsRoot
+						? `--ro-bind '${windowsToWsl(wsRoot)}' '${windowsToWsl(wsRoot)}' `
 						: '';
 					// Qoka skills live in ~/.qoka/claude/skills on the host. run_code runs inside
 					// the sandbox where the rest of the drive is invisible, so a skill's helper
@@ -372,8 +380,10 @@ export const RUN_TOOLS: ToolDefinition[] = [
 						'    --ro-bind /etc /etc --ro-bind-try "$QOKA_RESOLV" "$QOKA_RESOLV" \\',
 						'    --proc /proc --dev /dev --tmpfs /tmp \\',
 						`    --bind ${sbx} /home/qoka \\`,
-						`    --bind ${runDirExpr} ${runDirExpr} \\`,
-						`    ${dataBind}${skillsBind}--chdir ${runDirExpr} --setenv HOME /home/qoka \\`,
+						// Project READ-ONLY first, then the run's own dir read-WRITE on top (later
+						// bind wins) so the run reads all of results/ + analysis/ but writes only here.
+						`    ${projectBind}--bind ${runDirExpr} ${runDirExpr} \\`,
+						`    ${skillsBind}--chdir ${runDirExpr} --setenv HOME /home/qoka \\`,
 						'    --unshare-all --share-net --die-with-parent \\',
 						'    bash /home/qoka/.qoka-run.sh > stdout.log 2> stderr.log',
 						'else',
