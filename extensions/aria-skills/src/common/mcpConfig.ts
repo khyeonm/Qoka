@@ -92,28 +92,26 @@ function writeClaude(servers: McpServerInfo[], workspacePath?: string): void {
 	} catch {
 		obj = {}; // missing / unreadable - start fresh
 	}
-	// Root (user) scope: kept as a fallback so run_code always works even if the
-	// per-project key below doesn't exactly match Claude's cwd.
+	const names = new Set(servers.map(s => s.name));
 	const mcp = (obj.mcpServers && typeof obj.mcpServers === 'object' ? obj.mcpServers : {}) as Record<string, unknown>;
-	let changed = pruneClaudeLegacy(mcp, new Set(servers.map(s => s.name)));
-	for (const s of servers) {
-		const url = claudeUrl(s.port);
-		const cur = mcp[s.name] as { type?: string; url?: string } | undefined;
-		if (!cur || cur.type !== 'sse' || cur.url !== url) {
-			mcp[s.name] = { type: 'sse', url };
-			changed = true;
-		}
-	}
-	obj.mcpServers = mcp;
-	// PER-WINDOW: also write Claude's LOCAL scope for THIS workspace
-	// (projects.<cwd>.mcpServers), which Claude Code reads keyed by the CLI's cwd.
-	// With several windows open, each writes its OWN section pointing at ITS OWN live
-	// port, so a window's Claude connects to ITS project's server (correct run_code +
-	// per-project bwrap). Local scope overrides the root entry for the same name, so
-	// the root above is only a fallback. Keyed by the workspace path the CLI runs in.
+	let changed = pruneClaudeLegacy(mcp, names);
+
 	if (workspacePath) {
+		// PER-WINDOW routing: write ONLY Claude's LOCAL scope
+		// (projects.<cwd>.mcpServers), keyed by THIS window's own folder, and NEVER the
+		// shared root `mcpServers`. Root is Claude's global USER scope - a single
+		// last-writer-wins slot shared by every window - so a second window would
+		// overwrite the first and then BOTH chats connect to whichever window wrote
+		// last (cross-window run_code + input-config-tab + pipeline-download leak).
+		// The local scope is per-folder, so each window's chat reads only its own live
+		// ports. Also DELETE any qoka servers a previous build left in root, so the
+		// stale shared slot can't keep leaking after the upgrade.
+		for (const name of names) {
+			if (mcp[name]) { delete mcp[name]; changed = true; }
+		}
+		obj.mcpServers = mcp;
 		// Match Claude's own project key (forward slashes, lowercase drive) so the
-		// chat actually reads this block instead of the shared root fallback.
+		// chat actually reads this block.
 		const key = claudeProjectKey(workspacePath);
 		const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, { mcpServers?: Record<string, unknown> }>;
 		const proj = (projects[key] && typeof projects[key] === 'object' ? projects[key] : {});
@@ -129,17 +127,38 @@ function writeClaude(servers: McpServerInfo[], workspacePath?: string): void {
 		proj.mcpServers = pmcp;
 		projects[key] = proj;
 		obj.projects = projects;
+	} else {
+		// No folder open: there is no per-project (local) scope to key on, so the shared
+		// root USER scope is the only place the chat can read servers from. A folderless
+		// window is single-by-nature, so the last-writer-wins root is acceptable here.
+		for (const s of servers) {
+			const url = claudeUrl(s.port);
+			const cur = mcp[s.name] as { type?: string; url?: string } | undefined;
+			if (!cur || cur.type !== 'sse' || cur.url !== url) {
+				mcp[s.name] = { type: 'sse', url };
+				changed = true;
+			}
+		}
+		obj.mcpServers = mcp;
 	}
+
 	if (!changed) { return; }
 	atomicWrite(CLAUDE_JSON, JSON.stringify(obj, null, 2) + '\n');
 }
 
-/** Names present in ~/.claude.json with the expected /sse port. */
-function claudeRegistered(servers: McpServerInfo[]): Set<string> {
+/** Names present in ~/.claude.json with the expected /sse port. Verifies the SAME
+ *  scope writeClaude wrote: the LOCAL scope (projects[<cwd>]) when a folder is open,
+ *  else the root USER scope. */
+function claudeRegistered(servers: McpServerInfo[], workspacePath?: string): Set<string> {
 	const ok = new Set<string>();
 	try {
-		const obj = JSON.parse(fs.readFileSync(CLAUDE_JSON, 'utf8')) as { mcpServers?: Record<string, { url?: string }> };
-		const mcp = obj.mcpServers ?? {};
+		const obj = JSON.parse(fs.readFileSync(CLAUDE_JSON, 'utf8')) as {
+			mcpServers?: Record<string, { url?: string }>;
+			projects?: Record<string, { mcpServers?: Record<string, { url?: string }> }>;
+		};
+		const mcp = workspacePath
+			? (obj.projects?.[claudeProjectKey(workspacePath)]?.mcpServers ?? {})
+			: (obj.mcpServers ?? {});
 		for (const s of servers) {
 			if (mcp[s.name]?.url === claudeUrl(s.port)) { ok.add(s.name); }
 		}
@@ -351,15 +370,19 @@ function codexRegistered(servers: McpServerInfo[]): Set<string> {
 // --- CLI fallback (only for stragglers) ------------------------------------
 
 /** Register ONE server via the provider CLI - the definitive fallback used only
- *  for entries a direct write somehow didn't land. */
-async function cliAdd(provider: HeadlessProvider, name: string, port: number): Promise<boolean> {
+ *  for entries a direct write somehow didn't land. Matches writeClaude's scope: the
+ *  LOCAL (per-project) scope, run FROM the workspace folder so `claude` keys it under
+ *  projects[<cwd>], when a folder is open; the root USER scope otherwise. */
+async function cliAdd(provider: HeadlessProvider, name: string, port: number, workspacePath?: string): Promise<boolean> {
 	const bin = resolveProviderBin(provider);
 	if (!bin) { return false; }
 	const q = quoteArg(bin);
 	try {
 		if (provider === 'claude') {
-			try { await execAsync(`${q} mcp remove ${name} --scope user`, { timeout: 10000 }); } catch { /* none */ }
-			await execAsync(`${q} mcp add --scope user ${name} ${quoteArg(claudeUrl(port))} --transport sse`, { timeout: 10000 });
+			const scope = workspacePath ? 'local' : 'user';
+			const opts = workspacePath ? { timeout: 10000, cwd: workspacePath } : { timeout: 10000 };
+			try { await execAsync(`${q} mcp remove ${name} --scope ${scope}`, opts); } catch { /* none */ }
+			await execAsync(`${q} mcp add --scope ${scope} ${name} ${quoteArg(claudeUrl(port))} --transport sse`, opts);
 		} else {
 			try { await execAsync(`${q} mcp remove ${name}`, { timeout: 10000 }); } catch { /* none */ }
 			await execAsync(`${q} mcp add ${name} --url ${quoteArg(codexUrl(port))}`, { timeout: 10000 });
@@ -395,13 +418,13 @@ export async function applyMcpConfig(providers: HeadlessProvider[], servers: Mcp
 
 	// 2) Verify via read-back, then CLI-retry any stragglers for each provider.
 	const missing: string[] = [];
-	async function verifyProvider(provider: HeadlessProvider, registered: (s: McpServerInfo[]) => Set<string>): Promise<void> {
+	async function verifyProvider(provider: HeadlessProvider, registered: (s: McpServerInfo[]) => Set<string>, cliScopePath?: string): Promise<void> {
 		let ok = registered(servers);
 		const stragglers = servers.filter(s => !ok.has(s.name));
 		if (stragglers.length === 0) { return; }
 		// Fall back to the CLI for just the ones the write did not land.
 		for (const s of stragglers) {
-			await cliAdd(provider, s.name, s.port);
+			await cliAdd(provider, s.name, s.port, cliScopePath);
 		}
 		ok = registered(servers);
 		for (const s of servers) {
@@ -409,7 +432,7 @@ export async function applyMcpConfig(providers: HeadlessProvider[], servers: Mcp
 		}
 	}
 	await Promise.all([
-		wantClaude ? verifyProvider('claude', claudeRegistered) : Promise.resolve(),
+		wantClaude ? verifyProvider('claude', s => claudeRegistered(s, workspacePath), workspacePath) : Promise.resolve(),
 		wantCodex ? verifyProvider('codex', codexRegistered) : Promise.resolve(),
 	]);
 
