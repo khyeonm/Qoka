@@ -220,6 +220,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	private readonly _mcpInfoCommands = [
 		'aria.autopipe.mcpInfo',
 		'aria.qokarun.mcpInfo',
+		'aria.qokaenv.mcpInfo',
 		'aria.paper.mcpInfo',
 		'aria.paperSearch.mcpInfo',
 		'aria.memory.mcpInfo',

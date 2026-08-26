@@ -14,11 +14,13 @@ import { PLUGIN_TOOLS } from './plugins';
 import { VM_TOOLS } from './vm';
 import { NOTEBOOK_TOOLS } from './notebook';
 import { CONFIGURE_INPUT_TOOLS } from './configureInput';
+import { RUN_TOOLS } from './run';
 
-// Concatenated in the order they appear in autopipe-app's server.rs so that
-// `tools/list` returns tools in a consistent, predictable sequence.
+// qoka-autopipe = PIPELINE LIFECYCLE ONLY. The run environment/connection tools
+// (get_workspace_info, start_server, get/set_vm_resources) moved to qoka-environment;
+// code execution (run_code, notebooks) and result-saving moved to qoka-run. So a
+// window using qoka-run never has to reach into this pipeline server.
 export const ALL_TOOLS: ToolDefinition[] = [
-	...WORKSPACE_TOOLS.slice(0, 1), // get_workspace_info up front - AI assistants are told to call it first
 	...PIPELINE_TOOLS.slice(0, 2),   // search_pipelines, list_pipelines
 	PIPELINE_TOOLS[2], // download_pipeline
 	PIPELINE_TOOLS[3], // upload_pipeline
@@ -30,21 +32,29 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	PIPELINE_TOOLS[6], // delete_pipeline (after execution group)
 	FILE_TOOLS[3], FILE_TOOLS[4], // create_symlink, remove_symlink
 	FILE_TOOLS[0], FILE_TOOLS[1], // list_files, read_file
-	RESULT_TOOLS[0], // download_results
 	FILE_TOOLS[2], // write_file
 	FILE_TOOLS[5], FILE_TOOLS[6], FILE_TOOLS[7], // prepare_input, check_download_status, remove_input
 	FILE_TOOLS[8], // upload_local_input (upload data from the user's local machine into pipelines_input)
-	// show_results (RESULT_TOOLS[1]) disabled: the in-app viewer is gone, results
-	// are inspected in the Analysis tab under results/<run>/. Use
-	// list_files to enumerate result files instead. Kept in results.ts so the tool
-	// can be re-registered later if the viewer returns.
-	// RESULT_TOOLS[1], // show_results
-	...PROJECT_TOOLS, // list_run_outputs, save_results_to_project (durable save into the open project folder)
 	...WORKSPACE_TOOLS.slice(1), // get_templates, get_generation_guide
 	...PLUGIN_TOOLS,
-	...VM_TOOLS, // local run environment resources (get/set) - only for the local VM
-	...NOTEBOOK_TOOLS, // create_notebook - author a .ipynb the user runs with the Qoka Run Environment kernel
+];
 
+// qoka-environment = the run environment / active connection / resources. This is
+// the "check where code runs" server every code path (run_code, notebooks,
+// pipelines) calls FIRST, kept separate from pipeline building.
+export const ENVIRONMENT_TOOLS: ToolDefinition[] = [
+	WORKSPACE_TOOLS[0], // get_workspace_info
+	...VM_TOOLS,         // start_server, get_vm_resources, set_vm_resources
+];
+
+// qoka-run = code execution (quick run_code + notebooks) and getting results back
+// into the project. Self-contained so running code never calls the pipeline server.
+export const RUN_SERVER_TOOLS: ToolDefinition[] = [
+	...RUN_TOOLS,      // run_code
+	...NOTEBOOK_TOOLS, // create_notebook / read_notebook / edit_notebook
+	RESULT_TOOLS[0],   // download_results
+	// show_results (RESULT_TOOLS[1]) stays disabled - the in-app viewer is gone.
+	...PROJECT_TOOLS,  // list_run_outputs, save_results_to_project
 ];
 
 /**
@@ -78,11 +88,25 @@ export const AUTOPIPE_MCP_INSTRUCTIONS = [
 	'NOTEBOOK PLOTS: figures render inline from the kernel\'s default inline backend. When a notebook makes plots, put `%matplotlib inline` in an early cell so they render reliably regardless of kernel state. If a figure does NOT appear right after matplotlib was installed in the SAME session, the kernel must be RESTARTED (a fresh kernel loads the newly-installed package and its inline backend) - image size is NOT the cause, and adding matplotlib.get_backend() only PRINTS the backend, it fixes nothing. Save important figures to results/ with plt.savefig(...) as well, so they persist even if the inline image is missed.',
 	'',
 	'PIPELINE INPUTS (configure_input + run_configured_pipeline): after download_pipeline succeeds, or before running a pipeline, call configure_input(pipeline) so the USER sets the pipeline\'s config values and picks its input data in a Qoka tab. Do NOT run execute_pipeline with the config\'s placeholder/default values without offering configure_input first. Pass a `descriptions` map (config key -> one-line help you write from reading the Snakefile/config) so each field is explained; write these in ENGLISH (the tab UI is English) and cover EVERY editable key. The tab\'s "Save" button stages the inputs and writes config.yaml but does NOT run - so after calling configure_input do NOT call execute_pipeline and do NOT poll check_status. Tell the user to fill the tab and click "Save", then WAIT and ask them to tell you once they have. When they confirm, call run_configured_pipeline(pipeline) to START the run (it reads what the tab saved), then report with list_running_pipelines / check_status. Data follows the same rule as notebooks: a LOCAL run (WSL/vfkit) picks a file on the user\'s computer (native file button); an SSH run picks data that already lives ON the server (server file browser). Only call execute_pipeline directly when the user explicitly wants to run with the existing config and no input form. ALWAYS open configure_input before running a pipeline so the user enters the inputs - even when that pipeline was run before and its config.yaml still holds the previous run\'s values (the form pre-fills them; the user keeps or changes them).',
-	'RESULTS COME BACK BY THEMSELVES: when check_status sees a pipeline finish cleanly, its outputs are copied into the project at results/<run>/ on the user\'s LOCAL disk automatically - including runs on a remote SSH server. run_code does the same into results/<run-name>/. So never chain read_file (server) + write_file (local) to "bring results back", and do not ask the user for permission to save what is already saved. Just tell them the folder to open in the Analysis tab, and read from the LOCAL path if you need the contents. The only files still on the server are ones the tool explicitly reported as skipped for being over the auto-copy size limit, or as failed - handle those with list_run_outputs + save_results_to_project.',
+	'RESULTS COME BACK BY THEMSELVES: when check_status sees a pipeline finish cleanly, its outputs are copied into the project at results/<run>/ on the user\'s LOCAL disk automatically - including runs on a remote SSH server. run_code does the same into results/<run-name>/. So never chain read_file (server) + write_file (local) to "bring results back", and do not ask the user for permission to save what is already saved. Just tell them the folder to open in the Analysis tab, and read from the LOCAL path if you need the contents. The only files still on the server are ones the tool explicitly reported as skipped for being over the auto-copy size limit, or as failed - handle those with list_run_outputs + save_results_to_project (qoka-run MCP).',
+].join('\n');
+
+/**
+ * Server-level guidance for the qoka-environment MCP, injected at `initialize`.
+ * This server owns the run ENVIRONMENT: which connection is active (local run
+ * environment or SSH), whether it is reachable, and its live resources. Every
+ * code path calls get_workspace_info here FIRST before running.
+ */
+export const ENVIRONMENT_MCP_INSTRUCTIONS = [
+	'This server ("qoka-environment") owns the RUN ENVIRONMENT: the active run connection (the local run environment OR an SSH server), whether it is reachable, and its live resources.',
+	'',
+	'ALWAYS call get_workspace_info FIRST - before writing OR running any code (via run_code / create_notebook on the qoka-run MCP, or execute_pipeline on the qoka-autopipe MCP) - to confirm where code will run. If it says the connection is not reachable / not running, call start_server, then call get_workspace_info again and retry.',
+	'RESOURCES: the run environment auto-uses the host\'s CPU/RAM. Do NOT report resource numbers to the user unless they ask. When you genuinely need to SIZE a heavy run (thread counts, batch/chunk sizes), call get_vm_resources - it MEASURES the active connection live (nproc / free / df), not config. Only call set_vm_resources when the user EXPLICITLY asks to cap cores/memory (e.g. "use only 4 cores"); never proactively.',
+	'HARD RULE: to actually RUN or CHECK code you MUST use a Qoka MCP tool (run_code / create_notebook on qoka-run, or execute_pipeline on qoka-autopipe) - NEVER your own terminal / shell / bash / python. This server only tells you WHERE code runs; it does not run it.',
 ].join('\n');
 
 export function findTool(name: string): ToolDefinition | undefined {
-	return ALL_TOOLS.find(t => t.name === name);
+	return [...ALL_TOOLS, ...ENVIRONMENT_TOOLS, ...RUN_SERVER_TOOLS].find(t => t.name === name);
 }
 
 export { ToolDefinition } from './types';

@@ -127,7 +127,7 @@ if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_
 if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])uv[[:space:]]+(pip|run|add)'; then DENY=1; CODE_ROUTE=1; fi
 if [ "\${DENY}" -eq 0 ] && printf '%s' "\${COMMAND}" | grep -qE '(^|[^a-zA-Z0-9_/])(which|jupyter)[[:space:]]'; then DENY=1; CODE_ROUTE=1; fi
 if [ "\${CODE_ROUTE}" -eq 1 ]; then
-    DENY_REASON="Running or checking code in this shell is blocked - this shell is NOT the Qoka run environment where the user code runs, so the result would be wrong. Use the Qoka MCP tools instead: call get_workspace_info to confirm the active run connection (call start_server if it is not reachable), then run_code for a quick script (e.g. a python that imports a package to check it) or execute_pipeline for a long reproducible pipeline. Do NOT retry this command in the shell."
+    DENY_REASON="Running or checking code in this shell is blocked - this shell is NOT the Qoka run environment where the user code runs, so the result would be wrong. Use the Qoka MCP tools instead: call get_workspace_info to confirm the active run connection (call start_server if it is not reachable), then run_code for a quick script (e.g. a python that imports a package to check it), create_notebook for a cell-by-cell notebook, or execute_pipeline for a long reproducible pipeline. Do NOT retry this command in the shell."
 fi
 
 # Existing credential-leak denials (only when a code-route deny did not fire).

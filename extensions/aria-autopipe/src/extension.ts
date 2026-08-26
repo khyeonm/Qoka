@@ -9,8 +9,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { detectAiProviders } from './detection/claudeCodeDetector';
 import { QokaMcpServer } from './mcp/server';
-import { ALL_TOOLS, AUTOPIPE_MCP_INSTRUCTIONS } from './mcp/tools';
-import { RUN_TOOLS, RUN_MCP_INSTRUCTIONS } from './mcp/tools/run';
+import { ALL_TOOLS, AUTOPIPE_MCP_INSTRUCTIONS, ENVIRONMENT_TOOLS, ENVIRONMENT_MCP_INSTRUCTIONS, RUN_SERVER_TOOLS } from './mcp/tools';
+import { RUN_MCP_INSTRUCTIONS } from './mcp/tools/run';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 import { ConfigService } from './config/configService';
@@ -33,6 +33,10 @@ let mcpServer: QokaMcpServer | undefined;
 // Second MCP server ("qoka-run"): quick one-off code execution on the same
 // built-in server. Started + registered alongside autopipe.
 let runServer: QokaMcpServer | undefined;
+// Third MCP server ("qoka-environment"): the run environment / active connection /
+// resources (get_workspace_info, start_server, get/set_vm_resources). Started +
+// registered alongside the others so code paths call it first without touching autopipe.
+let envServer: QokaMcpServer | undefined;
 interface ClientRegistration {
 	ok: boolean;
 	message: string;
@@ -43,6 +47,10 @@ let lastRegistration: { claude: ClientRegistration; codex: ClientRegistration } 
 	codex: { ok: false, message: 'not attempted', port: null },
 };
 let lastRunRegistration: { claude: ClientRegistration; codex: ClientRegistration } = {
+	claude: { ok: false, message: 'not attempted', port: null },
+	codex: { ok: false, message: 'not attempted', port: null },
+};
+let lastEnvRegistration: { claude: ClientRegistration; codex: ClientRegistration } = {
 	claude: { ok: false, message: 'not attempted', port: null },
 	codex: { ok: false, message: 'not attempted', port: null },
 };
@@ -328,8 +336,13 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Distinct base port from qoka-paper-search (which moved off the old shared
 	// 3760). Bases must be unique per server so the first window gets clean,
 	// predictable numbers; a second window falls straight to an OS-assigned port.
-	runServer = new QokaMcpServer({ name: 'qoka-run', tools: RUN_TOOLS, defaultPort: 3752, instructions: RUN_MCP_INSTRUCTIONS });
+	runServer = new QokaMcpServer({ name: 'qoka-run', tools: RUN_SERVER_TOOLS, defaultPort: 3752, instructions: RUN_MCP_INSTRUCTIONS });
 	context.subscriptions.push({ dispose: () => { void runServer?.stop(); } });
+	// Third MCP: "qoka-environment" - the run environment / connection / resources.
+	// Its own name/port (3810, clear of every other server's base) so the AI lists it
+	// separately and code paths call get_workspace_info here without reaching autopipe.
+	envServer = new QokaMcpServer({ name: 'qoka-environment', tools: ENVIRONMENT_TOOLS, defaultPort: 3810, instructions: ENVIRONMENT_MCP_INSTRUCTIONS });
+	context.subscriptions.push({ dispose: () => { void envServer?.stop(); } });
 
 	// Boot the MCP server only. Registration with the AI clients is NOT done
 	// here: `claude mcp add` is a read-modify-write of ~/.claude.json with no
@@ -352,6 +365,10 @@ export function activate(context: vscode.ExtensionContext): void {
 	// refreshAiRegistrations (keyed off runServer.currentPort), same as autopipe.
 	const runStartPromise = runServer.start();
 	runStartPromise.catch((err) => console.error('[aria-autopipe] qoka-run MCP start failed:', err));
+
+	// Start the qoka-environment server too (same lifecycle as qoka-run).
+	const envStartPromise = envServer.start();
+	envStartPromise.catch((err) => console.error('[aria-autopipe] qoka-environment MCP start failed:', err));
 
 	void (async () => {
 		await vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-autopipe-mcp');
@@ -400,6 +417,16 @@ export function activate(context: vscode.ExtensionContext): void {
 			try { await runStartPromise; } catch { return null; }
 			const port = runServer?.currentPort;
 			return typeof port === 'number' ? { name: 'qoka-run', port } : null;
+		}),
+	);
+
+	// qoka-environment's { name, port } for the startup coordinator's batch config
+	// write. Reported separately because it is a THIRD server on its own port.
+	context.subscriptions.push(
+		vscode.commands.registerCommand('aria.qokaenv.mcpInfo', async () => {
+			try { await envStartPromise; } catch { return null; }
+			const port = envServer?.currentPort;
+			return typeof port === 'number' ? { name: 'qoka-environment', port } : null;
 		}),
 	);
 
@@ -795,6 +822,21 @@ async function refreshAiRegistrations(): Promise<{ changed: boolean; registered:
 					const r = await registerWithCodex(runPort, 'qoka-run');
 					lastRunRegistration.codex = { ...r, port: runPort };
 					if (r.ok) { newlyConnected.push('Codex (qoka-run)'); }
+				}
+			}
+
+			// qoka-environment: the third MCP (run environment / connection / resources).
+			const envPort = envServer?.currentPort;
+			if (envPort) {
+				if (!lastEnvRegistration.claude.ok) {
+					const r = await registerWithClaudeCode(envPort, 'qoka-environment');
+					lastEnvRegistration.claude = { ...r, port: envPort };
+					if (r.ok) { newlyConnected.push('Claude Code (qoka-environment)'); }
+				}
+				if (!lastEnvRegistration.codex.ok) {
+					const r = await registerWithCodex(envPort, 'qoka-environment');
+					lastEnvRegistration.codex = { ...r, port: envPort };
+					if (r.ok) { newlyConnected.push('Codex (qoka-environment)'); }
 				}
 			}
 
