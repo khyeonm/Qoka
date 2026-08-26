@@ -111,7 +111,12 @@ export class QokaMcpServer {
 		return new Promise((resolve, reject) => {
 			const server = http.createServer((req, res) => this.handle(req, res));
 			server.once('error', reject);
-			server.listen(port, HOST, () => {
+			// exclusive:true so a SECOND window binding the same default port fails
+			// with EADDRINUSE (on Windows SO_REUSEADDR would otherwise let both bind
+			// the same 127.0.0.1:<port>, and connections silently route to one window
+			// -> the other window's chat leaks into the wrong project). The failure
+			// then falls through to the listen(0) candidate for a unique OS port.
+			server.listen({ port, host: HOST, exclusive: true }, () => {
 				server.off('error', reject);
 				resolve(server);
 			});

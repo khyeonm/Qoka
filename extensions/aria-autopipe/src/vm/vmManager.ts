@@ -465,7 +465,13 @@ export class VMManager {
 			uid: typeof process.getuid === 'function' ? process.getuid() : 501,
 		} : undefined;
 		if (share) { ensureWorkspaceScaffold(share.hostDir); }
-		const repo = share ? share.mount : GUEST_REPO;
+		// Route the repo through the WHOLE-host mount (/mnt/mac + the project's
+		// absolute path), NOT the single-project /mnt/qoka share. /mnt/qoka can only
+		// ever point at ONE window's project (the VM is shared), so every window would
+		// otherwise resolve to the same project. /mnt/mac is per-window because wsRoot
+		// differs per window - mirroring WSL's /mnt/<drive>/<wsRoot>. Falls back to the
+		// guest's own dir when no folder is open.
+		const repo = wsRoot ? `${VFKIT_HOST_MOUNT}${wsRoot}` : GUEST_REPO;
 		const seed = await this.buildVfkitSeed(key + '.pub', share);
 		const port = await this.freePort();
 		const disk = path.join(this.dir, 'disk.raw');

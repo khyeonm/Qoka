@@ -248,7 +248,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// run dir lives on the server and is SFTP-copied back below.
 				const isWslBuiltin = isBuiltIn && process.platform === 'win32';
 				// The local run environment mounts the OPEN project into the guest - WSL at
-				// /mnt/<drive>/…, Mac vfkit at /mnt/qoka - so the run dir can BE the local
+				// /mnt/<drive>/…, Mac vfkit at /mnt/mac/<wsRoot> - so the run dir can BE the local
 				// results/<id> folder and every output streams straight to the user's disk
 				// as it is written. That survives a mid-run VM crash (the files are already
 				// local) and needs no copy-back. True for BOTH WSL and vfkit whenever a
@@ -268,8 +268,9 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					// local disk, seen through the guest mount. Outputs go there directly; the
 					// script source is written separately into analysis/<id>/ below (CODE and
 					// OUTPUTS kept apart). The guest-visible path differs per backend: WSL sees
-					// the drive at /mnt/<drive>/…; vfkit sees the open project at /mnt/qoka, so
-					// its results dir is workspacePathsFor(...).output_dir (/mnt/qoka/results).
+					// the drive at /mnt/<drive>/…; vfkit sees the whole host disk at /mnt/mac, so
+					// its results dir is workspacePathsFor(...).output_dir (/mnt/mac/<wsRoot>/results,
+					// per-window because the endpoint repo_path is /mnt/mac + this window's wsRoot).
 					localDir = path.join(wsRoot, 'results', id);
 					fs.mkdirSync(localDir, { recursive: true });
 					runDirExpr = isWslBuiltin
@@ -343,6 +344,15 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					const dataBind = dataDir && fs.existsSync(dataDir)
 						? `--ro-bind '${windowsToWsl(dataDir)}' '${windowsToWsl(dataDir)}' `
 						: '';
+					// Qoka skills live in ~/.qoka/claude/skills on the host. run_code runs inside
+					// the sandbox where the rest of the drive is invisible, so a skill's helper
+					// SCRIPTS are absent unless we bind that dir in. Bind it READ-ONLY at its own
+					// WSL path (/mnt/<drive>/…/.qoka/claude/skills) so a run that references a
+					// skill script finds it. Best-effort: only when the dir exists.
+					const skillsDir = path.join(os.homedir(), '.qoka', 'claude', 'skills');
+					const skillsBind = fs.existsSync(skillsDir)
+						? `--ro-bind '${windowsToWsl(skillsDir)}' '${windowsToWsl(skillsDir)}' `
+						: '';
 					execBlock = [
 						// bwrap missing (not yet provisioned) -> run directly with a VISIBLE
 						// warning rather than hard-failing mid-rollout; provisioning installs
@@ -363,7 +373,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 						'    --proc /proc --dev /dev --tmpfs /tmp \\',
 						`    --bind ${sbx} /home/qoka \\`,
 						`    --bind ${runDirExpr} ${runDirExpr} \\`,
-						`    ${dataBind}--chdir ${runDirExpr} --setenv HOME /home/qoka \\`,
+						`    ${dataBind}${skillsBind}--chdir ${runDirExpr} --setenv HOME /home/qoka \\`,
 						'    --unshare-all --share-net --die-with-parent \\',
 						'    bash /home/qoka/.qoka-run.sh > stdout.log 2> stderr.log',
 						'else',
@@ -567,7 +577,7 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'- Step-by-step, inspect-as-you-go, or the user says "노트북"/"notebook"/"cell by cell" -> use create_notebook (qoka-autopipe MCP) to AUTHOR a .ipynb; the user runs the cells with the "Qoka Run Environment" kernel. Do NOT run notebook cells yourself.',
 	'Only SKIP the question when the user already made the intent clear (e.g. "그냥 빨리 돌려줘" / "just run this quickly" -> run_code; "파이프라인으로 만들어줘" -> execute_pipeline; "노트북으로 만들어줘" -> create_notebook). Never fall back to the terminal.',
 	'',
-	'NOTEBOOK DATA PATHS: notebook cells run in the ACTIVE run environment, which has its OWN filesystem. Prefer RELATIVE paths (data/…). create_notebook/edit_notebook auto-rewrite an absolute LOCAL path to the run-env mount (Windows C:\\… -> /mnt/c/…; on Mac vfkit the open project -> /mnt/qoka/…). But when an SSH server is the active connection there is NO local mount - the notebook runs on that server and can only read data that already lives THERE; a local path will fail, so tell the user to use data on the SSH server (or switch to the local run environment). If a cell still errors with FileNotFound on a local path, fix it to the mounted path and tell the user to re-run.',
+	'NOTEBOOK DATA PATHS: notebook cells run in the ACTIVE run environment, which has its OWN filesystem. Prefer RELATIVE paths (data/…). create_notebook/edit_notebook auto-rewrite an absolute LOCAL path to the run-env mount (Windows C:\\… -> /mnt/c/…; on Mac vfkit any Mac path -> /mnt/mac/…). But when an SSH server is the active connection there is NO local mount - the notebook runs on that server and can only read data that already lives THERE; a local path will fail, so tell the user to use data on the SSH server (or switch to the local run environment). If a cell still errors with FileNotFound on a local path, fix it to the mounted path and tell the user to re-run.',
 	'',
 	'Installing packages/tools - always pick the RIGHT manager, and install the manager itself first if it is missing:',
 	'',

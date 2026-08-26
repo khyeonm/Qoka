@@ -68,7 +68,9 @@ export class AriaMethodsSearchMcpServer {
 		return new Promise((resolve, reject) => {
 			const server = http.createServer((req, res) => this.handle(req, res));
 			server.once('error', reject);
-			server.listen(port, HOST, () => {
+			// exclusive:true so a 2nd window can't share the same port on Windows
+			// (SO_REUSEADDR); the collision falls through to a unique listen(0) port.
+			server.listen({ port, host: HOST, exclusive: true }, () => {
 				server.off('error', reject);
 				resolve(server);
 			});

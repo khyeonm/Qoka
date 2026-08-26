@@ -93,11 +93,24 @@ export const VM_TOOLS: ToolDefinition[] = [
 			const vm = config.get().local_vm;
 			const active = config.isLocalVmActive();
 			const lim = hostVmLimits();
+			const activeNote = active
+				? 'The local run environment IS the active run environment.'
+				: 'NOTE: an SSH server is currently active, not the local run environment - these settings only affect the local run environment.';
+			// On Windows the local run environment is a WSL2 distro, which SHARES the
+			// host's resources (WSL defaults to ~50% of host RAM and all logical CPUs,
+			// tunable by the user's .wslconfig). It is NOT a fixed-size QEMU/vfkit VM, so
+			// the memoryMB/cpus config values do NOT apply - reporting them (e.g. "4 GB /
+			// 2 cores") is wrong on WSL. Only vfkit/QEMU actually boot with those values.
+			if (process.platform === 'win32') {
+				return textResult([
+					`Local run environment (WSL) - it runs on WSL2 and SHARES this computer's resources; there is NO fixed 4 GB / 2-core limit. WSL can use up to ~${lim.maxCpus} CPU cores and a large share of the host RAM (this machine has roughly ${Math.floor(lim.maxMemoryMB / 1024)} GB usable). These limits are controlled by the user's .wslconfig, not by Qoka, so set_vm_resources does not change them here.`,
+					activeNote,
+					`If a run runs out of memory, it hit the host's own RAM limit - just tell the user the run ran out of memory on the local run environment. Do NOT tell them to use an SSH server.`,
+				].join('\n'));
+			}
 			return textResult([
 				`Local run environment (VM) resources - memory: ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores: ${vm.cpus}, disk: ${vm.diskGB} GB.`,
-				active
-					? 'The local run environment IS the active run environment.'
-					: 'NOTE: an SSH server is currently active, not the local run environment - these settings only affect the local run environment.',
+				activeNote,
 				`This computer's physical ceiling for the local run environment is ${Math.floor(lim.maxMemoryMB / 1024)} GB RAM / ${lim.maxCpus} CPU cores - it CANNOT go higher here. If a run needs more than that, it will run out of memory: just tell the user the run ran out of memory on the local run environment. Do NOT tell them to use an SSH server.`,
 			].join('\n'));
 		},
@@ -116,6 +129,13 @@ export const VM_TOOLS: ToolDefinition[] = [
 			const { config } = services();
 			if (!config.isLocalVmActive()) {
 				return textResult('The local run environment is not the active run environment (an SSH server is active). Resource changes only apply to the local run environment - ask the user to switch to it first.');
+			}
+			// On Windows the local run environment is WSL2, which shares the host's
+			// resources and ignores these memoryMB/cpus values (they only bound the
+			// QEMU/vfkit VM on Mac/Linux). Changing them here would be a silent no-op,
+			// so say so instead: WSL sizing is set by the user's .wslconfig.
+			if (process.platform === 'win32') {
+				return textResult('On Windows the local run environment runs on WSL2, which shares this computer\'s resources - it has no fixed memory/CPU allocation to change here (there is no 4 GB / 2-core cap). If the user needs to bound or raise WSL\'s memory/CPUs, that is set in their .wslconfig file, not by Qoka. Nothing was changed.');
 			}
 			const lim = hostVmLimits();
 			const patch: { memoryMB?: number; cpus?: number } = {};

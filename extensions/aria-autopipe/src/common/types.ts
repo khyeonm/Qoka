@@ -124,8 +124,9 @@ export function workspacePathsFor(profile: SshProfile): WorkspacePaths {
 	// layout - code in analysis/, outputs in results/, inputs in data/. A REMOTE
 	// SSH server keeps autopipe's original pipelines/ convention (users' remote
 	// dirs are theirs; nothing there changes).
-	// A mounted repo: WSL's /mnt/<drive>/… OR the Mac vfkit virtio-fs share /mnt/qoka.
-	if (/^\/mnt\/([a-z]\/|qoka(\/|$))/i.test(repo)) {
+	// A mounted repo: WSL's /mnt/<drive>/… OR the Mac vfkit whole-host share
+	// /mnt/mac/… (per-window project path) OR the legacy single-project /mnt/qoka.
+	if (/^\/mnt\/([a-z]\/|qoka(\/|$)|mac(\/|$))/i.test(repo)) {
 		return {
 			repo_path: repo,
 			pipelines_dir: `${repo}/analysis`,

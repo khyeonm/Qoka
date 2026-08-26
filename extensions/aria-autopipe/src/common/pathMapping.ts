@@ -19,9 +19,9 @@ import { workspaceFolderPath } from './workspaceSync';
  *
  *   - WSL (Windows built-in): the whole Windows drive is visible under /mnt/<drive>,
  *     so ANY `C:\…` / `D:/…` absolute path maps to `/mnt/c/…` etc. (windowsToWsl).
- *   - vfkit (Mac built-in): only the OPEN PROJECT is shared, mounted at /mnt/qoka,
- *     so a path under the project root maps by prefix; paths outside the project are
- *     not shared into the VM and are left as-is (they are unreachable anyway).
+ *   - vfkit (Mac built-in): the whole host disk is visible under /mnt/mac, so ANY
+ *     absolute Mac path maps to /mnt/mac/<path> (like WSL's /mnt/c). A path under the
+ *     open project therefore stays per-window (each window has its own project root).
  *   - SSH: the notebook runs ON the remote server, which has no mount of the local
  *     disk, so NOTHING is rewritten - the user must reference data that already
  *     lives on that server. Callers surface that as a note.
@@ -31,10 +31,9 @@ import { workspaceFolderPath } from './workspaceSync';
  * unrelated code.
  */
 
-/** Mount point of the Mac vfkit virtio-fs share (see vmManager VFKIT_SHARE_MOUNT). */
-const VFKIT_MOUNT = '/mnt/qoka';
-/** Mount point of the whole-host vfkit share (see vmManager VFKIT_HOST_MOUNT), so a
- *  local file OUTSIDE the open project is still reachable, like WSL's /mnt/c. */
+/** Mount point of the whole-host vfkit share (see vmManager VFKIT_HOST_MOUNT): the
+ *  entire Mac disk is visible here, so any absolute path resolves under it, like
+ *  WSL's /mnt/c. Used for BOTH in-project and outside-project paths (per-window). */
 const VFKIT_HOST_MOUNT = '/mnt/mac';
 
 export type RunPathMappingKind = 'wsl' | 'vfkit' | 'ssh' | 'none';
@@ -61,7 +60,11 @@ export function getRunPathMapping(): RunPathMapping {
 			return { kind: 'wsl', hostRoot };
 		}
 		if (process.platform === 'darwin') {
-			return { kind: 'vfkit', hostRoot, mountRoot: VFKIT_MOUNT };
+			// The open project is reachable in the guest at /mnt/mac + its absolute
+			// host path (the whole-host share), NOT the single-project /mnt/qoka mount
+			// which points at only one window's project. This keeps notebook paths
+			// per-window, matching run_code/execute_pipeline (vmManager repo routing).
+			return { kind: 'vfkit', hostRoot, mountRoot: hostRoot ? `${VFKIT_HOST_MOUNT}${hostRoot}` : undefined };
 		}
 		// A Linux built-in VM has no reliable host-disk mount, so don't rewrite.
 		return { kind: 'none', hostRoot };
@@ -113,9 +116,9 @@ export function rewriteCellPaths(source: string, m: RunPathMapping): string {
  * Map ONE local absolute path (the user's own disk) to where it is reachable
  * inside the active LOCAL run environment, for staging pipeline input data.
  *   - WSL: any drive path -> /mnt/<drive>/… (the whole disk is mounted).
- *   - vfkit: only the OPEN PROJECT is mounted at /mnt/qoka, so a path INSIDE the
- *     project maps to /mnt/qoka/…; anything outside returns an error (the user
- *     must move the file into the project first - we never silently copy).
+ *   - vfkit: the whole host disk is mounted at /mnt/mac, so any absolute Mac path
+ *     (inside or outside the open project) maps to /mnt/mac/<path>. Paths under the
+ *     project root stay per-window because each window has its own project root.
  * `{ path }` on success, `{ error }` when the file is unreachable. SSH/none is a
  * caller error (server paths are used verbatim there), so it echoes the input.
  */
@@ -128,8 +131,8 @@ export function localToRunEnvPath(localPath: string): { path: string } | { error
 	if (m.kind === 'vfkit') {
 		const norm = localPath.replace(/\\/g, '/').replace(/\/+$/, '');
 		const root = (m.hostRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
-		// A file inside the OPEN project maps through the project share (/mnt/qoka), for
-		// consistency with the write-through repo model.
+		// A file inside the OPEN project maps through the whole-host share
+		// (/mnt/mac + the project path), for consistency with the write-through repo model.
 		if (root && m.mountRoot && (norm === root || norm.startsWith(root + '/'))) {
 			return { path: m.mountRoot + norm.slice(root.length) };
 		}
@@ -154,7 +157,7 @@ export function pathMappingNote(m: RunPathMapping): string | undefined {
 		return 'Cell paths pointing at the user\'s Windows disk (e.g. C:\\Users\\…) are automatically rewritten to their WSL form (/mnt/c/…) so they resolve in the run environment.';
 	}
 	if (m.kind === 'vfkit' && m.hostRoot) {
-		return `The open project is mounted into the local VM at ${VFKIT_MOUNT}, and paths under the project root are rewritten to it automatically. Prefer relative paths (data/…) so cells stay portable.`;
+		return `The whole host disk is mounted into the local VM at ${VFKIT_HOST_MOUNT}, and absolute Mac paths are rewritten to it automatically (e.g. ${m.hostRoot} -> ${VFKIT_HOST_MOUNT}${m.hostRoot}). Prefer relative paths (data/…) so cells stay portable.`;
 	}
 	return undefined;
 }
