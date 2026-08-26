@@ -43,10 +43,15 @@ const ARIA_EASY_LIGHT_THEME = 'Light Modern';
 /** Storage key holding the user's theme while easy mode overrides it. */
 const PREV_COLOR_THEME_KEY = 'aria.prevColorTheme';
 
-/** Storage key holding a `{ [folderKey]: mode }` map so each project reopens in
- *  the mode it was last used with. aria.mode is WINDOW-scoped and the per-window
- *  value is a non-persisted MEMORY override, so we remember each folder's mode
- *  here and re-apply it (as a MEMORY override) when that folder opens. */
+/** Per-folder mode is remembered in APPLICATION storage so each project reopens
+ *  in the mode it was last used with (aria.mode itself is a non-persisted, per-
+ *  window MEMORY override). Each folder gets its OWN key (prefix below) rather
+ *  than one shared JSON map: a shared map forced every window to read-modify-
+ *  write the whole thing, so one window saving its mode could clobber another
+ *  window's project entry (the "other window's mode disappears" bug). Per-folder
+ *  keys are independent, so a write only ever touches its own project. */
+const FOLDER_MODE_KEY_PREFIX = 'aria.mode.folder:';
+/** Legacy pre-split single JSON map. Read-only now, kept for one-time fallback. */
 const PER_FOLDER_MODE_KEY = 'aria.mode.perFolder';
 
 /** Stable key for the open project (the multi-root .code-workspace file, else
@@ -59,16 +64,43 @@ function folderModeKey(contextService: IWorkspaceContextService): string | undef
 	return ws.configuration?.toString() ?? ws.folders[0]?.uri.toString();
 }
 
-function readPerFolderModes(storageService: IStorageService): Record<string, AriaMode> {
+function folderModeStorageKey(folderKey: string): string {
+	return FOLDER_MODE_KEY_PREFIX + folderKey;
+}
+
+/** The remembered mode for ONE folder. Reads that folder's own key; falls back
+ *  to the legacy shared map (so a mode saved before the split is still honoured -
+ *  it re-saves under the new key on the next change). */
+function readFolderMode(storageService: IStorageService, folderKey: string): AriaMode | undefined {
+	const own = storageService.get(folderModeStorageKey(folderKey), StorageScope.APPLICATION);
+	if (own === 'easy' || own === 'advanced') {
+		return own;
+	}
 	try {
 		const raw = storageService.get(PER_FOLDER_MODE_KEY, StorageScope.APPLICATION);
-		if (!raw) {
-			return {};
+		if (raw) {
+			const parsed = JSON.parse(raw);
+			const legacy = parsed && typeof parsed === 'object' ? parsed[folderKey] : undefined;
+			if (legacy === 'easy' || legacy === 'advanced') {
+				return legacy;
+			}
 		}
-		const parsed = JSON.parse(raw);
-		return parsed && typeof parsed === 'object' ? parsed as Record<string, AriaMode> : {};
 	} catch {
-		return {};
+		// ignore malformed legacy data
+	}
+	return undefined;
+}
+
+/** Persist ONE folder's mode under its own key - never a shared map, so a write
+ *  for one project can never overwrite another project's remembered mode. */
+function saveFolderMode(storageService: IStorageService, folderKey: string, mode: AriaMode): void {
+	if (mode !== 'easy' && mode !== 'advanced') {
+		return;
+	}
+	try {
+		storageService.store(folderModeStorageKey(folderKey), mode, StorageScope.APPLICATION, StorageTarget.MACHINE);
+	} catch {
+		// Storage unavailable - per-folder memory just won't persist; harmless.
 	}
 }
 
@@ -76,16 +108,10 @@ function readPerFolderModes(storageService: IStorageService): Record<string, Ari
  *  or an unset mode (we only record explicit easy/advanced choices). */
 function savePerFolderMode(storageService: IStorageService, contextService: IWorkspaceContextService, mode: AriaMode): void {
 	const key = folderModeKey(contextService);
-	if (!key || (mode !== 'easy' && mode !== 'advanced')) {
+	if (!key) {
 		return;
 	}
-	const map = readPerFolderModes(storageService);
-	map[key] = mode;
-	try {
-		storageService.store(PER_FOLDER_MODE_KEY, JSON.stringify(map), StorageScope.APPLICATION, StorageTarget.MACHINE);
-	} catch {
-		// Storage unavailable - per-folder memory just won't persist; harmless.
-	}
+	saveFolderMode(storageService, key, mode);
 }
 
 /** Relative luminance (0..1) of a `#rrggbb` or `rgb()/rgba()` color, or undefined. */
@@ -169,7 +195,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 		if (!key) {
 			return; // EMPTY workbench - the Started overlay owns mode selection.
 		}
-		const stored = readPerFolderModes(this.storageService)[key];
+		const stored = readFolderMode(this.storageService, key);
 		const current = this.configurationService.getValue<AriaMode>(ARIA_MODE_SETTING) ?? '';
 		if (stored === 'easy' || stored === 'advanced') {
 			if (stored !== current) {
@@ -513,11 +539,5 @@ CommandsRegistry.registerCommand(ARIA_REMEMBER_MODE_COMMAND, (accessor: Services
 		return;
 	}
 	const storageService = accessor.get(IStorageService);
-	const map = readPerFolderModes(storageService);
-	map[folderKey] = mode;
-	try {
-		storageService.store(PER_FOLDER_MODE_KEY, JSON.stringify(map), StorageScope.APPLICATION, StorageTarget.MACHINE);
-	} catch {
-		// Storage unavailable - the project just opens in its default mode.
-	}
+	saveFolderMode(storageService, folderKey, mode);
 });
