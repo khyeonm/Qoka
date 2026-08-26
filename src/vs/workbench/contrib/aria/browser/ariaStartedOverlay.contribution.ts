@@ -1744,19 +1744,25 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 * where the user drafts the roadmap with Claude Code.
 	 */
 	private async createNewProject(): Promise<void> {
-		const target = await this.fileDialogService.showSaveDialog({
-			title: 'New project - choose a location and folder name',
-			saveLabel: 'Create project',
+		// Folder picker - the same dialog as Open Project. The native folder dialog
+		// carries a built-in "New folder" button (showOpenDialog always adds the
+		// 'createDirectory' property), so the user creates a fresh project folder
+		// there and selects it. New vs Open differ by title, confirm label, and
+		// what happens after: New scaffolds + seeds a roadmap, Open just opens.
+		const result = await this.fileDialogService.showOpenDialog({
+			canSelectFiles: false,
+			canSelectFolders: true,
+			canSelectMany: false,
+			title: 'New project - choose or create a folder',
+			openLabel: 'Create project',
 		});
-		if (!target) {
+		if (!result || result.length === 0) {
 			// User cancelled - keep the overlay up.
 			return;
 		}
-		// Canonicalise the save-dialog target into a plain file:// folder URI, the
-		// same shape openWindow gets for recent/Open Project (which work). A raw
-		// showSaveDialog URI can differ enough on Windows that the reload lands in
-		// an empty window and bounces back to the picker.
-		const folderUri = URI.file(target.fsPath);
+		// Plain file:// folder URI - the same shape openWindow gets for
+		// recent / Open Project (which work).
+		const folderUri = URI.file(result[0].fsPath);
 		pushTrail(`createNewProject: target=${folderUri.fsPath}`);
 		// Create the project FOLDER via the file service (main process): immediate
 		// and reliable. Routing this through the aria-roadmap command instead meant
@@ -1765,8 +1771,13 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// reloaded into an empty window and Started bounced back to the picker.
 		// (After a sign-out the extension is already active, so it worked then.)
 		try {
-			await this.fileService.createFolder(folderUri);
-			pushTrail('createNewProject: folder created OK');
+			// The folder already exists (picked, or made via the dialog's New
+			// folder button); createFolder throws on an existing directory, so
+			// only create it when it is somehow missing.
+			if (!(await this.fileService.exists(folderUri))) {
+				await this.fileService.createFolder(folderUri);
+			}
+			pushTrail('createNewProject: folder ready OK');
 		} catch (e) {
 			pushTrail(`createNewProject: createFolder FAILED - ${(e as Error).message}`);
 			this.notificationService.notify({
