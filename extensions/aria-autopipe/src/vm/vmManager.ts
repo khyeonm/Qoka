@@ -132,9 +132,15 @@ export class VMManager {
 	private hostSafeSpec(): { cpus: number; memoryMB: number } {
 		const vm = this.config.get().local_vm;
 		const lim = this.hostLimits();
+		// 0 = AUTO: boot at the host's own capacity (all cores; the RAM ceiling
+		// hostVmLimits already caps under physical). A positive value is an explicit
+		// user cap from set_vm_resources, which we clamp to the host so a config
+		// carried from a bigger box can never exceed this machine and crash launch.
+		const cpus = vm.cpus > 0 ? Math.min(vm.cpus, lim.maxCpus) : lim.maxCpus;
+		const memoryMB = vm.memoryMB > 0 ? Math.min(vm.memoryMB, lim.maxMemoryMB) : lim.maxMemoryMB;
 		return {
-			cpus: Math.max(1, Math.min(vm.cpus, lim.maxCpus)),
-			memoryMB: Math.max(1024, Math.min(vm.memoryMB, lim.maxMemoryMB)),
+			cpus: Math.max(1, cpus),
+			memoryMB: Math.max(1024, memoryMB),
 		};
 	}
 

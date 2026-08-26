@@ -123,6 +123,63 @@ export function uniqueRunName(base: string): string {
 	return slug;
 }
 
+export interface RunEnvResources {
+	cpus: number | null;
+	memTotalMB: number | null;
+	memAvailMB: number | null;
+	diskFreeGB: number | null;
+	diskTotalGB: number | null;
+}
+
+/**
+ * LIVE-detect the ACTIVE run environment's REAL resources by probing INSIDE it
+ * (works for WSL, Mac vfkit and any SSH host - all go through ssh.run). Never
+ * uses Qoka's config values, which are meaningless on WSL (it follows .wslconfig)
+ * and stale elsewhere. Best-effort: a field is null when its probe failed. One
+ * login runs all three probes: nproc, /proc/meminfo (kB), df (1K blocks) on the
+ * filesystem that holds the run dir (repo_path).
+ */
+export async function detectRunEnvResources(profile: SshProfile): Promise<RunEnvResources> {
+	const { ssh } = services();
+	const repo = (profile.repo_path || '/').replace(/'/g, '');
+	const cmd = [
+		`printf 'CPUS %s\\n' "$(nproc 2>/dev/null || echo)"`,
+		`awk '/^MemTotal:/{printf "MEMTOTAL %s\\n",$2} /^MemAvailable:/{printf "MEMAVAIL %s\\n",$2}' /proc/meminfo 2>/dev/null`,
+		`df -Pk '${repo}' 2>/dev/null | awk 'NR==2{printf "DISK %s %s\\n",$2,$4}'`,
+	].join('; ');
+	const res: RunEnvResources = { cpus: null, memTotalMB: null, memAvailMB: null, diskFreeGB: null, diskTotalGB: null };
+	try {
+		const out = await ssh.run(profile, cmd, { timeoutMs: 15000 });
+		for (const line of (out.stdout || '').split('\n')) {
+			const cpu = line.match(/^CPUS\s+(\d+)/);
+			if (cpu) { res.cpus = parseInt(cpu[1], 10); continue; }
+			const mt = line.match(/^MEMTOTAL\s+(\d+)/);
+			if (mt) { res.memTotalMB = Math.round(parseInt(mt[1], 10) / 1024); continue; }
+			const ma = line.match(/^MEMAVAIL\s+(\d+)/);
+			if (ma) { res.memAvailMB = Math.round(parseInt(ma[1], 10) / 1024); continue; }
+			const dk = line.match(/^DISK\s+(\d+)\s+(\d+)/);
+			if (dk) {
+				res.diskTotalGB = Math.round((parseInt(dk[1], 10) / (1024 * 1024)) * 10) / 10;
+				res.diskFreeGB = Math.round((parseInt(dk[2], 10) / (1024 * 1024)) * 10) / 10;
+			}
+		}
+	} catch { /* probes failed - leave nulls */ }
+	return res;
+}
+
+/** One-line, model-facing summary of live-detected run-env resources. Empty
+ *  string when nothing could be read (so callers can omit the line). */
+export function formatRunEnvResources(r: RunEnvResources): string {
+	const parts: string[] = [];
+	if (r.cpus !== null) { parts.push(`${r.cpus} CPU cores`); }
+	if (r.memTotalMB !== null) {
+		const avail = r.memAvailMB !== null ? `, ${(r.memAvailMB / 1024).toFixed(1)} GB free now` : '';
+		parts.push(`${(r.memTotalMB / 1024).toFixed(1)} GB RAM${avail}`);
+	}
+	if (r.diskFreeGB !== null) { parts.push(`${r.diskFreeGB} GB disk free`); }
+	return parts.join(', ');
+}
+
 /**
  * True when the run target's workspace lives on a host mount - WSL's Windows
  * mount (`/mnt/<drive>/…`) OR the Mac vfkit whole-host share (`/mnt/mac/…`, the

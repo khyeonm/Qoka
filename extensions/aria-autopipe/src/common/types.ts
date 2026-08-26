@@ -49,16 +49,20 @@ export const LOCAL_VM_ID = '__local_vm__';
 /** User-tunable resources for the built-in local VM. Defaults adapt to the host
  *  in VMManager; these are the persisted overrides. */
 export interface LocalVmConfig {
-	/** Guest RAM in MB. */
+	/** Guest RAM in MB. 0 = AUTO (use the host's capacity); a positive value is an
+	 *  explicit user cap set via set_vm_resources. */
 	memoryMB: number;
-	/** Guest vCPUs. */
+	/** Guest vCPUs. 0 = AUTO (all host cores); a positive value is an explicit cap. */
 	cpus: number;
 	/** Max virtual disk in GB - sparse, so only the actually-stored bytes count. */
 	diskGB: number;
 }
 
 export function defaultLocalVmConfig(): LocalVmConfig {
-	return { memoryMB: 4096, cpus: 2, diskGB: 60 };
+	// AUTO by default (0/0): no fixed 4 GB / 2-core cap. VMManager.hostSafeSpec()
+	// boots vfkit/QEMU at the host's own capacity; only an explicit set_vm_resources
+	// stores a positive cap. (WSL ignores these and follows .wslconfig.)
+	return { memoryMB: 0, cpus: 0, diskGB: 60 };
 }
 
 /** Physical ceiling of the machine the built-in VM runs on. The VM is local, so

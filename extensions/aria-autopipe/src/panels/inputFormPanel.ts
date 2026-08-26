@@ -49,10 +49,6 @@ export async function openInputFormPanel(pipelineName: string, descriptions: Rec
 	const originalYaml = catRes.stdout;
 	const fields = parseConfigFields(originalYaml, descriptions);
 
-	// How many cores the run target actually has, so the Cores field is bounded to a
-	// real number instead of an arbitrary one the machine cannot honour.
-	const nprocRes = await ssh.run(profile, 'nproc 2>/dev/null || echo 4');
-	const availCores = Math.max(1, parseInt((nprocRes.stdout || '').trim(), 10) || 4);
 	// Where the SSH file browser starts (the configured project dir, else home).
 	const serverStart = (workspacePathsFor(profile).repo_path || '').trim() || '$HOME';
 
@@ -64,9 +60,9 @@ export async function openInputFormPanel(pipelineName: string, descriptions: Rec
 	);
 	openPanels.set(name, panel);
 	panel.onDidDispose(() => { openPanels.delete(name); });
-	panel.webview.html = renderHtml(panel.webview, name, fields, isBuiltIn, availCores);
+	panel.webview.html = renderHtml(panel.webview, name, fields, isBuiltIn);
 
-	panel.webview.onDidReceiveMessage(async (msg: { type?: string; key?: string; dir?: string; runName?: string; cores?: number; values?: Record<string, string>; noData?: boolean }) => {
+	panel.webview.onDidReceiveMessage(async (msg: { type?: string; key?: string; dir?: string; runName?: string; values?: Record<string, string>; noData?: boolean }) => {
 		try {
 			if (msg?.type === 'aria.input.pickLocal' && msg.key) {
 				const uris = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Use this file' });
@@ -106,13 +102,12 @@ async function handleSave(
 	configPath: string,
 	originalYaml: string,
 	fields: ConfigField[],
-	msg: { runName?: string; cores?: number; values?: Record<string, string>; noData?: boolean },
+	msg: { runName?: string; values?: Record<string, string>; noData?: boolean },
 ): Promise<void> {
 	const { ssh } = services();
 	const runName = String(msg.runName ?? '').trim();
 	if (!runName) { panel.webview.postMessage({ type: 'aria.input.error', error: 'Please enter a run name.' }); return; }
-	const cores = Number.isInteger(msg.cores) && Number(msg.cores) > 0 ? Number(msg.cores) : 4;
-	const values = msg.values ?? {};
+		const values = msg.values ?? {};
 	// The user checked "I don't have the input data yet": skip staging the file fields
 	// entirely and record which keys still need data, so the assistant asks where to
 	// download it (via prepare_input) before the run instead of running now.
@@ -172,7 +167,7 @@ async function handleSave(
 	// actual run, matching "click Save, then tell the chat to run it".
 	const markerPath = configPath.replace(/[^/]*$/, '.qoka-configured.json');
 	const marker = JSON.stringify({
-		run_name: runName, cores, input_dir: inputDir, image_name: imageName,
+		run_name: runName, input_dir: inputDir, image_name: imageName,
 		needs_data: noData && dataKeys.length > 0, data_keys: dataKeys,
 	});
 	try {
@@ -188,7 +183,7 @@ function escapeHtml(s: string): string {
 	return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function renderHtml(webview: vscode.Webview, pipelineName: string, fields: ConfigField[], isBuiltIn: boolean, availCores: number): string {
+function renderHtml(webview: vscode.Webview, pipelineName: string, fields: ConfigField[], isBuiltIn: boolean): string {
 	const csp = `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'unsafe-inline'; connect-src ${webview.cspSource}; img-src ${webview.cspSource} data:`;
 	const defaultRun = `${pipelineName}-run`;
 	const serverHint = !isBuiltIn;
@@ -278,11 +273,6 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 				<label><span class="fkey">Run name</span></label>
 				<div class="fdesc">Names this run's output folder (results/&lt;name&gt;/), its log file and container.</div>
 				<input type="text" id="runName" value="${escapeHtml(defaultRun)}">
-			</div>
-			<div class="field">
-				<label><span class="fkey">Cores</span></label>
-				<div class="fdesc">CPU cores for this run (available: ${availCores}).</div>
-				<input type="number" id="cores" value="${availCores}" min="1" max="${availCores}">
 			</div>
 		</div>
 		<div class="nodata"><label class="cbx"><input type="checkbox" id="noData"> The input data is not on the ${serverHint ? 'server' : 'computer'} yet - I will download it with the assistant. (Clears and disables the file fields; the assistant will ask where to get the data.)</label></div>
@@ -386,11 +376,10 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 			document.querySelectorAll('[data-key]').forEach(el => { values[el.getAttribute('data-key')] = el.value; });
 			const runName = $('runName').value.trim();
 			if (!runName) { showErr('Please enter a run name.'); return; }
-			const cores = parseInt($('cores').value, 10) || 4;
-			const noDataChecked = !!(noData && noData.checked);
+						const noDataChecked = !!(noData && noData.checked);
 			document.body.classList.add('busy');
 			$('save').textContent = 'Saving…';
-			vscode.postMessage({ type: 'aria.input.save', runName, cores, values, noData: noDataChecked });
+			vscode.postMessage({ type: 'aria.input.save', runName, values, noData: noDataChecked });
 		};
 
 		window.addEventListener('message', (e) => {

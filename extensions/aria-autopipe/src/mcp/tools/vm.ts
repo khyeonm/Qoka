@@ -7,6 +7,7 @@ import { ToolDefinition, textResult } from './types';
 import { services } from '../../common/services';
 import { hostVmLimits } from '../../common/types';
 import { ensureBuiltinServer, isReachable, restartBuiltinServer } from '../../runtime/builtinServer';
+import { detectRunEnvResources, formatRunEnvResources } from '../../common/workspaceSync';
 
 // Local run environment (local QEMU VM) resource tools. These ONLY apply when the
 // active run environment is the local VM - an SSH server's resources are the
@@ -86,38 +87,34 @@ export const VM_TOOLS: ToolDefinition[] = [
 	},
 	{
 		name: 'get_vm_resources',
-		description: 'Read the local run environment resource allocation - memory (MB), CPU cores, disk (GB). Only relevant when the local run environment is the ACTIVE run environment (not an SSH server). Call this to check capacity before running a heavy pipeline, or when a run fails with an out-of-memory error.',
+		description: 'Measure the ACTIVE run connection\'s REAL resources - CPU cores, RAM, free disk - by probing INSIDE it live (works for the local run environment AND an SSH server). Values are detected at call time (nproc / free / df), never Qoka config. Call this only when you need to SIZE a heavy run (thread counts, batch/chunk sizes) or when a run fails out of memory - do NOT report the numbers to the user unless they ask.',
 		inputSchema: { type: 'object', properties: {} },
 		handler: async () => {
 			const { config } = services();
-			const vm = config.get().local_vm;
-			const active = config.isLocalVmActive();
-			const lim = hostVmLimits();
-			const activeNote = active
-				? 'The local run environment IS the active run environment.'
-				: 'NOTE: an SSH server is currently active, not the local run environment - these settings only affect the local run environment.';
-			// On Windows the local run environment is a WSL2 distro, which SHARES the
-			// host's resources (WSL defaults to ~50% of host RAM and all logical CPUs,
-			// tunable by the user's .wslconfig). It is NOT a fixed-size QEMU/vfkit VM, so
-			// the memoryMB/cpus config values do NOT apply - reporting them (e.g. "4 GB /
-			// 2 cores") is wrong on WSL. Only vfkit/QEMU actually boot with those values.
-			if (process.platform === 'win32') {
-				return textResult([
-					`Local run environment (WSL) - it runs on WSL2 and SHARES this computer's resources; there is NO fixed 4 GB / 2-core limit. WSL can use up to ~${lim.maxCpus} CPU cores and a large share of the host RAM (this machine has roughly ${Math.floor(lim.maxMemoryMB / 1024)} GB usable). These limits are controlled by the user's .wslconfig, not by Qoka, so set_vm_resources does not change them here.`,
-					activeNote,
-					`If a run runs out of memory, it hit the host's own RAM limit - just tell the user the run ran out of memory on the local run environment. Do NOT tell them to use an SSH server.`,
-				].join('\n'));
+			const profile = config.activeProfile();
+			if (!profile) {
+				if (config.isLocalVmActive()) {
+					return textResult('The local run environment is selected but not running yet, so its resources cannot be measured. Call start_server, wait ~60-90s, then retry.');
+				}
+				return textResult('No run connection is active. Select the local run environment or an SSH server first, then retry.');
 			}
-			return textResult([
-				`Local run environment (VM) resources - memory: ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores: ${vm.cpus}, disk: ${vm.diskGB} GB.`,
-				activeNote,
-				`This computer's physical ceiling for the local run environment is ${Math.floor(lim.maxMemoryMB / 1024)} GB RAM / ${lim.maxCpus} CPU cores - it CANNOT go higher here. If a run needs more than that, it will run out of memory: just tell the user the run ran out of memory on the local run environment. Do NOT tell them to use an SSH server.`,
-			].join('\n'));
+			const r = await detectRunEnvResources(profile);
+			const summary = formatRunEnvResources(r);
+			if (!summary) {
+				return textResult('Could not measure the run environment resources right now (the probe returned nothing). Try start_server, then retry.');
+			}
+			const wslNote = process.platform === 'win32' && config.isLocalVmActive()
+				? ' On Windows this is a WSL2 environment sharing the host; its ceiling follows the user\'s .wslconfig, not Qoka.'
+				: '';
+			return textResult(
+				`Run environment resources (measured live inside the active connection): ${summary}.${wslNote}`
+				+ ' Use these to size the run efficiently (thread counts, batch/chunk sizes). Do NOT report these numbers to the user unless they explicitly ask. If a run runs out of memory, just tell the user it ran out of memory on the run environment; do NOT suggest switching servers.',
+			);
 		},
 	},
 	{
 		name: 'set_vm_resources',
-		description: "Change the local run environment memory (memoryMB) and/or CPU cores (cpus). ONLY for the local run environment, never SSH servers. You MUST confirm the new values with the user BEFORE calling. Values are bounded by the host machine's physical RAM/CPU. Changes apply after the local run environment restarts. Use this when a pipeline fails for lack of memory: propose a higher memoryMB, confirm with the user, then set it and tell them to restart the local run environment. The local run environment is HARD-CAPPED by this computer's physical RAM/CPU (this tool reports the cap when you hit it). If a run needs MORE than that maximum, do NOT keep bumping memoryMB and do NOT tell the user to use an SSH server - simply tell them the run ran out of memory on the local run environment.",
+		description: "CAP the local run environment to a specific memory (memoryMB) and/or CPU core (cpus) limit. Call this ONLY when the user EXPLICITLY asks to restrict resources (e.g. \"use only 4 cores / 8 GB\") - NEVER proactively. By default the local run environment auto-uses the host resources efficiently, so there is normally nothing to set. ONLY for the local run environment, never SSH servers. On Windows (WSL2) this does not apply - WSL sizing is set by the user .wslconfig, not here. Values are bounded by the host physical RAM/CPU. Changes apply after the local run environment restarts.",
 		inputSchema: {
 			type: 'object',
 			properties: {

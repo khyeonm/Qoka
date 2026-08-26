@@ -5,23 +5,14 @@
 
 import { ToolDefinition, textResult } from './types';
 import { services } from '../../common/services';
-import { workspacePathsFor, hostVmLimits } from '../../common/types';
+import { workspacePathsFor } from '../../common/types';
 import { builtInLabel } from '../../common/dockerEnv';
 
-/**
- * One line describing the built-in run environment's resources, for the AI.
- * On Windows the run environment is WSL2, which SHARES the host's resources (no
- * fixed memoryMB/cpus - those only bound the Mac/Linux QEMU/vfkit VM), so
- * reporting the config's "4 GB / 2 cores" there is wrong. Only Mac/Linux quote
- * the configured VM size.
- */
-function builtInResourceLine(vm: { memoryMB: number; cpus: number; diskGB: number }): string {
-	if (process.platform === 'win32') {
-		const lim = hostVmLimits();
-		return `Run environment resources: it runs on WSL2 and SHARES this computer's resources - there is NO fixed 4 GB / 2-core limit. WSL can use up to ~${lim.maxCpus} CPU cores and a large share of the host RAM (roughly ${Math.floor(lim.maxMemoryMB / 1024)} GB usable), tuned by the user's .wslconfig, not by Qoka.`;
-	}
-	return `Configured resources: memory ${vm.memoryMB} MB (~${Math.round(vm.memoryMB / 1024)} GB), CPU cores ${vm.cpus}, disk ${vm.diskGB} GB. These reflect the user's current UI settings - honour them for this run; if the run needs more, propose set_vm_resources.`;
-}
+// The run environment auto-uses the host's resources; get_workspace_info does NOT
+// probe or report resource numbers (it is called before every run, and an extra
+// probe per call would re-add the "extra SSH login per run -> rate-limit refusal"
+// problem below). To MEASURE real resources on demand, call get_vm_resources.
+const RESOURCE_NOTE = 'The run environment auto-uses the host\'s CPU/RAM; do NOT report resource numbers to the user unless they ask. If you need to size a heavy run, call get_vm_resources (it measures live).';
 import { lastKnownReachable } from '../../runtime/builtinServer';
 import {
 	SNAKEFILE_TEMPLATE, DOCKERFILE_TEMPLATE, CONFIG_YAML_TEMPLATE,
@@ -54,12 +45,10 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				// it isn't running yet, activeProfile() is null - but do NOT tell the
 				// AI to add an SSH server; guide it to start the built-in one instead.
 				if (config.isLocalVmActive()) {
-					const vm = cfg.local_vm;
 					return textResult([
 						`Run environment: ${builtInLabel()} is selected, but it is NOT running yet, so there is no reachable endpoint right now.`,
 						'Do NOT ask the user to add an SSH server, and do NOT tell them to press a button - that is not the flow.',
 						'If it is not running, call the start_server tool to start AND verify it (it restarts and re-checks the connection, and on Windows tells you to check WSL/Ubuntu if it keeps failing). Tell the user it is starting, wait ~60-90 seconds, then call get_workspace_info again and retry. If it is already downloading/booting, just wait and retry.',
-						builtInResourceLine(vm),
 						'',
 						`Registry: ${cfg.registry_url}`,
 						`GitHub: ${cfg.github?.login ? `connected as @${cfg.github.login}` : 'not connected'}`,
@@ -95,8 +84,8 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 				`SSH: ${profile.username}@${profile.host}:${profile.port}`,
 				`Connection: ${reachable ? 'reachable (checked moments ago)' : 'not verified just now - just run; if it cannot connect the run will say so, and start_server can re-establish it'}`,
 				config.isLocalVmActive()
-					? `Run environment: ${builtInLabel()} - ${builtInResourceLine(cfg.local_vm)}`
-					: 'Run environment: user-provided SSH server.',
+					? `Run environment: ${builtInLabel()}. ${RESOURCE_NOTE}`
+					: `Run environment: user-provided SSH server. ${RESOURCE_NOTE}`,
 				`Repo path: ${paths.repo_path}`,
 				`Pipelines: ${paths.pipelines_dir}`,
 				`Input: ${paths.input_dir}`,
