@@ -197,12 +197,17 @@ function mergeIntoDefaults(raw: unknown): AriaConfig {
 	const r = raw as Partial<AriaConfig>;
 	const rawVm = (r.local_vm ?? {}) as Partial<LocalVmConfig>;
 	const dv = defaultLocalVmConfig();
+	// Migrate the pre-auto fixed default (4096 MB / 2 cores) to AUTO (0): existing
+	// users had that size persisted, so without this they keep booting 4 GB / 2 cores
+	// instead of the host's full capacity. A genuine set_vm_resources cap is almost
+	// never exactly this pair (and is re-settable), so only the old default is reset.
+	const isOldFixedDefault = rawVm.memoryMB === 4096 && rawVm.cpus === 2;
 	return {
 		ssh_profiles: Array.isArray(r.ssh_profiles) ? r.ssh_profiles : defaults.ssh_profiles,
 		active_ssh_profile_id: typeof r.active_ssh_profile_id === 'string' ? r.active_ssh_profile_id : defaults.active_ssh_profile_id,
 		local_vm: {
-			memoryMB: typeof rawVm.memoryMB === 'number' && rawVm.memoryMB > 0 ? rawVm.memoryMB : dv.memoryMB,
-			cpus: typeof rawVm.cpus === 'number' && rawVm.cpus > 0 ? rawVm.cpus : dv.cpus,
+			memoryMB: !isOldFixedDefault && typeof rawVm.memoryMB === 'number' && rawVm.memoryMB > 0 ? rawVm.memoryMB : dv.memoryMB,
+			cpus: !isOldFixedDefault && typeof rawVm.cpus === 'number' && rawVm.cpus > 0 ? rawVm.cpus : dv.cpus,
 			diskGB: typeof rawVm.diskGB === 'number' && rawVm.diskGB > 0 ? rawVm.diskGB : dv.diskGB,
 		},
 		registry_url: typeof r.registry_url === 'string' && r.registry_url ? r.registry_url : defaults.registry_url,
