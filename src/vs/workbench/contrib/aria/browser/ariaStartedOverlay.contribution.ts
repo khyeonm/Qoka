@@ -960,10 +960,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			await this.configurationService.updateValue(ARIA_AI_PROVIDER_SETTING, setting, {}, ConfigurationTarget.APPLICATION, { handleDirtyFile: 'save', donotNotifyError: true });
 		} catch { /* proceed even if persisting fails; 'auto' resolution covers it */ }
 
-		// Install the chosen provider(s)' CLI and register the MCP servers NOW,
-		// behind a loading page, so the tools are ready before the user reaches the
-		// chat. Idempotent, so a later relaunch (already installed) is fast and never
-		// shows this. Failsafe timeout so a stuck install can't trap the user here.
+		// Install the chosen provider(s)' CLI NOW, behind a loading page, so the
+		// binary is ready before the user reaches the chat. MCP servers are NOT
+		// registered here: picking a project reloads into a new window where every
+		// Qoka MCP server gets a FRESH port, so any registration now would be stale
+		// at once. The project window is where MCP registration happens (its own
+		// loader holds until every server is registered). Idempotent, so a later
+		// relaunch (CLI already installed) is fast and never shows this. Failsafe
+		// timeout so a stuck install can't trap the user here.
 		this.setupInProgress = true;
 		this.rerender();
 		try {
