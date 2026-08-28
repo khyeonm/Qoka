@@ -161,12 +161,16 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					// minutes-long WSL setup delayed the chat past registration; Mac has no such
 					// delay. So loop until allRegistered is genuinely true - THAT is the "done"
 					// signal - with a safety cap so a truly-broken server can't hang the loader.
+					const regT0 = Date.now();
+					let regAttempts = 0;
 					const regDeadline = Date.now() + 20000;
 					do {
+						regAttempts++;
 						allRegistered = await this._registerMcpFast(usable);
 						if (allRegistered) { break; }
 						await timeout(1000);
 					} while (Date.now() < regDeadline);
+					console.log(`[qoka-timing] MCP registration TOTAL: ${Date.now() - regT0}ms, outerAttempts=${regAttempts}, allRegistered=${allRegistered}`);
 					// Prune pre-rename duplicate MCP entries so tools don't show twice.
 					try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
 				} finally {
@@ -182,7 +186,15 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			// provisioning) is set up by aria-autopipe concurrently; stream its progress
 			// into the loader text. _waitForBuiltinRunEnv clears once the account exists
 			// (provisioning finishes in the background).
-			await Promise.all([cliMcp, this._waitForBuiltinRunEnv(setLoadingText, showLoadingEscape)]);
+			const prepT0 = Date.now();
+			const runEnvT0 = Date.now();
+			const runEnvDone = this._waitForBuiltinRunEnv(setLoadingText, showLoadingEscape)
+				.then(() => console.log(`[qoka-timing] run environment wait: ${Date.now() - runEnvT0}ms`));
+			await Promise.all([
+				cliMcp.then(() => console.log(`[qoka-timing] CLI+MCP chain: ${Date.now() - prepT0}ms`)),
+				runEnvDone,
+			]);
+			console.log(`[qoka-timing] "Preparing Qoka" TOTAL (loader visible): ${Date.now() - prepT0}ms`);
 			this._setupGateDone = true;
 			hideLoading();
 
@@ -269,6 +281,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			// below - instead of being left to the fragile per-extension CLI path
 			// (concurrent `codex mcp add` writes to a single file, and it skips a
 			// name that's already present, so it leaves a DEAD port in place).
+			const fastT0 = Date.now();
 			let servers: { name: string; port: number }[] = [];
 			for (let pass = 0; pass < 4; pass++) {
 				const infos = await Promise.all(this._mcpInfoCommands.map(cmd =>
@@ -301,13 +314,19 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				// Done only when the FULL set reported AND all registered; otherwise
 				// still run the fallback to catch servers that had not bound yet.
 				if (res && res.allRegistered === true && servers.length === this._mcpInfoCommands.length) {
+					console.log(`[qoka-timing] MCP fast-path OK: ${servers.length}/${this._mcpInfoCommands.length} servers, ${Date.now() - fastT0}ms (no fallback)`);
 					return true;
 				}
+				console.log(`[qoka-timing] MCP fast-path INCOMPLETE: reported ${servers.length}/${this._mcpInfoCommands.length}, allRegistered=${res?.allRegistered} (${Date.now() - fastT0}ms) -> CLI FALLBACK`);
 			}
-		} catch {
+		} catch (e) {
+			console.log(`[qoka-timing] MCP fast-path THREW -> CLI FALLBACK: ${e instanceof Error ? e.message : String(e)}`);
 			// fall through to the CLI reconcile path
 		}
-		return this._registerRemainingMcp();
+		const fbT0 = Date.now();
+		const fbResult = await this._registerRemainingMcp();
+		console.log(`[qoka-timing] MCP CLI fallback ran: ${Date.now() - fbT0}ms, allRegistered=${fbResult}`);
+		return fbResult;
 	}
 
 	/** On-demand reconnect from Settings (the account menu). Offers ONLY the
@@ -580,10 +599,15 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 *  installProviderCli clears its per-session guard when an install fails, so the
 	 *  second call genuinely re-runs. Returns whether the CLI is present afterwards. */
 	private async _installAndVerifyCli(provider: ConcreteProvider): Promise<boolean> {
+		const t0 = Date.now();
 		for (let attempt = 0; attempt < 2; attempt++) {
 			try { await this.commandService.executeCommand('aria.provider.installCli', provider); } catch { /* reported below via availability */ }
-			if (await this._cliAvailable(provider)) { return true; }
+			if (await this._cliAvailable(provider)) {
+				console.log(`[qoka-timing] CLI install/verify (${provider}): ${Date.now() - t0}ms (attempt ${attempt + 1})`);
+				return true;
+			}
 		}
+		console.log(`[qoka-timing] CLI install/verify (${provider}) FAILED after ${Date.now() - t0}ms`);
 		return false;
 	}
 
