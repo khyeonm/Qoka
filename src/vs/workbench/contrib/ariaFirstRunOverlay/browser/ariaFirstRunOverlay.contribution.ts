@@ -51,17 +51,6 @@ const POST_TRACKING_SETTLE_MS = 2000;
 const INITIAL_SETTLE_MS = 30000;
 
 /**
- * Minimum visible time after the FIRST beginTracking call. Without this,
- * a quick-activating extension (paper-search via onCommand) finishes
- * before a slower one (autopipe via onStartupFinished) even starts -
- * tracking goes empty, settle fires, overlay fades out, then the slow
- * extension begins and the overlay snaps back. The user-visible effect
- * is a flicker. Holding the overlay for at least 5s after the first
- * tracking call gives every reasonable extension a chance to register.
- */
-const MIN_DURATION_AFTER_FIRST_TRACK_MS = 5000;
-
-/**
  * Hard upper bound after the FIRST beginTracking call. If we are still
  * waiting on a tracker by the time this elapses (e.g. an extension that
  * began but never marked complete), give up and dispatch the summaries
@@ -190,8 +179,8 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 	private summaries: SetupSummary[] = [];
 	private settleTimer: ReturnType<typeof setTimeout> | undefined;
 	private finished = false;
-	/** Wall-clock time of the first beginTracking. Used to enforce
-	 *  MIN_DURATION_AFTER_FIRST_TRACK_MS so we don't flicker. */
+	/** Wall-clock time of the first beginTracking. Used only for the
+	 *  MAX_DURATION cap now (there is no minimum-visible floor). */
 	private firstTrackAt: number | undefined;
 	/** Known trackers that have not yet markComplete'd. We refuse to
 	 *  finish while this is non-empty (subject to MAX_DURATION as a
@@ -334,8 +323,20 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		if (this.tracking.size === 0) {
 			if (this.settleTimer) {
 				clearTimeout(this.settleTimer);
+				this.settleTimer = undefined;
 			}
-			this.settleTimer = setTimeout(() => this.finish(), POST_TRACKING_SETTLE_MS);
+			// All known MCP trackers have reported (knownPending empty) and nothing
+			// else is in flight: setup is genuinely done, so finish NOW with no
+			// artificial floor. The "Preparing Qoka" loader hides the moment MCP is
+			// actually up instead of waiting out a fixed minimum. Only when a known
+			// tracker has not begun yet, or an unknown/late tracker is still in
+			// flight, do we keep a short settle to catch it (bounded by the hard cap
+			// in finish()).
+			if (this.knownPending.size === 0) {
+				this.finish();
+			} else {
+				this.settleTimer = setTimeout(() => this.finish(), POST_TRACKING_SETTLE_MS);
+			}
 		}
 	}
 
@@ -377,21 +378,11 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			return;
 		}
 
-		// Enforce minimum visible duration after the first beginTracking
-		// so a fast extension doesn't dismiss the overlay before slower
-		// ones get a chance to register. Without this we'd flicker.
-		if (this.firstTrackAt !== undefined) {
-			const elapsed = Date.now() - this.firstTrackAt;
-			const remaining = MIN_DURATION_AFTER_FIRST_TRACK_MS - elapsed;
-			if (remaining > 0) {
-				if (this.settleTimer) {
-					clearTimeout(this.settleTimer);
-				}
-				this.settleTimer = setTimeout(() => this.finish(), remaining);
-				return;
-			}
-		}
-
+		// No artificial minimum-visible floor. The old code held the overlay for a
+		// fixed 5s after the first beginTracking to avoid a flicker of the (now
+		// removed) visual overlay. The visual overlay is no longer shown, and the
+		// knownPending guard above already holds until every known MCP tracker has
+		// reported, so we let the loader clear the instant setup is genuinely done.
 		this.finished = true;
 		// Setup is genuinely done (all known MCP trackers reported, or the hard
 		// cap elapsed) - let the Claude chat session start/connect to MCP now.
