@@ -734,7 +734,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				// the loader clear so the workbench is usable now.
 				return;
 			}
-			let st: { status?: string; progress?: { message?: string }; wslPhase?: string } | undefined;
+			let st: { status?: string; progress?: { message?: string }; wslPhase?: string; wslSetupPending?: boolean } | undefined;
 			try {
 				st = await this.commandService.executeCommand('aria.autopipe.vm.status');
 			} catch {
@@ -790,8 +790,17 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				return;
 			} else {
 				// 'stopped' | 'unknown': the built-in start is async, so this may just
-				// mean "not started yet". Keep the grace so we don't conclude "done"
-				// before provisioning even begins on a genuine cold start.
+				// mean "not started yet". While the extension reports the built-in run
+				// environment setup is PENDING (WSL ready + project window: installing
+				// Ubuntu / about to open the account window), HOLD with no time-based
+				// give-up until it reaches booting/ready - the workbench must never become
+				// usable before Ubuntu is installed and the account is created. Only when
+				// nothing is pending do we fall back to the short grace (SSH target, opted
+				// out, or already set up: there is nothing to wait for).
+				if (st?.wslSetupPending) {
+					await timeout(1500);
+					continue;
+				}
 				if (seenActive || Date.now() >= graceUntil) {
 					return;
 				}

@@ -92,6 +92,13 @@ let wslSetupPhase: WslSetupPhase = 'idle';
  *  hold sign-in until the WSL prompt is resolved, so the prompt appears BEFORE login. */
 let wslLaunchDecided = false;
 
+/** True from the moment we commit to running the built-in run-environment setup (WSL
+ *  engine ready, project window) until it reaches 'ready' or the user opts out. The
+ *  startup loader gates on this so it HOLDS until the Ubuntu account window appears and
+ *  the account is created - state, not a fixed time grace. Never set for SSH targets or
+ *  opted-out users, so their loader is never held waiting for a setup that won't run. */
+let wslSetupPending = false;
+
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
 	extensionContext = context;
@@ -230,10 +237,11 @@ export function activate(context: vscode.ExtensionContext): void {
 			// Opted out: stop gating so the loader clears and the workbench becomes usable.
 			wslDiag('skipSetup: user chose Continue without the run environment');
 			wslSetupPhase = 'idle';
+			wslSetupPending = false;
 			void context.globalState.update(WSL_SKIP_KEY, true);
 			void vm.stop();
 		}),
-		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress(), wslPhase: wslSetupPhase, wslLaunchDecided })),
+		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress(), wslPhase: wslSetupPhase, wslLaunchDecided, wslSetupPending })),
 		// Distinguish "WSL/Ubuntu not installed" from "installed but not connected" for
 		// the Connections section. On non-Windows these probes harmlessly return false/[].
 		vscode.commands.registerCommand('aria.autopipe.vm.wslProbe', async () => {
@@ -635,6 +643,13 @@ function startBuiltinVmTracked(vm: VMManager): void {
 		return;
 	}
 	const TRACKER = 'aria-wsl-setup';
+	// The built-in run-env setup is now actually running (WSL engine ready, project
+	// window). Mark it pending so the startup loader HOLDS until it finishes - the
+	// workbench must never be usable before Ubuntu is installed and the account is
+	// created. This is state, not a timer: it stays true through the (possibly
+	// minutes-long) Ubuntu install and the account OOBE window, and is cleared only when
+	// start() settles (account created -> booting -> ready, or a failure the user retries).
+	wslSetupPending = true;
 	void vscode.commands.executeCommand('aria.startup.beginTracking', TRACKER);
 	const progSub = vm.onProgress(p => {
 		if (p?.message) {
@@ -651,7 +666,7 @@ function startBuiltinVmTracked(vm: VMManager): void {
 				return vscode.commands.executeCommand('aria.startup.markComplete', TRACKER, '', false);
 			},
 		)
-		.finally(() => progSub.dispose());
+		.finally(() => { wslSetupPending = false; progSub.dispose(); });
 }
 
 /**
