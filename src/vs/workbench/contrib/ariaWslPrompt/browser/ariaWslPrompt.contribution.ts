@@ -116,6 +116,13 @@ function showWslPrompt(commandService: ICommandService, mode: WslPromptMode): vo
 
 		install.addEventListener('click', () => {
 			console.log('[aria-wsl] install button clicked');
+			// Clicking Install means the user WANTS the run environment, so clear any
+			// earlier "skipped" opt-out. Without this the front-end flag stays set from a
+			// previous skip, and the startup loader (ariaStartupChat._waitForBuiltinRunEnv)
+			// keeps returning early - so on the next restart it no longer holds until the
+			// Ubuntu account window appears (the loader clears first, then the account
+			// window pops up a moment later). The reset here re-arms that gate.
+			try { localStorage.removeItem('aria.autopipe.wslSetupSkipped'); } catch { /* storage unavailable */ }
 			// Morph the whole card into an in-progress loading state. The install must NOT
 			// let the app fall through to a usable workbench, so the prompt stays up (opaque,
 			// on top) and keeps showing progress until the reboot notice.
