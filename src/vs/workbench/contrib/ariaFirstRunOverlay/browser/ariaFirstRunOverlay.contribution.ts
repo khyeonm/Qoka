@@ -163,6 +163,7 @@ const KNOWN_TRACKERS: ReadonlySet<string> = new Set([
 	'aria-memory-mcp',
 	'aria-hypothesis-mcp',
 	'aria-methods-search-mcp',
+	'qoka-loop-mcp',
 ]);
 
 interface SetupSummary {

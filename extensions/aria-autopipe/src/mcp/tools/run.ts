@@ -617,3 +617,81 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'Files the editor can display (plots, tables, reports) are then OPENED FOR THE USER as editor tabs, and the tool result names them. So when a run produces a figure or a table, say it is now open in the editor and describe what it shows - do NOT tell the user to go find and open it, and do NOT dump the file contents into chat. Only files that were too large or in a format the editor cannot display are left for the Analysis tab.',
 	'Do NOT hand-copy results: never chain read_file on the server + write_file locally to "bring back" an output. The copy already happened. Read from the LOCAL results/<run-name>/ path if you need the contents. The only exception is a file the result explicitly says was left on the server for being over the auto-copy size limit.',
 ].join('\n');
+
+/**
+ * Run a raw script in the ACTIVE run environment and return its result. Lean: no result folders,
+ * copy-back, or PEP-723 injection. Used by the qoka-loop engine to run a locked evaluator in the
+ * SAME place - and, on the WSL built-in, the SAME per-project bubblewrap sandbox (HOME=/home/qoka,
+ * project bound read-only) - that run_code executes in, so the evaluator sees the sub-agent's files
+ * and installed packages. Every OTHER target (a user SSH host, the Mac vfkit / Linux VM) runs
+ * run_code directly (no bwrap), so a plain exec already matches those.
+ */
+export async function runScriptInEnv(
+	code: string,
+	language?: string,
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+	if (!code) { return { stdout: '', stderr: 'runScriptInEnv: no code', exitCode: 1 }; }
+	const runner = language === 'node' ? 'node' : language === 'bash' ? 'bash' : 'python3';
+	const ext = language === 'node' ? 'js' : language === 'bash' ? 'sh' : 'py';
+	const { profile: ep, isBuiltIn } = await resolveRunTarget();
+	const { ssh } = services();
+	const encoded = Buffer.from(code, 'utf8').toString('base64');
+	const isWslBuiltin = isBuiltIn && process.platform === 'win32';
+	const wsRoot = workspaceFolderPath();
+	const mounted = isBuiltIn && !!wsRoot && isMountedRepo(ep);
+
+	let script: string;
+	if (isWslBuiltin && wsRoot) {
+		// Same sandbox run_code uses: HOME = the per-project sandbox (installed venvs/packages +
+		// anything the sub-agent wrote to $HOME are visible), the project bound READ-ONLY (absolute
+		// repo paths + results/ readable), cwd = the project when mounted. Falls back to a direct
+		// run only when bubblewrap is not yet provisioned.
+		const projectKey = projectSandboxKey(wsRoot);
+		const sbx = `"$HOME/.qoka/sandboxes/${projectKey}"`;
+		const wslRepo = windowsToWsl(wsRoot);
+		const projectBind = mounted ? `--ro-bind '${wslRepo}' '${wslRepo}' ` : '';
+		const chdir = mounted ? `'${wslRepo}'` : '/home/qoka';
+		const runnerB64 = Buffer.from(
+			`export PATH="/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"\n${runner} /home/qoka/.qoka-eval.${ext}\n`,
+			'utf8').toString('base64');
+		script = [
+			'if command -v bwrap >/dev/null 2>&1; then',
+			`  mkdir -p ${sbx}`,
+			`  printf '%s' '${encoded}' | base64 -d > ${sbx}/.qoka-eval.${ext}`,
+			`  printf '%s' '${runnerB64}' | base64 -d > ${sbx}/.qoka-eval-run.sh`,
+			'  QOKA_RESOLV="$(readlink -f /etc/resolv.conf 2>/dev/null || echo /etc/resolv.conf)"',
+			'  bwrap \\',
+			'    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind-try /sbin /sbin \\',
+			'    --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\',
+			'    --ro-bind /etc /etc --ro-bind-try "$QOKA_RESOLV" "$QOKA_RESOLV" \\',
+			'    --proc /proc --dev /dev --tmpfs /tmp \\',
+			`    --bind ${sbx} /home/qoka \\`,
+			`    ${projectBind}--chdir ${chdir} --setenv HOME /home/qoka \\`,
+			'    --unshare-all --share-net --die-with-parent \\',
+			'    bash /home/qoka/.qoka-eval-run.sh',
+			'else',
+			'  echo "[qoka] bubblewrap not installed - running evaluator WITHOUT sandbox isolation." >&2',
+			'  export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
+			`  printf '%s' '${encoded}' | base64 -d > "$HOME/.qoka-eval.${ext}"`,
+			`  ${runner} "$HOME/.qoka-eval.${ext}"`,
+			'fi',
+		].join('\n');
+	} else {
+		// SSH host / Mac vfkit / Linux VM: run_code runs directly here too, so match it - cd into the
+		// run target's repo so absolute + repo-relative paths resolve the same as the sub-agent's.
+		const repo = (ep.repo_path ?? '').trim().replace(/\/+$/, '').replace(/^~(?=\/|$)/, '$HOME');
+		const file = `/tmp/qoka-eval-${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+		script = [
+			'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
+			repo ? `cd "${repo}" 2>/dev/null || true` : '',
+			`printf '%s' '${encoded}' | base64 -d > '${file}'`,
+			`${runner} '${file}'`,
+			'__rc=$?',
+			`rm -f '${file}'`,
+			'exit $__rc',
+		].filter(Boolean).join('\n');
+	}
+
+	const r = await ssh.run(ep, script, { timeoutMs: 120000 });
+	return { stdout: r.stdout, stderr: r.stderr, exitCode: r.exitCode };
+}

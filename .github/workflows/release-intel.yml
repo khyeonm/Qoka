@@ -114,7 +114,7 @@ jobs:
           set -e
           ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
           transpile_tasks=""
-          for d in extensions/aria-*/; do
+          for d in extensions/aria-*/ extensions/qoka-*/; do
             name="$(basename "$d")"
             if [ -f "$d/build.mjs" ]; then
               echo "== $name (esbuild) =="
@@ -293,7 +293,7 @@ jobs:
         run: |
           set -e
           transpile_tasks=""
-          for d in extensions/aria-*/; do
+          for d in extensions/aria-*/ extensions/qoka-*/; do
             name="$(basename "$d")"
             if [ -f "$d/build.mjs" ]; then
               echo "== $name (esbuild) =="

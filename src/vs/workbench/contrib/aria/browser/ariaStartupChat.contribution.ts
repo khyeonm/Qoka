@@ -26,7 +26,7 @@ import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConf
  *  Kept in sync with each extension's MCP_NAME. */
 const QOKA_MCP_NAMES = [
 	'qoka-autopipe', 'qoka-run', 'qoka-environment', 'qoka-paper', 'qoka-paper-library', 'qoka-memory',
-	'qoka-notes', 'qoka-roadmap', 'qoka-methods-search', 'qoka-hypothesis', 'qoka-overview',
+	'qoka-notes', 'qoka-roadmap', 'qoka-methods-search', 'qoka-hypothesis', 'qoka-overview', 'qoka-loop',
 ];
 
 /**
@@ -245,6 +245,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		'aria.methodsSearch.reregisterMcp',
 		'aria.hypothesis.reregisterMcp',
 		'aria.overview.reregisterMcp',
+		'qoka.loop.reregisterMcp',
 	];
 
 	/** Each Qoka MCP extension also exposes this: returns { name, port } for its
@@ -263,6 +264,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		'aria.methodsSearch.mcpInfo',
 		'aria.hypothesis.mcpInfo',
 		'aria.overview.mcpInfo',
+		'qoka.loop.mcpInfo',
 	];
 
 	/**
