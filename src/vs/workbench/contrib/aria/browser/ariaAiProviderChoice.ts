@@ -30,7 +30,7 @@ export const PROVIDER_EXTENSION_ID: Record<ConcreteProvider, string> = {
 
 export const PROVIDER_LABEL: Record<ConcreteProvider, string> = {
 	claude: 'Claude Code',
-	codex: 'Codex',
+	codex: 'OpenAI Codex (ChatGPT)',
 };
 
 /** localStorage flag: the user has made their first AI-provider choice. Persisted

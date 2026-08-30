@@ -829,7 +829,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		parent.appendChild(title);
 
 		const subtitle = document.createElement('p');
-		subtitle.textContent = 'Qoka works with Claude Code or Codex. Pick the one(s) you\'ll use - you can select both. You can change this later in Settings.';
+		subtitle.textContent = 'Qoka works with Claude Code or OpenAI Codex (ChatGPT). Pick the one(s) you\'ll use - you can select both. You can change this later in Settings.';
 		subtitle.style.fontSize = '14px';
 		subtitle.style.opacity = '0.7';
 		subtitle.style.margin = '0 0 28px 0';
