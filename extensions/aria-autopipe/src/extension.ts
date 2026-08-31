@@ -248,6 +248,9 @@ export function activate(context: vscode.ExtensionContext): void {
 			wslSetupPending = false;
 			void context.globalState.update(WSL_SKIP_KEY, true);
 			void vm.stop();
+			// Release the startup loader that was held for the WSL prompt (see the early reserve in
+			// handleWindowsBuiltinLaunch) so the workbench becomes usable now that the user opted out.
+			void vscode.commands.executeCommand('aria.startup.markComplete', 'aria-wsl-setup', '', false);
 		}),
 		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress(), wslPhase: wslSetupPhase, wslLaunchDecided, wslSetupPending })),
 		// Distinguish "WSL/Ubuntu not installed" from "installed but not connected" for
@@ -604,6 +607,12 @@ async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: 
 	// in the empty window (it must come before login). When a project opens, this runs
 	// again in that window and starts the VM there.
 	const hasFolder = !!vscode.workspace.workspaceFolders?.length;
+	// Reserve the startup-loader hold NOW - before the async wslAvailable() probe below - so the
+	// loader cannot clear during that probe (the MCP trackers finish meanwhile, which used to race
+	// the loader ahead of the Ubuntu OOBE window). Every path that does NOT go on to set up WSL
+	// releases it again; startBuiltinVmTracked releases it at account creation ('booting').
+	void vscode.commands.executeCommand('aria.startup.beginTracking', 'aria-wsl-setup');
+	const releaseLoader = () => void vscode.commands.executeCommand('aria.startup.markComplete', 'aria-wsl-setup', '', false);
 	if (context.globalState.get<boolean>(WSL_SKIP_KEY)) {
 		const ready = await vm.isWslReady();
 		wslDiag(`handleWindowsBuiltinLaunch: skip flag set; wslReady=${ready}, hasFolder=${hasFolder}. No prompt.`);
@@ -611,6 +620,8 @@ async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: 
 		if (ready && hasFolder) {
 			void context.globalState.update(WSL_SKIP_KEY, false);
 			startBuiltinVmTracked(vm);
+		} else {
+			releaseLoader(); // no WSL setup this window -> let the loader finish
 		}
 		return;
 	}
@@ -627,6 +638,8 @@ async function handleWindowsBuiltinLaunch(context: vscode.ExtensionContext, vm: 
 		wslLaunchDecided = true; // no prompt -> sign-in can proceed
 		if (hasFolder) {
 			startBuiltinVmTracked(vm);
+		} else {
+			releaseLoader(); // empty window: VM starts later when a project opens
 		}
 		return;
 	}
@@ -651,12 +664,9 @@ function startBuiltinVmTracked(vm: VMManager): void {
 		return;
 	}
 	const TRACKER = 'aria-wsl-setup';
-	// The built-in run-env setup is now actually running (WSL engine ready, project
-	// window). Mark it pending so the startup loader HOLDS until it finishes - the
-	// workbench must never be usable before Ubuntu is installed and the account is
-	// created. This is state, not a timer: it stays true through the (possibly
-	// minutes-long) Ubuntu install and the account OOBE window, and is cleared only when
-	// start() settles (account created -> booting -> ready, or a failure the user retries).
+	// The built-in run-env setup is now actually running (WSL engine ready, project window).
+	// beginTracking holds the startup loader through the (minutes-long) Ubuntu install + the
+	// account OOBE window - the loader must never clear before the user has created the account.
 	wslSetupPending = true;
 	void vscode.commands.executeCommand('aria.startup.beginTracking', TRACKER);
 	const progSub = vm.onProgress(p => {
@@ -664,17 +674,31 @@ function startBuiltinVmTracked(vm: VMManager): void {
 			void vscode.commands.executeCommand('aria.firstRun.updateOverlay', p.message);
 		}
 	});
+	// Release the STARTUP LOADER as soon as the Ubuntu ACCOUNT is created (status -> 'booting'):
+	// the interactive OOBE is done, so Qoka finishes loading while the REST (booting -> ready,
+	// provisioning, CLI/MCP wiring) continues in the BACKGROUND. markComplete is idempotent, so a
+	// later start() settle / failure is a harmless no-op. wslSetupPending stays true until start()
+	// fully settles so the CHAT still waits for a usable run environment (a separate, quieter gate).
+	let released = false;
+	const release = (summary: string, changed: boolean) => {
+		if (released) { return; }
+		released = true;
+		void vscode.commands.executeCommand('aria.startup.markComplete', TRACKER, summary, changed);
+	};
+	const statusSub = vm.onDidChangeStatus(s => {
+		if (s === 'booting' || s === 'ready') { release('Run environment ready', true); }
+	});
 	void vm.start()
 		.then(
-			() => vscode.commands.executeCommand('aria.startup.markComplete', TRACKER, 'Run environment ready', true),
+			() => release('Run environment ready', true),
 			err => {
 				console.error('[aria-autopipe] built-in VM start failed:', err);
-				// markComplete even on failure so the overlay never hangs; the error
-				// surfaces in the connections panel and the user can retry "Set up now".
-				return vscode.commands.executeCommand('aria.startup.markComplete', TRACKER, '', false);
+				// Release even on failure so the loader never hangs; the error surfaces in the
+				// connections panel and the user can retry "Set up now".
+				release('', false);
 			},
 		)
-		.finally(() => { wslSetupPending = false; progSub.dispose(); });
+		.finally(() => { wslSetupPending = false; progSub.dispose(); statusSub.dispose(); });
 }
 
 /**
