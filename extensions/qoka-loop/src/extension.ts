@@ -9,6 +9,8 @@ import { QokaLoopMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 import * as fs from 'fs';
+import { execFileSync } from 'child_process';
+import { resolveGitBinary } from './gitBin';
 import { openLoopPanel, LOOP_FILE_SCHEME } from './ui/loopPanel';
 
 let mcpServer: QokaLoopMcpServer | undefined;
@@ -84,7 +86,18 @@ export function activate(context: vscode.ExtensionContext): void {
 	// filename so the editor still picks the right language.
 	context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(LOOP_FILE_SCHEME, {
 		provideTextDocumentContent(uri: vscode.Uri): string {
-			try { return fs.readFileSync(uri.query, 'utf8'); }
+			const q = uri.query;
+			// A "git:" query resolves to a specific git version of the loop's code (git show <hash>:solution.*).
+			if (q.startsWith('git:')) {
+				try {
+					const { codeDir, hash } = JSON.parse(Buffer.from(q.slice(4), 'base64').toString('utf8')) as { codeDir: string; hash: string };
+					const gitBin = resolveGitBinary();
+					const list = execFileSync(gitBin, ['-C', codeDir, 'ls-tree', '-r', '--name-only', hash], { encoding: 'utf8' }).split('\n').filter(Boolean);
+					const sol = list.find(f => f.startsWith('solution.')) || list[0] || 'solution';
+					return execFileSync(gitBin, ['-C', codeDir, 'show', `${hash}:${sol}`], { encoding: 'utf8' });
+				} catch (e) { return `Cannot read version: ${(e as Error).message}`; }
+			}
+			try { return fs.readFileSync(q, 'utf8'); }
 			catch (e) { return `Cannot read file: ${(e as Error).message}`; }
 		},
 	}));

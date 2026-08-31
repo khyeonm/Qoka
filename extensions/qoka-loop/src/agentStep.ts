@@ -85,7 +85,7 @@ export function makeAgentStep(opts: AgentStepOptions): AgentStep {
 		let mcpConfigPath: string | undefined;
 		if (hasServers && opts.provider === 'claude') {
 			mcpConfigPath = path.join(opts.loopDir, run.id, 'mcp-config.json');
-			writeMcpConfig(mcpConfigPath, opts.workMcpServers, `loops/${opts.loopFolder}/iter-${run.iteration}`);
+			writeMcpConfig(mcpConfigPath, opts.workMcpServers, `loops/${opts.loopFolder}`);
 		}
 		const r = await runAgent(opts.provider, prompt, { cwd: opts.cwd, mcpConfigPath, codexHome });
 		return { output: r.output, exitCode: r.exitCode, envError: r.envError, error: r.error, code: r.code, codeLanguage: r.codeLanguage, tokens: r.tokens };

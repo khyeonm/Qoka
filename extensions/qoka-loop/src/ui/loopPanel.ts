@@ -13,9 +13,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import * as vscode from 'vscode';
 import { LoopRun } from '../schema';
 import { listLoops, loopsDir, readLoop } from '../state';
+import { resolveGitBinary } from '../gitBin';
 
 /** URI scheme for read-only loop-artifact documents (registered in extension.ts). Opening loop
  *  files through this scheme keeps the hidden .qoka path out of the Analysis explorer. */
@@ -29,6 +31,31 @@ let forceSelectId: string | undefined;
 
 /** A file inside a loop's .qoka/loops/<id>/ artifact folder, shown in the code tree. */
 interface LoopFile { rel: string; abs: string; }
+
+/** One git version (commit) of the loop's code = one iteration's attempt. */
+interface LoopVersion { hash: string; iter: number; verdict: 'pass' | 'fail' | ''; subject: string; }
+
+/** The loop's git-versioned code folder (loops/<folder>/code), or undefined. */
+function loopCodeDir(run: LoopRun): string | undefined {
+	const proot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	return (proot && run.rootDir) ? path.join(proot, run.rootDir, 'code') : undefined;
+}
+
+/** Read the git history of the loop's code folder = the per-iteration version tree (newest first). */
+function loopVersions(run: LoopRun): LoopVersion[] {
+	const codeDir = loopCodeDir(run);
+	if (!codeDir) { return []; }
+	let out: string;
+	try { out = execFileSync(resolveGitBinary(), ['-C', codeDir, 'log', '--format=%H%x09%s'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+	catch { return []; }
+	return out.trim().split('\n').filter(Boolean).map(line => {
+		const tab = line.indexOf('\t');
+		const hash = tab >= 0 ? line.slice(0, tab) : line;
+		const subject = tab >= 0 ? line.slice(tab + 1) : '';
+		const m = /^iter (\d+):\s*(pass|fail)?/.exec(subject);
+		return { hash, iter: m ? parseInt(m[1], 10) : -1, verdict: (m && (m[2] as 'pass' | 'fail')) || '', subject };
+	});
+}
 
 /** One loop, flattened for the webview (spec + run state + its on-disk artifact files). */
 interface LoopView {
@@ -47,6 +74,8 @@ interface LoopView {
 	history: LoopRun['history'];
 	provider?: string;
 	files: LoopFile[];
+	versions: LoopVersion[];
+	codeDir?: string;
 }
 
 /** List a loop's files for the Files section: the locked evaluator from the hidden .qoka state, PLUS
@@ -91,6 +120,8 @@ function toView(run: LoopRun): LoopView {
 		history: run.history,
 		provider: run.provider,
 		files: loopFiles(run),
+		versions: loopVersions(run),
+		codeDir: loopCodeDir(run),
 	};
 }
 
@@ -113,6 +144,9 @@ function postData(): void {
  */
 export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string): void {
 	if (loopId) { focusId = loopId; forceSelectId = loopId; }
+	// Also reveal the Loops SIDEBAR list (not just the editor detail) so the user sees both when a
+	// loop is opened/started - the sidebar view auto-registers a `<viewId>.focus` command.
+	try { void vscode.commands.executeCommand('workbench.view.qoka.loop.list.focus'); } catch { /* view not ready */ }
 	// Title the editor tab after the focused loop (the sidebar list opens this per loop).
 	const title = (loopId ? readLoop(loopId)?.spec.title : undefined) || 'Loop';
 	if (panel) {
@@ -129,11 +163,22 @@ export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string)
 	);
 	panel.webview.html = renderHtml(panel.webview);
 
-	panel.webview.onDidReceiveMessage(async (msg: { type?: string; path?: string; id?: string; text?: string }) => {
+	panel.webview.onDidReceiveMessage(async (msg: { type?: string; path?: string; id?: string; text?: string; codeDir?: string; hash?: string }) => {
 		if (msg?.type === 'ready') {
 			postData();
 		} else if (msg?.type === 'select' && msg.id) {
 			focusId = msg.id;
+		} else if (msg?.type === 'openVersion' && msg.codeDir && msg.hash) {
+			try {
+				// Open that git version's solution file read-only (git show <hash>:solution.*), via the
+				// LOOP_FILE_SCHEME content provider with a base64 "git:" query it knows how to resolve.
+				const q = 'git:' + Buffer.from(JSON.stringify({ codeDir: msg.codeDir, hash: msg.hash })).toString('base64');
+				const uri = vscode.Uri.from({ scheme: LOOP_FILE_SCHEME, path: `/${msg.hash.slice(0, 8)}/solution`, query: q });
+				const doc = await vscode.workspace.openTextDocument(uri);
+				await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+			} catch (e) {
+				void vscode.window.showErrorMessage(`Cannot open version: ${(e as Error).message}`);
+			}
 		} else if (msg?.type === 'openFile' && msg.path) {
 			try {
 				// Open a read-only virtual doc (scheme LOOP_FILE_SCHEME) whose query is the real path,
@@ -205,11 +250,19 @@ function renderHtml(webview: vscode.Webview): string {
 		.flowh { display: flex; flex-direction: column; max-width: 640px; margin-bottom: 10px; }
 		.fnode { border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); border-radius: 7px; background: var(--vscode-editorWidget-background); padding: 8px 12px; font-size: 12px; line-height: 1.45; word-break: break-word; }
 		.fnode.fstep { font-weight: 600; }
-		/* Evaluator: a subtle tint + a thin left accent, not a bright focus border (lighter emphasis). */
-		.fnode.feval { border-color: var(--vscode-widget-border, rgba(127,127,127,0.35)); background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.07)); border-left: 3px solid var(--vscode-widget-border, rgba(127,127,127,0.5)); }
+		/* Evaluator: just a subtle tint (the EVALUATE tag now carries the emphasis, so no bright border). */
+		.fnode.feval { background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.07)); }
+		/* Colored tags marking the key boxes (INPUT / EVALUATE / RESULT). */
+		.ftag { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 1px 5px; border-radius: 4px; margin-right: 4px; vertical-align: middle; }
+		.tag-in { color: #4c8dff; background: #4c8dff22; }
+		.tag-eval { color: #d8a02e; background: #d8a02e22; }
+		.tag-out { color: #3f9e68; background: #3f9e6822; }
 		.farrow { text-align: center; color: #888; font-size: 13px; line-height: 1; padding: 3px 0; }
-		.fpass { text-align: center; color: #4caf72; font-size: 11px; padding: 3px 0; }
-		.ffail { color: #e06666; font-size: 11px; margin-top: 8px; opacity: 0.9; }
+		/* Pass / fail branch boxes right under the Evaluator, so the loop-back is obvious. */
+		.fbranch { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; max-width: 640px; }
+		.fbranch .ar { font-weight: 700; margin-right: 2px; }
+		.bpass { color: #4caf72; font-size: 12px; padding: 6px 10px; border: 1px solid #4caf7255; border-radius: 6px; background: #4caf7211; }
+		.bfail { color: #e06666; font-size: 12px; padding: 6px 10px; border: 1px solid #e0666655; border-radius: 6px; background: #e0666611; }
 		.lock-line { font-size: 12px; opacity: 0.8; display: flex; align-items: center; gap: 8px; }
 		.lock-line .lk { color: #e0b050; }
 		.lock-line .hashmini { opacity: 0.6; font-family: var(--vscode-editor-font-family); font-size: 11px; word-break: break-all; }
@@ -242,6 +295,13 @@ function renderHtml(webview: vscode.Webview): string {
 		.prompt-box .pe { font-style: italic; opacity: 0.85; margin: 6px 0; }
 		.copy { font-size: 11px; padding: 3px 10px; cursor: pointer; border: 1px solid var(--vscode-widget-border, currentColor); background: transparent; color: var(--vscode-foreground); border-radius: 3px; }
 		.copy:hover { background: var(--vscode-list-hoverBackground); }
+		/* Code version tree (git history): one row per iteration commit, dot = pass/fail. */
+		.versions { display: flex; flex-direction: column; gap: 1px; }
+		.ver { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; display: flex; align-items: center; gap: 8px; font-family: var(--vscode-editor-font-family); }
+		.ver:hover { background: var(--vscode-list-hoverBackground); }
+		.vdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #9a9a9a; }
+		.vdot.v-pass { background: #4caf72; }
+		.vdot.v-fail { background: #e06666; }
 		.empty { opacity: 0.6; padding: 40px; text-align: center; font-size: 13px; }
 	</style>
 </head>
@@ -285,27 +345,30 @@ function renderHtml(webview: vscode.Webview): string {
 		// Tidy a raw flow label for the DIAGRAM (hover title keeps the original): only collapse
 		// whitespace. We do NOT strip parentheses - many steps put the real content inside them.
 		function refine(s) {
-			return String(s || '').replace(/\s+/g, ' ').trim();
+			return String(s || '').replace(/\\s+/g, ' ').trim();
 		}
-		// Option A: render the flow as HTML boxes so text WRAPS and nothing is truncated (the old SVG
-		// nodes had fixed width + a clipPath that also dropped some glyphs). Vertical: (Input?) -> each
-		// step -> Evaluator, then a green "pass" to Output and a red "on fail: retry" note for the cycle.
+		// Flow as HTML boxes (text WRAPS, nothing truncated). Colored TAGS mark the key boxes: INPUT,
+		// EVALUATE, RESULT; the step boxes are left plain. PASS goes down to the result, FAIL goes up
+		// (back to step 1) - the up-arrow shows the loop-back.
 		function flowDiagram(l) {
 			const f = l.flow || {};
 			const steps = (f.steps || []);
-			const box = (cls, label) => '<div class="fnode ' + cls + '">' + esc(refine(label)) + '</div>';
+			const box = (cls, label, tag, tagcls) => '<div class="fnode ' + cls + '">'
+				+ (tag ? '<span class="ftag ' + tagcls + '">' + tag + '</span> ' : '') + esc(refine(label)) + '</div>';
 			const arrow = '<div class="farrow">&#8595;</div>';
 			const parts = [];
-			if (f.input) { parts.push(box('fio', f.input)); }
+			if (f.input) { parts.push(box('fio', f.input, 'INPUT', 'tag-in')); }
 			if (steps.length) { steps.forEach((st, i) => parts.push(box('fstep', (i + 1) + '. ' + st))); }
 			else { parts.push(box('fstep', 'do the work')); }
 			const check0 = (f.checks && f.checks[0] && f.checks[0].c) ? f.checks[0].c : 'pass / fail test';
-			parts.push(box('feval', 'Evaluator: ' + check0));
-			let h = '<div class="flowh">' + parts.join(arrow);
-			h += '<div class="fpass">&#8595; pass</div>';
-			h += box('fio', f.output ? f.output : 'Done (goal met)');
-			h += '<div class="ffail">&#8635; on fail: loop back to step 1 and retry</div>';
-			h += '</div>';
+			parts.push(box('feval', check0, 'EVALUATE', 'tag-eval'));
+			let h = '<div class="flowh">' + parts.join(arrow)
+				+ '<div class="fbranch">'
+				+ '<div class="bpass"><span class="ar">&#8595;</span> PASS</div>'
+				+ '<div class="bfail"><span class="ar">&#8593;</span> FAIL &#8594; back to step 1, retry</div>'
+				+ '</div>'
+				+ box('fio', f.output ? f.output : 'goal met', 'RESULT', 'tag-out')
+				+ '</div>';
 			return h;
 		}
 
@@ -319,9 +382,10 @@ function renderHtml(webview: vscode.Webview): string {
 			const checks = (f.checks || []).map(c => '<div class="check"><div>' + esc(c.c) + '</div><div class="cw">' + esc(c.why) + '</div></div>').join('');
 			const steps = (f.steps || []).map(s => '<li>' + esc(s) + '</li>').join('');
 			const fmtDur = (ms) => (typeof ms !== 'number') ? '' : (ms < 1000 ? ms + 'ms' : (ms < 60000 ? (ms / 1000).toFixed(1) + 's' : Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's'));
-			const cleanDetail = (d) => { d = String(d || '').replace(/\s+/g, ' ').trim(); return d.length > 140 ? d.slice(0, 139) + '...' : d; };
+			const cleanDetail = (d) => { d = String(d || '').replace(/\\s+/g, ' ').trim(); return d.length > 140 ? d.slice(0, 139) + '...' : d; };
 			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(cleanDetail(h.detail)) + '</td><td>' + fmtTime(h.at) + '</td></tr>').join('');
 			const files = (l.files || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '"><span class="fi">&#128196;</span>' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:12px;text-align:left">No artifact files yet.</div>';
+			const versions = (l.versions || []).map(v => '<div class="ver" data-hash="' + esc(v.hash) + '"><span class="vdot ' + (v.verdict === 'pass' ? 'v-pass' : v.verdict === 'fail' ? 'v-fail' : '') + '"></span>' + esc(v.subject) + '</div>').join('') || '<div class="empty" style="padding:8px;text-align:left">No versions yet (git unavailable or no iterations).</div>';
 
 			let h = '<h1>' + esc(l.title) + '</h1><div class="goal">' + esc(l.goal) + '</div>';
 			h += '<div class="meta">'
@@ -356,12 +420,16 @@ function renderHtml(webview: vscode.Webview): string {
 
 			if (hist) { h += '<div class="section"><h2>History</h2><table class="hist"><tr><th>#</th><th>verdict</th><th>time</th><th>detail</th><th>at</th></tr>' + hist + '</table></div>'; }
 
+			h += '<div class="section"><h2>Code versions (git history - click to view a version)</h2><div class="versions">' + versions + '</div></div>';
 			h += '<div class="section"><h2>Files</h2><div class="files">' + files + '</div></div>';
 
 
 			$('detail').innerHTML = h;
 			document.querySelectorAll('.file').forEach(el => {
 				el.onclick = () => vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') });
+			});
+			document.querySelectorAll('.ver').forEach(el => {
+				el.onclick = () => vscode.postMessage({ type: 'openVersion', codeDir: l.codeDir, hash: el.getAttribute('data-hash') });
 			});
 		}
 

@@ -12,6 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { execFileSync } from 'child_process';
 import { LoopRun, LoopHistoryEntry } from './schema';
 
 /** How many identical failures in a row count as "no progress". */
@@ -62,10 +63,15 @@ export interface RunOptions {
 	/** Checked at the top of every iteration; returning true stops the loop cleanly (status
 	 *  'stopped'). Lets the user cancel a running loop from the chat (stop_loop tool). */
 	shouldStop?: () => boolean;
-	/** VISIBLE folder for this loop's per-iteration code + transcript (e.g. <project>/analysis/
-	 *  loops/<loopFolder>), so the user can see the executed code in the Analysis tree instead of
-	 *  it being hidden under .qoka. Falls back to <loopDir>/<id> when unset. */
+	/** VISIBLE git-versioned code folder (loops/<folder>/code): each iteration overwrites
+	 *  solution.<ext> and commits it, so the working tree is the latest code and `git log` is the full
+	 *  attempt history (pass + fail). Unset (tests) -> no code recording. */
 	codeDir?: string;
+	/** This loop's results folder (loops/<folder>/results): cleared before each iteration so, when the
+	 *  loop ends, only the FINAL run's outputs remain. Unset -> not cleared. */
+	resultsDir?: string;
+	/** git binary for code versioning (bundled MinGit path on Windows, else 'git'). Defaults to 'git'. */
+	gitPath?: string;
 }
 
 function sha256(s: string): string {
@@ -89,17 +95,31 @@ function codeExt(language?: string): string {
 	}
 }
 
-/** Write one iteration's artifacts to `dir` (best-effort) so the Loops tab + Analysis tree can show
- *  them: the literal executed code as a CLEAN source file iter-<n>.<ext> (when the stream yielded
- *  it), and the sub-agent's narration as iter-<n>.md. `dir` is the loop's VISIBLE code folder. */
-function writeIterationLog(dir: string, iteration: number, output: string, code?: string, codeLanguage?: string): void {
+/** Run a git subcommand in `cwd`, swallowing output/errors (best-effort; git may be absent). */
+function git(gitBin: string, cwd: string, args: string[]): boolean {
+	try { execFileSync(gitBin, args, { cwd, stdio: 'ignore' }); return true; } catch { return false; }
+}
+
+/** Empty (and recreate) a directory - used to keep only the FINAL run's outputs in results/. */
+function clearDir(dir: string): void {
+	try { fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
+}
+
+/** Record one iteration's code as a git version: overwrite solution.<ext> in the loop's code folder
+ *  and commit it (message = "iter N: pass/fail - reason"). The working tree stays the latest code; the
+ *  commit history is every attempt (pass + fail), so the Files tab can show a version tree. Local repo,
+ *  no remote / GitHub. Best-effort: if git is missing it just leaves solution.<ext> uncommitted. */
+function commitIterationCode(gitBin: string, codeDir: string, iteration: number, code: string | undefined, codeLanguage: string | undefined, verdict: 'pass' | 'fail', detail: string): void {
 	try {
-		fs.mkdirSync(dir, { recursive: true });
-		if (code && code.trim()) {
-			fs.writeFileSync(path.join(dir, `iter-${iteration}.${codeExt(codeLanguage)}`), code.trim() + '\n');
-		}
-		fs.writeFileSync(path.join(dir, `iter-${iteration}.md`), `# Iteration ${iteration} - agent transcript\n\n${output}\n`);
-	} catch { /* best-effort: a missing log must never stop the loop */ }
+		fs.mkdirSync(codeDir, { recursive: true });
+		const body = (code && code.trim()) ? code.trim() : '# (no code captured this iteration)';
+		fs.writeFileSync(path.join(codeDir, `solution.${codeExt(codeLanguage)}`), body + '\n');
+		if (!fs.existsSync(path.join(codeDir, '.git'))) { git(gitBin, codeDir, ['init', '-q']); }
+		git(gitBin, codeDir, ['add', '-A']);
+		const reason = (detail || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+		const msg = `iter ${iteration}: ${verdict}${reason ? ` - ${reason}` : ''}`;
+		git(gitBin, codeDir, ['-c', 'user.name=Qoka', '-c', 'user.email=loops@qoka.local', 'commit', '-q', '--allow-empty', '-m', msg]);
+	} catch { /* best-effort: versioning must never stop the loop */ }
 }
 
 /** Materialize the evaluator to a file and record its sha256 = the lock. Called once at
@@ -180,13 +200,11 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			opts.persist(run);
 			return 'stopped';
 		}
+		// Keep only the FINAL run's outputs: wipe results/ before each attempt.
+		if (opts.resultsDir) { clearDir(opts.resultsDir); }
 		const iterStart = Date.now();
 		const r = await agentStep(run, feedback);
 		if (typeof r.tokens === 'number') { run.budget.usedTokens += r.tokens; }
-		// Persist THIS iteration's record (executed code + transcript) so the work is inspectable
-		// in the Loops tab (the raw run_code source runs on the run env with retain=discard and is
-		// not kept there, so this is the local record of what the sub-agent did each turn).
-		writeIterationLog(opts.codeDir ?? path.join(opts.loopDir, run.id), run.iteration, r.output ?? '', r.code, r.codeLanguage);
 		if (r.envError) {
 			run.status = 'paused';
 			run.reason = r.error ?? 'environment error';
@@ -203,6 +221,9 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			at: new Date().toISOString(),
 			durationMs: Date.now() - iterStart,
 		};
+		// Commit THIS iteration's code as a git version (message carries the verdict + reason), so the
+		// Files tab can show a version tree and the failed attempts are recoverable.
+		if (opts.codeDir) { commitIterationCode(opts.gitPath || 'git', opts.codeDir, run.iteration, r.code, r.codeLanguage, verdict.pass ? 'pass' : 'fail', verdict.detail); }
 		run.history.push(entry);
 		run.iteration++;
 		opts.persist(run);

@@ -16,6 +16,7 @@ import * as path from 'path';
 import { LoopSpec } from '../schema';
 import { saveLoop, readLoop, listLoops, writeLoop, loopsDir } from '../state';
 import { runLoop, ScriptRunner } from '../engine';
+import { resolveGitBinary } from '../gitBin';
 import { makeAgentStep } from '../agentStep';
 
 /**
@@ -240,9 +241,9 @@ const stopRequested = new Set<string>();
  *  under: results/loops/<loopFolder>/ + analysis/loops/<loopFolder>/. ASCII-safe; a non-ASCII title
  *  (e.g. Korean) slugs to empty and falls back to the short id. */
 function loopFolderName(run: { id: string; spec: { title: string } }): string {
-	const slug = (run.spec.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-	const short = run.id.slice(0, 8);
-	return slug ? `${slug}-${short}` : short;
+	const slug = (run.spec.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30).replace(/-+$/g, '');
+	const short = run.id.slice(0, 6);
+	return slug ? `${slug}-${short}` : `loop-${short}`;
 }
 
 /**
@@ -261,16 +262,22 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	const workMcpServers = await collectWorkMcpServers();
 	const provider = run.provider === 'codex' ? 'codex' : 'claude';
 	const folder = loopFolderName(run);
-	// This loop's VISIBLE code folder (shown in the Analysis tree), where the engine writes each
-	// iteration's executed code + transcript - so the user sees the real code, not a hidden .qoka copy.
-	run.rootDir = `analysis/loops/${folder}`;
+	// Top-level loops/<folder>/ (next to data/analysis/results): code/ holds the git-versioned
+	// executed code (one commit per iteration); results/ holds only the FINAL run's outputs (the
+	// engine clears it before each iteration). The tab shows the full title; the folder is short.
+	run.rootDir = `loops/${folder}`;
 	writeLoop(run);
-	const codeDir = path.join(cwd, 'analysis', 'loops', folder);
+	const codeDir = path.join(cwd, 'loops', folder, 'code');
+	const resultsDir = path.join(cwd, 'loops', folder, 'results');
+	// Nudge aria-vcs to resolve git first: on Windows its resolver extracts the bundled MinGit into
+	// %LOCALAPPDATA%\Qoka\mingit on demand, so this makes resolveGitBinary() find it even if the user
+	// never opened Changes/Snapshots. Best-effort: absent extension / no repo just falls back to PATH git.
+	try { await vscode.commands.executeCommand('aria.vcs.getStatus'); } catch { /* best-effort */ }
 	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: folder });
 	const evaluatorRunner = runEnvEvaluatorRunner();
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);
-	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir })
+	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, gitPath: resolveGitBinary() })
 		.then(outcome => { stopRequested.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
 		.catch(e => { stopRequested.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
 	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers) }));

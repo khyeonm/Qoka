@@ -247,7 +247,10 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const rawScope = typeof args.__loopScope === 'string' ? args.__loopScope : '';
 				const loopScope = /^loops\/[A-Za-z0-9._/-]+$/.test(rawScope) && !rawScope.includes('..')
 					? rawScope.replace(/\/+$/, '') : '';
-				const runId = loopScope ? `${loopScope}/${id}` : id;
+				// Where this run's OUTPUTS (results) and SCRIPT (code) live, relative to the project root:
+				// a loop run nests under loops/<folder>/{results,code}; a normal chat run uses results/ + analysis/.
+				const resultsRel = loopScope ? `${loopScope}/results/${id}` : `results/${id}`;
+				const codeRel = loopScope ? `${loopScope}/code/${id}` : `analysis/${id}`;
 
 				// Decide where the run dir lives. On Windows the local run environment is WSL,
 				// so write straight into analysis/<id>/ through the /mnt mount (outputs
@@ -279,11 +282,11 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					// the drive at /mnt/<drive>/…; vfkit sees the whole host disk at /mnt/mac, so
 					// its results dir is workspacePathsFor(...).output_dir (/mnt/mac/<wsRoot>/results,
 					// per-window because the endpoint repo_path is /mnt/mac + this window's wsRoot).
-					localDir = path.join(wsRoot, 'results', runId);
+					localDir = path.join(wsRoot, resultsRel);
 					fs.mkdirSync(localDir, { recursive: true });
 					runDirExpr = isWslBuiltin
 						? `'${windowsToWsl(localDir)}'`
-						: `'${workspacePathsFor(ep).output_dir}/${runId}'`;
+						: `'${workspacePathsFor(ep).repo_path}/${resultsRel}'`;
 				} else if (!isBuiltIn) {
 					// A user-provided SSH server: stay INSIDE the workspace directory the
 					// user configured for that connection (repo_path). Writing to $HOME
@@ -292,11 +295,11 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					// pipelines_output/. A leading `~` becomes $HOME so the shell still
 					// expands it inside the double quotes.
 					const repo = (ep.repo_path ?? '').trim().replace(/\/+$/, '').replace(/^~(?=\/|$)/, '$HOME');
-					runDirExpr = repo ? `"${repo}/analysis/${runId}"` : `"$HOME/qoka-analysis/${runId}"`;
+					runDirExpr = repo ? `"${repo}/${resultsRel}"` : `"$HOME/qoka-run/${id}"`;
 				} else {
 					// Local VM (Mac/Linux): a scratch guest whose results are copied
 					// back into the project, so its own home is fine.
-					runDirExpr = `"$HOME/qoka-analysis/${runId}"`;
+					runDirExpr = `"$HOME/qoka-run/${id}"`;
 				}
 
 				// Python: inject the requested deps as PEP 723 metadata so `uv run`
@@ -311,8 +314,8 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const retain: 'discard' | 'scratch' | 'keep' =
 					args.retain === 'keep' ? 'keep' : args.retain === 'scratch' ? 'scratch' : 'discard';
 				let codeDir: string | undefined;
-				if (wsRoot && retain === 'keep') { codeDir = path.join(wsRoot, 'analysis', runId); }
-				else if (wsRoot && retain === 'scratch') { codeDir = path.join(wsRoot, '.qoka', 'analysis', runId); }
+				if (wsRoot && retain === 'keep') { codeDir = path.join(wsRoot, codeRel); }
+				else if (wsRoot && retain === 'scratch') { codeDir = path.join(wsRoot, '.qoka', 'analysis', id); }
 				// The script SOURCE is already in hand, so write it straight to disk - no
 				// copy-back needed. Best-effort: needs an open folder and a kept run.
 				if (codeDir) {
@@ -463,7 +466,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				if (mounted && localDir) {
 					savedTo = localDir;
 				} else if (wsRoot && resolvedDir) {
-					const dest = path.join(wsRoot, 'results', runId);
+					const dest = path.join(wsRoot, resultsRel);
 					try {
 						const summary = await copyRemoteDirToLocal(ep, resolvedDir, dest, { maxFileBytes: MAX_COPY_BYTES });
 						savedTo = dest;
@@ -519,12 +522,12 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					// Spell out that the last path segment is THIS run's folder. Without a
 					// label it is a bare timestamp, which reads like noise rather than a
 					// name the user can look for in the Analysis tab.
-					lines.push(`Inside the open project that is results/${id}/, where "${id}" is the folder for THIS run.`
+					lines.push(`Inside the open project that is ${resultsRel}/, where "${id}" is the folder for THIS run.`
 						+ (mounted ? '' : ' The files were copied back from the run target, so they are already local.'));
 					if (subdirs.length) {
 						lines.push(`Result files are in these subfolders of that run folder: ${subdirs.map(d => `${d}/`).join(', ')}. Name the subfolder when you tell the user where something is - do not just say "the results folder".`);
 					}
-					lines.push(`The script for this run is saved as CODE in ${retain === 'keep' ? `analysis/${id}/` : `.qoka/analysis/${id}/`} (results are separate, in results/${id}/).`);
+					lines.push(`The script for this run is saved as CODE in ${retain === 'keep' ? `${codeRel}/` : `.qoka/analysis/${id}/`} (results are separate, in ${resultsRel}/).`);
 					lines.push('When you tell the user where results are, give them this full path, not a bare folder name.');
 					lines.push('Do NOT read these files off the server and write them again yourself - they are already local.');
 					lines.push(...describeOpenedResults(shown));
