@@ -86,6 +86,9 @@ interface LoopView {
 	results: LoopFile[];
 	versions: LoopVersion[];
 	codeDir?: string;
+	/** The loop's folder name (from run.rootDir = loops/<folder>), shown as the shared parent of the
+	 *  evaluator + the per-iteration versions in the Code tree. */
+	folder?: string;
 }
 
 /** The locked evaluator file (hidden .qoka/loops/<id>/evaluator.<ext>) - a SHARED file: the same
@@ -143,6 +146,7 @@ function toView(run: LoopRun): LoopView {
 		results: loopResultFiles(run),
 		versions: loopVersions(run),
 		codeDir: loopCodeDir(run),
+		folder: run.rootDir ? run.rootDir.replace(/^loops\//, '') : undefined,
 	};
 }
 
@@ -334,7 +338,11 @@ function renderHtml(webview: vscode.Webview): string {
 		.codepane { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
 		.codeleft { flex: 1 1 200px; min-width: 180px; max-width: 320px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); border-radius: 6px; overflow: hidden; }
 		.coderight { flex: 2 1 240px; min-width: 200px; }
-		.cgroup { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; padding: 6px 10px 3px; }
+		/* Parent (the loop folder): the shared evaluator and the per-iteration versions hang under it as
+		   siblings, so the evaluator reads as living at the same level as the iteration directories. */
+		.cparent { font-size: 11px; opacity: 0.6; padding: 6px 10px 4px; display: flex; align-items: center; gap: 6px; font-family: var(--vscode-editor-font-family); word-break: break-all; }
+		.cparent .cfold { opacity: 0.8; }
+		.cchild { padding-left: 22px; }
 		.citem { font-size: 12px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-left: 2px solid transparent; }
 		.citem:hover { background: var(--vscode-list-hoverBackground); }
 		.citem.csel { background: var(--vscode-list-activeSelectionBackground, rgba(90,140,255,0.18)); border-left-color: #4c8dff; }
@@ -478,19 +486,18 @@ function renderHtml(webview: vscode.Webview): string {
 			if (selectedCode !== 'ev' && hashes.indexOf(selectedCode) < 0) { selectedCode = hashes.length ? hashes[0] : (l.evaluatorFile ? 'ev' : null); }
 			if (selectedCode === 'ev' && !l.evaluatorFile) { selectedCode = hashes.length ? hashes[0] : null; }
 
-			// Code section LEFT rail: a pinned "Evaluator (locked)" shared item, then the per-iteration
-			// version list. Selecting one fills the RIGHT pane (renderCodeRight) with that item's files.
+			// Code section LEFT rail: presented as one tree under the loop's folder - the SHARED evaluator
+			// sits at the TOP as a sibling of the per-iteration versions (same parent path), then each
+			// iteration. Selecting one fills the RIGHT pane (renderCodeRight) with that item's files.
 			const leftItems = [];
+			if (l.folder) { leftItems.push('<div class="cparent"><span class="cfold">&#128193;</span>loops/' + esc(l.folder) + '</div>'); }
 			if (l.evaluatorFile) {
-				leftItems.push('<div class="citem' + (selectedCode === 'ev' ? ' csel' : '') + '" data-kind="ev"><span class="clock">&#128274;</span>Evaluator (locked)</div>');
+				leftItems.push('<div class="citem cchild' + (selectedCode === 'ev' ? ' csel' : '') + '" data-kind="ev"><span class="clock">&#128274;</span>evaluator (shared)</div>');
 			}
-			if ((l.versions || []).length) {
-				leftItems.push('<div class="cgroup">Versions</div>');
-				(l.versions || []).forEach(v => {
-					const dotcls = v.verdict === 'pass' ? 'v-pass' : v.verdict === 'fail' ? 'v-fail' : '';
-					leftItems.push('<div class="citem cver' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '"><span class="vdot ' + dotcls + '"></span><span class="vsub">' + esc(v.subject) + '</span></div>');
-				});
-			}
+			(l.versions || []).forEach(v => {
+				const dotcls = v.verdict === 'pass' ? 'v-pass' : v.verdict === 'fail' ? 'v-fail' : '';
+				leftItems.push('<div class="citem cchild cver' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '"><span class="vdot ' + dotcls + '"></span><span class="vsub">' + esc(v.subject) + '</span></div>');
+			});
 			const leftHtml = leftItems.join('') || '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>';
 			const resHtml = (l.results || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '"><span class="fi">&#128196;</span>' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:10px;text-align:left">No result files yet.</div>';
 
