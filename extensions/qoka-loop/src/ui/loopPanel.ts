@@ -332,25 +332,20 @@ function renderHtml(webview: vscode.Webview): string {
 		.vdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #9a9a9a; }
 		.vdot.v-pass { background: #4caf72; }
 		.vdot.v-fail { background: #e06666; }
-		.vsub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-		/* Code section: version rail on the LEFT, the selected item's files on the RIGHT. Wraps on a
-		   narrow panel so the two panes stack instead of overflowing. */
-		.codepane { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
-		.codeleft { flex: 1 1 200px; min-width: 180px; max-width: 320px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); border-radius: 6px; overflow: hidden; }
-		.coderight { flex: 2 1 240px; min-width: 200px; }
-		/* Parent (the loop folder): the shared evaluator and the per-iteration versions hang under it as
-		   siblings, so the evaluator reads as living at the same level as the iteration directories. */
-		.cparent { font-size: 11px; opacity: 0.6; padding: 6px 10px 4px; display: flex; align-items: center; gap: 6px; font-family: var(--vscode-editor-font-family); word-break: break-all; }
-		.cparent .cfold { opacity: 0.8; }
+		/* Code section: ONE wide box split into a directory rail (LEFT) and the selected directory's files
+		   (RIGHT), with a vertical divider. Plain text - no icons, no status colors. */
+		.codepane { display: flex; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); border-radius: 6px; overflow: hidden; min-height: 120px; }
+		.codeleft { flex: 0 0 200px; border-right: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); overflow: auto; background: var(--vscode-editorWidget-background); padding: 4px 0; }
+		.coderight { flex: 1 1 auto; overflow: auto; padding: 6px 4px; }
+		/* Parent = the loop folder; shared + iterN hang under it as sibling directory names. */
+		.cparent { font-size: 11px; opacity: 0.6; padding: 6px 10px 5px; font-family: var(--vscode-editor-font-family); word-break: break-all; }
 		.cchild { padding-left: 22px; }
-		.citem { font-size: 12px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-left: 2px solid transparent; }
+		.citem { font-size: 12px; padding: 5px 10px; cursor: pointer; border-left: 2px solid transparent; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		.citem:hover { background: var(--vscode-list-hoverBackground); }
 		.citem.csel { background: var(--vscode-list-activeSelectionBackground, rgba(90,140,255,0.18)); border-left-color: #4c8dff; }
-		.citem .clock { font-size: 11px; opacity: 0.8; }
-		.crhdr { font-size: 11px; opacity: 0.7; padding: 2px 4px 8px; }
-		.crfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; display: flex; align-items: center; gap: 6px; font-family: var(--vscode-editor-font-family); }
+		.crhdr { font-size: 11px; opacity: 0.7; padding: 2px 6px 8px; font-family: var(--vscode-editor-font-family); }
+		.crfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-family: var(--vscode-editor-font-family); }
 		.crfile:hover { background: var(--vscode-list-hoverBackground); }
-		.crfile .fi { opacity: 0.7; }
 		.crnote { font-size: 11px; opacity: 0.55; padding: 6px 8px; line-height: 1.4; }
 		.empty { opacity: 0.6; padding: 40px; text-align: center; font-size: 13px; }
 	</style>
@@ -486,20 +481,20 @@ function renderHtml(webview: vscode.Webview): string {
 			if (selectedCode !== 'ev' && hashes.indexOf(selectedCode) < 0) { selectedCode = hashes.length ? hashes[0] : (l.evaluatorFile ? 'ev' : null); }
 			if (selectedCode === 'ev' && !l.evaluatorFile) { selectedCode = hashes.length ? hashes[0] : null; }
 
-			// Code section LEFT rail: presented as one tree under the loop's folder - the SHARED evaluator
-			// sits at the TOP as a sibling of the per-iteration versions (same parent path), then each
-			// iteration. Selecting one fills the RIGHT pane (renderCodeRight) with that item's files.
+			// Code section LEFT rail: a plain-text directory tree under the loop's folder (no icons, no
+			// status colors). The SHARED code (the evaluator) is the top directory; then iter0, iter1, ...
+			// in order. Selecting one fills the RIGHT pane (renderCodeRight) with that directory's files.
 			const leftItems = [];
-			if (l.folder) { leftItems.push('<div class="cparent"><span class="cfold">&#128193;</span>loops/' + esc(l.folder) + '</div>'); }
+			if (l.folder) { leftItems.push('<div class="cparent">loops/' + esc(l.folder) + '</div>'); }
 			if (l.evaluatorFile) {
-				leftItems.push('<div class="citem cchild' + (selectedCode === 'ev' ? ' csel' : '') + '" data-kind="ev"><span class="clock">&#128274;</span>evaluator (shared)</div>');
+				leftItems.push('<div class="citem cchild' + (selectedCode === 'ev' ? ' csel' : '') + '" data-kind="ev">shared</div>');
 			}
-			(l.versions || []).forEach(v => {
-				const dotcls = v.verdict === 'pass' ? 'v-pass' : v.verdict === 'fail' ? 'v-fail' : '';
-				leftItems.push('<div class="citem cchild cver' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '"><span class="vdot ' + dotcls + '"></span><span class="vsub">' + esc(v.subject) + '</span></div>');
+			const vers = (l.versions || []).slice().sort((a, b) => a.iter - b.iter);
+			vers.forEach(v => {
+				leftItems.push('<div class="citem cchild' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '">iter' + (v.iter >= 0 ? v.iter : '?') + '</div>');
 			});
 			const leftHtml = leftItems.join('') || '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>';
-			const resHtml = (l.results || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '"><span class="fi">&#128196;</span>' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:10px;text-align:left">No result files yet.</div>';
+			const resHtml = (l.results || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '">' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:10px;text-align:left">No result files yet.</div>';
 
 			let h = '<h1>' + esc(l.title) + '</h1><div class="goal">' + esc(l.goal) + '</div>';
 			h += '<div class="meta">'
@@ -534,7 +529,7 @@ function renderHtml(webview: vscode.Webview): string {
 
 			if (hist) { h += '<div class="section"><h2>History</h2><table class="hist"><tr><th>#</th><th>verdict</th><th>time</th><th>detail</th><th>at</th></tr>' + hist + '</table></div>'; }
 
-			h += '<div class="section"><h2>Code (git versions - pick one on the left, then a file)</h2>'
+			h += '<div class="section"><h2>Code</h2>'
 				+ '<div class="codepane"><div class="codeleft">' + leftHtml + '</div><div class="coderight" id="coderight"></div></div></div>';
 			h += '<div class="section"><h2>Results (final run)</h2><div class="files">' + resHtml + '</div></div>';
 
@@ -548,16 +543,17 @@ function renderHtml(webview: vscode.Webview): string {
 				if (!box) { return; }
 				let html = '';
 				if (selectedCode === 'ev' && l.evaluatorFile) {
-					html = '<div class="crfile" data-path="' + esc(l.evaluatorFile.abs) + '"><span class="fi">&#128196;</span>' + esc(l.evaluatorFile.rel) + '</div>'
-						+ '<div class="crnote">Shared and locked (sha256) - the same evaluator judges every iteration.</div>';
+					html = '<div class="crhdr">shared</div>'
+						+ '<div class="crfile" data-path="' + esc(l.evaluatorFile.abs) + '">' + esc(l.evaluatorFile.rel) + '</div>'
+						+ '<div class="crnote">Shared across every iteration - the locked evaluator (sha256).</div>';
 				} else {
 					const v = (l.versions || []).find(x => x.hash === selectedCode);
 					if (v) {
-						const fl = (v.files || []).map(fp => '<div class="crfile" data-hash="' + esc(v.hash) + '" data-file="' + esc(fp) + '"><span class="fi">&#128196;</span>' + esc(fp) + '</div>').join('')
+						const fl = (v.files || []).map(fp => '<div class="crfile" data-hash="' + esc(v.hash) + '" data-file="' + esc(fp) + '">' + esc(fp) + '</div>').join('')
 							|| '<div class="crnote">(no files captured this iteration)</div>';
-						html = '<div class="crhdr">' + esc(v.subject) + '</div>' + fl;
+						html = '<div class="crhdr">iter' + (v.iter >= 0 ? v.iter : '?') + '</div>' + fl;
 					} else {
-						html = '<div class="crnote">Select a version on the left.</div>';
+						html = '<div class="crnote">Select an item on the left.</div>';
 					}
 				}
 				box.innerHTML = html;
