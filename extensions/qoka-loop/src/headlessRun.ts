@@ -74,13 +74,15 @@ function childEnv(codexHome?: string): NodeJS.ProcessEnv {
  * Returns the home dir, or undefined if it could not be created (the sub-agent then falls back to
  * the global CODEX_HOME). Codex has no per-invocation --mcp-config, so this env swap is the way in.
  */
-export function setupCodexHome(dir: string, servers: Record<string, { port: number }>): string | undefined {
+export function setupCodexHome(dir: string, servers: Record<string, { port: number }>, runScope?: string): string | undefined {
 	try {
 		fs.mkdirSync(dir, { recursive: true });
 		try { fs.copyFileSync(path.join(QOKA_CODEX_HOME, 'auth.json'), path.join(dir, 'auth.json')); } catch { /* login may be elsewhere */ }
 		let toml = '';
 		for (const [name, s] of Object.entries(servers)) {
-			toml += `[mcp_servers.${name}]\nurl = "http://127.0.0.1:${s.port}/mcp"\n\n`;
+			// Codex is stateless per /mcp POST, so the scope rides on the run_code URL query (loop level).
+			const url = name === 'qoka-run' ? withScope(`http://127.0.0.1:${s.port}/mcp`, runScope) : `http://127.0.0.1:${s.port}/mcp`;
+			toml += `[mcp_servers.${name}]\nurl = "${url}"\n\n`;
 		}
 		fs.writeFileSync(path.join(dir, 'config.toml'), toml);
 		return dir;
@@ -89,12 +91,22 @@ export function setupCodexHome(dir: string, servers: Record<string, { port: numb
 	}
 }
 
-/** Claude --mcp-config file: point the sub-agent at the given MCP servers (run_code etc.). */
-export function writeMcpConfig(configPath: string, servers: Record<string, { url: string }>): void {
+/** Append `?scope=<enc>` (or &) to a URL. Used to tag the run_code (qoka-run) SSE connection with
+ *  the loop scope so its outputs are grouped under the loop's folder; other servers are unchanged. */
+function withScope(url: string, scope: string | undefined): string {
+	if (!scope) { return url; }
+	return url + (url.includes('?') ? '&' : '?') + 'scope=' + encodeURIComponent(scope);
+}
+
+/** Claude --mcp-config file: point the sub-agent at the given MCP servers (run_code etc.). When
+ *  `runScope` is set, the qoka-run server's URL carries it so run_code groups this run under the
+ *  loop's folder (see the MCP server's session scope). */
+export function writeMcpConfig(configPath: string, servers: Record<string, { url: string }>, runScope?: string): void {
 	fs.mkdirSync(path.dirname(configPath), { recursive: true });
 	const mcpServers: Record<string, unknown> = {};
 	for (const [name, s] of Object.entries(servers)) {
-		mcpServers[name] = { type: 'sse', url: s.url };
+		const url = name === 'qoka-run' ? withScope(s.url, runScope) : s.url;
+		mcpServers[name] = { type: 'sse', url };
 	}
 	fs.writeFileSync(configPath, JSON.stringify({ mcpServers }, null, 2));
 }

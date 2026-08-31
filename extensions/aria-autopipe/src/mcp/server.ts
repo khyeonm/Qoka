@@ -15,6 +15,19 @@ const HOST = '127.0.0.1';
 interface SseSession {
 	id: string;
 	res: http.ServerResponse;
+	/** Optional loop scope carried on the /sse URL (?scope=loops/<loop>/iter-<n>): the qoka-loop
+	 *  engine connects its sub-agent with this so run_code groups the run's code/outputs under that
+	 *  loop's folder instead of the project's top-level analysis/ + results/. */
+	scope?: string;
+}
+
+/** Validate a loop scope from an untrusted URL query: only a `loops/...` relative subpath with
+ *  safe characters and no traversal is accepted; anything else yields undefined (no scoping). */
+function sanitizeLoopScope(raw: string | null | undefined): string | undefined {
+	if (!raw) { return undefined; }
+	const s = raw.replace(/\/+$/, '');
+	if (/^loops\/[A-Za-z0-9._/-]+$/.test(s) && !s.includes('..')) { return s; }
+	return undefined;
 }
 
 /**
@@ -147,13 +160,13 @@ export class QokaMcpServer {
 	private handle(req: http.IncomingMessage, res: http.ServerResponse): void {
 		const url = new URL(req.url ?? '/', `http://${req.headers.host ?? HOST}`);
 		if (req.method === 'GET' && url.pathname === '/sse') {
-			this.handleSse(req, res);
+			this.handleSse(req, res, url);
 		} else if (req.method === 'POST' && url.pathname === '/messages') {
 			this.handleMessages(req, res, url);
 		} else if (req.method === 'POST' && url.pathname === '/mcp') {
 			// Streamable HTTP transport (Codex). Single endpoint, synchronous
 			// JSON response - no separate /sse stream needed.
-			this.handleStreamable(req, res);
+			this.handleStreamable(req, res, url);
 		} else if (req.method === 'GET' && url.pathname === '/mcp') {
 			// Streamable HTTP supports a GET on the same endpoint for
 			// server-initiated messages. We don't push anything proactively,
@@ -178,8 +191,9 @@ export class QokaMcpServer {
 		}
 	}
 
-	private handleSse(_req: http.IncomingMessage, res: http.ServerResponse): void {
+	private handleSse(_req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
 		const sessionId = crypto.randomUUID();
+		const scope = sanitizeLoopScope(url.searchParams.get('scope'));
 		res.writeHead(200, {
 			'Content-Type': 'text/event-stream',
 			'Cache-Control': 'no-cache',
@@ -190,7 +204,7 @@ export class QokaMcpServer {
 		// the message endpoint, so the client knows where to POST requests.
 		res.write(`event: endpoint\ndata: /messages?sessionId=${sessionId}\n\n`);
 
-		const session: SseSession = { id: sessionId, res };
+		const session: SseSession = { id: sessionId, res, scope };
 		this.sessions.set(sessionId, session);
 
 		// Heartbeat so proxies don't drop the connection. SSE comments are
@@ -219,7 +233,7 @@ export class QokaMcpServer {
 	 * the initialize response and echoed back on subsequent requests, but
 	 * we don't validate session contents - Qoka runs single-user.
 	 */
-	private handleStreamable(req: http.IncomingMessage, res: http.ServerResponse): void {
+	private handleStreamable(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
 		let body = '';
 		req.on('data', (chunk) => { body += chunk; });
 		req.on('end', async () => {
@@ -237,6 +251,9 @@ export class QokaMcpServer {
 				res.end(JSON.stringify(jsonRpcError(null, JsonRpcErrorCodes.InvalidRequest, 'Not a JSON-RPC 2.0 request')));
 				return;
 			}
+
+			// Codex is stateless per /mcp POST, so carry the loop scope on the request URL query.
+			this.applyScope(parsed, sanitizeLoopScope(url.searchParams.get('scope')));
 
 			const isNotification = parsed.id === undefined;
 			const sessionId = (req.headers['mcp-session-id'] as string | undefined) ?? crypto.randomUUID();
@@ -311,6 +328,10 @@ export class QokaMcpServer {
 			return;
 		}
 
+		// Tag this session's tool calls with its loop scope (from the /sse ?scope=), so run_code
+		// groups the run under the loop's folder. Session-scoped, so concurrent loops don't clash.
+		this.applyScope(parsed, session.scope);
+
 		// Notifications have no `id`; per the JSON-RPC spec we do not respond
 		// to them. MCP sends `notifications/initialized` after handshake.
 		const isNotification = parsed.id === undefined;
@@ -325,6 +346,16 @@ export class QokaMcpServer {
 			if (!isNotification) {
 				this.sendToSession(session, jsonRpcError(parsed.id, JsonRpcErrorCodes.InternalError, message));
 			}
+		}
+	}
+
+	/** Inject the session/request loop scope into a tools/call's arguments as `__loopScope`, so the
+	 *  tool handler (run_code) can group its outputs under the loop's folder. No-op otherwise. */
+	private applyScope(parsed: unknown, scope: string | undefined): void {
+		if (!scope || !isJsonRpcRequest(parsed) || parsed.method !== 'tools/call') { return; }
+		const p = parsed.params as { arguments?: Record<string, unknown> } | undefined;
+		if (p && typeof p === 'object') {
+			p.arguments = { ...(p.arguments ?? {}), __loopScope: scope };
 		}
 	}
 

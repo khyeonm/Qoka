@@ -232,6 +232,15 @@ function asSpec(v: unknown): LoopSpec | undefined {
 /** Loop ids the user asked to stop; the engine checks this via shouldStop each iteration. */
 const stopRequested = new Set<string>();
 
+/** Readable per-loop folder segment (title slug + short id) that run_code groups this loop's runs
+ *  under: results/loops/<loopFolder>/ + analysis/loops/<loopFolder>/. ASCII-safe; a non-ASCII title
+ *  (e.g. Korean) slugs to empty and falls back to the short id. */
+function loopFolderName(run: { id: string; spec: { title: string } }): string {
+	const slug = (run.spec.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+	const short = run.id.slice(0, 8);
+	return slug ? `${slug}-${short}` : short;
+}
+
 /**
  * Start (or RESUME) a loop's background run. Shared by start_loop and resume_loop - a resume just
  * re-enters here on a non-running loop; runLoop continues from the persisted run.iteration and
@@ -247,7 +256,7 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	stopRequested.delete(id);
 	const workMcpServers = await collectWorkMcpServers();
 	const provider = run.provider === 'codex' ? 'codex' : 'claude';
-	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers });
+	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: loopFolderName(run) });
 	const evaluatorRunner = runEnvEvaluatorRunner();
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);

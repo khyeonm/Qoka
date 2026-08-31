@@ -240,6 +240,14 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// folder. Falls back to a timestamp when there is no usable label.
 				const baseSlug = slugify(typeof args.label === 'string' ? args.label : '') || timestampId();
 				const id = uniqueRunName(baseSlug);
+				// A LOOP sub-agent connected to run_code with ?scope=loops/<loop>/iter-<n>; the MCP
+				// server injected it as __loopScope. Nest this run's code + outputs under that folder
+				// so loop artifacts stay OUT of the user's top-level analysis/ + results/ (grouped and
+				// easy to find or delete). Re-validated here (defense in depth); ignored for chat runs.
+				const rawScope = typeof args.__loopScope === 'string' ? args.__loopScope : '';
+				const loopScope = /^loops\/[A-Za-z0-9._/-]+$/.test(rawScope) && !rawScope.includes('..')
+					? rawScope.replace(/\/+$/, '') : '';
+				const runId = loopScope ? `${loopScope}/${id}` : id;
 
 				// Decide where the run dir lives. On Windows the local run environment is WSL,
 				// so write straight into analysis/<id>/ through the /mnt mount (outputs
@@ -271,11 +279,11 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					// the drive at /mnt/<drive>/…; vfkit sees the whole host disk at /mnt/mac, so
 					// its results dir is workspacePathsFor(...).output_dir (/mnt/mac/<wsRoot>/results,
 					// per-window because the endpoint repo_path is /mnt/mac + this window's wsRoot).
-					localDir = path.join(wsRoot, 'results', id);
+					localDir = path.join(wsRoot, 'results', runId);
 					fs.mkdirSync(localDir, { recursive: true });
 					runDirExpr = isWslBuiltin
 						? `'${windowsToWsl(localDir)}'`
-						: `'${workspacePathsFor(ep).output_dir}/${id}'`;
+						: `'${workspacePathsFor(ep).output_dir}/${runId}'`;
 				} else if (!isBuiltIn) {
 					// A user-provided SSH server: stay INSIDE the workspace directory the
 					// user configured for that connection (repo_path). Writing to $HOME
@@ -284,11 +292,11 @@ export const RUN_TOOLS: ToolDefinition[] = [
 					// pipelines_output/. A leading `~` becomes $HOME so the shell still
 					// expands it inside the double quotes.
 					const repo = (ep.repo_path ?? '').trim().replace(/\/+$/, '').replace(/^~(?=\/|$)/, '$HOME');
-					runDirExpr = repo ? `"${repo}/analysis/${id}"` : `"$HOME/qoka-analysis/${id}"`;
+					runDirExpr = repo ? `"${repo}/analysis/${runId}"` : `"$HOME/qoka-analysis/${runId}"`;
 				} else {
 					// Local VM (Mac/Linux): a scratch guest whose results are copied
 					// back into the project, so its own home is fine.
-					runDirExpr = `"$HOME/qoka-analysis/${id}"`;
+					runDirExpr = `"$HOME/qoka-analysis/${runId}"`;
 				}
 
 				// Python: inject the requested deps as PEP 723 metadata so `uv run`
@@ -303,8 +311,8 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const retain: 'discard' | 'scratch' | 'keep' =
 					args.retain === 'keep' ? 'keep' : args.retain === 'scratch' ? 'scratch' : 'discard';
 				let codeDir: string | undefined;
-				if (wsRoot && retain === 'keep') { codeDir = path.join(wsRoot, 'analysis', id); }
-				else if (wsRoot && retain === 'scratch') { codeDir = path.join(wsRoot, '.qoka', 'analysis', id); }
+				if (wsRoot && retain === 'keep') { codeDir = path.join(wsRoot, 'analysis', runId); }
+				else if (wsRoot && retain === 'scratch') { codeDir = path.join(wsRoot, '.qoka', 'analysis', runId); }
 				// The script SOURCE is already in hand, so write it straight to disk - no
 				// copy-back needed. Best-effort: needs an open folder and a kept run.
 				if (codeDir) {
@@ -455,7 +463,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				if (mounted && localDir) {
 					savedTo = localDir;
 				} else if (wsRoot && resolvedDir) {
-					const dest = path.join(wsRoot, 'results', id);
+					const dest = path.join(wsRoot, 'results', runId);
 					try {
 						const summary = await copyRemoteDirToLocal(ep, resolvedDir, dest, { maxFileBytes: MAX_COPY_BYTES });
 						savedTo = dest;

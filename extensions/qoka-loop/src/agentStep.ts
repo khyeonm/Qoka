@@ -65,23 +65,27 @@ export interface AgentStepOptions {
 	 * via a per-loop CODEX_HOME. Empty means no MCP tools.
 	 */
 	workMcpServers: Record<string, { url: string; port: number }>;
+	/** Readable per-loop folder name (slug-id); run_code groups this loop's runs under
+	 *  results/loops/<loopFolder>/ + analysis/loops/<loopFolder>/ instead of the project root. */
+	loopFolder: string;
 }
 
 /** Bind buildPrompt + runAgent into an AgentStep the engine can call each iteration. */
 export function makeAgentStep(opts: AgentStepOptions): AgentStep {
 	const hasServers = Object.keys(opts.workMcpServers).length > 0;
 	// Codex has no per-invocation MCP flag, so build its per-loop CODEX_HOME once here (config.toml
-	// listing the curated servers over Codex's /mcp transport). Claude instead gets a per-iteration
-	// --mcp-config file written inside the closure below.
+	// listing the curated servers over Codex's /mcp transport). Its run_code scope is loop-level
+	// (loops/<loopFolder>) since the codex home is built once, not per iteration. Claude instead gets
+	// a per-iteration --mcp-config file with a per-iteration scope (loops/<loopFolder>/iter-<n>).
 	const codexHome = (hasServers && opts.provider === 'codex')
-		? setupCodexHome(path.join(opts.loopDir, '_codex-home'), opts.workMcpServers)
+		? setupCodexHome(path.join(opts.loopDir, '_codex-home'), opts.workMcpServers, `loops/${opts.loopFolder}`)
 		: undefined;
 	return async (run: LoopRun, feedback: string | undefined): Promise<AgentResult> => {
 		const prompt = buildPrompt(run, feedback);
 		let mcpConfigPath: string | undefined;
 		if (hasServers && opts.provider === 'claude') {
 			mcpConfigPath = path.join(opts.loopDir, run.id, 'mcp-config.json');
-			writeMcpConfig(mcpConfigPath, opts.workMcpServers);
+			writeMcpConfig(mcpConfigPath, opts.workMcpServers, `loops/${opts.loopFolder}/iter-${run.iteration}`);
 		}
 		const r = await runAgent(opts.provider, prompt, { cwd: opts.cwd, mcpConfigPath, codexHome });
 		return { output: r.output, exitCode: r.exitCode, envError: r.envError, error: r.error, code: r.code, codeLanguage: r.codeLanguage, tokens: r.tokens };
