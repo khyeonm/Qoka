@@ -49,11 +49,10 @@ interface LoopView {
 	files: LoopFile[];
 }
 
-/** Recursively list the files under a loop's artifact folder (evaluator, mcp-config, ...). */
-function loopFiles(id: string): LoopFile[] {
-	const dir = loopsDir();
-	if (!dir) { return []; }
-	const root = path.join(dir, id);
+/** List a loop's files for the Files section: the locked evaluator from the hidden .qoka state, PLUS
+ *  the VISIBLE executed code + transcripts + run_code outputs under analysis/loops/<folder> (run.rootDir)
+ *  - so the user sees the real code that ran, not just the evaluator. mcp-config stays hidden. */
+function loopFiles(run: LoopRun): LoopFile[] {
 	const out: LoopFile[] = [];
 	// Internal plumbing the user does not need to see in the Files list.
 	const hidden = (name: string): boolean => name === 'mcp-config.json' || name.endsWith('.tmp') || name.startsWith('.');
@@ -68,7 +67,10 @@ function loopFiles(id: string): LoopFile[] {
 			else { out.push({ rel: childRel, abs: childAbs }); }
 		}
 	};
-	walk(root, '');
+	const dir = loopsDir();
+	if (dir) { walk(path.join(dir, run.id), ''); }
+	const proot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	if (proot && run.rootDir) { walk(path.join(proot, run.rootDir), ''); }
 	return out.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
@@ -88,7 +90,7 @@ function toView(run: LoopRun): LoopView {
 		lockedHash: run.lockedEvaluatorRef?.hash ?? run.spec.evaluator.hash,
 		history: run.history,
 		provider: run.provider,
-		files: loopFiles(run.id),
+		files: loopFiles(run),
 	};
 }
 
@@ -199,15 +201,15 @@ function renderHtml(webview: vscode.Webview): string {
 		.gutter:hover::after { opacity: 1; }
 		.detail { flex: 1; min-width: 0; overflow-y: auto; padding: 22px 26px; box-sizing: border-box; }
 		/* Flow diagram */
-		.flow-diagram { width: 100%; max-width: 400px; height: auto; margin-bottom: 12px; }
-		.flow-diagram .node-box { fill: var(--vscode-editorWidget-background); stroke: var(--vscode-widget-border, currentColor); }
-		.flow-diagram .node-eval { stroke: var(--vscode-focusBorder); }
-		.flow-diagram text { fill: var(--vscode-foreground); font-family: var(--vscode-font-family); }
-		.flow-diagram .edge { stroke: var(--vscode-foreground); opacity: 0.55; }
-		.flow-diagram .edge-pass { stroke: #4caf72; opacity: 0.9; }
-		.flow-diagram .edge-fail { stroke: #e06666; opacity: 0.9; }
-		.flow-diagram .lbl-pass { fill: #4caf72; }
-		.flow-diagram .lbl-fail { fill: #e06666; }
+		/* Flow (HTML boxes - text wraps, nothing truncated). */
+		.flowh { display: flex; flex-direction: column; max-width: 640px; margin-bottom: 10px; }
+		.fnode { border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); border-radius: 7px; background: var(--vscode-editorWidget-background); padding: 8px 12px; font-size: 12px; line-height: 1.45; word-break: break-word; }
+		.fnode.fstep { font-weight: 600; }
+		/* Evaluator: a subtle tint + a thin left accent, not a bright focus border (lighter emphasis). */
+		.fnode.feval { border-color: var(--vscode-widget-border, rgba(127,127,127,0.35)); background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.07)); border-left: 3px solid var(--vscode-widget-border, rgba(127,127,127,0.5)); }
+		.farrow { text-align: center; color: #888; font-size: 13px; line-height: 1; padding: 3px 0; }
+		.fpass { text-align: center; color: #4caf72; font-size: 11px; padding: 3px 0; }
+		.ffail { color: #e06666; font-size: 11px; margin-top: 8px; opacity: 0.9; }
 		.lock-line { font-size: 12px; opacity: 0.8; display: flex; align-items: center; gap: 8px; }
 		.lock-line .lk { color: #e0b050; }
 		.lock-line .hashmini { opacity: 0.6; font-family: var(--vscode-editor-font-family); font-size: 11px; word-break: break-all; }
@@ -285,55 +287,26 @@ function renderHtml(webview: vscode.Webview): string {
 		function refine(s) {
 			return String(s || '').replace(/\s+/g, ' ').trim();
 		}
+		// Option A: render the flow as HTML boxes so text WRAPS and nothing is truncated (the old SVG
+		// nodes had fixed width + a clipPath that also dropped some glyphs). Vertical: (Input?) -> each
+		// step -> Evaluator, then a green "pass" to Output and a red "on fail: retry" note for the cycle.
 		function flowDiagram(l) {
 			const f = l.flow || {};
 			const steps = (f.steps || []);
-			const nodes = [];
-			if (f.input) { nodes.push({ kind: 'io', label: trunc(refine(f.input), 42), title: f.input }); }
-			const firstStepIdx = nodes.length;
-			steps.forEach((st, i) => nodes.push({ kind: 'step', label: (i + 1) + '. ' + trunc(refine(st), 40), title: st }));
-			if (steps.length === 0) { nodes.push({ kind: 'step', label: 'do the work', title: 'the loop body' }); }
-			const evalIdx = nodes.length;
-			const check0 = (f.checks && f.checks[0] && f.checks[0].c) ? f.checks[0].c : (l.evaluator && l.evaluator.language ? l.evaluator.language + ' check' : 'pass/fail test');
-			nodes.push({ kind: 'eval', label: 'Evaluator: ' + trunc(refine(check0), 32), title: check0 });
-			nodes.push({ kind: 'io', label: f.output ? trunc(refine(f.output), 42) : 'Done', title: f.output || 'goal met' });
-
-			const W = 300, H = 40, VGAP = 24, X0 = 10, Y0 = 12, RM = 66;
-			const width = X0 + W + RM;
-			const height = Y0 + nodes.length * H + (nodes.length - 1) * VGAP + 6;
-			const ny = (i) => Y0 + i * (H + VGAP);
-			let s = '<svg class="flow-diagram" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Loop flow for this loop: its steps, then the evaluator; pass goes to output, fail loops back to the first step">';
-			s += '<defs>'
-				+ '<marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#888"/></marker>'
-				+ '<marker id="ahp" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#4caf72"/></marker>'
-				+ '<marker id="ahf" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#e06666"/></marker>'
-				+ '</defs>';
-			// vertical edges between consecutive nodes
-			for (let i = 0; i < nodes.length - 1; i++) {
-				const x = X0 + W / 2, y1 = ny(i) + H, y2 = ny(i + 1);
-				const isPass = (i === evalIdx); // evaluator -> output
-				s += '<line class="' + (isPass ? 'edge-pass' : 'edge') + '" x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + (y2 - 2) + '" marker-end="url(#' + (isPass ? 'ahp' : 'ah') + ')" stroke-width="1.6"/>';
-				if (isPass) { s += '<text class="lbl-pass" x="' + (x + 8) + '" y="' + ((y1 + y2) / 2 + 3) + '" font-size="10">pass</text>'; }
-			}
-			// feedback: evaluator right side -> curve out right -> back to first step right side
-			const rx = X0 + W;
-			const ey = ny(evalIdx) + H / 2;
-			const sy = ny(firstStepIdx) + H / 2;
-			const ox = rx + RM - 12;
-			s += '<path class="edge-fail" d="M' + rx + ',' + ey + ' C' + ox + ',' + ey + ' ' + ox + ',' + sy + ' ' + rx + ',' + sy + '" fill="none" marker-end="url(#ahf)" stroke-width="1.6"/>';
-			s += '<text class="lbl-fail" x="' + (ox + 4) + '" y="' + ((ey + sy) / 2) + '" text-anchor="middle" font-size="10" transform="rotate(90 ' + (ox + 4) + ' ' + ((ey + sy) / 2) + ')">fail &#8594; retry</text>';
-			// nodes
-			nodes.forEach((nd, i) => {
-				const y = ny(i);
-				// clipPath hard-clips any label that still overruns the box (belt-and-suspenders with trunc).
-				s += '<g><title>' + esc(nd.title || '') + '</title>'
-					+ '<clipPath id="clip' + i + '"><rect x="' + (X0 + 6) + '" y="' + y + '" width="' + (W - 12) + '" height="' + H + '"/></clipPath>'
-					+ '<rect class="node-box' + (nd.kind === 'eval' ? ' node-eval' : '') + '" x="' + X0 + '" y="' + y + '" width="' + W + '" height="' + H + '" rx="7" stroke-width="1.4"/>'
-					+ '<text clip-path="url(#clip' + i + ')" x="' + (X0 + 12) + '" y="' + (y + H / 2 + 4) + '" font-size="12"' + (nd.kind === 'step' ? ' font-weight="600"' : '') + '>' + esc(nd.label) + '</text>'
-					+ '</g>';
-			});
-			s += '</svg>';
-			return s;
+			const box = (cls, label) => '<div class="fnode ' + cls + '">' + esc(refine(label)) + '</div>';
+			const arrow = '<div class="farrow">&#8595;</div>';
+			const parts = [];
+			if (f.input) { parts.push(box('fio', f.input)); }
+			if (steps.length) { steps.forEach((st, i) => parts.push(box('fstep', (i + 1) + '. ' + st))); }
+			else { parts.push(box('fstep', 'do the work')); }
+			const check0 = (f.checks && f.checks[0] && f.checks[0].c) ? f.checks[0].c : 'pass / fail test';
+			parts.push(box('feval', 'Evaluator: ' + check0));
+			let h = '<div class="flowh">' + parts.join(arrow);
+			h += '<div class="fpass">&#8595; pass</div>';
+			h += box('fio', f.output ? f.output : 'Done (goal met)');
+			h += '<div class="ffail">&#8635; on fail: loop back to step 1 and retry</div>';
+			h += '</div>';
+			return h;
 		}
 
 		function renderDetail() {
@@ -346,9 +319,9 @@ function renderHtml(webview: vscode.Webview): string {
 			const checks = (f.checks || []).map(c => '<div class="check"><div>' + esc(c.c) + '</div><div class="cw">' + esc(c.why) + '</div></div>').join('');
 			const steps = (f.steps || []).map(s => '<li>' + esc(s) + '</li>').join('');
 			const fmtDur = (ms) => (typeof ms !== 'number') ? '' : (ms < 1000 ? ms + 'ms' : (ms < 60000 ? (ms / 1000).toFixed(1) + 's' : Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's'));
-			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(h.detail || '') + '</td><td>' + fmtTime(h.at) + '</td></tr>').join('');
+			const cleanDetail = (d) => { d = String(d || '').replace(/\s+/g, ' ').trim(); return d.length > 140 ? d.slice(0, 139) + '...' : d; };
+			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(cleanDetail(h.detail)) + '</td><td>' + fmtTime(h.at) + '</td></tr>').join('');
 			const files = (l.files || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '"><span class="fi">&#128196;</span>' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:12px;text-align:left">No artifact files yet.</div>';
-			const examplePrompt = 'Explain the result of the loop "' + l.title + '" (id ' + l.id + '). Use loop_status to read its status and verdict history.';
 
 			let h = '<h1>' + esc(l.title) + '</h1><div class="goal">' + esc(l.goal) + '</div>';
 			h += '<div class="meta">'
@@ -368,20 +341,15 @@ function renderHtml(webview: vscode.Webview): string {
 			// repeat them as text lines here - that was the cluttered part. Keep the readable step list.
 			h += '<div class="section"><h2>Flow</h2>';
 			h += flowDiagram(l);
-			h += '<ol class="steps">' + steps + '</ol>';
 			h += '</div>';
 
-			if (checks) { h += '<div class="section"><h2>Checks</h2><div class="checks">' + checks + '</div></div>'; }
-
-			// The loop stops on the FIRST of these. Derived from the authoritative budget + the engine's
-			// fixed rules (not the free-form flow.stops), so it always matches what the engine actually does.
-			// The success condition = THIS loop's actual evaluator checks (not a generic "passes").
-			const passCond = (f.checks && f.checks.length) ? f.checks.map(c => c.c).filter(Boolean).join('; ') : (l.goal || 'the goal is met');
+			// Stops on the FIRST of these; derived from the budget + engine rules so it always matches what
+			// the engine does. Kept short - the goal (the success condition) is already shown at the top.
 			const stopItems = [
-				'Evaluator passes &#8594; success: ' + esc(passCond),
-				l.budget.maxIter + ' iterations reached &#8594; stop',
-				l.budget.maxMin + ' minutes elapsed &#8594; stop',
-				'No progress: the same failure 3 times in a row &#8594; stop',
+				'The evaluator passes &#8594; success',
+				l.budget.maxIter + ' iterations reached',
+				l.budget.maxMin + ' minutes elapsed',
+				'No progress: the same failure 3 times',
 			];
 			h += '<div class="section"><h2>Stops when (whichever comes first)</h2><ul class="steps">'
 				+ stopItems.map(x => '<li>' + x + '</li>').join('') + '</ul></div>';
@@ -390,16 +358,11 @@ function renderHtml(webview: vscode.Webview): string {
 
 			h += '<div class="section"><h2>Files</h2><div class="files">' + files + '</div></div>';
 
-			h += '<div class="section"><h2>Ask about this loop</h2><div class="prompt-box">'
-				+ '<div>Ask in chat, for example:</div><div class="pe">' + esc(examplePrompt) + '</div>'
-				+ '<button class="copy" id="copyPrompt">Copy example prompt</button></div></div>';
 
 			$('detail').innerHTML = h;
 			document.querySelectorAll('.file').forEach(el => {
 				el.onclick = () => vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') });
 			});
-			const cp = $('copyPrompt');
-			if (cp) { cp.onclick = () => vscode.postMessage({ type: 'copy', text: examplePrompt }); }
 		}
 
 		// This webview shows ONE loop's detail (the loop list lives in the left sidebar view, which

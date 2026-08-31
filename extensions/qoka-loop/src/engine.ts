@@ -62,6 +62,10 @@ export interface RunOptions {
 	/** Checked at the top of every iteration; returning true stops the loop cleanly (status
 	 *  'stopped'). Lets the user cancel a running loop from the chat (stop_loop tool). */
 	shouldStop?: () => boolean;
+	/** VISIBLE folder for this loop's per-iteration code + transcript (e.g. <project>/analysis/
+	 *  loops/<loopFolder>), so the user can see the executed code in the Analysis tree instead of
+	 *  it being hidden under .qoka. Falls back to <loopDir>/<id> when unset. */
+	codeDir?: string;
 }
 
 function sha256(s: string): string {
@@ -85,12 +89,11 @@ function codeExt(language?: string): string {
 	}
 }
 
-/** Write one iteration's artifacts to <loopDir>/<id>/ (best-effort) so the Loops tab can list them:
- *  the literal executed code as a CLEAN source file iter-<n>.<ext> (when the stream yielded it), and
- *  the sub-agent's narration as iter-<n>.md. */
-function writeIterationLog(loopDir: string, id: string, iteration: number, output: string, code?: string, codeLanguage?: string): void {
+/** Write one iteration's artifacts to `dir` (best-effort) so the Loops tab + Analysis tree can show
+ *  them: the literal executed code as a CLEAN source file iter-<n>.<ext> (when the stream yielded
+ *  it), and the sub-agent's narration as iter-<n>.md. `dir` is the loop's VISIBLE code folder. */
+function writeIterationLog(dir: string, iteration: number, output: string, code?: string, codeLanguage?: string): void {
 	try {
-		const dir = path.join(loopDir, id);
 		fs.mkdirSync(dir, { recursive: true });
 		if (code && code.trim()) {
 			fs.writeFileSync(path.join(dir, `iter-${iteration}.${codeExt(codeLanguage)}`), code.trim() + '\n');
@@ -183,7 +186,7 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 		// Persist THIS iteration's record (executed code + transcript) so the work is inspectable
 		// in the Loops tab (the raw run_code source runs on the run env with retain=discard and is
 		// not kept there, so this is the local record of what the sub-agent did each turn).
-		writeIterationLog(opts.loopDir, run.id, run.iteration, r.output ?? '', r.code, r.codeLanguage);
+		writeIterationLog(opts.codeDir ?? path.join(opts.loopDir, run.id), run.iteration, r.output ?? '', r.code, r.codeLanguage);
 		if (r.envError) {
 			run.status = 'paused';
 			run.reason = r.error ?? 'environment error';

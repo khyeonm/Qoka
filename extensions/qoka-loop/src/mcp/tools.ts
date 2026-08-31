@@ -167,7 +167,11 @@ approves the evaluator; it is then sha256-locked so the work agent cannot alter 
 
 Produce a LoopSpec with this shape and pass it verbatim to save_loop (evaluator.code is EXECUTABLE
 code returning a deterministic verdict: exit 0 = pass / non-zero = fail, or print {"pass": bool,
-"detail": "..."} on stdout):
+"detail": "..."} on stdout). IMPORTANT - the "detail" on FAILURE must be a SHORT ONE-LINE summary of
+the CAUSE (the metric vs the threshold, or the single failing condition - e.g. "ARI=0.72 < 0.9" or
+"row count 180 != 200"), NOT a full traceback, stack dump, or multi-line log: this line is shown
+verbatim in the loop's iteration history, and the next iteration reads it as the fix-this feedback,
+so make it a concise, actionable reason. On PASS the detail can be a short confirmation or empty.
 {
   "title": "short title",
   "goal": "one sentence goal",
@@ -256,11 +260,17 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	stopRequested.delete(id);
 	const workMcpServers = await collectWorkMcpServers();
 	const provider = run.provider === 'codex' ? 'codex' : 'claude';
-	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: loopFolderName(run) });
+	const folder = loopFolderName(run);
+	// This loop's VISIBLE code folder (shown in the Analysis tree), where the engine writes each
+	// iteration's executed code + transcript - so the user sees the real code, not a hidden .qoka copy.
+	run.rootDir = `analysis/loops/${folder}`;
+	writeLoop(run);
+	const codeDir = path.join(cwd, 'analysis', 'loops', folder);
+	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: folder });
 	const evaluatorRunner = runEnvEvaluatorRunner();
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);
-	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id) })
+	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir })
 		.then(outcome => { stopRequested.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
 		.catch(e => { stopRequested.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
 	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers) }));
