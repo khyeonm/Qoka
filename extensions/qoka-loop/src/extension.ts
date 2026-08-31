@@ -11,6 +11,7 @@ import { registerWithCodex } from './registration/codexMcp';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import { resolveGitBinary, warmGitBinary } from './gitBin';
+import { loopLog } from './log';
 import { openLoopPanel, LOOP_FILE_SCHEME } from './ui/loopPanel';
 
 let mcpServer: QokaLoopMcpServer | undefined;
@@ -50,7 +51,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Warm the git binary early (via aria-vcs, extracting bundled MinGit on Windows) so viewing a loop's
 	// code version tree works even before a loop is started this session. Fire-and-forget; best-effort.
-	void warmGitBinary(vscode.commands);
+	loopLog('qoka-loop activate');
+	void warmGitBinary(vscode.commands).then(p => loopLog(`warmGitBinary resolved: ${p}`));
 
 	mcpServer = new QokaLoopMcpServer(buildTools());
 

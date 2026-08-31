@@ -18,6 +18,7 @@ import * as vscode from 'vscode';
 import { LoopRun } from '../schema';
 import { listLoops, loopsDir, readLoop } from '../state';
 import { resolveGitBinary } from '../gitBin';
+import { loopLog } from '../log';
 
 /** URI scheme for read-only loop-artifact documents (registered in extension.ts). Opening loop
  *  files through this scheme keeps the hidden .qoka path out of the Analysis explorer. */
@@ -48,7 +49,11 @@ function loopVersions(run: LoopRun): LoopVersion[] {
 	const gitBin = resolveGitBinary();
 	let out: string;
 	try { out = execFileSync(gitBin, ['-C', codeDir, 'log', '--format=%H%x09%s'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
-	catch { return []; }
+	catch (e) {
+		const hasGit = fs.existsSync(path.join(codeDir, '.git'));
+		loopLog(`loopVersions: git log failed. gitBin=${gitBin} codeDir=${codeDir} .git exists=${hasGit} err=${(e as Error).message}`);
+		return [];
+	}
 	return out.trim().split('\n').filter(Boolean).map(line => {
 		const tab = line.indexOf('\t');
 		const hash = tab >= 0 ? line.slice(0, tab) : line;

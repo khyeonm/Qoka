@@ -17,6 +17,7 @@ import { LoopSpec } from '../schema';
 import { saveLoop, readLoop, listLoops, writeLoop, loopsDir } from '../state';
 import { runLoop, ScriptRunner } from '../engine';
 import { warmGitBinary } from '../gitBin';
+import { loopLog } from '../log';
 import { makeAgentStep } from '../agentStep';
 
 /**
@@ -174,7 +175,7 @@ the CAUSE (the metric vs the threshold, or the single failing condition - e.g. "
 verbatim in the loop's iteration history, and the next iteration reads it as the fix-this feedback,
 so make it a concise, actionable reason. On PASS the detail can be a short confirmation or empty.
 {
-  "title": "short title",
+  "title": "short title in PLAIN WORDS (2-5 words, e.g. \"normal sampling convergence\"). It becomes the loop's folder name, so avoid bare math/symbol notation like \"N(0,1)\" which slugs to noise",
   "goal": "one sentence goal",
   "flow": {
     "input": "what it starts from",
@@ -241,8 +242,17 @@ const stopRequested = new Set<string>();
  *  under: results/loops/<loopFolder>/ + analysis/loops/<loopFolder>/. ASCII-safe; a non-ASCII title
  *  (e.g. Korean) slugs to empty and falls back to the short id. */
 function loopFolderName(run: { id: string; spec: { title: string } }): string {
-	const slug = (run.spec.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30).replace(/-+$/g, '');
 	const short = run.id.slice(0, 6);
+	let slug = (run.spec.title || '').toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')       // non-alphanumerics -> hyphen
+		.replace(/^[-0-9]+/, '')           // drop a leading run of hyphens/digits (e.g. "N(0,1)" -> "n-0-1" -> "n")
+		.replace(/-+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 30).replace(/-+$/g, '');
+	// A title that is mostly symbols/numbers (e.g. "N(0,1)") slugs to almost nothing and reads as noise;
+	// fall back to a clean generic name rather than a cryptic "n-0-1".
+	const letters = (slug.match(/[a-z]/g) || []).length;
+	if (letters < 3) { slug = ''; }
 	return slug ? `${slug}-${short}` : `loop-${short}`;
 }
 
@@ -272,11 +282,20 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	// Resolve git via aria-vcs (extracts the bundled MinGit on Windows on first use) so the engine's
 	// per-iteration commits use a real git even when none is on PATH. Best-effort: falls back internally.
 	const gitPath = await warmGitBinary(vscode.commands);
+	loopLog(`launch loop ${id}: folder=${folder} gitPath=${gitPath} codeDir=${codeDir}`);
+	// Quick probe so the Output channel shows immediately whether this git binary actually runs.
+	try {
+		const cp = await import('child_process');
+		const ver = cp.execFileSync(gitPath, ['--version'], { encoding: 'utf8' }).trim();
+		loopLog(`  git probe ok: ${ver}`);
+	} catch (e) {
+		loopLog(`  git probe FAILED (${gitPath}): ${(e as Error).message} -> code versions will be empty. Install git or check the bundled MinGit.`);
+	}
 	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: folder });
 	const evaluatorRunner = runEnvEvaluatorRunner();
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);
-	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, gitPath })
+	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, gitPath, log: loopLog })
 		.then(outcome => { stopRequested.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
 		.catch(e => { stopRequested.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
 	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers) }));
