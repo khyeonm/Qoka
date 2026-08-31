@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { VcsService, Snapshot, StatusInfo, FileChange } from './vcsService';
 import { summarizeDiff, availableProviders, AiProvider } from './aiSummarizer';
 import { recordGroup, getGroup } from './snapshotGroups';
+import { resolveGit } from './gitBackend';
 
 /** Returned by aria.vcs.prepareSnapshot - everything the Save dialog needs. */
 export interface SnapshotDraft {
@@ -255,6 +256,19 @@ export function activate(context: vscode.ExtensionContext): void {
 			return await service.getStatus(cwd);
 		} catch {
 			return { isRepo: false, unsavedChanges: 0, hasHead: false };
+		}
+	}));
+
+	// Resolve the git binary to run (extracting the bundled MinGit on Windows on first use). Returns
+	// the executable path, or undefined when only the JS-only fallback is available. Other extensions
+	// (e.g. qoka-loop's code version tree) call this so they run the SAME git the Versions view uses,
+	// instead of assuming a `git` on PATH that a GUI app rarely has on Windows.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.vcs.resolveGitPath', async (): Promise<string | undefined> => {
+		try {
+			const mode = await resolveGit();
+			return mode.mode === 'native' ? mode.gitPath : undefined;
+		} catch {
+			return undefined;
 		}
 	}));
 }
