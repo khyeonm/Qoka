@@ -516,8 +516,10 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				}
 
 				const savedFiles = savedTo ? listLocalFiles(savedTo) : [];
-				// Show the results, don't just say where they are.
-				const shown = savedTo ? await openResultsInEditor(savedTo, savedFiles) : { opened: [], remaining: [] };
+				// Show the results, don't just say where they are. EXCEPT inside a loop: a loop runs run_code
+				// every iteration, so auto-opening its outputs (metrics.json, logs) would flood the editor with
+				// tabs that reappear each attempt. The loop has its own Loops tab for viewing results.
+				const shown = (savedTo && !loopScope) ? await openResultsInEditor(savedTo, savedFiles) : { opened: [], remaining: [] };
 
 				if (savedTo) {
 					const subdirs = resultSubdirs(savedFiles);
