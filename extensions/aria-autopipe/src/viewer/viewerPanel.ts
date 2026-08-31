@@ -11,6 +11,7 @@ import { services } from '../common/services';
 import { InstalledPlugin, DataSourceCommands } from '../plugins/pluginService';
 import { windowsToWsl } from '../common/dockerEnv';
 import { wslAvailable } from '../vm/wsl';
+import { builtinExec } from '../runtime/builtinServer';
 
 /**
  * The Autopipe Viewer renders pipeline result files with the installed
@@ -374,9 +375,13 @@ async function handleDataFetch(url: string): Promise<unknown> {
 		return { error: `Plugin "${entry.plugin.manifest.name}" has no data_source.` };
 	}
 
-	// The data_source shell templates are POSIX; on Windows they run inside
-	// WSL, so the file path they substitute must be the WSL mount path.
-	const dataPath = process.platform === 'win32' ? windowsToWsl(entry.localPath) : entry.localPath;
+	// The data_source shell templates are POSIX and run inside the local run
+	// environment, so the substituted path must be that env's mount of the file:
+	// Windows -> the WSL mount (/mnt/<drive>/...); Mac -> the vfkit whole-host
+	// mount (/mnt/mac/...); Linux -> the local path as-is (host docker).
+	const dataPath = process.platform === 'win32' ? windowsToWsl(entry.localPath)
+		: process.platform === 'darwin' ? `/mnt/mac${entry.localPath}`
+			: entry.localPath;
 
 	const start = page * pageSize + 1; // sed is 1-indexed
 	const end = start + pageSize - 1;
@@ -532,12 +537,21 @@ async function handleDataFetch(url: string): Promise<unknown> {
 	return result;
 }
 
-/** Run a data_source shell command against the local disk. POSIX hosts run
- *  it with `sh -c`; on Windows the data lives under the WSL mount and the
- *  commands (sed/awk/docker) are POSIX, so they run inside WSL via
- *  `wsl.exe -e sh -c`. */
-function localRun(cmd: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-	return new Promise((resolve) => {
+/** Run a data_source shell command against the LOCAL result file, INSIDE the
+ *  local run environment where Docker lives (the same target run_code uses):
+ *  Windows runs it in WSL via `wsl.exe -e sh -c`; Mac has no host Docker, so it
+ *  runs inside the built-in vfkit VM over `ssh.run` (the file is visible there
+ *  at /mnt/mac/...); Linux runs it directly with `sh -c` on the host. */
+async function localRun(cmd: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+	if (process.platform === 'darwin') {
+		try {
+			const r = await builtinExec(cmd, { timeoutMs });
+			return { stdout: r.stdout, stderr: r.stderr, exitCode: r.exitCode };
+		} catch (err) {
+			return { stdout: '', stderr: `[qoka] could not reach the built-in run environment (vfkit): ${(err as Error).message}`, exitCode: 127 };
+		}
+	}
+	return new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
 		const child = process.platform === 'win32'
 			? spawn('wsl.exe', ['-e', 'sh', '-c', cmd])
 			: spawn('sh', ['-c', cmd]);
