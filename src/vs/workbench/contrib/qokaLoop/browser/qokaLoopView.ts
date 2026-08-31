@@ -89,7 +89,27 @@ export class QokaLoopView extends ViewPane {
 			this.empty(root, localize('qoka.loop.none', "No loops yet. Ask the chat to run something as a loop."));
 			return;
 		}
+		this.legend(root);
 		for (const l of loops) { this.loopRow(root, l); }
+	}
+
+	/** Traffic-light status colors, shared by the legend and the per-loop dots. */
+	private static readonly STATUS_COLORS: Record<string, string> = {
+		running: '#4c8dff', success: '#4caf72', failed: '#e06666', paused: '#e0b050', 'pending-approval': '#c0a040', stopped: '#9a9a9a',
+	};
+
+	/** A one-line color key at the top of the list so the traffic-light dots are self-explanatory. */
+	private legend(root: HTMLElement): void {
+		const bar = append(root, $('div'));
+		Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '2px 6px 10px', marginBottom: '4px', borderBottom: '1px solid var(--vscode-widget-border, rgba(127,127,127,0.25))' });
+		const items: [string, string][] = [['running', 'running'], ['success', 'success'], ['failed', 'failed'], ['paused', 'paused'], ['pending-approval', 'pending'], ['stopped', 'stopped']];
+		for (const [key, label] of items) {
+			const item = append(bar, $('div'));
+			Object.assign(item.style, { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', opacity: '0.85' });
+			const dot = append(item, $('span'));
+			Object.assign(dot.style, { width: '8px', height: '8px', borderRadius: '50%', background: QokaLoopView.STATUS_COLORS[key], flexShrink: '0' });
+			append(item, $('span')).textContent = label;
+		}
 	}
 
 	private loopRow(root: HTMLElement, l: LoopEntry): void {
@@ -99,11 +119,10 @@ export class QokaLoopView extends ViewPane {
 		row.onmouseleave = () => { row.style.background = 'transparent'; };
 		row.onclick = () => void this.commandService.executeCommand('qoka.loop.open', l.id);
 
-		const badge = append(row, $('span'));
-		badge.textContent = l.status === 'pending-approval' ? 'pending' : l.status;
-		const colors: Record<string, string> = { running: '#4c8dff', success: '#4caf72', failed: '#e06666', paused: '#e0b050', stopped: '#9a9a9a' };
-		const c = colors[l.status] ?? 'var(--vscode-badge-foreground)';
-		Object.assign(badge.style, { flexShrink: '0', fontSize: '10px', fontWeight: '600', padding: '1px 7px', borderRadius: '9px', color: c, border: `1px solid ${c}66` });
+		// Traffic-light status DOT (filled circle in the status color), like the mockup.
+		const c = QokaLoopView.STATUS_COLORS[l.status] ?? 'var(--vscode-descriptionForeground)';
+		const dot = append(row, $('span'));
+		Object.assign(dot.style, { flexShrink: '0', width: '9px', height: '9px', borderRadius: '50%', background: c, boxShadow: `0 0 0 2px ${c}33` });
 
 		const col = append(row, $('div'));
 		Object.assign(col.style, { flex: '1', overflow: 'hidden' });
@@ -111,8 +130,9 @@ export class QokaLoopView extends ViewPane {
 		title.textContent = l.title;
 		Object.assign(title.style, { fontSize: '13px', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 		const sub = append(col, $('div'));
-		sub.textContent = localize('qoka.loop.iter', "iteration {0} / {1}", l.iteration, l.maxIter);
-		Object.assign(sub.style, { fontSize: '11px', opacity: '0.6' });
+		const statusText = l.status === 'pending-approval' ? 'pending' : l.status;
+		sub.textContent = `${statusText} - ${localize('qoka.loop.iter', "iteration {0} / {1}", l.iteration, l.maxIter)}`;
+		Object.assign(sub.style, { fontSize: '11px', opacity: '0.65' });
 	}
 
 	private async loadLoops(): Promise<LoopEntry[]> {
