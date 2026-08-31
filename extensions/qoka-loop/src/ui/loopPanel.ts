@@ -82,18 +82,32 @@ interface LoopView {
 	lockedHash?: string;
 	history: LoopRun['history'];
 	provider?: string;
-	files: LoopFile[];
+	evaluatorFile?: LoopFile;
+	results: LoopFile[];
 	versions: LoopVersion[];
 	codeDir?: string;
 }
 
-/** List a loop's files for the Files section: the locked evaluator from the hidden .qoka state, PLUS
- *  the VISIBLE executed code + transcripts + run_code outputs under analysis/loops/<folder> (run.rootDir)
- *  - so the user sees the real code that ran, not just the evaluator. mcp-config stays hidden. */
-function loopFiles(run: LoopRun): LoopFile[] {
+/** The locked evaluator file (hidden .qoka/loops/<id>/evaluator.<ext>) - a SHARED file: the same
+ *  evaluator judges every iteration, so it is not tied to a single version. Shown as a pinned
+ *  "Evaluator (locked)" entry in the Code section, separate from the per-iteration versions. */
+function loopEvaluatorFile(run: LoopRun): LoopFile | undefined {
+	const dir = loopsDir();
+	if (!dir) { return undefined; }
+	const base = path.join(dir, run.id);
+	let entries: fs.Dirent[];
+	try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch { return undefined; }
+	const ev = entries.find(e => e.isFile() && e.name.startsWith('evaluator.'));
+	return ev ? { rel: ev.name, abs: path.join(base, ev.name) } : undefined;
+}
+
+/** The loop's final OUTPUT files (loops/<folder>/results/**) - metrics, logs, figures. These are
+ *  results, not code, so they get their own "Results" section rather than being mixed with the code. */
+function loopResultFiles(run: LoopRun): LoopFile[] {
+	const proot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	if (!proot || !run.rootDir) { return []; }
 	const out: LoopFile[] = [];
-	// Internal plumbing the user does not need to see in the Files list.
-	const hidden = (name: string): boolean => name === 'mcp-config.json' || name.endsWith('.tmp') || name.startsWith('.');
+	const hidden = (name: string): boolean => name.endsWith('.tmp') || name.startsWith('.');
 	const walk = (abs: string, rel: string): void => {
 		let entries: fs.Dirent[];
 		try { entries = fs.readdirSync(abs, { withFileTypes: true }); } catch { return; }
@@ -105,22 +119,7 @@ function loopFiles(run: LoopRun): LoopFile[] {
 			else { out.push({ rel: childRel, abs: childAbs }); }
 		}
 	};
-	const dir = loopsDir();
-	if (dir) { walk(path.join(dir, run.id), ''); }
-	const proot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-	if (proot && run.rootDir) {
-		// Walk the loop's visible folder but SKIP code/ - the code is shown as the git version tree in its
-		// own section, so listing code/solution.<ext> here too would just duplicate it.
-		const base = path.join(proot, run.rootDir);
-		let top: fs.Dirent[];
-		try { top = fs.readdirSync(base, { withFileTypes: true }); } catch { top = []; }
-		for (const e of top) {
-			if (hidden(e.name) || e.name === 'code') { continue; }
-			const childAbs = path.join(base, e.name);
-			if (e.isDirectory()) { walk(childAbs, e.name); }
-			else { out.push({ rel: e.name, abs: childAbs }); }
-		}
-	}
+	walk(path.join(proot, run.rootDir, 'results'), '');
 	return out.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
@@ -140,7 +139,8 @@ function toView(run: LoopRun): LoopView {
 		lockedHash: run.lockedEvaluatorRef?.hash ?? run.spec.evaluator.hash,
 		history: run.history,
 		provider: run.provider,
-		files: loopFiles(run),
+		evaluatorFile: loopEvaluatorFile(run),
+		results: loopResultFiles(run),
 		versions: loopVersions(run),
 		codeDir: loopCodeDir(run),
 	};
@@ -328,15 +328,22 @@ function renderHtml(webview: vscode.Webview): string {
 		.vdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #9a9a9a; }
 		.vdot.v-pass { background: #4caf72; }
 		.vdot.v-fail { background: #e06666; }
-		.vchev { display: inline-block; transition: transform 0.12s; opacity: 0.6; font-size: 10px; }
-		.ver.vopen .vchev { transform: rotate(90deg); }
 		.vsub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-		/* Captured files for one version (expanded on click); each row opens that version of the file. */
-		.vfiles { padding: 2px 0 6px 24px; }
-		.vfile { font-size: 12px; padding: 3px 8px; cursor: pointer; border-radius: 3px; display: flex; align-items: center; gap: 6px; font-family: var(--vscode-editor-font-family); }
-		.vfile:hover { background: var(--vscode-list-hoverBackground); }
-		.vfile .fi { opacity: 0.7; }
-		.vfile-empty { font-size: 11px; opacity: 0.5; padding: 3px 8px; }
+		/* Code section: version rail on the LEFT, the selected item's files on the RIGHT. Wraps on a
+		   narrow panel so the two panes stack instead of overflowing. */
+		.codepane { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+		.codeleft { flex: 1 1 200px; min-width: 180px; max-width: 320px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); border-radius: 6px; overflow: hidden; }
+		.coderight { flex: 2 1 240px; min-width: 200px; }
+		.cgroup { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; padding: 6px 10px 3px; }
+		.citem { font-size: 12px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-left: 2px solid transparent; }
+		.citem:hover { background: var(--vscode-list-hoverBackground); }
+		.citem.csel { background: var(--vscode-list-activeSelectionBackground, rgba(90,140,255,0.18)); border-left-color: #4c8dff; }
+		.citem .clock { font-size: 11px; opacity: 0.8; }
+		.crhdr { font-size: 11px; opacity: 0.7; padding: 2px 4px 8px; }
+		.crfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; display: flex; align-items: center; gap: 6px; font-family: var(--vscode-editor-font-family); }
+		.crfile:hover { background: var(--vscode-list-hoverBackground); }
+		.crfile .fi { opacity: 0.7; }
+		.crnote { font-size: 11px; opacity: 0.55; padding: 6px 8px; line-height: 1.4; }
 		.empty { opacity: 0.6; padding: 40px; text-align: center; font-size: 13px; }
 	</style>
 </head>
@@ -351,6 +358,8 @@ function renderHtml(webview: vscode.Webview): string {
 		const fmtTime = (iso) => { try { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString(); } catch (e) { return ''; } };
 		let loops = [];
 		let selectedId = null;
+		// Which code item is selected in the Code section: 'ev' (the shared evaluator) or a version hash.
+		let selectedCode = null;
 
 		const badgeClass = (s) => ({ running:'b-running', success:'b-success', failed:'b-failed', paused:'b-paused', stopped:'b-stopped', 'pending-approval':'b-pending' }[s] || 'b-pending');
 		const statusLabel = (s) => s === 'pending-approval' ? 'pending' : s;
@@ -463,18 +472,27 @@ function renderHtml(webview: vscode.Webview): string {
 			const fmtDur = (ms) => (typeof ms !== 'number') ? '' : (ms < 1000 ? ms + 'ms' : (ms < 60000 ? (ms / 1000).toFixed(1) + 's' : Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's'));
 			const cleanDetail = (d) => { d = String(d || '').replace(/\\s+/g, ' ').trim(); return d.length > 140 ? d.slice(0, 139) + '...' : d; };
 			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(cleanDetail(h.detail)) + '</td><td>' + fmtTime(h.at) + '</td></tr>').join('');
-			const files = (l.files || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '"><span class="fi">&#128196;</span>' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:12px;text-align:left">No artifact files yet.</div>';
-			// Version tree: one row per iteration commit; clicking a version expands the list of code files
-			// captured in that version, and clicking a file opens that version of it read-only (git show).
-			const versions = (l.versions || []).map(v => {
-				const dot = '<span class="vdot ' + (v.verdict === 'pass' ? 'v-pass' : v.verdict === 'fail' ? 'v-fail' : '') + '"></span>';
-				const vfiles = (v.files || []).map(fp => '<div class="vfile" data-hash="' + esc(v.hash) + '" data-file="' + esc(fp) + '"><span class="fi">&#128196;</span>' + esc(fp) + '</div>').join('')
-					|| '<div class="vfile-empty">(no files captured)</div>';
-				return '<div class="verwrap">'
-					+ '<div class="ver" data-hash="' + esc(v.hash) + '">' + dot + '<span class="vchev">&#9656;</span><span class="vsub">' + esc(v.subject) + '</span></div>'
-					+ '<div class="vfiles" data-for="' + esc(v.hash) + '" style="display:none">' + vfiles + '</div>'
-					+ '</div>';
-			}).join('') || '<div class="empty" style="padding:8px;text-align:left">No versions yet (git unavailable or no iterations).</div>';
+			// Keep the selected code item valid across refreshes: default to the newest version, else the
+			// shared evaluator. selectedCode is 'ev' (the locked evaluator) or a version hash.
+			const hashes = (l.versions || []).map(v => v.hash);
+			if (selectedCode !== 'ev' && hashes.indexOf(selectedCode) < 0) { selectedCode = hashes.length ? hashes[0] : (l.evaluatorFile ? 'ev' : null); }
+			if (selectedCode === 'ev' && !l.evaluatorFile) { selectedCode = hashes.length ? hashes[0] : null; }
+
+			// Code section LEFT rail: a pinned "Evaluator (locked)" shared item, then the per-iteration
+			// version list. Selecting one fills the RIGHT pane (renderCodeRight) with that item's files.
+			const leftItems = [];
+			if (l.evaluatorFile) {
+				leftItems.push('<div class="citem' + (selectedCode === 'ev' ? ' csel' : '') + '" data-kind="ev"><span class="clock">&#128274;</span>Evaluator (locked)</div>');
+			}
+			if ((l.versions || []).length) {
+				leftItems.push('<div class="cgroup">Versions</div>');
+				(l.versions || []).forEach(v => {
+					const dotcls = v.verdict === 'pass' ? 'v-pass' : v.verdict === 'fail' ? 'v-fail' : '';
+					leftItems.push('<div class="citem cver' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '"><span class="vdot ' + dotcls + '"></span><span class="vsub">' + esc(v.subject) + '</span></div>');
+				});
+			}
+			const leftHtml = leftItems.join('') || '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>';
+			const resHtml = (l.results || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '"><span class="fi">&#128196;</span>' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:10px;text-align:left">No result files yet.</div>';
 
 			let h = '<h1>' + esc(l.title) + '</h1><div class="goal">' + esc(l.goal) + '</div>';
 			h += '<div class="meta">'
@@ -509,27 +527,53 @@ function renderHtml(webview: vscode.Webview): string {
 
 			if (hist) { h += '<div class="section"><h2>History</h2><table class="hist"><tr><th>#</th><th>verdict</th><th>time</th><th>detail</th><th>at</th></tr>' + hist + '</table></div>'; }
 
-			h += '<div class="section"><h2>Code versions (git history - click a version, then a file to view it)</h2><div class="versions">' + versions + '</div></div>';
-			h += '<div class="section"><h2>Files</h2><div class="files">' + files + '</div></div>';
+			h += '<div class="section"><h2>Code (git versions - pick one on the left, then a file)</h2>'
+				+ '<div class="codepane"><div class="codeleft">' + leftHtml + '</div><div class="coderight" id="coderight"></div></div></div>';
+			h += '<div class="section"><h2>Results (final run)</h2><div class="files">' + resHtml + '</div></div>';
 
 
 			$('detail').innerHTML = h;
-			document.querySelectorAll('.file').forEach(el => {
-				el.onclick = () => vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') });
-			});
-			// Click a version row -> toggle its captured-files list. Click a file -> open that version of it.
-			document.querySelectorAll('.ver').forEach(el => {
+
+			// RIGHT pane of the Code section: the files of whatever is selected on the left (the shared
+			// evaluator, or one version's captured code). Re-rendered on every left click.
+			function renderCodeRight() {
+				const box = document.getElementById('coderight');
+				if (!box) { return; }
+				let html = '';
+				if (selectedCode === 'ev' && l.evaluatorFile) {
+					html = '<div class="crfile" data-path="' + esc(l.evaluatorFile.abs) + '"><span class="fi">&#128196;</span>' + esc(l.evaluatorFile.rel) + '</div>'
+						+ '<div class="crnote">Shared and locked (sha256) - the same evaluator judges every iteration.</div>';
+				} else {
+					const v = (l.versions || []).find(x => x.hash === selectedCode);
+					if (v) {
+						const fl = (v.files || []).map(fp => '<div class="crfile" data-hash="' + esc(v.hash) + '" data-file="' + esc(fp) + '"><span class="fi">&#128196;</span>' + esc(fp) + '</div>').join('')
+							|| '<div class="crnote">(no files captured this iteration)</div>';
+						html = '<div class="crhdr">' + esc(v.subject) + '</div>' + fl;
+					} else {
+						html = '<div class="crnote">Select a version on the left.</div>';
+					}
+				}
+				box.innerHTML = html;
+				box.querySelectorAll('.crfile').forEach(el => {
+					el.onclick = () => {
+						const file = el.getAttribute('data-file');
+						if (file) { vscode.postMessage({ type: 'openVersion', codeDir: l.codeDir, hash: el.getAttribute('data-hash'), file: file }); }
+						else { vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') }); }
+					};
+				});
+			}
+			document.querySelectorAll('.citem').forEach(el => {
 				el.onclick = () => {
-					const wrap = el.parentElement;
-					const list = wrap && wrap.querySelector('.vfiles');
-					if (!list) { return; }
-					const open = list.style.display !== 'none';
-					list.style.display = open ? 'none' : 'block';
-					el.classList.toggle('vopen', !open);
+					selectedCode = el.getAttribute('data-kind') === 'ev' ? 'ev' : el.getAttribute('data-hash');
+					document.querySelectorAll('.citem').forEach(x => x.classList.remove('csel'));
+					el.classList.add('csel');
+					renderCodeRight();
 				};
 			});
-			document.querySelectorAll('.vfile').forEach(el => {
-				el.onclick = () => vscode.postMessage({ type: 'openVersion', codeDir: l.codeDir, hash: el.getAttribute('data-hash'), file: el.getAttribute('data-file') });
+			renderCodeRight();
+			// Result files open directly (they are outputs, not versioned code).
+			document.querySelectorAll('.files .file').forEach(el => {
+				el.onclick = () => vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') });
 			});
 			// The fail-return line needs the boxes' measured positions, so draw it after layout.
 			requestAnimationFrame(drawLoopback);
