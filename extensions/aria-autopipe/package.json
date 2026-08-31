@@ -23,6 +23,31 @@
 					}
 				],
 				"priority": "default"
+			},
+			{
+				"viewType": "qoka.autopipe.fileViewer",
+				"displayName": "Qoka Result Viewer",
+				"selector": [
+					{
+						"filenamePattern": "*.h5ad"
+					},
+					{
+						"filenamePattern": "*.h5"
+					},
+					{
+						"filenamePattern": "*.hdf5"
+					},
+					{
+						"filenamePattern": "*.bam"
+					},
+					{
+						"filenamePattern": "*.cram"
+					},
+					{
+						"filenamePattern": "*.bcf"
+					}
+				],
+				"priority": "default"
 			}
 		],
 		"commands": [

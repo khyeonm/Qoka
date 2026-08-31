@@ -208,6 +208,42 @@ export async function viewFileInViewer(filePath: string): Promise<void> {
 	await renderFileInPanel(target.panel, file);
 }
 
+/**
+ * Opens a single result file in its OWN editor tab through a VS Code custom
+ * editor, reusing the same plugin rendering + data_source pipeline as the
+ * scope viewer. Registered (in package.json) for the plugin-backed binary
+ * formats, so clicking a result file in the Analysis tab lands directly in the
+ * right viewer per extension - no eye icon / viewer scope needed. The data is
+ * still read through the local run environment (WSL on Windows, vfkit on Mac),
+ * exactly like handleDataFetch does for the scope viewer.
+ */
+export class QokaFileViewerProvider implements vscode.CustomReadonlyEditorProvider {
+	openCustomDocument(uri: vscode.Uri): vscode.CustomDocument {
+		return { uri, dispose: () => { /* no extra resources held per document */ } };
+	}
+
+	async resolveCustomEditor(document: vscode.CustomDocument, webviewPanel: vscode.WebviewPanel): Promise<void> {
+		webviewPanel.webview.options = {
+			enableScripts: true,
+			localResourceRoots: [vscode.Uri.file(pdfjsDir())],
+		};
+		webviewPanel.webview.html = renderShellHtml(webviewPanel.webview);
+		const file = document.uri.fsPath;
+		webviewPanel.webview.onDidReceiveMessage(async (msg: { type?: string; reqId?: number; url?: string }) => {
+			try {
+				if (msg?.type === 'aria.viewer.ready') {
+					await renderFileInPanel(webviewPanel, file);
+				} else if (msg?.type === 'aria.viewer.fetchData' && typeof msg.reqId === 'number' && typeof msg.url === 'string') {
+					const result = await handleDataFetch(msg.url);
+					webviewPanel.webview.postMessage({ type: 'aria.viewer.fetchData.response', reqId: msg.reqId, data: result });
+				}
+			} catch (err) {
+				webviewPanel.webview.postMessage({ type: 'aria.viewer.error', error: (err as Error).message });
+			}
+		});
+	}
+}
+
 /** Pick the first file in `folder` that a plugin can render and show it, so
  *  a freshly opened viewer tab lands on content instead of a blank pane. */
 async function openFirstFileInFolder(panel: vscode.WebviewPanel, folder: string): Promise<void> {

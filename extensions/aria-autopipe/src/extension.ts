@@ -18,7 +18,7 @@ import { SshService } from './ssh/sshService';
 import { VMManager } from './vm/vmManager';
 import { wslAvailable, listDistrosStrict, isWslServiceError, pickDistro, installWslEngine } from './vm/wsl';
 import { QokaPdfEditorProvider } from './viewer/pdfEditor';
-import { openResultsViewer, viewFileInViewer } from './viewer/viewerPanel';
+import { openResultsViewer, viewFileInViewer, QokaFileViewerProvider } from './viewer/viewerPanel';
 import { HubApiClient } from './hub/apiClient';
 import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
@@ -144,6 +144,15 @@ export function activate(context: vscode.ExtensionContext): void {
 			void vscode.window.showErrorMessage(`Could not open the file in the viewer: ${(e as Error).message}`);
 		}
 	}));
+
+	// Per-extension result viewer: clicking a plugin-backed result file (h5ad,
+	// bam, ...) in the Analysis tab opens it in its own editor tab via this
+	// custom editor, instead of needing the eye-icon viewer scope.
+	context.subscriptions.push(vscode.window.registerCustomEditorProvider(
+		'qoka.autopipe.fileViewer',
+		new QokaFileViewerProvider(),
+		{ webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: false },
+	));
 
 	// Wire up the shared service container so MCP tool handlers can reach
 	// config / ssh / hub / github without each of them tracking the
