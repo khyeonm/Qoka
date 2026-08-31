@@ -247,10 +247,13 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const rawScope = typeof args.__loopScope === 'string' ? args.__loopScope : '';
 				const loopScope = /^loops\/[A-Za-z0-9._/-]+$/.test(rawScope) && !rawScope.includes('..')
 					? rawScope.replace(/\/+$/, '') : '';
-				// Where this run's OUTPUTS (results) and SCRIPT (code) live, relative to the project root:
-				// a loop run nests under loops/<folder>/{results,code}; a normal chat run uses results/ + analysis/.
+				// Where this run's OUTPUTS (results) and SCRIPT (code) live, relative to the project root.
+				// A loop run nests OUTPUTS under the visible loops/<folder>/results/. Its raw per-run SCRIPT
+				// goes to a HIDDEN path (.qoka/loops/<folder>/code/<id>) instead of the visible loops/<folder>/code:
+				// the loop engine git-versions the iteration code into loops/<folder>/code as solution.<ext>, so
+				// the visible code/ folder stays a clean version tree and isn't cluttered by per-run script dirs.
 				const resultsRel = loopScope ? `${loopScope}/results/${id}` : `results/${id}`;
-				const codeRel = loopScope ? `${loopScope}/code/${id}` : `analysis/${id}`;
+				const codeRel = loopScope ? `.qoka/${loopScope}/code/${id}` : `analysis/${id}`;
 
 				// Decide where the run dir lives. On Windows the local run environment is WSL,
 				// so write straight into analysis/<id>/ through the /mnt mount (outputs
