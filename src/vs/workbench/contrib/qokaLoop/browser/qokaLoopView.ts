@@ -133,6 +133,15 @@ export class QokaLoopView extends ViewPane {
 		const statusText = l.status === 'pending-approval' ? 'pending' : l.status;
 		sub.textContent = `${statusText} - ${localize('qoka.loop.iter', "iteration {0} / {1}", l.iteration, l.maxIter)}`;
 		Object.assign(sub.style, { fontSize: '11px', opacity: '0.65' });
+
+		// Trash icon to delete the loop (same affordance as the Manuscript/Notes lists). The command
+		// asks whether to also remove the loop's code+results; the list refreshes via the file watcher.
+		const del = append(row, $('span.codicon.codicon-trash')) as HTMLElement;
+		del.title = localize('qoka.loop.delete', "Delete loop");
+		Object.assign(del.style, { flexShrink: '0', opacity: '0.6', cursor: 'pointer' });
+		del.onmouseenter = () => { del.style.opacity = '1'; };
+		del.onmouseleave = () => { del.style.opacity = '0.6'; };
+		del.onclick = (e) => { e.stopPropagation(); void this.commandService.executeCommand('qoka.loop.delete', l.id); };
 	}
 
 	private async loadLoops(): Promise<LoopEntry[]> {

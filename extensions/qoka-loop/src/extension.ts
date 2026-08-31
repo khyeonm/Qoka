@@ -9,9 +9,11 @@ import { QokaLoopMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 import * as fs from 'fs';
+import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { resolveGitBinary, warmGitBinary, gitEnv, GIT_SAFE_ARGS } from './gitBin';
 import { loopLog } from './log';
+import { readLoop, loopsDir } from './state';
 import { openLoopPanel, LOOP_FILE_SCHEME } from './ui/loopPanel';
 
 let mcpServer: QokaLoopMcpServer | undefined;
@@ -109,6 +111,45 @@ export function activate(context: vscode.ExtensionContext): void {
 			try { return fs.readFileSync(q, 'utf8'); }
 			catch (e) { return `Cannot read file: ${(e as Error).message}`; }
 		},
+	}));
+
+	// Delete a loop from the list (trash icon in the sidebar). Always asks first, and lets the user
+	// choose whether to also remove the loop's visible code+results (loops/<folder>/) or keep them.
+	context.subscriptions.push(vscode.commands.registerCommand('qoka.loop.delete', async (loopId?: string) => {
+		if (typeof loopId !== 'string') { return; }
+		const run = readLoop(loopId);
+		if (!run) { return; }
+		if (run.status === 'running') {
+			void vscode.window.showWarningMessage('This loop is still running. Stop it (in the chat) before deleting.');
+			return;
+		}
+		const title = run.spec?.title || loopId;
+		const ONLY = 'Delete loop only';
+		const ALL = 'Delete loop and its files';
+		const choice = await vscode.window.showWarningMessage(
+			`Delete loop "${title}"?`,
+			{
+				modal: true,
+				detail: `"${ONLY}" removes the loop and its internal files (evaluator, logs) but KEEPS its code and results on disk.\n"${ALL}" also deletes loops/${run.rootDir ? run.rootDir.replace(/^loops\//, '') : title}/ (its code + results).`,
+			},
+			ONLY, ALL,
+		);
+		if (choice !== ONLY && choice !== ALL) { return; } // cancelled / dismissed
+		const dir = loopsDir();
+		const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		if (!dir || !root) { return; }
+		// Internal state + artifacts (the loop JSON, the evaluator dir, and the hidden run_code scripts):
+		// always removed - they are useless without the loop.
+		try { fs.rmSync(path.join(dir, `${loopId}.json`), { force: true }); } catch { /* best-effort */ }
+		try { fs.rmSync(path.join(dir, loopId), { recursive: true, force: true }); } catch { /* best-effort */ }
+		if (run.rootDir) { try { fs.rmSync(path.join(root, '.qoka', run.rootDir), { recursive: true, force: true }); } catch { /* best-effort */ } }
+		// Visible code + results: removed ONLY on the user's explicit choice, to the OS trash when possible.
+		if (choice === ALL && run.rootDir) {
+			const visible = vscode.Uri.file(path.join(root, run.rootDir));
+			try { await vscode.workspace.fs.delete(visible, { recursive: true, useTrash: true }); }
+			catch { try { await vscode.workspace.fs.delete(visible, { recursive: true, useTrash: false }); } catch { /* best-effort */ } }
+		}
+		loopLog(`deleted loop ${loopId} (${choice === ALL ? 'with files' : 'entry only'})`);
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('qoka.loop.mcpInfo', async () => {
