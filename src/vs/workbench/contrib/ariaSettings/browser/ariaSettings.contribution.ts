@@ -94,6 +94,7 @@ class AriaSettingsLayoutContribution extends Disposable implements IWorkbenchCon
 		@IPaneCompositePartService paneCompositeService: IPaneCompositePartService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IEditorService private readonly editorService: IEditorService,
 	) {
 		super();
 		this._register(paneCompositeService.onDidPaneCompositeOpen(e => {
@@ -102,6 +103,13 @@ class AriaSettingsLayoutContribution extends Disposable implements IWorkbenchCon
 				void this.commandService.executeCommand('aria.settings.open');
 				try { this.layoutService.setPartHidden(true, Parts.SIDEBAR_PART); } catch { /* layout not ready */ }
 			} else {
+				// Selecting any OTHER rail tab CLOSES the Settings editor (Settings is a modal-ish
+				// full tab, not a persistent one), so it doesn't linger and get shoved aside by the
+				// sidebar the new tab opens. Then restore the sidebar for that tab.
+				try {
+					const open = this.editorService.findEditors(new AriaSettingsEditorInput().resource);
+					if (open.length) { void this.editorService.closeEditors(open); }
+				} catch { /* nothing to close */ }
 				try { this.layoutService.setPartHidden(false, Parts.SIDEBAR_PART); } catch { /* layout not ready */ }
 			}
 		}));
