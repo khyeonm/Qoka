@@ -13,19 +13,30 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 /** Set once by warmGitBinary() from aria-vcs; the authoritative git path for this session. */
 let warmed: string | undefined;
+let guessCache: string | undefined;
 
-/** Best-effort synchronous guess when the warm cache isn't set yet. */
+/** True only if `bin --version` actually runs. A bundled MinGit can be present on disk yet fail to
+ *  launch (incomplete extraction: cmd/git.exe without its mingw64 payload), so existence is not enough. */
+function canRunSync(bin: string): boolean {
+	try { execFileSync(bin, ['--version'], { stdio: 'ignore', timeout: 5000 }); return true; } catch { return false; }
+}
+
+/** Best-effort synchronous guess when the warm cache isn't set yet. Prefers the bundled MinGit only if
+ *  it truly RUNS; otherwise falls back to a PATH `git`. Cached so we don't probe on every render. */
 function guess(): string {
+	if (guessCache) { return guessCache; }
 	if (process.platform === 'win32') {
 		const localAppData = process.env.LOCALAPPDATA;
 		if (localAppData) {
 			const bundled = path.join(localAppData, 'Qoka', 'mingit', 'cmd', 'git.exe');
-			try { if (fs.existsSync(bundled)) { return bundled; } } catch { /* fall through */ }
+			try { if (fs.existsSync(bundled) && canRunSync(bundled)) { guessCache = bundled; return bundled; } } catch { /* fall through */ }
 		}
 	}
+	guessCache = 'git';
 	return 'git';
 }
 

@@ -56,7 +56,13 @@ async function ensureBundledGit(): Promise<string | undefined> {
 		if (!localAppData) { return undefined; }
 		const dest = path.join(localAppData, 'Qoka', 'mingit');
 		const gitExe = path.join(dest, 'cmd', 'git.exe');
-		if (fs.existsSync(gitExe)) { return gitExe; }
+		// A previous extraction can leave a BROKEN install: cmd/git.exe present but the mingw64/ payload
+		// missing (interrupted extraction), so `git.exe` exists yet fails to launch ("error launching git").
+		// Only trust an existing install that actually RUNS; otherwise wipe it and re-extract.
+		if (fs.existsSync(gitExe)) {
+			if (await canRun(gitExe)) { return gitExe; }
+			try { fs.rmSync(dest, { recursive: true, force: true }); } catch { /* best-effort */ }
+		}
 
 		// Shipped next to the compiled code: out/ -> ../resources/MinGit.zip. Absent
 		// on non-Windows builds, in which case we fall through to system git / iso.
@@ -78,14 +84,16 @@ async function ensureBundledGit(): Promise<string | undefined> {
 				{ timeout: 180000 });
 		}
 		const tmpGit = path.join(tmp, 'cmd', 'git.exe');
-		if (!fs.existsSync(tmpGit)) { fs.rmSync(tmp, { recursive: true, force: true }); return undefined; }
+		// Verify the freshly extracted git actually RUNS before installing it - not just that the file
+		// exists - so we never rename a half-extracted (payload-less) tree into place.
+		if (!fs.existsSync(tmpGit) || !(await canRun(tmpGit))) { fs.rmSync(tmp, { recursive: true, force: true }); return undefined; }
 		if (!fs.existsSync(gitExe)) {
 			fs.mkdirSync(path.dirname(dest), { recursive: true });
 			try { fs.renameSync(tmp, dest); } catch { fs.rmSync(tmp, { recursive: true, force: true }); }
 		} else {
 			fs.rmSync(tmp, { recursive: true, force: true });
 		}
-		return fs.existsSync(gitExe) ? gitExe : undefined;
+		return (fs.existsSync(gitExe) && await canRun(gitExe)) ? gitExe : undefined;
 	} catch {
 		return undefined;
 	}
