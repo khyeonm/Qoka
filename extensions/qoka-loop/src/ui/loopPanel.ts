@@ -347,6 +347,8 @@ function renderHtml(webview: vscode.Webview): string {
 		.crfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-family: var(--vscode-editor-font-family); }
 		.crfile:hover { background: var(--vscode-list-hoverBackground); }
 		.crnote { font-size: 11px; opacity: 0.55; padding: 6px 8px; line-height: 1.4; }
+		/* Small grey "dir" / "file" badge used instead of an emoji, before each tree/result entry. */
+		.tag { display: inline-block; min-width: 24px; text-align: center; font-size: 9px; line-height: 15px; height: 15px; padding: 0 5px; border-radius: 8px; background: var(--vscode-badge-background, rgba(127,127,127,0.32)); color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground)); opacity: 0.85; margin-right: 7px; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: middle; }
 		.empty { opacity: 0.6; padding: 40px; text-align: center; font-size: 13px; }
 	</style>
 </head>
@@ -484,17 +486,19 @@ function renderHtml(webview: vscode.Webview): string {
 			// Code section LEFT rail: a plain-text directory tree under the loop's folder (no icons, no
 			// status colors). The SHARED code (the evaluator) is the top directory; then iter0, iter1, ...
 			// in order. Selecting one fills the RIGHT pane (renderCodeRight) with that directory's files.
+			const dirTag = '<span class="tag">dir</span>';
+			const fileTag = '<span class="tag">file</span>';
 			const leftItems = [];
-			if (l.folder) { leftItems.push('<div class="cparent">loops/' + esc(l.folder) + '</div>'); }
+			if (l.folder) { leftItems.push('<div class="cparent">' + dirTag + 'loops/' + esc(l.folder) + '</div>'); }
 			if (l.evaluatorFile) {
-				leftItems.push('<div class="citem cchild' + (selectedCode === 'ev' ? ' csel' : '') + '" data-kind="ev">shared</div>');
+				leftItems.push('<div class="citem cchild' + (selectedCode === 'ev' ? ' csel' : '') + '" data-kind="ev">' + dirTag + 'shared</div>');
 			}
 			const vers = (l.versions || []).slice().sort((a, b) => a.iter - b.iter);
 			vers.forEach(v => {
-				leftItems.push('<div class="citem cchild' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '">iter' + (v.iter >= 0 ? v.iter : '?') + '</div>');
+				leftItems.push('<div class="citem cchild' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '">' + dirTag + 'iter' + (v.iter >= 0 ? v.iter : '?') + '</div>');
 			});
 			const leftHtml = leftItems.join('') || '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>';
-			const resHtml = (l.results || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '">' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:10px;text-align:left">No result files yet.</div>';
+			const resHtml = (l.results || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '">' + fileTag + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:10px;text-align:left">No result files yet.</div>';
 
 			let h = '<h1>' + esc(l.title) + '</h1><div class="goal">' + esc(l.goal) + '</div>';
 			h += '<div class="meta">'
@@ -541,15 +545,16 @@ function renderHtml(webview: vscode.Webview): string {
 			function renderCodeRight() {
 				const box = document.getElementById('coderight');
 				if (!box) { return; }
+				const ftag = '<span class="tag">file</span>';
 				let html = '';
 				if (selectedCode === 'ev' && l.evaluatorFile) {
 					html = '<div class="crhdr">shared</div>'
-						+ '<div class="crfile" data-path="' + esc(l.evaluatorFile.abs) + '">' + esc(l.evaluatorFile.rel) + '</div>'
+						+ '<div class="crfile" data-path="' + esc(l.evaluatorFile.abs) + '">' + ftag + esc(l.evaluatorFile.rel) + '</div>'
 						+ '<div class="crnote">Shared across every iteration - the locked evaluator (sha256).</div>';
 				} else {
 					const v = (l.versions || []).find(x => x.hash === selectedCode);
 					if (v) {
-						const fl = (v.files || []).map(fp => '<div class="crfile" data-hash="' + esc(v.hash) + '" data-file="' + esc(fp) + '">' + esc(fp) + '</div>').join('')
+						const fl = (v.files || []).map(fp => '<div class="crfile" data-hash="' + esc(v.hash) + '" data-file="' + esc(fp) + '">' + ftag + esc(fp) + '</div>').join('')
 							|| '<div class="crnote">(no files captured this iteration)</div>';
 						html = '<div class="crhdr">iter' + (v.iter >= 0 ? v.iter : '?') + '</div>' + fl;
 					} else {
