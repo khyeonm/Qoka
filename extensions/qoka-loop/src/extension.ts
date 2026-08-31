@@ -10,7 +10,7 @@ import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
-import { resolveGitBinary, warmGitBinary } from './gitBin';
+import { resolveGitBinary, warmGitBinary, gitEnv, GIT_SAFE_ARGS } from './gitBin';
 import { loopLog } from './log';
 import { openLoopPanel, LOOP_FILE_SCHEME } from './ui/loopPanel';
 
@@ -100,10 +100,10 @@ export function activate(context: vscode.ExtensionContext): void {
 					const gitBin = resolveGitBinary();
 					let target = file;
 					if (!target) {
-						const list = execFileSync(gitBin, ['-C', codeDir, 'ls-tree', '-r', '--name-only', hash], { encoding: 'utf8' }).split('\n').filter(Boolean);
+						const list = execFileSync(gitBin, [...GIT_SAFE_ARGS, '-C', codeDir, 'ls-tree', '-r', '--name-only', hash], { encoding: 'utf8', env: gitEnv() }).split('\n').filter(Boolean);
 						target = list.find(f => f.startsWith('solution.')) || list[0] || 'solution';
 					}
-					return execFileSync(gitBin, ['-C', codeDir, 'show', `${hash}:${target}`], { encoding: 'utf8' });
+					return execFileSync(gitBin, [...GIT_SAFE_ARGS, '-C', codeDir, 'show', `${hash}:${target}`], { encoding: 'utf8', env: gitEnv() });
 				} catch (e) { return `Cannot read version: ${(e as Error).message}`; }
 			}
 			try { return fs.readFileSync(q, 'utf8'); }

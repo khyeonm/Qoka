@@ -45,3 +45,15 @@ export async function warmGitBinary(vscodeCommands: { executeCommand: <T>(comman
 export function resolveGitBinary(): string {
 	return warmed || guess();
 }
+
+/** Pre-command args that make a git call robust: `-c safe.directory=*` disarms the Windows
+ *  "dubious ownership" refusal on a freshly created nested repo. Put BEFORE `-C`/the subcommand. */
+export const GIT_SAFE_ARGS = ['-c', 'safe.directory=*'];
+
+/** A clean git environment: drop inherited GIT_DIR / GIT_WORK_TREE so `-C <dir>` always targets the
+ *  loop's own nested repo, not the workspace repo aria-vcs manages. */
+export function gitEnv(): NodeJS.ProcessEnv {
+	const e = { ...process.env };
+	delete e.GIT_DIR; delete e.GIT_WORK_TREE; delete e.GIT_INDEX_FILE; delete e.GIT_COMMON_DIR; delete e.GIT_OBJECT_DIRECTORY;
+	return e;
+}

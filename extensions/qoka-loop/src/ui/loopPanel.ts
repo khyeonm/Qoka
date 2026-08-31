@@ -17,7 +17,7 @@ import { execFileSync } from 'child_process';
 import * as vscode from 'vscode';
 import { LoopRun } from '../schema';
 import { listLoops, loopsDir, readLoop } from '../state';
-import { resolveGitBinary } from '../gitBin';
+import { resolveGitBinary, gitEnv, GIT_SAFE_ARGS } from '../gitBin';
 import { loopLog } from '../log';
 
 /** URI scheme for read-only loop-artifact documents (registered in extension.ts). Opening loop
@@ -48,7 +48,7 @@ function loopVersions(run: LoopRun): LoopVersion[] {
 	if (!codeDir) { return []; }
 	const gitBin = resolveGitBinary();
 	let out: string;
-	try { out = execFileSync(gitBin, ['-C', codeDir, 'log', '--format=%H%x09%s'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+	try { out = execFileSync(gitBin, [...GIT_SAFE_ARGS, '-C', codeDir, 'log', '--format=%H%x09%s'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: gitEnv() }); }
 	catch (e) {
 		const hasGit = fs.existsSync(path.join(codeDir, '.git'));
 		loopLog(`loopVersions: git log failed. gitBin=${gitBin} codeDir=${codeDir} .git exists=${hasGit} err=${(e as Error).message}`);
@@ -60,7 +60,7 @@ function loopVersions(run: LoopRun): LoopVersion[] {
 		const subject = tab >= 0 ? line.slice(tab + 1) : '';
 		const m = /^iter (\d+):\s*(pass|fail)?/.exec(subject);
 		let files: string[] = [];
-		try { files = execFileSync(gitBin, ['-C', codeDir, 'ls-tree', '-r', '--name-only', hash], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').filter(Boolean); }
+		try { files = execFileSync(gitBin, [...GIT_SAFE_ARGS, '-C', codeDir, 'ls-tree', '-r', '--name-only', hash], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: gitEnv() }).split('\n').filter(Boolean); }
 		catch { /* leave empty */ }
 		return { hash, iter: m ? parseInt(m[1], 10) : -1, verdict: (m && (m[2] as 'pass' | 'fail')) || '', subject, files };
 	});

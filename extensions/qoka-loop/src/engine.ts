@@ -97,10 +97,19 @@ function codeExt(language?: string): string {
 	}
 }
 
-/** Run a git subcommand in `cwd` (best-effort; git may be absent). Returns ok + captured stderr so the
- *  caller can log WHY a commit did nothing instead of swallowing the error. */
+/** A clean git environment: drop any inherited GIT_DIR / GIT_WORK_TREE (etc.) so our `-C codeDir`
+ *  operations always target the loop's OWN nested repo, never the workspace repo aria-vcs manages. */
+function gitEnv(): NodeJS.ProcessEnv {
+	const e = { ...process.env };
+	delete e.GIT_DIR; delete e.GIT_WORK_TREE; delete e.GIT_INDEX_FILE; delete e.GIT_COMMON_DIR; delete e.GIT_OBJECT_DIRECTORY;
+	return e;
+}
+
+/** Run a git subcommand in `cwd` (best-effort; git may be absent). `-c safe.directory=*` disarms git's
+ *  "dubious ownership" refusal (common on Windows for a freshly created nested repo). Returns ok +
+ *  captured stderr so the caller can log WHY a commit did nothing instead of swallowing the error. */
 function git(gitBin: string, cwd: string, args: string[]): { ok: boolean; err?: string } {
-	try { execFileSync(gitBin, args, { cwd, stdio: ['ignore', 'ignore', 'pipe'] }); return { ok: true }; }
+	try { execFileSync(gitBin, ['-c', 'safe.directory=*', ...args], { cwd, stdio: ['ignore', 'ignore', 'pipe'], env: gitEnv() }); return { ok: true }; }
 	catch (e) {
 		const err = e as { stderr?: Buffer; message?: string };
 		return { ok: false, err: ((err.stderr && err.stderr.toString()) || err.message || 'unknown').trim().slice(0, 200) };
