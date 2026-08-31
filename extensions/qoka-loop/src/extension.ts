@@ -10,7 +10,7 @@ import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
-import { resolveGitBinary } from './gitBin';
+import { resolveGitBinary, warmGitBinary } from './gitBin';
 import { openLoopPanel, LOOP_FILE_SCHEME } from './ui/loopPanel';
 
 let mcpServer: QokaLoopMcpServer | undefined;
@@ -47,6 +47,10 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
  */
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[qoka-loop] activate()');
+
+	// Warm the git binary early (via aria-vcs, extracting bundled MinGit on Windows) so viewing a loop's
+	// code version tree works even before a loop is started this session. Fire-and-forget; best-effort.
+	void warmGitBinary(vscode.commands);
 
 	mcpServer = new QokaLoopMcpServer(buildTools());
 
@@ -90,11 +94,14 @@ export function activate(context: vscode.ExtensionContext): void {
 			// A "git:" query resolves to a specific git version of the loop's code (git show <hash>:solution.*).
 			if (q.startsWith('git:')) {
 				try {
-					const { codeDir, hash } = JSON.parse(Buffer.from(q.slice(4), 'base64').toString('utf8')) as { codeDir: string; hash: string };
+					const { codeDir, hash, file } = JSON.parse(Buffer.from(q.slice(4), 'base64').toString('utf8')) as { codeDir: string; hash: string; file?: string };
 					const gitBin = resolveGitBinary();
-					const list = execFileSync(gitBin, ['-C', codeDir, 'ls-tree', '-r', '--name-only', hash], { encoding: 'utf8' }).split('\n').filter(Boolean);
-					const sol = list.find(f => f.startsWith('solution.')) || list[0] || 'solution';
-					return execFileSync(gitBin, ['-C', codeDir, 'show', `${hash}:${sol}`], { encoding: 'utf8' });
+					let target = file;
+					if (!target) {
+						const list = execFileSync(gitBin, ['-C', codeDir, 'ls-tree', '-r', '--name-only', hash], { encoding: 'utf8' }).split('\n').filter(Boolean);
+						target = list.find(f => f.startsWith('solution.')) || list[0] || 'solution';
+					}
+					return execFileSync(gitBin, ['-C', codeDir, 'show', `${hash}:${target}`], { encoding: 'utf8' });
 				} catch (e) { return `Cannot read version: ${(e as Error).message}`; }
 			}
 			try { return fs.readFileSync(q, 'utf8'); }

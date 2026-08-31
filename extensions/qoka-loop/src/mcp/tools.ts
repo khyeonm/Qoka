@@ -16,7 +16,7 @@ import * as path from 'path';
 import { LoopSpec } from '../schema';
 import { saveLoop, readLoop, listLoops, writeLoop, loopsDir } from '../state';
 import { runLoop, ScriptRunner } from '../engine';
-import { resolveGitBinary } from '../gitBin';
+import { warmGitBinary } from '../gitBin';
 import { makeAgentStep } from '../agentStep';
 
 /**
@@ -269,15 +269,14 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	writeLoop(run);
 	const codeDir = path.join(cwd, 'loops', folder, 'code');
 	const resultsDir = path.join(cwd, 'loops', folder, 'results');
-	// Nudge aria-vcs to resolve git first: on Windows its resolver extracts the bundled MinGit into
-	// %LOCALAPPDATA%\Qoka\mingit on demand, so this makes resolveGitBinary() find it even if the user
-	// never opened Changes/Snapshots. Best-effort: absent extension / no repo just falls back to PATH git.
-	try { await vscode.commands.executeCommand('aria.vcs.getStatus'); } catch { /* best-effort */ }
+	// Resolve git via aria-vcs (extracts the bundled MinGit on Windows on first use) so the engine's
+	// per-iteration commits use a real git even when none is on PATH. Best-effort: falls back internally.
+	const gitPath = await warmGitBinary(vscode.commands);
 	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: folder });
 	const evaluatorRunner = runEnvEvaluatorRunner();
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);
-	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, gitPath: resolveGitBinary() })
+	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, gitPath })
 		.then(outcome => { stopRequested.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
 		.catch(e => { stopRequested.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
 	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers) }));

@@ -32,8 +32,8 @@ let forceSelectId: string | undefined;
 /** A file inside a loop's .qoka/loops/<id>/ artifact folder, shown in the code tree. */
 interface LoopFile { rel: string; abs: string; }
 
-/** One git version (commit) of the loop's code = one iteration's attempt. */
-interface LoopVersion { hash: string; iter: number; verdict: 'pass' | 'fail' | ''; subject: string; }
+/** One git version (commit) of the loop's code = one iteration's attempt, with the files it captured. */
+interface LoopVersion { hash: string; iter: number; verdict: 'pass' | 'fail' | ''; subject: string; files: string[]; }
 
 /** The loop's git-versioned code folder (loops/<folder>/code), or undefined. */
 function loopCodeDir(run: LoopRun): string | undefined {
@@ -45,15 +45,19 @@ function loopCodeDir(run: LoopRun): string | undefined {
 function loopVersions(run: LoopRun): LoopVersion[] {
 	const codeDir = loopCodeDir(run);
 	if (!codeDir) { return []; }
+	const gitBin = resolveGitBinary();
 	let out: string;
-	try { out = execFileSync(resolveGitBinary(), ['-C', codeDir, 'log', '--format=%H%x09%s'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+	try { out = execFileSync(gitBin, ['-C', codeDir, 'log', '--format=%H%x09%s'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
 	catch { return []; }
 	return out.trim().split('\n').filter(Boolean).map(line => {
 		const tab = line.indexOf('\t');
 		const hash = tab >= 0 ? line.slice(0, tab) : line;
 		const subject = tab >= 0 ? line.slice(tab + 1) : '';
 		const m = /^iter (\d+):\s*(pass|fail)?/.exec(subject);
-		return { hash, iter: m ? parseInt(m[1], 10) : -1, verdict: (m && (m[2] as 'pass' | 'fail')) || '', subject };
+		let files: string[] = [];
+		try { files = execFileSync(gitBin, ['-C', codeDir, 'ls-tree', '-r', '--name-only', hash], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').filter(Boolean); }
+		catch { /* leave empty */ }
+		return { hash, iter: m ? parseInt(m[1], 10) : -1, verdict: (m && (m[2] as 'pass' | 'fail')) || '', subject, files };
 	});
 }
 
@@ -99,7 +103,19 @@ function loopFiles(run: LoopRun): LoopFile[] {
 	const dir = loopsDir();
 	if (dir) { walk(path.join(dir, run.id), ''); }
 	const proot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-	if (proot && run.rootDir) { walk(path.join(proot, run.rootDir), ''); }
+	if (proot && run.rootDir) {
+		// Walk the loop's visible folder but SKIP code/ - the code is shown as the git version tree in its
+		// own section, so listing code/solution.<ext> here too would just duplicate it.
+		const base = path.join(proot, run.rootDir);
+		let top: fs.Dirent[];
+		try { top = fs.readdirSync(base, { withFileTypes: true }); } catch { top = []; }
+		for (const e of top) {
+			if (hidden(e.name) || e.name === 'code') { continue; }
+			const childAbs = path.join(base, e.name);
+			if (e.isDirectory()) { walk(childAbs, e.name); }
+			else { out.push({ rel: e.name, abs: childAbs }); }
+		}
+	}
 	return out.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
@@ -163,17 +179,19 @@ export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string)
 	);
 	panel.webview.html = renderHtml(panel.webview);
 
-	panel.webview.onDidReceiveMessage(async (msg: { type?: string; path?: string; id?: string; text?: string; codeDir?: string; hash?: string }) => {
+	panel.webview.onDidReceiveMessage(async (msg: { type?: string; path?: string; id?: string; text?: string; codeDir?: string; hash?: string; file?: string }) => {
 		if (msg?.type === 'ready') {
 			postData();
 		} else if (msg?.type === 'select' && msg.id) {
 			focusId = msg.id;
 		} else if (msg?.type === 'openVersion' && msg.codeDir && msg.hash) {
 			try {
-				// Open that git version's solution file read-only (git show <hash>:solution.*), via the
+				// Open one file from that git version read-only (git show <hash>:<file>), via the
 				// LOOP_FILE_SCHEME content provider with a base64 "git:" query it knows how to resolve.
-				const q = 'git:' + Buffer.from(JSON.stringify({ codeDir: msg.codeDir, hash: msg.hash })).toString('base64');
-				const uri = vscode.Uri.from({ scheme: LOOP_FILE_SCHEME, path: `/${msg.hash.slice(0, 8)}/solution`, query: q });
+				// Keep the real filename in the visible path so the editor picks the right language.
+				const name = (msg.file || 'solution').split('/').pop() || 'solution';
+				const q = 'git:' + Buffer.from(JSON.stringify({ codeDir: msg.codeDir, hash: msg.hash, file: msg.file })).toString('base64');
+				const uri = vscode.Uri.from({ scheme: LOOP_FILE_SCHEME, path: `/${msg.hash.slice(0, 8)}/${name}`, query: q });
 				const doc = await vscode.workspace.openTextDocument(uri);
 				await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
 			} catch (e) {
@@ -247,7 +265,9 @@ function renderHtml(webview: vscode.Webview): string {
 		.detail { flex: 1; min-width: 0; overflow-y: auto; padding: 22px 26px; box-sizing: border-box; }
 		/* Flow diagram */
 		/* Flow (HTML boxes - text wraps, nothing truncated). */
-		.flowh { display: flex; flex-direction: column; max-width: 640px; margin-bottom: 10px; }
+		/* position:relative + a right gutter so the "fail -> back to step 1" return line (drawn as an
+		   absolutely-positioned SVG by drawLoopback()) has room without overlapping the boxes. */
+		.flowh { display: flex; flex-direction: column; max-width: 640px; margin-bottom: 10px; position: relative; padding-right: 48px; }
 		.fnode { border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); border-radius: 7px; background: var(--vscode-editorWidget-background); padding: 8px 12px; font-size: 12px; line-height: 1.45; word-break: break-word; }
 		.fnode.fstep { font-weight: 600; }
 		/* Evaluator: just a subtle tint (the EVALUATE tag now carries the emphasis, so no bright border). */
@@ -258,11 +278,12 @@ function renderHtml(webview: vscode.Webview): string {
 		.tag-eval { color: #d8a02e; background: #d8a02e22; }
 		.tag-out { color: #3f9e68; background: #3f9e6822; }
 		.farrow { text-align: center; color: #888; font-size: 13px; line-height: 1; padding: 3px 0; }
-		/* Pass / fail branch boxes right under the Evaluator, so the loop-back is obvious. */
-		.fbranch { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; max-width: 640px; }
-		.fbranch .ar { font-weight: 700; margin-right: 2px; }
-		.bpass { color: #4caf72; font-size: 12px; padding: 6px 10px; border: 1px solid #4caf7255; border-radius: 6px; background: #4caf7211; }
-		.bfail { color: #e06666; font-size: 12px; padding: 6px 10px; border: 1px solid #e0666655; border-radius: 6px; background: #e0666611; }
+		/* PASS is just a green down-arrow + label leading into RESULT (no box). FAIL is the red return
+		   line drawn on the right by drawLoopback() from EVALUATE up to step 1. */
+		.fpass { text-align: center; color: #3f9e68; font-size: 12px; font-weight: 600; padding: 4px 0 2px; }
+		.fpass .ar { font-weight: 700; margin-right: 3px; }
+		.loopback-svg { position: absolute; top: 0; pointer-events: none; overflow: visible; }
+		.loopback-svg .lb-label { fill: #e06666; font-size: 10px; font-weight: 700; }
 		.lock-line { font-size: 12px; opacity: 0.8; display: flex; align-items: center; gap: 8px; }
 		.lock-line .lk { color: #e0b050; }
 		.lock-line .hashmini { opacity: 0.6; font-family: var(--vscode-editor-font-family); font-size: 11px; word-break: break-all; }
@@ -302,6 +323,15 @@ function renderHtml(webview: vscode.Webview): string {
 		.vdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #9a9a9a; }
 		.vdot.v-pass { background: #4caf72; }
 		.vdot.v-fail { background: #e06666; }
+		.vchev { display: inline-block; transition: transform 0.12s; opacity: 0.6; font-size: 10px; }
+		.ver.vopen .vchev { transform: rotate(90deg); }
+		.vsub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		/* Captured files for one version (expanded on click); each row opens that version of the file. */
+		.vfiles { padding: 2px 0 6px 24px; }
+		.vfile { font-size: 12px; padding: 3px 8px; cursor: pointer; border-radius: 3px; display: flex; align-items: center; gap: 6px; font-family: var(--vscode-editor-font-family); }
+		.vfile:hover { background: var(--vscode-list-hoverBackground); }
+		.vfile .fi { opacity: 0.7; }
+		.vfile-empty { font-size: 11px; opacity: 0.5; padding: 3px 8px; }
 		.empty { opacity: 0.6; padding: 40px; text-align: center; font-size: 13px; }
 	</style>
 </head>
@@ -353,23 +383,67 @@ function renderHtml(webview: vscode.Webview): string {
 		function flowDiagram(l) {
 			const f = l.flow || {};
 			const steps = (f.steps || []);
-			const box = (cls, label, tag, tagcls) => '<div class="fnode ' + cls + '">'
+			const box = (cls, label, tag, tagcls, id) => '<div class="fnode ' + cls + '"' + (id ? ' id="' + id + '"' : '') + '>'
 				+ (tag ? '<span class="ftag ' + tagcls + '">' + tag + '</span> ' : '') + esc(refine(label)) + '</div>';
 			const arrow = '<div class="farrow">&#8595;</div>';
 			const parts = [];
 			if (f.input) { parts.push(box('fio', f.input, 'INPUT', 'tag-in')); }
-			if (steps.length) { steps.forEach((st, i) => parts.push(box('fstep', (i + 1) + '. ' + st))); }
-			else { parts.push(box('fstep', 'do the work')); }
+			if (steps.length) { steps.forEach((st, i) => parts.push(box('fstep', (i + 1) + '. ' + st, '', '', i === 0 ? 'fstep1-node' : ''))); }
+			else { parts.push(box('fstep', 'do the work', '', '', 'fstep1-node')); }
 			const check0 = (f.checks && f.checks[0] && f.checks[0].c) ? f.checks[0].c : 'pass / fail test';
-			parts.push(box('feval', check0, 'EVALUATE', 'tag-eval'));
-			let h = '<div class="flowh">' + parts.join(arrow)
-				+ '<div class="fbranch">'
-				+ '<div class="bpass"><span class="ar">&#8595;</span> PASS</div>'
-				+ '<div class="bfail"><span class="ar">&#8593;</span> FAIL &#8594; back to step 1, retry</div>'
-				+ '</div>'
+			parts.push(box('feval', check0, 'EVALUATE', 'tag-eval', 'feval-node'));
+			let h = '<div class="flowh" id="flowh">' + parts.join(arrow)
+				+ '<div class="fpass"><span class="ar">&#8595;</span>pass</div>'
 				+ box('fio', f.output ? f.output : 'goal met', 'RESULT', 'tag-out')
 				+ '</div>';
 			return h;
+		}
+
+		// Draw the red "fail -> back to step 1" line in the flow's right gutter: from the EVALUATE box's
+		// middle up to step 1, arrowhead pointing back into step 1. Built with createElementNS (no HTML
+		// string) so the template's regex escaping never touches it.
+		function drawLoopback() {
+			try {
+				const cont = document.getElementById('flowh');
+				const evalN = document.getElementById('feval-node');
+				const step1 = document.getElementById('fstep1-node');
+				if (!cont || !evalN || !step1) { return; }
+				const old = cont.querySelector('.loopback-svg'); if (old) { old.remove(); }
+				const cr = cont.getBoundingClientRect();
+				const er = evalN.getBoundingClientRect();
+				const sr = step1.getBoundingClientRect();
+				const NS = 'http://www.w3.org/2000/svg';
+				const H = cont.clientHeight;
+				const gutter = 48;
+				const boxEdge = cr.width - gutter;
+				const evalY = (er.top - cr.top) + er.height / 2;
+				const step1Y = (sr.top - cr.top) + sr.height / 2;
+				const svg = document.createElementNS(NS, 'svg');
+				svg.setAttribute('class', 'loopback-svg');
+				svg.setAttribute('width', String(gutter + 4));
+				svg.setAttribute('height', String(H));
+				svg.style.left = boxEdge + 'px';
+				const x0 = 0, xr = 26;
+				const path = document.createElementNS(NS, 'path');
+				path.setAttribute('d', 'M ' + x0 + ' ' + evalY + ' H ' + xr + ' V ' + step1Y + ' H ' + x0);
+				path.setAttribute('fill', 'none');
+				path.setAttribute('stroke', '#e06666');
+				path.setAttribute('stroke-width', '1.5');
+				path.setAttribute('stroke-dasharray', '4 3');
+				svg.appendChild(path);
+				const head = document.createElementNS(NS, 'path');
+				head.setAttribute('d', 'M ' + (x0 + 7) + ' ' + (step1Y - 4) + ' L ' + x0 + ' ' + step1Y + ' L ' + (x0 + 7) + ' ' + (step1Y + 4) + ' Z');
+				head.setAttribute('fill', '#e06666');
+				svg.appendChild(head);
+				const label = document.createElementNS(NS, 'text');
+				label.setAttribute('class', 'lb-label');
+				label.setAttribute('x', String(xr + 3));
+				label.setAttribute('y', String((evalY + step1Y) / 2));
+				label.setAttribute('text-anchor', 'start');
+				label.textContent = 'fail';
+				svg.appendChild(label);
+				cont.appendChild(svg);
+			} catch (e) { /* best-effort decoration */ }
 		}
 
 		function renderDetail() {
@@ -385,7 +459,17 @@ function renderHtml(webview: vscode.Webview): string {
 			const cleanDetail = (d) => { d = String(d || '').replace(/\\s+/g, ' ').trim(); return d.length > 140 ? d.slice(0, 139) + '...' : d; };
 			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(cleanDetail(h.detail)) + '</td><td>' + fmtTime(h.at) + '</td></tr>').join('');
 			const files = (l.files || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '"><span class="fi">&#128196;</span>' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:12px;text-align:left">No artifact files yet.</div>';
-			const versions = (l.versions || []).map(v => '<div class="ver" data-hash="' + esc(v.hash) + '"><span class="vdot ' + (v.verdict === 'pass' ? 'v-pass' : v.verdict === 'fail' ? 'v-fail' : '') + '"></span>' + esc(v.subject) + '</div>').join('') || '<div class="empty" style="padding:8px;text-align:left">No versions yet (git unavailable or no iterations).</div>';
+			// Version tree: one row per iteration commit; clicking a version expands the list of code files
+			// captured in that version, and clicking a file opens that version of it read-only (git show).
+			const versions = (l.versions || []).map(v => {
+				const dot = '<span class="vdot ' + (v.verdict === 'pass' ? 'v-pass' : v.verdict === 'fail' ? 'v-fail' : '') + '"></span>';
+				const vfiles = (v.files || []).map(fp => '<div class="vfile" data-hash="' + esc(v.hash) + '" data-file="' + esc(fp) + '"><span class="fi">&#128196;</span>' + esc(fp) + '</div>').join('')
+					|| '<div class="vfile-empty">(no files captured)</div>';
+				return '<div class="verwrap">'
+					+ '<div class="ver" data-hash="' + esc(v.hash) + '">' + dot + '<span class="vchev">&#9656;</span><span class="vsub">' + esc(v.subject) + '</span></div>'
+					+ '<div class="vfiles" data-for="' + esc(v.hash) + '" style="display:none">' + vfiles + '</div>'
+					+ '</div>';
+			}).join('') || '<div class="empty" style="padding:8px;text-align:left">No versions yet (git unavailable or no iterations).</div>';
 
 			let h = '<h1>' + esc(l.title) + '</h1><div class="goal">' + esc(l.goal) + '</div>';
 			h += '<div class="meta">'
@@ -420,7 +504,7 @@ function renderHtml(webview: vscode.Webview): string {
 
 			if (hist) { h += '<div class="section"><h2>History</h2><table class="hist"><tr><th>#</th><th>verdict</th><th>time</th><th>detail</th><th>at</th></tr>' + hist + '</table></div>'; }
 
-			h += '<div class="section"><h2>Code versions (git history - click to view a version)</h2><div class="versions">' + versions + '</div></div>';
+			h += '<div class="section"><h2>Code versions (git history - click a version, then a file to view it)</h2><div class="versions">' + versions + '</div></div>';
 			h += '<div class="section"><h2>Files</h2><div class="files">' + files + '</div></div>';
 
 
@@ -428,10 +512,26 @@ function renderHtml(webview: vscode.Webview): string {
 			document.querySelectorAll('.file').forEach(el => {
 				el.onclick = () => vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') });
 			});
+			// Click a version row -> toggle its captured-files list. Click a file -> open that version of it.
 			document.querySelectorAll('.ver').forEach(el => {
-				el.onclick = () => vscode.postMessage({ type: 'openVersion', codeDir: l.codeDir, hash: el.getAttribute('data-hash') });
+				el.onclick = () => {
+					const wrap = el.parentElement;
+					const list = wrap && wrap.querySelector('.vfiles');
+					if (!list) { return; }
+					const open = list.style.display !== 'none';
+					list.style.display = open ? 'none' : 'block';
+					el.classList.toggle('vopen', !open);
+				};
 			});
+			document.querySelectorAll('.vfile').forEach(el => {
+				el.onclick = () => vscode.postMessage({ type: 'openVersion', codeDir: l.codeDir, hash: el.getAttribute('data-hash'), file: el.getAttribute('data-file') });
+			});
+			// The fail-return line needs the boxes' measured positions, so draw it after layout.
+			requestAnimationFrame(drawLoopback);
 		}
+
+		// Keep the fail-return line aligned when the panel is resized.
+		window.addEventListener('resize', () => requestAnimationFrame(drawLoopback));
 
 		// This webview shows ONE loop's detail (the loop list lives in the left sidebar view, which
 		// opens this editor for the clicked loop). The server pushes the focused loop; we render it.
