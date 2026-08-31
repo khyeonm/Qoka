@@ -9,22 +9,16 @@ import { Codicon } from '../../../../base/common/codicons.js';
 import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { registerThemingParticipant } from '../../../../platform/theme/common/themeService.js';
 import { localize, localize2 } from '../../../../nls.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
-import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
-import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
-import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
-import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { QokaLoopView } from './qokaLoopView.js';
 
 /**
- * Qoka Loops - a left activity-bar tab. Selecting its rail icon opens the Research Loop
- * Engine's full-width Loops view (the qoka-loop extension's "Qoka Loops" webview, opened via
- * the `qoka.loop.open` command) and collapses the sidebar - the same rail-icon -> centered-
- * editor pattern Memory / Project Overview use. The tab is display-only; loop control (design,
- * approve, run) all happens in the chat.
+ * Qoka Loops - a left activity-bar tab. Selecting its rail icon opens a SIDEBAR list of this
+ * project's research loops (QokaLoopView); clicking a loop opens its DETAIL in the editor area
+ * (the qoka-loop extension's `qoka.loop.open` command) - the same sidebar-list -> editor-detail
+ * pattern the Manuscript tab uses. The detail is display-only; loop control (design, approve,
+ * run, stop) all happens in the chat.
  */
 
 const QOKA_LOOP_CONTAINER_ID = 'workbench.view.qokaLoop';
@@ -81,32 +75,3 @@ const loopView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([loopView], loopContainer);
-
-// --- Full-width layout orchestration ----------------------------------------
-// Selecting the rail tab opens the extension's Loops webview as a centered editor and hides
-// the (placeholder) sidebar, so the rail icon behaves like Memory / Project Overview.
-
-class QokaLoopLayoutContribution extends Disposable implements IWorkbenchContribution {
-
-	static readonly ID = 'workbench.contrib.qoka.loopLayout';
-
-	constructor(
-		@IPaneCompositePartService paneCompositeService: IPaneCompositePartService,
-		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
-		@ICommandService private readonly commandService: ICommandService,
-	) {
-		super();
-		this._register(paneCompositeService.onDidPaneCompositeOpen(e => {
-			if (e.viewContainerLocation !== ViewContainerLocation.Sidebar) { return; }
-			if (e.composite.getId() === QOKA_LOOP_CONTAINER_ID) {
-				// `qoka.loop.open` is contributed by the qoka-loop extension; executing it opens
-				// (or reveals) the "Qoka Loops" webview editor and activates the extension if idle.
-				void this.commandService.executeCommand('qoka.loop.open');
-				try { this.layoutService.setPartHidden(true, Parts.SIDEBAR_PART); } catch { /* layout not ready */ }
-			}
-		}));
-	}
-}
-
-Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
-	.registerWorkbenchContribution(QokaLoopLayoutContribution, LifecyclePhase.Restored);

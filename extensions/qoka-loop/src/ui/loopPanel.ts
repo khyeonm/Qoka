@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LoopRun } from '../schema';
-import { listLoops, loopsDir } from '../state';
+import { listLoops, loopsDir, readLoop } from '../state';
 
 /** URI scheme for read-only loop-artifact documents (registered in extension.ts). Opening loop
  *  files through this scheme keeps the hidden .qoka path out of the Analysis explorer. */
@@ -111,14 +111,17 @@ function postData(): void {
  */
 export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string): void {
 	if (loopId) { focusId = loopId; forceSelectId = loopId; }
+	// Title the editor tab after the focused loop (the sidebar list opens this per loop).
+	const title = (loopId ? readLoop(loopId)?.spec.title : undefined) || 'Loop';
 	if (panel) {
+		panel.title = title;
 		panel.reveal(vscode.ViewColumn.Active);
 		postData();
 		return;
 	}
 	panel = vscode.window.createWebviewPanel(
 		'qoka.loop.panel',
-		'Qoka Loops',
+		title,
 		vscode.ViewColumn.Active,
 		{ enableScripts: true, retainContextWhenHidden: true },
 	);
@@ -241,13 +244,14 @@ function renderHtml(webview: vscode.Webview): string {
 	</style>
 </head>
 <body>
-	<div class="list" id="list"></div>
-	<div class="gutter" id="gutter"></div>
-	<div class="detail" id="detail"><div class="empty">Loading loops...</div></div>
+	<div class="detail" id="detail"><div class="empty">Loading loop...</div></div>
 	<script>
 		const vscode = acquireVsCodeApi();
 		const $ = (id) => document.getElementById(id);
 		const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+		// Timestamps are stored as UTC ISO strings; show them in the VIEWER'S local timezone
+		// (toLocaleString uses the browser/system locale + zone) so everyone sees their own clock.
+		const fmtTime = (iso) => { try { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString(); } catch (e) { return ''; } };
 		let loops = [];
 		let selectedId = null;
 
@@ -256,23 +260,6 @@ function renderHtml(webview: vscode.Webview): string {
 		// While running, show which iteration is in flight (the engine works iteration-by-iteration;
 		// it cannot see individual steps inside a sub-agent turn, so the iteration is the live unit).
 		const statusText = (l) => l.status === 'running' ? ('running \\u00b7 iter ' + (l.iteration + 1)) : statusLabel(l.status);
-
-		function renderList() {
-			if (!loops.length) { $('list').innerHTML = '<div class="list-head">Loops</div><div class="empty">No loops yet.</div>'; return; }
-			let h = '<div class="list-head">Loops</div>';
-			for (const l of loops) {
-				const sel = l.id === selectedId ? ' selected' : '';
-				h += '<div class="loop-item' + sel + '" data-id="' + esc(l.id) + '">'
-					+ '<div class="lt">' + esc(l.title) + '</div>'
-					+ '<div class="lm"><span class="badge ' + badgeClass(l.status) + '">' + esc(statusText(l)) + '</span>'
-					+ '<span>iter ' + l.iteration + '/' + l.budget.maxIter + '</span></div>'
-					+ '</div>';
-			}
-			$('list').innerHTML = h;
-			document.querySelectorAll('.loop-item').forEach(el => {
-				el.onclick = () => { selectedId = el.getAttribute('data-id'); vscode.postMessage({ type: 'select', id: selectedId }); renderList(); renderDetail(); };
-			});
-		}
 
 		// Build an inline SVG of THIS loop's actual cycle: (Input ->) each real step -> Evaluator
 		// (labelled with its first check) -> Output/Done on pass, with a red "fail -> retry" arrow
@@ -293,16 +280,10 @@ function renderHtml(webview: vscode.Webview): string {
 			for (const ch of s) { const cw = charW(ch); if (w + cw > units) { return out + '\\u2026'; } w += cw; out += ch; }
 			return out;
 		}
-		// Refine a raw flow label for the DIAGRAM (the hover title keeps the original): drop
-		// parenthetical asides (e.g. env details like host/ip), a leading "on fail: ..." clause,
-		// and collapse whitespace - so nodes read as short imperative labels, not verbose prose.
+		// Tidy a raw flow label for the DIAGRAM (hover title keeps the original): only collapse
+		// whitespace. We do NOT strip parentheses - many steps put the real content inside them.
 		function refine(s) {
-			return String(s || '')
-				.replace(/\([^)]*\)/g, '')
-				.replace(/^\s*on\s+fail\s*:\s*/i, '')
-				.replace(/\s+/g, ' ')
-				.replace(/\s*[-:]\s*$/, '')
-				.trim();
+			return String(s || '').replace(/\s+/g, ' ').trim();
 		}
 		function flowDiagram(l) {
 			const f = l.flow || {};
@@ -359,12 +340,13 @@ function renderHtml(webview: vscode.Webview): string {
 			const l = loops.find(x => x.id === selectedId);
 			if (!l) { $('detail').innerHTML = '<div class="empty">Select a loop.</div>'; return; }
 			const f = l.flow || {};
+			const running = l.status === 'running' || l.status === 'pending-approval';
 			const totalMs = (l.history || []).reduce((a, h) => a + (typeof h.durationMs === 'number' ? h.durationMs : 0), 0);
 			const fmtDurTop = (ms) => ms < 1000 ? ms + 'ms' : (ms < 60000 ? (ms / 1000).toFixed(1) + 's' : Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's');
 			const checks = (f.checks || []).map(c => '<div class="check"><div>' + esc(c.c) + '</div><div class="cw">' + esc(c.why) + '</div></div>').join('');
 			const steps = (f.steps || []).map(s => '<li>' + esc(s) + '</li>').join('');
 			const fmtDur = (ms) => (typeof ms !== 'number') ? '' : (ms < 1000 ? ms + 'ms' : (ms < 60000 ? (ms / 1000).toFixed(1) + 's' : Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's'));
-			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(h.detail || '') + '</td><td>' + esc((h.at || '').replace('T', ' ').slice(0, 19)) + '</td></tr>').join('');
+			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(h.detail || '') + '</td><td>' + fmtTime(h.at) + '</td></tr>').join('');
 			const files = (l.files || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '"><span class="fi">&#128196;</span>' + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:12px;text-align:left">No artifact files yet.</div>';
 			const examplePrompt = 'Explain the result of the loop "' + l.title + '" (id ' + l.id + '). Use loop_status to read its status and verdict history.';
 
@@ -373,10 +355,12 @@ function renderHtml(webview: vscode.Webview): string {
 				+ '<div><strong>Status</strong><span class="badge ' + badgeClass(l.status) + '">' + esc(statusText(l)) + '</span></div>'
 				+ '<div><strong>Iteration</strong>' + l.iteration + ' / ' + l.budget.maxIter + '</div>'
 				+ '<div><strong>Budget</strong>' + l.budget.maxIter + ' iters, ' + l.budget.maxMin + ' min</div>'
-				+ ((l.budget.usedTokens && l.budget.usedTokens > 0) ? '<div><strong>Tokens</strong>' + l.budget.usedTokens.toLocaleString() + '</div>' : '')
-				+ (totalMs > 0 ? '<div><strong>Total time</strong>' + fmtDurTop(totalMs) + '</div>' : '')
+				// While the loop is still running (or awaiting approval), the totals are partial and keep
+				// changing, so show "-"; the finalized Tokens / Total time appear once the loop ends.
+				+ '<div><strong>Tokens</strong>' + (running ? '-' : ((l.budget.usedTokens && l.budget.usedTokens > 0) ? l.budget.usedTokens.toLocaleString() : '0')) + '</div>'
+				+ '<div><strong>Total time</strong>' + (running ? '-' : (totalMs > 0 ? fmtDurTop(totalMs) : '0s')) + '</div>'
 				+ (l.provider ? '<div><strong>Provider</strong>' + esc(l.provider) + '</div>' : '')
-				+ '<div><strong>Updated</strong>' + esc((l.updatedAt || '').replace('T', ' ').slice(0, 19)) + '</div>'
+				+ '<div><strong>Updated</strong>' + fmtTime(l.updatedAt) + '</div>'
 				+ '</div>';
 			if (l.reason) { h += '<div class="reason">' + esc(l.reason) + '</div>'; }
 
@@ -418,29 +402,14 @@ function renderHtml(webview: vscode.Webview): string {
 			if (cp) { cp.onclick = () => vscode.postMessage({ type: 'copy', text: examplePrompt }); }
 		}
 
-		// Drag the gutter to resize the loop list vs the detail pane (clamped so neither collapses).
-		(function () {
-			const gutter = document.getElementById('gutter');
-			const list = document.getElementById('list');
-			if (!gutter || !list) { return; }
-			let dragging = false;
-			gutter.addEventListener('mousedown', (e) => { dragging = true; document.body.style.cursor = 'ew-resize'; e.preventDefault(); });
-			document.addEventListener('mousemove', (e) => {
-				if (!dragging) { return; }
-				const w = Math.max(160, Math.min(window.innerWidth - 280, e.clientX));
-				list.style.width = w + 'px';
-			});
-			document.addEventListener('mouseup', () => { if (dragging) { dragging = false; document.body.style.cursor = ''; } });
-		})();
-
+		// This webview shows ONE loop's detail (the loop list lives in the left sidebar view, which
+		// opens this editor for the clicked loop). The server pushes the focused loop; we render it.
 		window.addEventListener('message', (e) => {
 			const msg = e.data;
 			if (msg.type === 'data') {
 				loops = msg.loops || [];
-				// A one-shot forced selection (opened for a specific loop) always wins so its detail shows.
 				if (msg.select && loops.some(l => l.id === msg.select)) { selectedId = msg.select; }
 				else if (!selectedId || !loops.some(l => l.id === selectedId)) { selectedId = msg.selectedId || (loops[0] && loops[0].id) || null; }
-				renderList();
 				renderDetail();
 			}
 		});
