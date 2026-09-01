@@ -24,7 +24,7 @@ import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
 import { runScriptInEnv } from './mcp/tools/run';
 import { registerSetupCommands } from './commands/setupCommands';
-import { PluginService, DEFAULT_PLUGIN_NAMES, fetchDefaultViewerNames } from './plugins/pluginService';
+import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
 import { ensureWorkspaceScaffold } from './common/workspaceSync';
@@ -804,7 +804,7 @@ async function listResultViewers(plugins: PluginService, hub: HubApiClient): Pro
 	let hubPlugins: HubPlugin[] = [];
 	try { hubPlugins = await hub.listPlugins(); } catch { /* offline: show installed only */ }
 	const removed = plugins.getRemovedDefaults();
-	const defaultSet = new Set(await fetchDefaultViewerNames());
+	const defaultSet = resolveDefaultNames(hubPlugins);
 	const byName = new Map<string, ResultViewerRow>();
 	for (const h of hubPlugins) {
 		byName.set(h.name, {
