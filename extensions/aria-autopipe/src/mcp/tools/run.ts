@@ -317,7 +317,10 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const retain: 'discard' | 'scratch' | 'keep' =
 					args.retain === 'keep' ? 'keep' : args.retain === 'scratch' ? 'scratch' : 'discard';
 				let codeDir: string | undefined;
-				if (wsRoot && retain === 'keep') { codeDir = path.join(wsRoot, codeRel); }
+				// A loop run ALWAYS persists its script to the hidden capture path (codeRel =
+				// .qoka/<loopScope>/code/<id>), regardless of retain, so the loop engine can commit the REAL
+				// executed script as that iteration's code (retain still governs the results themselves).
+				if (wsRoot && (loopScope || retain === 'keep')) { codeDir = path.join(wsRoot, codeRel); }
 				else if (wsRoot && retain === 'scratch') { codeDir = path.join(wsRoot, '.qoka', 'analysis', id); }
 				// The script SOURCE is already in hand, so write it straight to disk - no
 				// copy-back needed. Best-effort: needs an open folder and a kept run.

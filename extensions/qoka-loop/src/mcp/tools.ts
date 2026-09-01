@@ -292,6 +292,9 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	writeLoop(run);
 	const codeDir = path.join(cwd, 'loops', folder, 'code');
 	const resultsDir = path.join(cwd, 'loops', folder, 'results');
+	// Where run_code drops each run's real script (hidden), so the engine can commit the actual executed
+	// code as that iteration's version instead of a transcript guess. Mirrors run.ts's loop codeRel.
+	const captureDir = path.join(cwd, '.qoka', 'loops', folder, 'code');
 	// Resolve git via aria-vcs (extracts the bundled MinGit on Windows on first use) so the engine's
 	// per-iteration commits use a real git even when none is on PATH. Best-effort: falls back internally.
 	const gitPath = await warmGitBinary(vscode.commands);
@@ -312,7 +315,7 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	const evaluatorRunner = runEnvEvaluatorRunner();
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);
-	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, gitPath, log: loopLog })
+	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })
 		.then(outcome => { stopRequested.delete(id); abortControllers.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
 		.catch(e => { stopRequested.delete(id); abortControllers.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
 	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers) }));

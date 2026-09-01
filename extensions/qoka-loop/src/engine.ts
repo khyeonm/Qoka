@@ -73,6 +73,10 @@ export interface RunOptions {
 	resultsDir?: string;
 	/** git binary for code versioning (bundled MinGit path on Windows, else 'git'). Defaults to 'git'. */
 	gitPath?: string;
+	/** Hidden dir (.qoka/<loopScope>/code) where run_code drops each run's REAL script under <runId>/.
+	 *  The engine copies the scripts written THIS iteration into codeDir so the version shows real code,
+	 *  not just the transcript-parsed capture. Unset -> falls back to the transcript code. */
+	captureDir?: string;
 	/** Diagnostics sink (the "Qoka Loop" output channel). Injected so the engine stays vscode-free. */
 	log?: (msg: string) => void;
 }
@@ -139,14 +143,66 @@ function keepOnlyNewestChild(dir: string, log?: (m: string) => void): void {
  *  and commit it (message = "iter N: pass/fail - reason"). The working tree stays the latest code; the
  *  commit history is every attempt (pass + fail), so the Files tab can show a version tree. Local repo,
  *  no remote / GitHub. Best-effort: if git is missing it just leaves solution.<ext> uncommitted. */
-function commitIterationCode(gitBin: string, codeDir: string, iteration: number, code: string | undefined, codeLanguage: string | undefined, verdict: 'pass' | 'fail', detail: string, log?: (m: string) => void): void {
+/** One real script file the sub-agent executed this iteration (relative path + content). */
+interface CapturedScript { rel: string; content: string; }
+
+/** Read the run_code scripts written THIS iteration: each run drops its script under captureDir/<runId>/;
+ *  we pick files touched at/after `sinceMs` (so a reused run label that overwrites in place is still
+ *  caught by mtime, not by a new folder name). Returns them keyed by "<runId>/<file>" so multiple runs
+ *  don't collide. Best-effort. */
+function captureIterationScripts(captureDir: string, sinceMs: number): CapturedScript[] {
+	const out: CapturedScript[] = [];
+	let subs: fs.Dirent[];
+	try { subs = fs.readdirSync(captureDir, { withFileTypes: true }); } catch { return out; }
+	for (const sub of subs) {
+		if (!sub.isDirectory()) { continue; }
+		const subAbs = path.join(captureDir, sub.name);
+		let files: fs.Dirent[];
+		try { files = fs.readdirSync(subAbs, { withFileTypes: true }); } catch { continue; }
+		for (const f of files) {
+			if (!f.isFile() || f.name.startsWith('.')) { continue; }
+			const abs = path.join(subAbs, f.name);
+			let m = 0;
+			try { m = fs.statSync(abs).mtimeMs; } catch { continue; }
+			if (m >= sinceMs) {
+				try { out.push({ rel: `${sub.name}/${f.name}`, content: fs.readFileSync(abs, 'utf8') }); } catch { /* skip */ }
+			}
+		}
+	}
+	return out;
+}
+
+/** Empty a git working tree of everything except .git, so each commit is exactly THIS iteration's code. */
+function clearWorkTree(dir: string): void {
+	let entries: string[];
+	try { entries = fs.readdirSync(dir); } catch { return; }
+	for (const e of entries) {
+		if (e === '.git') { continue; }
+		try { fs.rmSync(path.join(dir, e), { recursive: true, force: true }); } catch { /* best-effort */ }
+	}
+}
+
+function commitIterationCode(gitBin: string, codeDir: string, iteration: number, code: string | undefined, codeLanguage: string | undefined, verdict: 'pass' | 'fail', detail: string, scripts: CapturedScript[], log?: (m: string) => void): void {
 	try {
 		fs.mkdirSync(codeDir, { recursive: true });
-		const hadCode = !!(code && code.trim());
-		const body = hadCode ? (code as string).trim() : '# (no code captured this iteration)';
-		const file = `solution.${codeExt(codeLanguage)}`;
-		fs.writeFileSync(path.join(codeDir, file), body + '\n');
-		log?.(`commit iter ${iteration}: gitBin=${gitBin} codeDir=${codeDir} wrote=${file} codeCaptured=${hadCode}`);
+		if (scripts.length) {
+			// Preferred: the REAL executed scripts. Reset the tree to just this iteration's files.
+			clearWorkTree(codeDir);
+			for (const s of scripts) {
+				const dest = path.join(codeDir, s.rel);
+				fs.mkdirSync(path.dirname(dest), { recursive: true });
+				fs.writeFileSync(dest, s.content);
+			}
+			log?.(`commit iter ${iteration}: gitBin=${gitBin} codeDir=${codeDir} realScripts=${scripts.map(s => s.rel).join(', ')}`);
+		} else {
+			// Fallback: the transcript-parsed source (or a placeholder when even that is empty).
+			const hadCode = !!(code && code.trim());
+			const body = hadCode ? (code as string).trim() : '# (no code captured this iteration)';
+			const file = `solution.${codeExt(codeLanguage)}`;
+			clearWorkTree(codeDir);
+			fs.writeFileSync(path.join(codeDir, file), body + '\n');
+			log?.(`commit iter ${iteration}: gitBin=${gitBin} codeDir=${codeDir} wrote=${file} codeCaptured=${hadCode} (no real scripts found)`);
+		}
 		if (!fs.existsSync(path.join(codeDir, '.git'))) {
 			const r = git(gitBin, codeDir, ['init', '-q']);
 			log?.(`  git init: ${r.ok ? 'ok' : 'FAILED ' + r.err}`);
@@ -302,7 +358,12 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 		};
 		// Commit THIS iteration's code as a git version (message carries the verdict + reason), so the
 		// Files tab can show a version tree and the failed attempts are recoverable.
-		if (opts.codeDir) { commitIterationCode(opts.gitPath || 'git', opts.codeDir, run.iteration, r.code, r.codeLanguage, verdict.pass ? 'pass' : 'fail', verdict.detail, opts.log); }
+		if (opts.codeDir) {
+			// Prefer the REAL scripts run_code wrote this iteration (mtime >= iteration start, minus a
+			// small buffer for clock skew); fall back to the transcript-parsed code inside the committer.
+			const scripts = opts.captureDir ? captureIterationScripts(opts.captureDir, iterStart - 2000) : [];
+			commitIterationCode(opts.gitPath || 'git', opts.codeDir, run.iteration, r.code, r.codeLanguage, verdict.pass ? 'pass' : 'fail', verdict.detail, scripts, opts.log);
+		}
 		run.history.push(entry);
 		run.iteration++;
 		opts.persist(run);
