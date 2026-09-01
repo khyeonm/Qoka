@@ -89,7 +89,12 @@ export function makeAgentStep(opts: AgentStepOptions): AgentStep {
 			mcpConfigPath = path.join(opts.loopDir, run.id, 'mcp-config.json');
 			writeMcpConfig(mcpConfigPath, opts.workMcpServers, `loops/${opts.loopFolder}`);
 		}
-		const r = await runAgent(opts.provider, prompt, { cwd: opts.cwd, mcpConfigPath, codexHome, signal: opts.signal });
-		return { output: r.output, exitCode: r.exitCode, envError: r.envError, error: r.error, code: r.code, codeLanguage: r.codeLanguage, tokens: r.tokens };
+		// One iteration of a real loop (install tools + generate + dock, etc.) can take far longer than the
+		// default 10 min turn timeout - which would kill the turn before it writes the output the evaluator
+		// checks, failing every iteration identically. Allow a turn up to the loop's whole time budget (the
+		// engine's outer loop still enforces the total maxMin); floor at 10 min for tiny loops.
+		const timeoutMs = Math.max(run.budget.maxMin || 20, 10) * 60_000;
+		const r = await runAgent(opts.provider, prompt, { cwd: opts.cwd, mcpConfigPath, codexHome, signal: opts.signal, timeoutMs });
+		return { output: r.output, exitCode: r.exitCode, envError: r.envError, error: r.error, code: r.code, codeLanguage: r.codeLanguage, tokens: r.tokens, timedOut: r.timedOut };
 	};
 }

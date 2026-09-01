@@ -62,13 +62,20 @@ async function collectWorkMcpServers(): Promise<Record<string, { url: string; po
 async function notifyLoopFinished(id: string, outcome: string): Promise<void> {
 	const run = readLoop(id);
 	const title = run?.spec.title ?? id;
+	const OPEN = 'Open tab';
+	// A pause carries a specific reason (a timeout tells the user to raise the budget in chat) - surface it
+	// as a prominent WARNING popup with the reason, not a bland info toast.
+	if (outcome === 'paused') {
+		const reason = run?.reason ?? 'environment problem';
+		const pick = await vscode.window.showWarningMessage(`Loop "${title}" paused: ${reason}`, { modal: false }, OPEN);
+		if (pick === OPEN) { void vscode.commands.executeCommand('qoka.loop.open', id); }
+		return;
+	}
 	const label = outcome === 'success' ? `Loop "${title}" finished: success`
-		: outcome === 'paused' ? `Loop "${title}" paused (environment problem)`
 		: outcome === 'failed-structural' ? `Loop "${title}" stopped: no progress`
 		: outcome === 'failed-budget' ? `Loop "${title}" stopped: budget exhausted`
 		: outcome === 'stopped' ? `Loop "${title}" stopped`
 		: `Loop "${title}" finished (${outcome})`;
-	const OPEN = 'Open tab';
 	const pick = await vscode.window.showInformationMessage(label, OPEN);
 	if (pick === OPEN) {
 		void vscode.commands.executeCommand('qoka.loop.open', id);
@@ -398,10 +405,14 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'resume_loop',
-			description: 'Resume a PAUSED or STOPPED loop from where it left off (continues its iteration count and history). Use when the user asks to resume/continue a loop that was paused (environment error) or stopped.',
+			description: 'Resume a PAUSED or STOPPED loop from where it left off (continues its iteration count and history). Use when the user asks to resume/continue a loop that was paused (environment error, or an iteration TIMED OUT) or stopped. To fix a timeout, pass a larger maxMin (and/or maxIter) to raise the budget before resuming - the loop paused precisely so the user could do this.',
 			inputSchema: {
 				type: 'object',
-				properties: { loopId: { type: 'string', description: 'The loop id from loop_list.' } },
+				properties: {
+					loopId: { type: 'string', description: 'The loop id from loop_list.' },
+					maxMin: { type: 'number', description: 'Optional NEW total time budget in minutes (also the per-iteration cap). Pass a larger value to fix a timeout pause.' },
+					maxIter: { type: 'number', description: 'Optional NEW maximum iteration count. Pass a larger value if the loop needs more attempts.' },
+				},
 				required: ['loopId'],
 				additionalProperties: false,
 			},
@@ -411,6 +422,13 @@ export function buildTools(): ToolDefinition[] {
 				if (!run) { return err(`No loop with id ${id}.`); }
 				if (run.status === 'running') { return err(`Loop ${id} is already running.`); }
 				if (run.status === 'success') { return err(`Loop ${id} already succeeded - nothing to resume.`); }
+				const newMin = typeof args.maxMin === 'number' && args.maxMin > 0 ? Math.floor(args.maxMin) : undefined;
+				const newIter = typeof args.maxIter === 'number' && args.maxIter > 0 ? Math.floor(args.maxIter) : undefined;
+				if (newMin || newIter) {
+					if (newMin) { run.budget.maxMin = newMin; }
+					if (newIter) { run.budget.maxIter = newIter; }
+					writeLoop(run);
+				}
 				return launchLoop(id);
 			},
 		},

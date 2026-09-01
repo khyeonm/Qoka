@@ -127,6 +127,8 @@ export interface AgentRunResult {
 	tokens?: number;
 	/** The turn was killed by a user stop request (not an error/env problem). */
 	stopped?: boolean;
+	/** The turn hit its time limit before finishing - the loop pauses so the user can raise the budget. */
+	timedOut?: boolean;
 }
 
 const ENV_ERROR_RE = /(not logged in|please log ?in|authentication|unauthorized|invalid api key|quota|rate.?limit|429|credit balance)/i;
@@ -215,7 +217,7 @@ export function runAgent(
 		// instead of waiting out a long docking/analysis run.
 		const onAbort = () => { try { child.kill('SIGTERM'); } catch { /* already gone */ } finish({ output: stdout, exitCode: null, stderr, error: 'stopped by user', stopped: true }); };
 		if (opts.signal) { opts.signal.addEventListener('abort', onAbort, { once: true }); }
-		const timer = setTimeout(() => { child.kill('SIGTERM'); finish({ output: stdout, exitCode: null, stderr, error: `timed out after ${timeoutMs}ms` }); }, timeoutMs);
+		const timer = setTimeout(() => { child.kill('SIGTERM'); finish({ output: stdout, exitCode: null, stderr, error: `timed out after ${timeoutMs}ms`, timedOut: true }); }, timeoutMs);
 		child.stdout.on('data', d => { stdout += d.toString(); });
 		child.stderr.on('data', d => { stderr += d.toString(); });
 		child.on('error', err => finish({ output: '', exitCode: null, stderr, envError: true, error: err.message }));

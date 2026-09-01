@@ -33,6 +33,9 @@ export interface AgentResult {
 	codeLanguage?: string;
 	/** Tokens used this turn (input + output), accumulated into the run's budget for live display. */
 	tokens?: number;
+	/** The turn hit its time limit before finishing - the engine pauses (not fail) so the user can
+	 *  raise the loop's time budget and resume, instead of the same timeout repeating every iteration. */
+	timedOut?: boolean;
 }
 
 /** A sub-agent turn: does the work for one iteration, given the previous verdict as
@@ -330,8 +333,13 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			return 'stopped';
 		}
 		const iterStart = Date.now();
+		opts.log?.(`iter ${run.iteration}: sub-agent turn starting${feedback ? ' (with previous-error feedback)' : ' (first attempt)'}`);
 		const r = await agentStep(run, feedback);
 		if (typeof r.tokens === 'number') { run.budget.usedTokens += r.tokens; }
+		// Make what the sub-agent actually did visible in the "Qoka Loop" output: the tail of its output,
+		// any error it reported, and whether it captured code - so a stuck loop can be diagnosed.
+		opts.log?.(`iter ${run.iteration}: sub-agent done exit=${r.exitCode} tokens=${r.tokens ?? '-'} codeLang=${r.codeLanguage ?? '-'}${r.error ? ` ERROR=${r.error}` : ''}`);
+		opts.log?.(`iter ${run.iteration}: agent output tail: ${JSON.stringify((r.output || '').slice(-600))}`);
 		// A stop that arrived DURING the sub-agent turn (the turn may have been killed) is honored here,
 		// before spending time running the evaluator - so a mid-iteration stop takes effect promptly.
 		if (opts.shouldStop?.()) {
@@ -339,6 +347,15 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			run.reason = 'stopped by user';
 			opts.persist(run);
 			return 'stopped';
+		}
+		// A turn that ran out of time did NOT do wrong work - retrying would just time out again. PAUSE and
+		// tell the user to raise the loop's time budget (maxMin) in chat, then resume.
+		if (r.timedOut) {
+			const perTurnMin = Math.max(run.budget.maxMin || 20, 10);
+			run.status = 'paused';
+			run.reason = `Iteration ${run.iteration} needs more time than the ${perTurnMin} min budget allows. Action needed: ask in the chat to increase this loop's time budget, then resume (or simplify the task).`;
+			opts.persist(run);
+			return 'paused';
 		}
 		if (r.envError) {
 			run.status = 'paused';
@@ -382,6 +399,8 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			return 'failed-structural';
 		}
 		feedback = buildIterationFeedback(verdict, r);
+		// Show exactly what will be handed to the next iteration to fix (the full-error feedback).
+		opts.log?.(`iter ${run.iteration - 1}: feedback handed to next iteration ->\n${feedback}`);
 	}
 
 	prune();
