@@ -330,6 +330,7 @@ function renderHtml(webview: vscode.Webview): string {
 		table.hist { border-collapse: collapse; width: 100%; font-size: 12px; }
 		table.hist th, table.hist td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--vscode-widget-border, transparent); vertical-align: top; }
 		table.hist th { opacity: 0.6; font-weight: 500; }
+		td.hist-empty { opacity: 0.5; text-align: center; padding: 12px 8px; }
 		.v-pass { color: #4caf72; font-weight: 600; }
 		.v-fail { color: #e06666; font-weight: 600; }
 		.files { display: flex; flex-direction: column; gap: 1px; }
@@ -562,7 +563,10 @@ function renderHtml(webview: vscode.Webview): string {
 			h += '<div class="section"><h2>Stops when (whichever comes first)</h2><ul class="steps">'
 				+ stopItems.map(x => '<li>' + x + '</li>').join('') + '</ul></div>';
 
-			if (hist) { h += '<div class="section"><h2>History</h2><table class="hist"><tr><th>#</th><th>verdict</th><th>time</th><th>detail</th><th>at</th></tr>' + hist + '</table></div>'; }
+			// Always show the History frame (headers) so it is there from the start; the body is empty
+			// until the first iteration finishes.
+			h += '<div class="section"><h2>History</h2><table class="hist"><tr><th>#</th><th>verdict</th><th>time</th><th>detail</th><th>at</th></tr>'
+				+ (hist || '<tr><td colspan="5" class="hist-empty">No iterations yet.</td></tr>') + '</table></div>';
 
 			h += '<div class="section"><h2>Code</h2>'
 				+ '<div class="codepane"><div class="codeleft">' + leftHtml + '</div><div class="coderight" id="coderight"></div></div></div>';
