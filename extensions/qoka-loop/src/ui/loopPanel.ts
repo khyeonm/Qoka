@@ -83,7 +83,7 @@ interface LoopView {
 	history: LoopRun['history'];
 	provider?: string;
 	evaluatorFile?: LoopFile;
-	results: LoopFile[];
+	results: ResultFile[];
 	versions: LoopVersion[];
 	codeDir?: string;
 	/** The loop's folder name (from run.rootDir = loops/<folder>), shown as the shared parent of the
@@ -104,22 +104,37 @@ function loopEvaluatorFile(run: LoopRun): LoopFile | undefined {
 	return ev ? { rel: ev.name, abs: path.join(base, ev.name) } : undefined;
 }
 
-/** The loop's final OUTPUT files (loops/<folder>/results/**) - metrics, logs, figures. These are
- *  results, not code, so they get their own "Results" section rather than being mixed with the code. */
-function loopResultFiles(run: LoopRun): LoopFile[] {
+/** A result file, tagged with a display CATEGORY so the Results view can group them into folders
+ *  (results / logs / meta) without moving anything on disk. */
+type ResultCategory = 'results' | 'logs' | 'meta';
+interface ResultFile { rel: string; abs: string; category: ResultCategory; size: number; }
+
+/** Classify a result file for display: logs (*.log), meta (run scaffolding / metadata), else results. */
+function classifyResult(name: string): ResultCategory {
+	if (name.endsWith('.log')) { return 'logs'; }
+	if (name === 'main.sh' || name === 'main.py' || name === 'main.js' || name === '.autopipe-run.json'
+		|| name.startsWith('mcp-config') || name.startsWith('.') || name.endsWith('.tmp')) { return 'meta'; }
+	return 'results';
+}
+
+/** The loop's OUTPUT files (loops/<folder>/results/**). Nothing is hidden - each file is tagged with a
+ *  category so the Results view can organize logs/meta into their own folders instead of dropping them. */
+function loopResultFiles(run: LoopRun): ResultFile[] {
 	const proot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 	if (!proot || !run.rootDir) { return []; }
-	const out: LoopFile[] = [];
-	const hidden = (name: string): boolean => name.endsWith('.tmp') || name.startsWith('.');
+	const out: ResultFile[] = [];
 	const walk = (abs: string, rel: string): void => {
 		let entries: fs.Dirent[];
 		try { entries = fs.readdirSync(abs, { withFileTypes: true }); } catch { return; }
 		for (const e of entries) {
-			if (hidden(e.name)) { continue; }
 			const childAbs = path.join(abs, e.name);
 			const childRel = rel ? `${rel}/${e.name}` : e.name;
 			if (e.isDirectory()) { walk(childAbs, childRel); }
-			else { out.push({ rel: childRel, abs: childAbs }); }
+			else {
+				let size = 0;
+				try { size = fs.statSync(childAbs).size; } catch { /* keep 0 */ }
+				out.push({ rel: childRel, abs: childAbs, category: classifyResult(e.name), size });
+			}
 		}
 	};
 	walk(path.join(proot, run.rootDir, 'results'), '');
@@ -340,15 +355,21 @@ function renderHtml(webview: vscode.Webview): string {
 		/* Parent = the loop folder; shared + iterN hang under it as sibling directory names. */
 		.cparent { font-size: 11px; opacity: 0.6; padding: 6px 10px 5px; font-family: var(--vscode-editor-font-family); word-break: break-all; }
 		.cchild { padding-left: 22px; }
-		.citem { font-size: 12px; padding: 5px 10px; cursor: pointer; border-left: 2px solid transparent; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-		.citem:hover { background: var(--vscode-list-hoverBackground); }
-		.citem.csel { background: var(--vscode-list-activeSelectionBackground, rgba(90,140,255,0.18)); border-left-color: #4c8dff; }
+		.citem, .rcat { font-size: 12px; padding: 5px 10px; cursor: pointer; border-left: 2px solid transparent; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		.citem:hover, .rcat:hover { background: var(--vscode-list-hoverBackground); }
+		.citem.csel, .rcat.csel { background: var(--vscode-list-activeSelectionBackground, rgba(90,140,255,0.18)); border-left-color: #4c8dff; }
 		.crhdr { font-size: 11px; opacity: 0.7; padding: 2px 6px 8px; font-family: var(--vscode-editor-font-family); }
 		.crfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-family: var(--vscode-editor-font-family); }
 		.crfile:hover { background: var(--vscode-list-hoverBackground); }
 		.crnote { font-size: 11px; opacity: 0.55; padding: 6px 8px; line-height: 1.4; }
-		/* Small grey "dir" / "file" badge used instead of an emoji, before each tree/result entry. */
-		.tag { display: inline-block; min-width: 24px; text-align: center; font-size: 9px; line-height: 15px; height: 15px; padding: 0 5px; border-radius: 8px; background: var(--vscode-badge-background, rgba(127,127,127,0.32)); color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground)); opacity: 0.85; margin-right: 7px; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: middle; }
+		/* Result file rows: filename on the left, size on the right. */
+		.rfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-family: var(--vscode-editor-font-family); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+		.rfile:hover { background: var(--vscode-list-hoverBackground); }
+		.rname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.rsize { flex-shrink: 0; opacity: 0.5; font-size: 11px; font-variant-numeric: tabular-nums; }
+		/* Small grey "dir" / "file" badge used instead of an emoji, before each tree/result entry.
+		   Outline only - a bordered pill with NO fill. */
+		.tag { display: inline-block; box-sizing: border-box; min-width: 26px; text-align: center; font-size: 9px; line-height: 14px; height: 15px; padding: 0 5px; border-radius: 8px; border: 1px solid var(--vscode-descriptionForeground, currentColor); background: transparent; color: var(--vscode-descriptionForeground); opacity: 0.7; margin-right: 7px; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: middle; }
 		.empty { opacity: 0.6; padding: 40px; text-align: center; font-size: 13px; }
 	</style>
 </head>
@@ -365,6 +386,9 @@ function renderHtml(webview: vscode.Webview): string {
 		let selectedId = null;
 		// Which code item is selected in the Code section: 'ev' (the shared evaluator) or a version hash.
 		let selectedCode = null;
+		// Which category folder is selected in the Results section: 'results' | 'logs' | 'meta'.
+		let selectedResultCat = null;
+		const fmtSize = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
 
 		const badgeClass = (s) => ({ running:'b-running', success:'b-success', failed:'b-failed', paused:'b-paused', stopped:'b-stopped', 'pending-approval':'b-pending' }[s] || 'b-pending');
 		const statusLabel = (s) => s === 'pending-approval' ? 'pending' : s;
@@ -498,7 +522,14 @@ function renderHtml(webview: vscode.Webview): string {
 				leftItems.push('<div class="citem cchild' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '">' + dirTag + 'iter' + (v.iter >= 0 ? v.iter : '?') + '</div>');
 			});
 			const leftHtml = leftItems.join('') || '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>';
-			const resHtml = (l.results || []).map(fl => '<div class="file" data-path="' + esc(fl.abs) + '">' + fileTag + esc(fl.rel) + '</div>').join('') || '<div class="empty" style="padding:10px;text-align:left">No result files yet.</div>';
+			// Results: group files into category folders (results / logs / meta) for a left-folder,
+			// right-files layout like the Code section. Nothing is hidden - logs and meta just get folders.
+			const resByCat = { results: [], logs: [], meta: [] };
+			(l.results || []).forEach(fl => { (resByCat[fl.category] || resByCat.results).push(fl); });
+			const resCats = ['results', 'logs', 'meta'].filter(c => resByCat[c].length);
+			if (selectedResultCat === null || !resByCat[selectedResultCat] || !resByCat[selectedResultCat].length) { selectedResultCat = resCats[0] || null; }
+			const resLeft = resCats.map(c => '<div class="rcat cchild' + (selectedResultCat === c ? ' csel' : '') + '" data-cat="' + c + '">' + dirTag + c + '</div>').join('')
+				|| '<div class="empty" style="padding:8px;text-align:left">No result files yet.</div>';
 
 			let h = '<h1>' + esc(l.title) + '</h1><div class="goal">' + esc(l.goal) + '</div>';
 			h += '<div class="meta">'
@@ -535,7 +566,8 @@ function renderHtml(webview: vscode.Webview): string {
 
 			h += '<div class="section"><h2>Code</h2>'
 				+ '<div class="codepane"><div class="codeleft">' + leftHtml + '</div><div class="coderight" id="coderight"></div></div></div>';
-			h += '<div class="section"><h2>Results (final run)</h2><div class="files">' + resHtml + '</div></div>';
+			h += '<div class="section"><h2>Results</h2>'
+				+ '<div class="codepane"><div class="codeleft">' + resLeft + '</div><div class="coderight" id="resultright"></div></div></div>';
 
 
 			$('detail').innerHTML = h;
@@ -579,10 +611,28 @@ function renderHtml(webview: vscode.Webview): string {
 				};
 			});
 			renderCodeRight();
-			// Result files open directly (they are outputs, not versioned code).
-			document.querySelectorAll('.files .file').forEach(el => {
-				el.onclick = () => vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') });
+
+			// RIGHT pane of the Results section: the files in the selected category folder (name + size).
+			function renderResultsRight() {
+				const box = document.getElementById('resultright');
+				if (!box) { return; }
+				const files = resByCat[selectedResultCat] || [];
+				box.innerHTML = files.length
+					? files.map(fl => '<div class="rfile" data-path="' + esc(fl.abs) + '"><span class="rname">' + esc(fl.rel.split('/').pop()) + '</span><span class="rsize">' + fmtSize(fl.size) + '</span></div>').join('')
+					: '<div class="crnote">No files.</div>';
+				box.querySelectorAll('.rfile').forEach(el => {
+					el.onclick = () => vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') });
+				});
+			}
+			document.querySelectorAll('.rcat').forEach(el => {
+				el.onclick = () => {
+					selectedResultCat = el.getAttribute('data-cat');
+					document.querySelectorAll('.rcat').forEach(x => x.classList.remove('csel'));
+					el.classList.add('csel');
+					renderResultsRight();
+				};
 			});
+			renderResultsRight();
 			// The fail-return line needs the boxes' measured positions, so draw it after layout.
 			requestAnimationFrame(drawLoopback);
 		}
