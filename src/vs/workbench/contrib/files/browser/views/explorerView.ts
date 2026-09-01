@@ -558,11 +558,10 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 				this.telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: 'workbench.files.openFile', from: 'explorer' });
 				try {
 					this.delegate?.willOpenElement(e.browserEvent);
-					// If the file lives inside an open Autopipe Viewer scope, render it
-					// in that viewer tab instead of a normal editor.
-					if (ariaViewerScopeStore.scopeContaining(element.resource)) {
-						await this.commandService.executeCommand('aria.autopipe.viewFileInViewer', element.resource.fsPath);
-					} else if (/\.pdf$/i.test(element.resource.path)) {
+					// Result files open in their per-extension Qoka viewer through
+					// registered custom editors, so file clicks are no longer forced
+					// into the single viewer-scope webview.
+					if (/\.pdf$/i.test(element.resource.path)) {
 						if (element.resource.path.includes('/.qoka/references/pdfs/')) {
 							// Downloaded paper PDFs open in VS Code's built-in editor, like any
 							// other file clicked in the tree (VS Code has no native PDF renderer,
