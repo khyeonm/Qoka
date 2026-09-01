@@ -851,8 +851,18 @@ async function bootstrapDefaultPlugins(plugins: PluginService, hub: HubApiClient
 	// run", "incremental update", and "everything good". If every default
 	// is installed *and* at the right version we don't even show a toast.
 	const installedCount = DEFAULT_PLUGIN_NAMES.filter(n => plugins.isInstalled(n)).length;
-	const isFirstRun = installedCount === 0;
+	const removed = plugins.getRemovedDefaults();
+	const isFirstRun = installedCount === 0 && removed.size === 0;
 	console.log(`[aria-autopipe] bootstrap: installed=${installedCount}/${DEFAULT_PLUGIN_NAMES.length}, isFirstRun=${isFirstRun}`);
+
+	// Only the very first run auto-installs the default viewers, so result files
+	// open out of the box. After that we NEVER auto-install a newly-added default
+	// or auto-update an existing one - those are surfaced in the Result Viewers
+	// panel (Settings -> Result Viewer -> Manage Result Viewers) with Install /
+	// Update buttons, so the user applies them only when they choose to.
+	if (!isFirstRun) {
+		return;
+	}
 
 	await vscode.window.withProgress(
 		{
