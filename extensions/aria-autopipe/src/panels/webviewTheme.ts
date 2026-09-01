@@ -17,11 +17,18 @@ import * as vscode from 'vscode';
  * native ones (e.g. the Autopipe section's "Connect to GitHub"). Advanced Mode
  * uses the theme's button colour in both places, so emit nothing there.
  *
+ * The `!important` is required: the webview host injects the theme variables as
+ * an INLINE style on `document.documentElement` (webview `pre/index.html`
+ * `documentStyle.setProperty(...)`), and a normal inline declaration outranks a
+ * plain stylesheet `:root {}` rule. An `!important` author declaration outranks
+ * the normal inline one, so the remap actually wins. Without it the buttons keep
+ * the theme's deep blue.
+ *
  * Keep the two hex values in sync with `--aria-accent` / `--aria-accent-hover`
  * in `ariaEasyMode.css`.
  */
 export function qokaWebviewAccentCss(): string {
 	const advanced = vscode.workspace.getConfiguration().get<string>('aria.mode') === 'advanced';
 	if (advanced) { return ''; }
-	return ':root { --vscode-button-background: #2ba7c9; --vscode-button-hoverBackground: #2496b6; }';
+	return ':root { --vscode-button-background: #2ba7c9 !important; --vscode-button-hoverBackground: #2496b6 !important; }';
 }
