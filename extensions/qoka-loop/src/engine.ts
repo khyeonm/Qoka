@@ -40,8 +40,9 @@ export interface AgentResult {
  *  headless CLI (agent_step, M1b). */
 export type AgentStep = (run: LoopRun, feedback: string | undefined) => Promise<AgentResult>;
 
-/** The evaluator's deterministic verdict. */
-export interface Verdict { pass: boolean; detail: string; }
+/** The evaluator's deterministic verdict. `detail` is the SHORT one-line cause (history/UI); `raw` is the
+ *  FULL evaluator stdout+stderr, fed to the next iteration so the sub-agent can fix the real error. */
+export interface Verdict { pass: boolean; detail: string; raw?: string; }
 
 export type LoopOutcome = 'success' | 'failed-structural' | 'failed-budget' | 'paused' | 'stopped';
 
@@ -184,16 +185,20 @@ export async function runLockedEvaluator(run: LoopRun, runner: ScriptRunner): Pr
 	try {
 		r = await runner(code, run.spec.evaluator.language);
 	} catch (e) {
-		return { pass: false, detail: `evaluator failed to run: ${(e as Error).message}` };
+		return { pass: false, detail: `evaluator failed to run: ${(e as Error).message}`, raw: (e as Error).message };
 	}
+	// The FULL evaluator output (stdout+stderr) is kept as `raw` so the engine can feed the real cause
+	// (a traceback, "file not found", a metric dump) to the NEXT iteration - the one-line `detail` is
+	// only for the history/UI.
+	const raw = [r.stdout, r.stderr].filter(s => s && s.trim()).join('\n').trim();
 	const m = r.stdout.match(/\{[\s\S]*?"pass"[\s\S]*?\}/);
 	if (m) {
 		try {
 			const j = JSON.parse(m[0]) as { pass?: unknown; detail?: unknown };
-			return { pass: j.pass === true, detail: String(j.detail ?? '') };
+			return { pass: j.pass === true, detail: String(j.detail ?? ''), raw };
 		} catch { /* fall through to exit code */ }
 	}
-	return { pass: r.exitCode === 0, detail: (r.stderr || r.stdout).trim().slice(0, 500) };
+	return { pass: r.exitCode === 0, detail: (r.stderr || r.stdout).trim().slice(0, 500), raw };
 }
 
 /** Strip the volatile parts of an error (numbers, hex, paths, whitespace) so two runs of
@@ -214,6 +219,29 @@ export function noProgress(run: LoopRun): boolean {
 	if (sigs.length < NO_PROGRESS_N) { return false; }
 	const last = sigs.slice(-NO_PROGRESS_N);
 	return last.every(s => s === last[0]);
+}
+
+/** Keep the last `n` chars (a tail) of a possibly-huge blob, marked when truncated. */
+function tail(s: string | undefined, n: number): string {
+	const t = (s ?? '').trim();
+	return t.length > n ? '...(truncated)...\n' + t.slice(-n) : t;
+}
+
+/** Rich feedback for the NEXT iteration: the one-line cause PLUS the full evaluator output and the
+ *  sub-agent's own error/transcript tail, so the next turn can fix the REAL error (not just "it failed").
+ *  Length-capped so the prompt stays bounded. The history/UI keeps only the one-line `verdict.detail`. */
+function buildIterationFeedback(verdict: Verdict, agent: AgentResult): string {
+	const parts: string[] = [`The previous iteration FAILED. Reason: ${verdict.detail || '(no detail)'}`];
+	if (verdict.raw && verdict.raw.trim() && verdict.raw.trim() !== (verdict.detail || '').trim()) {
+		parts.push(`Full evaluator output (fix what this shows):\n${tail(verdict.raw, 3000)}`);
+	}
+	if (agent.error && agent.error.trim()) {
+		parts.push(`Your run reported an error:\n${tail(agent.error, 1500)}`);
+	}
+	const outTail = tail(agent.output, 1200);
+	if (outTail) { parts.push(`Your previous turn ended with:\n${outTail}`); }
+	parts.push('Diagnose the cause above and FIX it this turn (install/build the missing tool a different way, correct the path, or fix the code) - do not repeat the same approach.');
+	return parts.join('\n\n');
 }
 
 /**
@@ -248,6 +276,14 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 		const iterStart = Date.now();
 		const r = await agentStep(run, feedback);
 		if (typeof r.tokens === 'number') { run.budget.usedTokens += r.tokens; }
+		// A stop that arrived DURING the sub-agent turn (the turn may have been killed) is honored here,
+		// before spending time running the evaluator - so a mid-iteration stop takes effect promptly.
+		if (opts.shouldStop?.()) {
+			run.status = 'stopped';
+			run.reason = 'stopped by user';
+			opts.persist(run);
+			return 'stopped';
+		}
 		if (r.envError) {
 			run.status = 'paused';
 			run.reason = r.error ?? 'environment error';
@@ -284,7 +320,7 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			prune();
 			return 'failed-structural';
 		}
-		feedback = verdict.detail;
+		feedback = buildIterationFeedback(verdict, r);
 	}
 
 	prune();
