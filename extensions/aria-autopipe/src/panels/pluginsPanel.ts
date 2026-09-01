@@ -113,7 +113,8 @@ function renderHtml(webview: vscode.Webview): string {
 		.btn { padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 3px; border: 1px solid transparent; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
 		.btn.secondary { background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2)); color: var(--vscode-button-secondaryForeground, var(--vscode-foreground)); }
 		.btn[disabled] { opacity: 0.5; cursor: default; }
-		.default-tag { font-size: 10px; opacity: 0.7; padding: 1px 5px; border: 1px solid var(--vscode-widget-border, currentColor); border-radius: 3px; }
+		.tag-default { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: rgba(127,127,127,0.22); color: var(--vscode-foreground); vertical-align: middle; }
+		.tag-pipeline { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: rgba(127,127,127,0.22); color: var(--vscode-foreground); vertical-align: middle; }
 		.empty { padding: 24px; text-align: center; opacity: 0.6; }
 		.err { padding: 12px; background: var(--vscode-inputValidation-errorBackground, #fee); border: 1px solid var(--vscode-inputValidation-errorBorder, #c44); color: var(--vscode-inputValidation-errorForeground, #c44); border-radius: 3px; }
 		.toast { position: fixed; bottom: 16px; right: 16px; padding: 8px 12px; border-radius: 4px; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-widget-border, transparent); font-size: 12px; max-width: 320px; }
@@ -158,8 +159,8 @@ function renderHtml(webview: vscode.Webview): string {
 				return;
 			}
 			const html = rows.map(row => {
-				const tag = row.isDefault ? '<span class="default-tag">default</span>' : '';
-				const pipeTag = row.isPipeline ? '<span class="default-tag">pipeline</span>' : '';
+				const tag = row.isDefault ? '<span class="tag-default">default</span>' : '';
+				const pipeTag = row.isPipeline ? '<span class="tag-pipeline">pipeline</span>' : '';
 				const meta = [
 					row.author ? '@' + row.author : '',
 					row.hubVersion ? 'v' + row.hubVersion + (row.installedVersion && row.installedVersion !== row.hubVersion ? ' (have v' + row.installedVersion + ')' : '') : (row.installedVersion ? 'v' + row.installedVersion : ''),
