@@ -569,10 +569,8 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 							// is reached via the Paper Library's Open PDF button, not the tree.
 							await this.editorService.openEditor({ resource: element.resource, options: { override: DEFAULT_EDITOR_ASSOCIATION.id, preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);
 						} else {
-							// Other PDFs from the file tree open in the OS default PDF app. The
-							// in-app Qoka PDF viewer stays reserved for the Paper Library's Open
-							// PDF button (which opens it explicitly, not through the explorer).
-							await this.openerService.open(element.resource, { openExternal: true });
+							// Other PDFs open in the in-app Qoka PDF viewer (its default editor).
+							await this.editorService.openEditor({ resource: element.resource, options: { override: 'qoka.pdfViewer', preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);
 						}
 					} else {
 						await this.editorService.openEditor({ resource: element.resource, options: { preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);
