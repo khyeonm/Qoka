@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { services } from '../common/services';
 import { Pipeline } from '../common/types';
 import { openPipelineDetailPanel } from './pipelineDetailPanel';
+import { qokaWebviewAccentCss } from './webviewTheme';
 
 /**
  * Editor-area webview panel that lists pipelines from Autopipe Hub. The
@@ -69,6 +70,7 @@ function renderHtml(webview: vscode.Webview): string {
 	<meta http-equiv="Content-Security-Policy" content="${csp}">
 	<title>Autopipe Hub</title>
 	<style>
+		${qokaWebviewAccentCss()}
 		body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 16px; }
 		.search { display: flex; gap: 8px; margin-bottom: 16px; }
 		.search input { flex: 1; padding: 6px 8px; font-size: 13px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; }

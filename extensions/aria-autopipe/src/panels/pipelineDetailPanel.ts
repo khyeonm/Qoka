@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { Pipeline } from '../common/types';
 import { fetchGitHubTree, fetchGitHubFile } from '../hub/githubFetch';
 import { services } from '../common/services';
+import { qokaWebviewAccentCss } from './webviewTheme';
 
 /**
  * Detail view for a single pipeline. Mirrors autopipe-app's PipelineDetail
@@ -81,6 +82,7 @@ function renderHtml(webview: vscode.Webview, pipeline: Pipeline): string {
 	<meta http-equiv="Content-Security-Policy" content="${csp}">
 	<title>${escapeHtml(pipeline.name)}</title>
 	<style>
+		${qokaWebviewAccentCss()}
 		body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; }
 		.header { padding: 20px 24px; border-bottom: 1px solid var(--vscode-widget-border, transparent); flex-shrink: 0; }
 		.title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }

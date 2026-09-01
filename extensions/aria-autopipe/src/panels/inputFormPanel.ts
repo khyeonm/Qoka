@@ -11,6 +11,7 @@ import { parseConfigFields, formatValue, setYamlValue, ConfigField } from '../co
 import { workspacePathsFor, SshProfile } from '../common/types';
 import { shellEscape } from '../common/roCrate';
 import { findPipelineDir } from '../common/dockerEnv';
+import { qokaWebviewAccentCss } from './webviewTheme';
 
 /**
  * "autopipe input" tab for a pipeline. Mirrors autopipe-app's web input form, but
@@ -219,6 +220,7 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 	<meta http-equiv="Content-Security-Policy" content="${csp}">
 	<title>autopipe input</title>
 	<style>
+		${qokaWebviewAccentCss()}
 		body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; }
 		.header { padding: 18px 22px; border-bottom: 1px solid var(--vscode-widget-border, transparent); flex-shrink: 0; }
 		.header h1 { font-size: 17px; font-weight: 700; margin: 0 0 4px; }

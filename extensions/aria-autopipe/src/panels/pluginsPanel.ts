@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import { qokaWebviewAccentCss } from './webviewTheme';
 
 let activePanel: vscode.WebviewPanel | undefined;
 
@@ -88,6 +89,7 @@ function renderHtml(webview: vscode.Webview): string {
 	<meta http-equiv="Content-Security-Policy" content="${csp}">
 	<title>Result Viewers</title>
 	<style>
+		${qokaWebviewAccentCss()}
 		body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 16px; }
 		h1 { font-size: 16px; margin: 0 0 4px 0; }
 		.subtitle { font-size: 12px; opacity: 0.7; margin-bottom: 16px; }
