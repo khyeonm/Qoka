@@ -56,15 +56,24 @@ export interface InstalledPlugin {
 
 /** The default plugins Qoka installs on first run. Fetched from Hub so the user
  *  has every common file type covered out of the box. Names match the Hub
- *  registry entries verbatim. The first 13 are file-extension viewers; the last
+ *  registry entries verbatim. The first 12 are file-extension viewers; the last
  *  is a pipeline dashboard (plugin_type 'pipeline') that claims an aptaselect
- *  result directory (matched via its pipeline_match rules). */
+ *  result directory (matched via its pipeline_match rules). PDF is intentionally
+ *  absent: it is served by the built-in qoka.pdfViewer, not a plugin (see
+ *  NATIVE_VIEWER_NAMES). */
 export const DEFAULT_PLUGIN_NAMES = [
 	'bam-viewer', 'bcf-viewer', 'bed-viewer', 'cram-viewer', 'csv-viewer',
 	'fasta-viewer', 'fastq-viewer', 'gff-viewer', 'hdf5-viewer', 'image-viewer',
-	'pdf-viewer', 'text-viewer', 'vcf-viewer',
+	'text-viewer', 'vcf-viewer',
 	'aptaselect-viewer',
 ];
+
+/** Viewers Qoka serves natively (built-in custom editors), so they are NOT
+ *  managed as installable plugins: their files always open in the built-in
+ *  editor regardless of any Hub plugin, and installing / removing the matching
+ *  Hub plugin does nothing. PDF -> qoka.pdfViewer. Kept out of the default set
+ *  and the Result Viewers list so the UI never offers a no-op install/remove. */
+export const NATIVE_VIEWER_NAMES = new Set<string>(['pdf-viewer']);
 
 /** Hub tag (in user_plugins.tags) that marks a viewer as a Qoka default.
  *  Adding / removing this tag on the Hub changes the default set WITHOUT an app
@@ -76,7 +85,9 @@ export const DEFAULT_TAG = 'qoka-default';
  *  or - until any plugin is tagged on the Hub - the built-in fallback list. */
 export function resolveDefaultNames(hubPlugins: HubPlugin[]): Set<string> {
 	const tagged = hubPlugins.filter(p => (p.tags ?? []).includes(DEFAULT_TAG)).map(p => p.name);
-	return tagged.length ? new Set(tagged) : new Set(DEFAULT_PLUGIN_NAMES);
+	const names = tagged.length ? tagged : DEFAULT_PLUGIN_NAMES;
+	// Never treat a natively-served viewer (e.g. PDF) as an installable default.
+	return new Set(names.filter(n => !NATIVE_VIEWER_NAMES.has(n)));
 }
 
 /**

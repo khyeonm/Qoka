@@ -24,7 +24,7 @@ import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
 import { runScriptInEnv } from './mcp/tools/run';
 import { registerSetupCommands } from './commands/setupCommands';
-import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames } from './plugins/pluginService';
+import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames, NATIVE_VIEWER_NAMES } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
 import { ensureWorkspaceScaffold } from './common/workspaceSync';
@@ -807,6 +807,7 @@ async function listResultViewers(plugins: PluginService, hub: HubApiClient): Pro
 	const defaultSet = resolveDefaultNames(hubPlugins);
 	const byName = new Map<string, ResultViewerRow>();
 	for (const h of hubPlugins) {
+		if (NATIVE_VIEWER_NAMES.has(h.name)) { continue; } // PDF etc. are built-in, not managed here.
 		byName.set(h.name, {
 			name: h.name, description: h.description ?? '', extensions: h.extensions ?? [], author: h.author ?? '',
 			hubVersion: h.version ?? null, installedVersion: plugins.installedVersion(h.name),
@@ -816,6 +817,7 @@ async function listResultViewers(plugins: PluginService, hub: HubApiClient): Pro
 	}
 	for (const p of plugins.listInstalled()) {
 		const n = p.manifest.name;
+		if (NATIVE_VIEWER_NAMES.has(n)) { continue; } // PDF etc. are built-in, not managed here.
 		const row = byName.get(n);
 		if (row) {
 			row.installed = true;

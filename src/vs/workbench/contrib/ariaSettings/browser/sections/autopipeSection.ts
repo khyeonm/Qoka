@@ -41,9 +41,27 @@ export class AutopipeSection extends SettingsSection {
 
 	constructor(body: HTMLElement, commandService: ICommandService, header?: HTMLElement) {
 		super(body, commandService, header);
-		this.addHeaderTextAction('How to use?', 'How to use Autopipe', () => {
-			void this.commandService.executeCommand(ariaHelpActionId('autopipe'));
-		});
+		// Right end of the title row: "Autopipe Hub" (opens the Hub pipeline list)
+		// then "How to use?", both as plain blue links. Grouped so they sit together
+		// (two separate marginLeft:auto links would space apart instead).
+		if (header) {
+			const group = append(header, $('div'));
+			Object.assign(group.style, { marginLeft: 'auto', display: 'flex', gap: '14px', alignItems: 'center' });
+			const linkStyle = {
+				cursor: 'pointer', color: 'var(--vscode-button-background)',
+				fontSize: '11px', fontWeight: '400', textTransform: 'none', letterSpacing: 'normal',
+			} as const;
+			const hub = append(group, $('a')) as HTMLElement;
+			hub.textContent = 'Autopipe Hub';
+			hub.title = 'Browse pipelines on the Autopipe Hub';
+			Object.assign(hub.style, linkStyle);
+			hub.onclick = () => { void this.commandService.executeCommand('aria.autopipe.openHub'); };
+			const help = append(group, $('a')) as HTMLElement;
+			help.textContent = 'How to use?';
+			help.title = 'How to use Autopipe';
+			Object.assign(help.style, linkStyle);
+			help.onclick = () => { void this.commandService.executeCommand(ariaHelpActionId('autopipe')); };
+		}
 	}
 
 	async refresh(): Promise<void> {
@@ -87,28 +105,24 @@ export class AutopipeSection extends SettingsSection {
 			};
 		}
 
-		// Upload mode (left) and Discover (right) sit side by side, split by a
-		// vertical divider, so neither takes the full row width.
-		const columns = append(this.body, $('div'));
-		Object.assign(columns.style, { display: 'flex', gap: '18px', marginTop: '16px', alignItems: 'stretch' });
-
-		// --- Upload mode (left column) ---
-		const left = append(columns, $('div'));
-		Object.assign(left.style, { flex: '1', minWidth: '0' });
-		const subHeader = append(left, $('div'));
+		// Upload mode takes the full row width; the Hub entry point is a link in
+		// the section header, so there is no side Discover column.
+		const uploadWrap = append(this.body, $('div'));
+		Object.assign(uploadWrap.style, { marginTop: '16px' });
+		const subHeader = append(uploadWrap, $('div'));
 		subHeader.textContent = 'Pipeline upload mode';
 		Object.assign(subHeader.style, { fontSize: '11.5px', fontWeight: '600', opacity: '0.9' });
-		const note = append(left, $('div'));
+		const note = append(uploadWrap, $('div'));
 		note.textContent = 'Whether each pipeline gets its own GitHub repo, or all share one.';
 		Object.assign(note.style, { fontSize: '11px', opacity: '0.7', margin: '4px 0 6px' });
 
 		const mode = status.uploadMode ?? 'per-pipeline';
-		const modeRow = append(left, $('div'));
+		const modeRow = append(uploadWrap, $('div'));
 		Object.assign(modeRow.style, { display: 'flex', gap: '14px', fontSize: '12px', marginTop: '2px', flexWrap: 'wrap' });
 
 		// The shared-repo name field is built once and shown/hidden as the mode toggles,
 		// so switching modes changes only the selection - it does NOT rebuild the section.
-		const repoWrap = append(left, $('div'));
+		const repoWrap = append(uploadWrap, $('div'));
 		repoWrap.style.display = mode === 'single' ? 'block' : 'none';
 		const repoLabel = append(repoWrap, $('div'));
 		repoLabel.textContent = 'Shared GitHub repo name';
@@ -117,7 +131,11 @@ export class AutopipeSection extends SettingsSection {
 		repoInput.type = 'text';
 		repoInput.value = status.uploadRepoName ?? '';
 		repoInput.placeholder = 'aria-pipelines';
-		Object.assign(repoInput.style, { width: '100%', boxSizing: 'border-box', padding: '4px 6px', fontSize: '12px', marginTop: '2px' });
+		Object.assign(repoInput.style, {
+			width: '100%', boxSizing: 'border-box', padding: '4px 6px', fontSize: '12px', borderRadius: '6px', marginTop: '2px',
+			border: '1px solid var(--vscode-dropdown-border, rgba(127,127,127,0.35))',
+			background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)',
+		});
 		repoInput.onchange = () => { void this.commandService.executeCommand('aria.autopipe.repo.setRepoName', repoInput.value.trim()); };
 
 		for (const opt of [{ value: 'per-pipeline' as const, label: 'Per-pipeline repo' }, { value: 'single' as const, label: 'Single shared repo' }]) {
@@ -135,20 +153,5 @@ export class AutopipeSection extends SettingsSection {
 			};
 			append(wrap, $('span')).textContent = opt.label;
 		}
-
-		// --- Vertical divider ---
-		const divider = append(columns, $('div'));
-		Object.assign(divider.style, { width: '1px', alignSelf: 'stretch', flexShrink: '0', background: 'var(--vscode-editorWidget-border, rgba(127,127,127,0.25))' });
-
-		// --- Discover (right column) ---
-		const right = append(columns, $('div'));
-		Object.assign(right.style, { flexShrink: '0', display: 'flex', flexDirection: 'column' });
-		const discoverHeader = append(right, $('div'));
-		discoverHeader.textContent = 'Discover';
-		Object.assign(discoverHeader.style, { fontSize: '11.5px', fontWeight: '600', opacity: '0.9', marginBottom: '8px' });
-		const hub = append(right, $('button')) as HTMLButtonElement;
-		hub.textContent = 'Autopipe Hub';
-		primaryButton(hub);
-		hub.onclick = () => { void this.commandService.executeCommand('aria.autopipe.openHub'); };
 	}
 }
