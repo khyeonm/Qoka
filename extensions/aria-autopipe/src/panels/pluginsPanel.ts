@@ -4,25 +4,29 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { services } from '../common/services';
-import { HubPlugin } from '../hub/apiClient';
 
 let activePanel: vscode.WebviewPanel | undefined;
 
-interface PluginRow {
+/** Mirror of the extension's ResultViewerRow (the aria.resultViewer.list command). */
+interface ResultViewerRow {
 	name: string;
 	description: string;
 	extensions: string[];
 	author: string;
-	hubVersion: string;
+	hubVersion: string | null;
 	installedVersion: string | null;
 	isDefault: boolean;
+	isPipeline: boolean;
+	installed: boolean;
+	removed: boolean;
 }
 
 /**
- * Editor-area webview panel listing every plugin Qoka knows about. Combines
- * the Hub catalog with the user's local install directory so each row
- * shows install/update state alongside the description.
+ * Editor-area webview panel that manages the Result Viewers (the file viewers
+ * that open result files by type). Lists default + Hub viewers, with search,
+ * refresh, and Install / Remove. Backed by the `aria.resultViewer.*` commands,
+ * so installing / removing here re-syncs the editor associations. Opened from
+ * the Settings "Result Viewer" section.
  */
 export async function openPluginsPanel(): Promise<void> {
 	if (activePanel) {
@@ -31,7 +35,7 @@ export async function openPluginsPanel(): Promise<void> {
 	}
 	const panel = vscode.window.createWebviewPanel(
 		'aria.autopipe.plugins',
-		'Autopipe Plugins',
+		'Result Viewers',
 		vscode.ViewColumn.Active,
 		{ enableScripts: true, retainContextWhenHidden: true },
 	);
@@ -42,67 +46,37 @@ export async function openPluginsPanel(): Promise<void> {
 
 	const sendRows = async () => {
 		try {
-			const hub: HubPlugin[] = await services().hub.listPlugins();
-			const rows = buildRows(hub);
-			panel.webview.postMessage({ type: 'aria.plugins.list.ok', rows });
+			const rows = (await vscode.commands.executeCommand<ResultViewerRow[]>('aria.resultViewer.list')) ?? [];
+			panel.webview.postMessage({ type: 'aria.viewers.list.ok', rows });
 		} catch (err) {
-			panel.webview.postMessage({ type: 'aria.plugins.list.error', error: (err as Error).message });
+			panel.webview.postMessage({ type: 'aria.viewers.list.error', error: (err as Error).message });
 		}
 	};
 
 	panel.webview.onDidReceiveMessage(async (msg: { type?: string; name?: string }) => {
-		if (msg?.type === 'aria.plugins.list') {
+		if (msg?.type === 'aria.viewers.list') {
 			await sendRows();
-		} else if (msg?.type === 'aria.plugins.install' && msg.name) {
+		} else if (msg?.type === 'aria.viewers.install' && msg.name) {
 			try {
-				const hub = await services().hub.getPluginByName(msg.name);
-				if (!hub) {
-					panel.webview.postMessage({ type: 'aria.plugins.action.error', name: msg.name, error: 'Plugin not found on Hub.' });
-					return;
-				}
-				await services().plugins.install(hub);
-				panel.webview.postMessage({ type: 'aria.plugins.action.ok', name: msg.name });
+				await vscode.commands.executeCommand('aria.resultViewer.install', msg.name);
+				panel.webview.postMessage({ type: 'aria.viewers.action.ok', name: msg.name, verb: 'installed' });
 				await sendRows();
 			} catch (err) {
-				panel.webview.postMessage({ type: 'aria.plugins.action.error', name: msg.name, error: (err as Error).message });
+				panel.webview.postMessage({ type: 'aria.viewers.action.error', name: msg.name, error: (err as Error).message });
+			}
+		} else if (msg?.type === 'aria.viewers.remove' && msg.name) {
+			try {
+				await vscode.commands.executeCommand('aria.resultViewer.remove', msg.name);
+				panel.webview.postMessage({ type: 'aria.viewers.action.ok', name: msg.name, verb: 'removed' });
+				await sendRows();
+			} catch (err) {
+				panel.webview.postMessage({ type: 'aria.viewers.action.error', name: msg.name, error: (err as Error).message });
 			}
 		}
 	});
 
 	// Auto-fetch on open.
 	await sendRows();
-}
-
-function buildRows(hubPlugins: HubPlugin[]): PluginRow[] {
-	const { plugins } = services();
-	const installedMap = new Map<string, string>();
-	for (const installed of plugins.listInstalled()) {
-		installedMap.set(installed.manifest.name, installed.manifest.version);
-	}
-	const defaults = new Set([
-		'bam-viewer', 'bcf-viewer', 'bed-viewer', 'cram-viewer', 'csv-viewer',
-		'fasta-viewer', 'fastq-viewer', 'gff-viewer', 'hdf5-viewer', 'image-viewer',
-		'pdf-viewer', 'text-viewer', 'vcf-viewer',
-	]);
-
-	const rows: PluginRow[] = hubPlugins.map(p => ({
-		name: p.name,
-		description: p.description ?? '',
-		extensions: p.extensions ?? [],
-		author: p.author ?? '',
-		hubVersion: p.version,
-		installedVersion: installedMap.get(p.name) ?? null,
-		isDefault: defaults.has(p.name),
-	}));
-	// Defaults first, then alphabetical so the user can scan their familiar
-	// set without scrolling.
-	rows.sort((a, b) => {
-		if (a.isDefault !== b.isDefault) {
-			return a.isDefault ? -1 : 1;
-		}
-		return a.name.localeCompare(b.name);
-	});
-	return rows;
 }
 
 function renderHtml(webview: vscode.Webview): string {
@@ -112,14 +86,14 @@ function renderHtml(webview: vscode.Webview): string {
 <head>
 	<meta charset="utf-8">
 	<meta http-equiv="Content-Security-Policy" content="${csp}">
-	<title>Autopipe Plugins</title>
+	<title>Result Viewers</title>
 	<style>
 		body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 16px; }
 		h1 { font-size: 16px; margin: 0 0 4px 0; }
 		.subtitle { font-size: 12px; opacity: 0.7; margin-bottom: 16px; }
-		.search { margin-bottom: 12px; }
-		.search input {
-			width: 100%;
+		.toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+		.toolbar input {
+			flex: 1;
 			padding: 6px 8px;
 			font-size: 13px;
 			background: var(--vscode-input-background);
@@ -134,19 +108,11 @@ function renderHtml(webview: vscode.Webview): string {
 		.row .meta { font-size: 11px; opacity: 0.7; margin-top: 2px; }
 		.row .desc { font-size: 12px; opacity: 0.9; margin-top: 4px; }
 		.row .exts { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
-		.chip {
-			display: inline-block;
-			padding: 1px 7px;
-			border-radius: 10px;
-			font-size: 10.5px;
-			background: var(--vscode-badge-background);
-			color: var(--vscode-badge-foreground);
-			opacity: 0.85;
-		}
+		.chip { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 10.5px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); opacity: 0.85; }
 		.row .actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 		.btn { padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 3px; border: 1px solid transparent; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+		.btn.secondary { background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2)); color: var(--vscode-button-secondaryForeground, var(--vscode-foreground)); }
 		.btn[disabled] { opacity: 0.5; cursor: default; }
-		.badge { padding: 2px 6px; font-size: 11px; border-radius: 3px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
 		.default-tag { font-size: 10px; opacity: 0.7; padding: 1px 5px; border: 1px solid var(--vscode-widget-border, currentColor); border-radius: 3px; }
 		.empty { padding: 24px; text-align: center; opacity: 0.6; }
 		.err { padding: 12px; background: var(--vscode-inputValidation-errorBackground, #fee); border: 1px solid var(--vscode-inputValidation-errorBorder, #c44); color: var(--vscode-inputValidation-errorForeground, #c44); border-radius: 3px; }
@@ -155,9 +121,12 @@ function renderHtml(webview: vscode.Webview): string {
 	</style>
 </head>
 <body>
-	<h1>Autopipe Plugins</h1>
-	<div class="subtitle">Viewer plugins matched to file extensions. Defaults install automatically the first time Qoka starts.</div>
-	<div class="search"><input id="q" placeholder="Search by name, description, or extension…" /></div>
+	<h1>Result Viewers</h1>
+	<div class="subtitle">Viewers that open result files by type. Default viewers install automatically; remove any you do not want (its files then open in VS Code or an installed extension). Install more from the Hub, including ones shared by other users.</div>
+	<div class="toolbar">
+		<input id="q" placeholder="Search by name, description, or extension…" />
+		<button class="btn secondary" id="refresh">Refresh</button>
+	</div>
 	<div id="results"></div>
 	<div id="toast"></div>
 	<script>
@@ -166,21 +135,11 @@ function renderHtml(webview: vscode.Webview): string {
 		function escapeHtml(s) {
 			return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 		}
-		function statusFor(row) {
-			if (!row.installedVersion) return { text: 'Install', kind: 'install' };
-			if (row.installedVersion !== row.hubVersion) return { text: 'Update', kind: 'update' };
-			return { text: 'Installed', kind: 'installed' };
-		}
 
-		// Live client-side filter. We cache the full list so the search box
-		// can narrow without re-hitting Hub on every keystroke.
 		let allRows = [];
 		function applyFilter() {
 			const q = $('q').value.trim().toLowerCase();
-			if (!q) {
-				render(allRows);
-				return;
-			}
+			if (!q) { render(allRows); return; }
 			const filtered = allRows.filter(r => {
 				if (r.name && r.name.toLowerCase().includes(q)) return true;
 				if (r.description && r.description.toLowerCase().includes(q)) return true;
@@ -191,44 +150,48 @@ function renderHtml(webview: vscode.Webview): string {
 			render(filtered);
 		}
 		$('q').addEventListener('input', applyFilter);
+		$('refresh').addEventListener('click', () => { vscode.postMessage({ type: 'aria.viewers.list' }); });
 
 		function render(rows) {
 			if (!rows || rows.length === 0) {
-				$('results').innerHTML = '<div class="empty">No plugins found.</div>';
+				$('results').innerHTML = '<div class="empty">No viewers found.</div>';
 				return;
 			}
 			const html = rows.map(row => {
-				const s = statusFor(row);
 				const tag = row.isDefault ? '<span class="default-tag">default</span>' : '';
-				// Split meta into clearly separated lines: author + version
-				// stay as text since they're short, but the file-extension
-				// list becomes a row of chips so each extension is visually
-				// isolated from the next.
+				const pipeTag = row.isPipeline ? '<span class="default-tag">pipeline</span>' : '';
 				const meta = [
 					row.author ? '@' + row.author : '',
-					'v' + row.hubVersion + (row.installedVersion && row.installedVersion !== row.hubVersion ? ' (have v' + row.installedVersion + ')' : ''),
-				].filter(Boolean).join(' · ');
+					row.hubVersion ? 'v' + row.hubVersion + (row.installedVersion && row.installedVersion !== row.hubVersion ? ' (have v' + row.installedVersion + ')' : '') : (row.installedVersion ? 'v' + row.installedVersion : ''),
+				].filter(Boolean).join(' \\u00b7 ');
 				const exts = (row.extensions || []).map(e => '<span class="chip">.' + escapeHtml(e) + '</span>').join('');
-				const btn = s.kind === 'installed'
-					? '<button class="btn" disabled>Installed</button>'
-					: '<button class="btn" data-name="' + escapeHtml(row.name) + '">' + s.text + '</button>';
+				let actions = '';
+				if (!row.installed) {
+					actions = '<button class="btn" data-act="install" data-name="' + escapeHtml(row.name) + '">Install</button>';
+				} else {
+					if (row.hubVersion && row.installedVersion && row.installedVersion !== row.hubVersion) {
+						actions += '<button class="btn" data-act="install" data-name="' + escapeHtml(row.name) + '">Update</button>';
+					}
+					actions += '<button class="btn secondary" data-act="remove" data-name="' + escapeHtml(row.name) + '">Remove</button>';
+				}
 				return '<div class="row">'
 					+ '<div class="body">'
-					+ '<div class="name">' + escapeHtml(row.name) + ' ' + tag + '</div>'
+					+ '<div class="name">' + escapeHtml(row.name) + ' ' + tag + ' ' + pipeTag + '</div>'
 					+ '<div class="meta">' + escapeHtml(meta) + '</div>'
 					+ '<div class="desc">' + escapeHtml(row.description) + '</div>'
 					+ (exts ? '<div class="exts">' + exts + '</div>' : '')
 					+ '</div>'
-					+ '<div class="actions">' + btn + '</div>'
+					+ '<div class="actions">' + actions + '</div>'
 					+ '</div>';
 			}).join('');
 			$('results').innerHTML = html;
 			document.querySelectorAll('.btn[data-name]').forEach(btn => {
 				btn.onclick = () => {
 					const name = btn.getAttribute('data-name');
+					const act = btn.getAttribute('data-act');
 					btn.disabled = true;
-					btn.textContent = 'Working…';
-					vscode.postMessage({ type: 'aria.plugins.install', name });
+					btn.textContent = act === 'remove' ? 'Removing…' : 'Working…';
+					vscode.postMessage({ type: act === 'remove' ? 'aria.viewers.remove' : 'aria.viewers.install', name });
 				};
 			});
 		}
@@ -238,12 +201,12 @@ function renderHtml(webview: vscode.Webview): string {
 			setTimeout(() => { t.innerHTML = ''; }, 4000);
 		}
 		window.addEventListener('message', (e) => {
-			if (e.data.type === 'aria.plugins.list.ok') { allRows = e.data.rows || []; applyFilter(); }
-			else if (e.data.type === 'aria.plugins.list.error') $('results').innerHTML = '<div class="err">' + escapeHtml(e.data.error) + '</div>';
-			else if (e.data.type === 'aria.plugins.action.ok') toast(e.data.name + ' installed.', false);
-			else if (e.data.type === 'aria.plugins.action.error') toast(e.data.name + ': ' + e.data.error, true);
+			if (e.data.type === 'aria.viewers.list.ok') { allRows = e.data.rows || []; applyFilter(); }
+			else if (e.data.type === 'aria.viewers.list.error') $('results').innerHTML = '<div class="err">' + escapeHtml(e.data.error) + '</div>';
+			else if (e.data.type === 'aria.viewers.action.ok') toast(e.data.name + ' ' + e.data.verb + '.', false);
+			else if (e.data.type === 'aria.viewers.action.error') toast(e.data.name + ': ' + e.data.error, true);
 		});
-		vscode.postMessage({ type: 'aria.plugins.list' });
+		vscode.postMessage({ type: 'aria.viewers.list' });
 	</script>
 </body>
 </html>`;
