@@ -60,7 +60,18 @@ class ResultsViewerFileContribution extends Disposable implements IExplorerFileC
 
 	setResource(resource: URI | undefined): void {
 		this.resource = resource;
-		this.button.classList.toggle('is-run-folder', !!(resource && this.isResultsRunFolder(resource)));
+		// The eye icon shows only on a results/<run> folder that has a dedicated
+		// pipeline viewer. That match lives in the extension, so ask it
+		// asynchronously and toggle when it answers (guarding against row recycling).
+		this.button.classList.remove('is-run-folder');
+		if (resource && this.isResultsRunFolder(resource)) {
+			const forResource = resource;
+			void this.commandService.executeCommand<boolean>('aria.autopipe.matchesPipelineViewer', resource.fsPath).then(ok => {
+				if (this.resource === forResource) {
+					this.button.classList.toggle('is-run-folder', !!ok);
+				}
+			}, () => { /* command unavailable / errored: leave the eye hidden */ });
+		}
 		this.applyHighlight();
 	}
 

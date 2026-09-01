@@ -369,6 +369,26 @@ export function activate(context: vscode.ExtensionContext): void {
 		await syncViewerAssociations(services.plugins);
 	}));
 
+	// True when a results/<run> folder has a `.qoka-pipeline.json` marker whose
+	// pipeline is claimed by an installed pipeline-type viewer (with its required
+	// files present). The Analysis tree uses this to show the "Open in viewer"
+	// eye icon ONLY on runs that actually have a dedicated dashboard.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.autopipe.matchesPipelineViewer', (folderPath: unknown): boolean => {
+		try {
+			const dir = String(folderPath ?? '');
+			if (!dir) { return false; }
+			const markerFile = path.join(dir, '.qoka-pipeline.json');
+			if (!fs.existsSync(markerFile)) { return false; }
+			const raw = JSON.parse(fs.readFileSync(markerFile, 'utf8'));
+			const pipeline = typeof raw?.pipeline === 'string' ? raw.pipeline.trim() : '';
+			if (!pipeline) { return false; }
+			const files = fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isFile()).map(e => e.name);
+			return !!services.plugins.findForPipeline(pipeline, files);
+		} catch {
+			return false;
+		}
+	}));
+
 	// Keep the Hub client's base URL in sync with config changes (the user
 	// can switch registries by editing config, even though we don't yet
 	// expose a UI for it).
