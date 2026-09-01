@@ -87,21 +87,28 @@ export class AutopipeSection extends SettingsSection {
 			};
 		}
 
-		// --- Upload mode ---
-		const subHeader = append(this.body, $('div'));
+		// Upload mode (left) and Discover (right) sit side by side, split by a
+		// vertical divider, so neither takes the full row width.
+		const columns = append(this.body, $('div'));
+		Object.assign(columns.style, { display: 'flex', gap: '18px', marginTop: '16px', alignItems: 'stretch' });
+
+		// --- Upload mode (left column) ---
+		const left = append(columns, $('div'));
+		Object.assign(left.style, { flex: '1', minWidth: '0' });
+		const subHeader = append(left, $('div'));
 		subHeader.textContent = 'Pipeline upload mode';
-		Object.assign(subHeader.style, { marginTop: '16px', fontSize: '11.5px', fontWeight: '600', opacity: '0.9' });
-		const note = append(this.body, $('div'));
+		Object.assign(subHeader.style, { fontSize: '11.5px', fontWeight: '600', opacity: '0.9' });
+		const note = append(left, $('div'));
 		note.textContent = 'Whether each pipeline gets its own GitHub repo, or all share one.';
 		Object.assign(note.style, { fontSize: '11px', opacity: '0.7', margin: '4px 0 6px' });
 
 		const mode = status.uploadMode ?? 'per-pipeline';
-		const modeRow = append(this.body, $('div'));
-		Object.assign(modeRow.style, { display: 'flex', gap: '14px', fontSize: '12px', marginTop: '2px' });
+		const modeRow = append(left, $('div'));
+		Object.assign(modeRow.style, { display: 'flex', gap: '14px', fontSize: '12px', marginTop: '2px', flexWrap: 'wrap' });
 
 		// The shared-repo name field is built once and shown/hidden as the mode toggles,
 		// so switching modes changes only the selection - it does NOT rebuild the section.
-		const repoWrap = append(this.body, $('div'));
+		const repoWrap = append(left, $('div'));
 		repoWrap.style.display = mode === 'single' ? 'block' : 'none';
 		const repoLabel = append(repoWrap, $('div'));
 		repoLabel.textContent = 'Shared GitHub repo name';
@@ -129,19 +136,19 @@ export class AutopipeSection extends SettingsSection {
 			append(wrap, $('span')).textContent = opt.label;
 		}
 
-		// --- Discover ---
-		const discoverHeader = append(this.body, $('div'));
+		// --- Vertical divider ---
+		const divider = append(columns, $('div'));
+		Object.assign(divider.style, { width: '1px', alignSelf: 'stretch', flexShrink: '0', background: 'var(--vscode-editorWidget-border, rgba(127,127,127,0.25))' });
+
+		// --- Discover (right column) ---
+		const right = append(columns, $('div'));
+		Object.assign(right.style, { flexShrink: '0', display: 'flex', flexDirection: 'column' });
+		const discoverHeader = append(right, $('div'));
 		discoverHeader.textContent = 'Discover';
-		Object.assign(discoverHeader.style, { marginTop: '16px', fontSize: '11.5px', fontWeight: '600', opacity: '0.9', marginBottom: '6px' });
-		const discoverRow = append(this.body, $('div'));
-		Object.assign(discoverRow.style, { display: 'flex', gap: '8px' });
-		const hub = append(discoverRow, $('button')) as HTMLButtonElement;
-		hub.textContent = 'Pipeline Hub';
-		primaryButton(hub); hub.style.flex = '1';
+		Object.assign(discoverHeader.style, { fontSize: '11.5px', fontWeight: '600', opacity: '0.9', marginBottom: '8px' });
+		const hub = append(right, $('button')) as HTMLButtonElement;
+		hub.textContent = 'Autopipe Hub';
+		primaryButton(hub);
 		hub.onclick = () => { void this.commandService.executeCommand('aria.autopipe.openHub'); };
-		const plugins = append(discoverRow, $('button')) as HTMLButtonElement;
-		plugins.textContent = 'Plugins';
-		primaryButton(plugins); plugins.style.flex = '1';
-		plugins.onclick = () => { void this.commandService.executeCommand('aria.autopipe.openPlugins'); };
 	}
 }
