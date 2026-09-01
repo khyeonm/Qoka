@@ -138,6 +138,49 @@ export class PluginService {
 		return m?.version ?? null;
 	}
 
+	/** Delete an installed plugin's directory. No-op if it isn't there. */
+	uninstall(name: string): void {
+		const dir = path.join(this.userPluginsDir, name);
+		if (fs.existsSync(dir)) {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	/** JSON file (a name array) recording default viewers the user has
+	 *  explicitly removed, so ensureDefaults never re-installs them. */
+	private removedRecordPath(): string {
+		return path.join(path.dirname(this.userPluginsDir), 'autopipe-plugins-removed.json');
+	}
+
+	getRemovedDefaults(): Set<string> {
+		try {
+			const raw = JSON.parse(fs.readFileSync(this.removedRecordPath(), 'utf8'));
+			return new Set(Array.isArray(raw) ? raw.map((n: unknown) => String(n)) : []);
+		} catch {
+			return new Set();
+		}
+	}
+
+	private writeRemoved(set: Set<string>): void {
+		try {
+			fs.writeFileSync(this.removedRecordPath(), JSON.stringify([...set]), 'utf8');
+		} catch { /* best effort */ }
+	}
+
+	/** Record `name` as user-removed (survives restarts; blocks re-install). */
+	markRemoved(name: string): void {
+		const s = this.getRemovedDefaults();
+		s.add(name);
+		this.writeRemoved(s);
+	}
+
+	/** Clear the user-removed flag so `name` can be a default / installed again. */
+	unmarkRemoved(name: string): void {
+		const s = this.getRemovedDefaults();
+		s.delete(name);
+		this.writeRemoved(s);
+	}
+
 	/**
 	 * Find the plugin that should render a file with the given extension.
 	 * Extensions are compared case-insensitively and stripped of a leading
@@ -239,8 +282,10 @@ export class PluginService {
 			throw new Error(`Couldn't reach Autopipe Hub: ${(err as Error).message}`);
 		}
 
+		// Defaults the user has explicitly removed stay removed - never re-install them.
+		const removed = this.getRemovedDefaults();
 		const wantedNames = new Set(DEFAULT_PLUGIN_NAMES);
-		const defaults = hubPlugins.filter(p => wantedNames.has(p.name));
+		const defaults = hubPlugins.filter(p => wantedNames.has(p.name) && !removed.has(p.name));
 
 		for (let i = 0; i < defaults.length; i++) {
 			const plugin = defaults[i];

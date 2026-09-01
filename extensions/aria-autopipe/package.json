@@ -28,26 +28,32 @@
 				"viewType": "qoka.autopipe.fileViewer",
 				"displayName": "Qoka Result Viewer",
 				"selector": [
-					{
-						"filenamePattern": "*.h5ad"
-					},
-					{
-						"filenamePattern": "*.h5"
-					},
-					{
-						"filenamePattern": "*.hdf5"
-					},
-					{
-						"filenamePattern": "*.bam"
-					},
-					{
-						"filenamePattern": "*.cram"
-					},
-					{
-						"filenamePattern": "*.bcf"
-					}
+					{ "filenamePattern": "*.h5ad" },
+					{ "filenamePattern": "*.h5" },
+					{ "filenamePattern": "*.hdf5" },
+					{ "filenamePattern": "*.bam" },
+					{ "filenamePattern": "*.cram" },
+					{ "filenamePattern": "*.bcf" },
+					{ "filenamePattern": "*.bed" },
+					{ "filenamePattern": "*.csv" },
+					{ "filenamePattern": "*.tsv" },
+					{ "filenamePattern": "*.fasta" },
+					{ "filenamePattern": "*.fa" },
+					{ "filenamePattern": "*.fastq" },
+					{ "filenamePattern": "*.fq" },
+					{ "filenamePattern": "*.gff" },
+					{ "filenamePattern": "*.gff3" },
+					{ "filenamePattern": "*.vcf" },
+					{ "filenamePattern": "*.txt" },
+					{ "filenamePattern": "*.log" },
+					{ "filenamePattern": "*.png" },
+					{ "filenamePattern": "*.jpg" },
+					{ "filenamePattern": "*.jpeg" },
+					{ "filenamePattern": "*.gif" },
+					{ "filenamePattern": "*.bmp" },
+					{ "filenamePattern": "*.webp" }
 				],
-				"priority": "default"
+				"priority": "option"
 			}
 		],
 		"commands": [

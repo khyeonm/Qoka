@@ -19,7 +19,7 @@ import { VMManager } from './vm/vmManager';
 import { wslAvailable, listDistrosStrict, isWslServiceError, pickDistro, installWslEngine } from './vm/wsl';
 import { QokaPdfEditorProvider } from './viewer/pdfEditor';
 import { openResultsViewer, viewFileInViewer, QokaFileViewerProvider } from './viewer/viewerPanel';
-import { HubApiClient } from './hub/apiClient';
+import { HubApiClient, HubPlugin } from './hub/apiClient';
 import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
 import { runScriptInEnv } from './mcp/tools/run';
@@ -343,8 +343,31 @@ export function activate(context: vscode.ExtensionContext): void {
 	registerSetupCommands(context);
 
 	// First-run plugin bootstrap. Fires non-blocking so the rest of activate
-	// can proceed; the user sees a progress toast while it runs.
-	void bootstrapDefaultPlugins(services.plugins, services.hub);
+	// can proceed; the user sees a progress toast while it runs. Once it settles,
+	// bind each installed viewer's file extensions to the Qoka Result Viewer.
+	void bootstrapDefaultPlugins(services.plugins, services.hub)
+		.finally(() => { void syncViewerAssociations(services.plugins); });
+
+	// Result Viewer management (the Settings "Result Viewer" section calls these):
+	// list installed + Hub viewers, install / remove one, and re-sync associations.
+	context.subscriptions.push(vscode.commands.registerCommand('aria.resultViewer.list', () => {
+		return listResultViewers(services.plugins, services.hub);
+	}));
+	context.subscriptions.push(vscode.commands.registerCommand('aria.resultViewer.install', async (name: string) => {
+		const hp = await services.hub.getPluginByName(name);
+		if (!hp) { throw new Error(`Viewer "${name}" was not found on the Hub.`); }
+		await services.plugins.install(hp);
+		services.plugins.unmarkRemoved(name);
+		await syncViewerAssociations(services.plugins);
+	}));
+	context.subscriptions.push(vscode.commands.registerCommand('aria.resultViewer.remove', async (name: string) => {
+		services.plugins.uninstall(name);
+		services.plugins.markRemoved(name);
+		await syncViewerAssociations(services.plugins);
+	}));
+	context.subscriptions.push(vscode.commands.registerCommand('aria.resultViewer.refresh', async () => {
+		await syncViewerAssociations(services.plugins);
+	}));
 
 	// Keep the Hub client's base URL in sync with config changes (the user
 	// can switch registries by editing config, even though we don't yet
@@ -708,6 +731,87 @@ function startBuiltinVmTracked(vm: VMManager): void {
 			},
 		)
 		.finally(() => { wslSetupPending = false; progSub.dispose(); statusSub.dispose(); });
+}
+
+/** The custom-editor viewType that hosts every installed file viewer. */
+const RESULT_VIEWER_VIEW_TYPE = 'qoka.autopipe.fileViewer';
+
+/** One row in the Settings "Result Viewer" list. */
+interface ResultViewerRow {
+	name: string;
+	description: string;
+	extensions: string[];
+	author: string;
+	hubVersion: string | null;
+	installedVersion: string | null;
+	isDefault: boolean;
+	isPipeline: boolean;
+	installed: boolean;
+	removed: boolean;
+}
+
+/**
+ * Bind `workbench.editorAssociations` to the currently installed FILE viewers:
+ * every extension an installed viewer declares maps to the Qoka Result Viewer,
+ * so clicking such a file opens it there. Uninstalling a viewer drops its
+ * associations, so the file falls back to the default (text / media) or a
+ * user-installed extension's editor. PDF is left to the dedicated qoka.pdfViewer.
+ * User associations for other viewTypes are preserved.
+ */
+async function syncViewerAssociations(plugins: PluginService): Promise<void> {
+	const exts = new Set<string>();
+	for (const p of plugins.listInstalled()) {
+		if (p.manifest.plugin_type === 'pipeline') { continue; }
+		for (const e of p.manifest.extensions) {
+			const clean = String(e).toLowerCase().replace(/^\./, '').trim();
+			if (clean && clean !== 'pdf') { exts.add(clean); }
+		}
+	}
+	const cfg = vscode.workspace.getConfiguration();
+	const current = { ...(cfg.get<Record<string, string>>('workbench.editorAssociations') ?? {}) };
+	// Drop every glob we previously pointed at our viewer, then re-add the live set.
+	for (const key of Object.keys(current)) {
+		if (current[key] === RESULT_VIEWER_VIEW_TYPE) { delete current[key]; }
+	}
+	for (const ext of exts) { current[`*.${ext}`] = RESULT_VIEWER_VIEW_TYPE; }
+	try {
+		await cfg.update('workbench.editorAssociations', current, vscode.ConfigurationTarget.Global);
+	} catch { /* best effort - a read-only settings store shouldn't break activation */ }
+}
+
+/** Merge the Hub catalog with locally installed viewers into a display list. */
+async function listResultViewers(plugins: PluginService, hub: HubApiClient): Promise<ResultViewerRow[]> {
+	let hubPlugins: HubPlugin[] = [];
+	try { hubPlugins = await hub.listPlugins(); } catch { /* offline: show installed only */ }
+	const removed = plugins.getRemovedDefaults();
+	const defaultSet = new Set(DEFAULT_PLUGIN_NAMES);
+	const byName = new Map<string, ResultViewerRow>();
+	for (const h of hubPlugins) {
+		byName.set(h.name, {
+			name: h.name, description: h.description ?? '', extensions: h.extensions ?? [], author: h.author ?? '',
+			hubVersion: h.version ?? null, installedVersion: plugins.installedVersion(h.name),
+			isDefault: defaultSet.has(h.name), isPipeline: false,
+			installed: plugins.isInstalled(h.name), removed: removed.has(h.name),
+		});
+	}
+	for (const p of plugins.listInstalled()) {
+		const n = p.manifest.name;
+		const row = byName.get(n);
+		if (row) {
+			row.installed = true;
+			row.installedVersion = p.manifest.version;
+			row.isPipeline = p.manifest.plugin_type === 'pipeline';
+			if (!row.extensions.length) { row.extensions = p.manifest.extensions; }
+		} else {
+			byName.set(n, {
+				name: n, description: p.manifest.description ?? '', extensions: p.manifest.extensions, author: '',
+				hubVersion: null, installedVersion: p.manifest.version,
+				isDefault: defaultSet.has(n), isPipeline: p.manifest.plugin_type === 'pipeline',
+				installed: true, removed: removed.has(n),
+			});
+		}
+	}
+	return [...byName.values()].sort((a, b) => (Number(b.isDefault) - Number(a.isDefault)) || a.name.localeCompare(b.name));
 }
 
 /**
