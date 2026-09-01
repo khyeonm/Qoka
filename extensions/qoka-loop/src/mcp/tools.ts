@@ -248,6 +248,8 @@ function asSpec(v: unknown): LoopSpec | undefined {
 
 /** Loop ids the user asked to stop; the engine checks this via shouldStop each iteration. */
 const stopRequested = new Set<string>();
+/** Per-loop abort controllers so stop_loop can kill the running sub-agent turn at once. */
+const abortControllers = new Map<string, AbortController>();
 
 /** Readable per-loop folder segment (title slug + short id) that run_code groups this loop's runs
  *  under: results/loops/<loopFolder>/ + analysis/loops/<loopFolder>/. ASCII-safe; a non-ASCII title
@@ -302,13 +304,17 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	} catch (e) {
 		loopLog(`  git probe FAILED (${gitPath}): ${(e as Error).message} -> code versions will be empty. Install git or check the bundled MinGit.`);
 	}
-	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: folder });
+	// A per-loop AbortController so stop_loop can KILL the running sub-agent turn immediately, instead of
+	// only being noticed at the next iteration boundary (which, with a long docking turn, felt frozen).
+	const abort = new AbortController();
+	abortControllers.set(id, abort);
+	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: folder, signal: abort.signal });
 	const evaluatorRunner = runEnvEvaluatorRunner();
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);
 	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, gitPath, log: loopLog })
-		.then(outcome => { stopRequested.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
-		.catch(e => { stopRequested.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
+		.then(outcome => { stopRequested.delete(id); abortControllers.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
+		.catch(e => { stopRequested.delete(id); abortControllers.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
 	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers) }));
 }
 
@@ -364,7 +370,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'stop_loop',
-			description: 'Stop a RUNNING loop after its current iteration completes (marks it "stopped"; resumable later with resume_loop). Use when the user asks to stop/cancel/halt a running loop.',
+			description: 'Stop a RUNNING loop immediately (kills the current iteration and marks it "stopped"; resumable later with resume_loop). Use when the user asks to stop/cancel/halt a running loop.',
 			inputSchema: {
 				type: 'object',
 				properties: { loopId: { type: 'string', description: 'The loop id from loop_list.' } },
@@ -377,7 +383,14 @@ export function buildTools(): ToolDefinition[] {
 				if (!run) { return err(`No loop with id ${id}.`); }
 				if (run.status !== 'running') { return err(`Loop ${id} is not running (status ${run.status}).`); }
 				stopRequested.add(id);
-				return ok(JSON.stringify({ stopping: true, loopId: id, note: 'will stop after the current iteration finishes' }));
+				// Kill the running sub-agent turn now so the stop takes effect within seconds (not after a
+				// long docking/analysis turn), and flip the persisted status right away so the Loops UI
+				// reflects "stopped" immediately instead of after the current iteration.
+				abortControllers.get(id)?.abort();
+				run.status = 'stopped';
+				run.reason = 'stopped by user';
+				writeLoop(run);
+				return ok(JSON.stringify({ stopped: true, loopId: id }));
 			},
 		},
 		{

@@ -68,6 +68,8 @@ export interface AgentStepOptions {
 	/** Readable per-loop folder name (slug-id); run_code groups this loop's runs under
 	 *  results/loops/<loopFolder>/ + analysis/loops/<loopFolder>/ instead of the project root. */
 	loopFolder: string;
+	/** Aborted when the user stops the loop, so a running sub-agent turn is killed promptly. */
+	signal?: AbortSignal;
 }
 
 /** Bind buildPrompt + runAgent into an AgentStep the engine can call each iteration. */
@@ -87,7 +89,7 @@ export function makeAgentStep(opts: AgentStepOptions): AgentStep {
 			mcpConfigPath = path.join(opts.loopDir, run.id, 'mcp-config.json');
 			writeMcpConfig(mcpConfigPath, opts.workMcpServers, `loops/${opts.loopFolder}`);
 		}
-		const r = await runAgent(opts.provider, prompt, { cwd: opts.cwd, mcpConfigPath, codexHome });
+		const r = await runAgent(opts.provider, prompt, { cwd: opts.cwd, mcpConfigPath, codexHome, signal: opts.signal });
 		return { output: r.output, exitCode: r.exitCode, envError: r.envError, error: r.error, code: r.code, codeLanguage: r.codeLanguage, tokens: r.tokens };
 	};
 }

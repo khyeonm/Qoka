@@ -125,6 +125,8 @@ export interface AgentRunResult {
 	codeLanguage?: string;
 	/** Total tokens this turn (input + output), from the stream-json result usage. */
 	tokens?: number;
+	/** The turn was killed by a user stop request (not an error/env problem). */
+	stopped?: boolean;
 }
 
 const ENV_ERROR_RE = /(not logged in|please log ?in|authentication|unauthorized|invalid api key|quota|rate.?limit|429|credit balance)/i;
@@ -187,11 +189,15 @@ export function parseClaudeStream(stdout: string): { text: string; code: string;
 export function runAgent(
 	provider: Provider,
 	prompt: string,
-	opts: { cwd: string; mcpConfigPath?: string; codexHome?: string; timeoutMs?: number },
+	opts: { cwd: string; mcpConfigPath?: string; codexHome?: string; timeoutMs?: number; signal?: AbortSignal },
 ): Promise<AgentRunResult> {
 	const bin = resolveProviderBin(provider);
 	if (!bin) {
 		return Promise.resolve({ output: '', exitCode: null, stderr: '', envError: true, error: `${provider} CLI not found under ~/.qoka` });
+	}
+	// The loop was already asked to stop before this turn even started - don't launch it.
+	if (opts.signal?.aborted) {
+		return Promise.resolve({ output: '', exitCode: null, stderr: '', error: 'stopped by user', stopped: true });
 	}
 	const args = provider === 'claude'
 		? ['--print', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions',
@@ -204,7 +210,11 @@ export function runAgent(
 		let stdout = '';
 		let stderr = '';
 		let done = false;
-		const finish = (r: AgentRunResult) => { if (!done) { done = true; clearTimeout(timer); resolve(r); } };
+		const finish = (r: AgentRunResult) => { if (!done) { done = true; clearTimeout(timer); if (opts.signal) { opts.signal.removeEventListener('abort', onAbort); } resolve(r); } };
+		// A stop request kills the running turn so a mid-iteration stop takes effect within seconds
+		// instead of waiting out a long docking/analysis run.
+		const onAbort = () => { try { child.kill('SIGTERM'); } catch { /* already gone */ } finish({ output: stdout, exitCode: null, stderr, error: 'stopped by user', stopped: true }); };
+		if (opts.signal) { opts.signal.addEventListener('abort', onAbort, { once: true }); }
 		const timer = setTimeout(() => { child.kill('SIGTERM'); finish({ output: stdout, exitCode: null, stderr, error: `timed out after ${timeoutMs}ms` }); }, timeoutMs);
 		child.stdout.on('data', d => { stdout += d.toString(); });
 		child.stderr.on('data', d => { stderr += d.toString(); });
