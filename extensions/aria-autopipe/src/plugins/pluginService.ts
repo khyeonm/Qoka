@@ -66,6 +66,49 @@ export const DEFAULT_PLUGIN_NAMES = [
 	'aptaselect-viewer',
 ];
 
+/** URL of the Qoka-maintained default-viewer list on qoka.org (the landing
+ *  Caddy). Editing that one file adds / removes a default WITHOUT an app update;
+ *  falls back to DEFAULT_PLUGIN_NAMES when unreachable. Plugin FILES still
+ *  download from the Hub - this list only decides WHICH viewers are defaults. */
+export const DEFAULT_VIEWERS_URL = 'https://qoka.org/viewers/defaults.json';
+
+let cachedDefaultNames: { names: string[]; at: number } | undefined;
+
+function httpGetJson(url: string, timeoutMs: number): Promise<unknown> {
+	return new Promise((resolve, reject) => {
+		const req = https.get(url, res => {
+			const code = res.statusCode ?? 0;
+			if (code >= 400) { res.resume(); reject(new Error(`HTTP ${code}`)); return; }
+			let body = '';
+			res.setEncoding('utf8');
+			res.on('data', c => { body += c; });
+			res.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
+		});
+		req.on('error', reject);
+		req.setTimeout(timeoutMs, () => { req.destroy(new Error('timeout')); });
+	});
+}
+
+/** The current default viewer names: the qoka.org list when reachable, else the
+ *  built-in fallback. Successful fetches are cached for 5 minutes so a Settings
+ *  refresh does not hit the network every time. */
+export async function fetchDefaultViewerNames(): Promise<string[]> {
+	if (cachedDefaultNames && Date.now() - cachedDefaultNames.at < 5 * 60 * 1000) {
+		return cachedDefaultNames.names;
+	}
+	try {
+		const data = await httpGetJson(DEFAULT_VIEWERS_URL, 8000);
+		if (Array.isArray(data)) {
+			const names = data.filter((x): x is string => typeof x === 'string' && !!x.trim()).map(x => x.trim());
+			if (names.length) {
+				cachedDefaultNames = { names, at: Date.now() };
+				return names;
+			}
+		}
+	} catch { /* fall back to the built-in list WITHOUT caching, so we retry next time */ }
+	return [...DEFAULT_PLUGIN_NAMES];
+}
+
 /**
  * Local plugin manager. Plugins live under the user's home in
  * `~/.qoka/autopipe-plugins/<name>/` so a single install can serve every
@@ -283,8 +326,9 @@ export class PluginService {
 		}
 
 		// Defaults the user has explicitly removed stay removed - never re-install them.
+		// The default set comes from qoka.org (fallback: the built-in list).
 		const removed = this.getRemovedDefaults();
-		const wantedNames = new Set(DEFAULT_PLUGIN_NAMES);
+		const wantedNames = new Set(await fetchDefaultViewerNames());
 		const defaults = hubPlugins.filter(p => wantedNames.has(p.name) && !removed.has(p.name));
 
 		for (let i = 0; i < defaults.length; i++) {
