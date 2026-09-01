@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { $, append, clearNode } from '../../../../../base/browser/dom.js';
+import { PROVIDER_LABEL } from '../../../aria/browser/ariaAiProviderChoice.js';
 import { SettingsSection } from './settingsSection.js';
 
 interface ProviderInfo { kind?: string; displayName?: string; installed?: boolean; active?: boolean }
@@ -61,7 +62,9 @@ export class ProvidersSection extends SettingsSection {
 			});
 
 			const name = append(row, $('span'));
-			name.textContent = p.displayName ?? p.kind ?? 'AI assistant';
+			// Use the same canonical labels as the provider picker ("Claude Code" /
+			// "OpenAI Codex (ChatGPT)") so Settings and the picker read identically.
+			name.textContent = PROVIDER_LABEL[kind] ?? p.displayName ?? p.kind ?? 'AI assistant';
 			Object.assign(name.style, { flex: '1', minWidth: '0' });
 
 			if (installed) {
