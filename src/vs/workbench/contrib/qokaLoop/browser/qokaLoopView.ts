@@ -20,6 +20,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
+import { openLoopState, onDidChangeOpenLoop } from './qokaLoopOpenState.js';
 
 interface LoopEntry { id: string; title: string; status: string; iteration: number; maxIter: number; createdAt: string; }
 
@@ -58,6 +59,8 @@ export class QokaLoopView extends ViewPane {
 			const dir = this.loopsDir();
 			if (dir && e.affects(dir)) { void this.refresh(); }
 		}));
+		// Re-render when the open loop changes, so the currently-open loop's row is greyed.
+		this._register(onDidChangeOpenLoop(() => void this.refresh()));
 	}
 
 	protected override renderBody(container: HTMLElement): void {
@@ -113,10 +116,14 @@ export class QokaLoopView extends ViewPane {
 	}
 
 	private loopRow(root: HTMLElement, l: LoopEntry): void {
+		// The loop whose detail is currently open in the editor gets a greyed background + an "open" tag,
+		// so the list shows which one you are looking at (like VS Code's open-editor emphasis).
+		const isOpen = openLoopState.id === l.id;
+		const openBg = 'var(--vscode-list-inactiveSelectionBackground, rgba(127,127,127,0.14))';
 		const row = append(root, $('div'));
-		Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 6px', borderRadius: '4px', cursor: 'pointer' });
+		Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 6px', borderRadius: '4px', cursor: 'pointer', background: isOpen ? openBg : 'transparent' });
 		row.onmouseenter = () => { row.style.background = 'var(--vscode-list-hoverBackground, rgba(127,127,127,0.12))'; };
-		row.onmouseleave = () => { row.style.background = 'transparent'; };
+		row.onmouseleave = () => { row.style.background = isOpen ? openBg : 'transparent'; };
 		row.onclick = () => void this.commandService.executeCommand('qoka.loop.open', l.id);
 
 		// Traffic-light status DOT (filled circle in the status color), like the mockup.

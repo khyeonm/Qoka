@@ -46,12 +46,16 @@ function loopCodeDir(run: LoopRun): string | undefined {
 function loopVersions(run: LoopRun): LoopVersion[] {
 	const codeDir = loopCodeDir(run);
 	if (!codeDir) { return []; }
+	// No repo yet = the normal "No versions yet" state (a not-yet-committed or a pre-git loop). Return
+	// quietly WITHOUT spawning git - this runs on every UI refresh for every loop, so spawning MinGit and
+	// logging a failure here just floods the channel and wastes processes. Only a real failure ON an
+	// existing repo is worth logging.
+	if (!fs.existsSync(path.join(codeDir, '.git'))) { return []; }
 	const gitBin = resolveGitBinary();
 	let out: string;
 	try { out = execFileSync(gitBin, [...GIT_SAFE_ARGS, '-C', codeDir, 'log', '--format=%H%x09%s'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: gitEnv() }); }
 	catch (e) {
-		const hasGit = fs.existsSync(path.join(codeDir, '.git'));
-		loopLog(`loopVersions: git log failed. gitBin=${gitBin} codeDir=${codeDir} .git exists=${hasGit} err=${(e as Error).message}`);
+		loopLog(`loopVersions: git log failed on an existing repo. gitBin=${gitBin} codeDir=${codeDir} err=${(e as Error).message}`);
 		return [];
 	}
 	return out.trim().split('\n').filter(Boolean).map(line => {
@@ -182,6 +186,12 @@ function postData(): void {
  * Open (or reveal) the Qoka Loops tab, optionally focused on a specific loop. Called from the
  * command, and from the chat tools right after a loop is saved or started so the user sees it.
  */
+/** Tell the Loops SIDEBAR which loop's detail is currently open, so it can grey out that row. Undefined
+ *  when the detail panel is closed. Best-effort - the sidebar view may not be registered yet. */
+function markSidebarOpen(id: string | undefined): void {
+	void Promise.resolve(vscode.commands.executeCommand('qoka.loop.markOpen', id)).then(undefined, () => { /* view not ready */ });
+}
+
 export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string): void {
 	if (loopId) { focusId = loopId; forceSelectId = loopId; }
 	// Also reveal the Loops SIDEBAR list (not just the editor detail) so the user sees both when a
@@ -193,6 +203,7 @@ export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string)
 		panel.title = title;
 		panel.reveal(vscode.ViewColumn.Active);
 		postData();
+		markSidebarOpen(focusId);
 		return;
 	}
 	panel = vscode.window.createWebviewPanel(
@@ -208,6 +219,7 @@ export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string)
 			postData();
 		} else if (msg?.type === 'select' && msg.id) {
 			focusId = msg.id;
+			markSidebarOpen(focusId);
 		} else if (msg?.type === 'openVersion' && msg.codeDir && msg.hash) {
 			try {
 				// Open one file from that git version read-only (git show <hash>:<file>), via the
@@ -250,10 +262,14 @@ export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string)
 		context.subscriptions.push(watcher);
 	}
 
+	// The detail panel now shows this loop - tell the sidebar to grey its row.
+	markSidebarOpen(focusId);
+
 	panel.onDidDispose(() => {
 		panel = undefined;
 		watcher?.dispose();
 		watcher = undefined;
+		markSidebarOpen(undefined);
 	});
 }
 

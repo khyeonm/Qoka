@@ -12,6 +12,8 @@ import { localize, localize2 } from '../../../../nls.js';
 import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { QokaLoopView } from './qokaLoopView.js';
+// Registers the `qoka.loop.markOpen` command the extension calls to say which loop's detail is open.
+import './qokaLoopOpenState.js';
 
 /**
  * Qoka Loops - a left activity-bar tab. Selecting its rail icon opens a SIDEBAR list of this
