@@ -248,11 +248,12 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				const loopScope = /^loops\/[A-Za-z0-9._/-]+$/.test(rawScope) && !rawScope.includes('..')
 					? rawScope.replace(/\/+$/, '') : '';
 				// Where this run's OUTPUTS (results) and SCRIPT (code) live, relative to the project root.
-				// A loop run nests OUTPUTS under the visible loops/<folder>/results/. Its raw per-run SCRIPT
-				// goes to a HIDDEN path (.qoka/loops/<folder>/code/<id>) instead of the visible loops/<folder>/code:
-				// the loop engine git-versions the iteration code into loops/<folder>/code as solution.<ext>, so
-				// the visible code/ folder stays a clean version tree and isn't cluttered by per-run script dirs.
-				const resultsRel = loopScope ? `${loopScope}/results/${id}` : `results/${id}`;
+				// A LOOP run writes outputs into the SHARED loops/<folder>/results/ (NOT a per-run subdir): the
+				// loop's evaluator runs in that SAME directory, so any relative path the sub-agent uses resolves
+				// to the same file for both, and NOTHING can leak to the project-root results//analysis//data/.
+				// Its raw per-run SCRIPT goes to a HIDDEN path (.qoka/loops/<folder>/code/<id>); the loop engine
+				// git-versions the iteration code into loops/<folder>/code as solution.<ext>.
+				const resultsRel = loopScope ? `${loopScope}/results` : `results/${id}`;
 				const codeRel = loopScope ? `.qoka/${loopScope}/code/${id}` : `analysis/${id}`;
 
 				// Decide where the run dir lives. On Windows the local run environment is WSL,
@@ -648,8 +649,12 @@ export const RUN_MCP_INSTRUCTIONS = [
 export async function runScriptInEnv(
 	code: string,
 	language?: string,
+	cwdRel?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
 	if (!code) { return { stdout: '', stderr: 'runScriptInEnv: no code', exitCode: 1 }; }
+	// A loop passes cwdRel = loops/<folder>/results so the evaluator runs in the SAME directory run_code
+	// wrote to - relative paths then resolve identically and cannot escape to the project root. Sanitized.
+	const safeCwdRel = (cwdRel && /^[A-Za-z0-9._/-]+$/.test(cwdRel) && !cwdRel.includes('..')) ? cwdRel.replace(/\/+$/, '') : undefined;
 	const runner = language === 'node' ? 'node' : language === 'bash' ? 'bash' : 'python3';
 	const ext = language === 'node' ? 'js' : language === 'bash' ? 'sh' : 'py';
 	const { profile: ep, isBuiltIn } = await resolveRunTarget();
@@ -669,7 +674,8 @@ export async function runScriptInEnv(
 		const sbx = `"$HOME/.qoka/sandboxes/${projectKey}"`;
 		const wslRepo = windowsToWsl(wsRoot);
 		const projectBind = mounted ? `--ro-bind '${wslRepo}' '${wslRepo}' ` : '';
-		const chdir = mounted ? `'${wslRepo}'` : '/home/qoka';
+		// Run in the loop's results dir when given (so the evaluator matches run_code's cwd); else the repo.
+		const chdir = mounted ? `'${wslRepo}${safeCwdRel ? '/' + safeCwdRel : ''}'` : '/home/qoka';
 		const runnerB64 = Buffer.from(
 			`export PATH="/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"\n${runner} /home/qoka/.qoka-eval.${ext}\n`,
 			'utf8').toString('base64');
@@ -700,9 +706,10 @@ export async function runScriptInEnv(
 		// run target's repo so absolute + repo-relative paths resolve the same as the sub-agent's.
 		const repo = (ep.repo_path ?? '').trim().replace(/\/+$/, '').replace(/^~(?=\/|$)/, '$HOME');
 		const file = `/tmp/qoka-eval-${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+		const cwdAbs = repo ? `${repo}${safeCwdRel ? '/' + safeCwdRel : ''}` : '';
 		script = [
 			'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
-			repo ? `cd "${repo}" 2>/dev/null || true` : '',
+			cwdAbs ? `mkdir -p "${cwdAbs}" 2>/dev/null; cd "${cwdAbs}" 2>/dev/null || true` : '',
 			`printf '%s' '${encoded}' | base64 -d > '${file}'`,
 			`${runner} '${file}'`,
 			'__rc=$?',

@@ -222,8 +222,8 @@ export function activate(context: vscode.ExtensionContext): void {
 		// qoka-loop engine to run a locked evaluator in the SAME place run_code executes - including
 		// the per-project bubblewrap sandbox on WSL - so the evaluator sees the sub-agent's files
 		// and installed packages. The wrapping lives in runScriptInEnv (next to run_code's own).
-		vscode.commands.registerCommand('aria.qokarun.runInEnv', (arg: { code?: string; language?: string }) =>
-			runScriptInEnv(typeof arg?.code === 'string' ? arg.code : '', arg?.language)),
+		vscode.commands.registerCommand('aria.qokarun.runInEnv', (arg: { code?: string; language?: string; cwdRel?: string }) =>
+			runScriptInEnv(typeof arg?.code === 'string' ? arg.code : '', arg?.language, typeof arg?.cwdRel === 'string' ? arg.cwdRel : undefined)),
 		vscode.commands.registerCommand('aria.autopipe.vm.start', () => vm.start()),
 		vscode.commands.registerCommand('aria.autopipe.vm.stop', () => vm.stop()),
 		// Enable the WSL engine (+ Ubuntu) with a self-elevated `wsl --install`. Invoked
