@@ -166,13 +166,42 @@ export async function watchPipelineStart(profile: SshProfile, launched: Launched
 				try {
 					await autoSavePipelineCodeOnCompletion(profile, imageName);
 				} catch { /* never fail the run over a save */ }
-				return textResult(
-					`Pipeline completed successfully!\n`
-					+ `Output directory: ${outputDir}\n`
-					+ `Log: ${logPath}\n\n${logTail}\n\n`
-					+ `Pipeline code was auto-saved to the project folder (analysis/). `
-					+ `The results are in results/${runName}/. Local run environment: they are ALREADY there (the environment writes directly via the local mount) - just tell the user to open that folder in the Analysis tab, no save needed. Remote SSH server: ASK whether to save the results; if yes, call list_run_outputs for run '${runName}' then save_results_to_project (it warns before large copies), then tell the user to open results/${runName}/.`,
-				);
+				// Copy the RESULTS into the project too, right when the run finishes in
+				// this early 90s window - not only later via check_status. A short
+				// pipeline (e.g. aptaselect) completes inside this window, and without
+				// this its outputs stayed on the SSH server: nothing landed in local
+				// results/<run>/, so the dedicated result viewer had nothing to show.
+				let autoSave: Awaited<ReturnType<typeof autoSaveRunOutputsOnCompletion>> | undefined;
+				try { autoSave = await autoSaveRunOutputsOnCompletion(profile, runName); } catch { /* never fail the run over a save */ }
+				const where = `results/${runName}/`;
+				const parts = [
+					`Pipeline completed successfully!`,
+					`Output directory: ${outputDir}`,
+					`Log: ${logPath}`,
+					``, logTail, ``,
+					`Pipeline code was auto-saved to the project folder (analysis/).`,
+				];
+				if (autoSave) {
+					parts.push(`Results were saved into the project automatically: ${autoSave.message}`);
+					parts.push(`Do NOT read the files off the server and write them again yourself - they are already local.`);
+					if (autoSave.localDir && autoSave.copiedFiles.length) {
+						const shown = await openResultsInEditor(autoSave.localDir, autoSave.copiedFiles);
+						parts.push(...describeOpenedResults(shown));
+						if (!shown.opened.length) { parts.push(`Tell the user to open ${where} in the Analysis tab.`); }
+					} else {
+						parts.push(`Tell the user to open ${where} in the Analysis tab.`);
+					}
+					if (autoSave.skipped.length) {
+						parts.push(`These are too large to copy back automatically (over ${humanSize(AUTO_SAVE_MAX_FILE_BYTES)}) and are still on the server: ${autoSave.skipped.join(', ')}.`
+							+ ` You MUST tell the user about them and ASK whether to download them; if yes, call save_results_to_project with those relative paths in \`files\`.`);
+					}
+					if (autoSave.failed > 0 || !autoSave.ok) {
+						parts.push(`Some files could NOT be copied back (${autoSave.errors.slice(0, 3).join('; ')}). Tell the user, and offer to retry with list_run_outputs + save_results_to_project.`);
+					}
+				} else {
+					parts.push(`The results should be in ${where}; if they were not copied automatically, call list_run_outputs then save_results_to_project.`);
+				}
+				return textResult(parts.join('\n'));
 			}
 			if (hasError) {
 				return errorResult(
