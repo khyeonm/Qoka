@@ -432,6 +432,14 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 					return;
 				}
 
+				// Do not auto-reveal a loop's result files: clicking a file in a loop's
+				// Results section (loops/<folder>/results/...) opens it, but should not
+				// expand the loops/ folder in the Analysis tree. The loop detail tab lists
+				// these files separately.
+				if (/\/loops\/[^/]+\/results\//.test(activeFile.path)) {
+					return;
+				}
+
 				const focus = this.tree.getFocus();
 				const selection = this.tree.getSelection();
 				if (focus.length === 1 && this.uriIdentityService.extUri.isEqual(focus[0].resource, activeFile) && selection.length === 1 && this.uriIdentityService.extUri.isEqual(selection[0].resource, activeFile)) {

@@ -34,7 +34,8 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	FILE_TOOLS[0], FILE_TOOLS[1], // list_files, read_file
 	FILE_TOOLS[2], // write_file
 	FILE_TOOLS[5], FILE_TOOLS[6], FILE_TOOLS[7], // prepare_input, check_download_status, remove_input
-	FILE_TOOLS[8], // upload_local_input (upload data from the user's local machine into pipelines_input)
+	// upload_local_input moved to the qoka-run MCP (RUN_SERVER_TOOLS) so local<->server file
+	// transfer (upload_local_input + download_results) lives together, not on the pipeline server.
 	...WORKSPACE_TOOLS.slice(1), // get_templates, get_generation_guide
 	...PLUGIN_TOOLS,
 ];
@@ -52,6 +53,7 @@ export const ENVIRONMENT_TOOLS: ToolDefinition[] = [
 export const RUN_SERVER_TOOLS: ToolDefinition[] = [
 	...RUN_TOOLS,      // run_code
 	...NOTEBOOK_TOOLS, // create_notebook / read_notebook / edit_notebook
+	FILE_TOOLS[8],     // upload_local_input (local machine -> run target); paired here with download_results
 	RESULT_TOOLS[0],   // download_results
 	// show_results (RESULT_TOOLS[1]) stays disabled - the in-app viewer is gone.
 	...PROJECT_TOOLS,  // list_run_outputs, save_results_to_project

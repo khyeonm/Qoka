@@ -74,6 +74,11 @@ export interface RunOptions {
 	/** This loop's results folder (loops/<folder>/results): cleared before each iteration so, when the
 	 *  loop ends, only the FINAL run's outputs remain. Unset -> not cleared. */
 	resultsDir?: string;
+	/** Read the CURRENT iteration's live stdout.log text from INSIDE the run environment. Needed for a
+	 *  REMOTE SSH run, whose log lives only on the server mid-run (the local resultsDir stays empty until
+	 *  the run finishes), so tailing the local file shows no progress. Mounted local envs can still use
+	 *  resultsDir. When set, the live-progress poller reads through this instead of the local file. */
+	readIterLog?: () => Promise<string | undefined>;
 	/** git binary for code versioning (bundled MinGit path on Windows, else 'git'). Defaults to 'git'. */
 	gitPath?: string;
 	/** Hidden dir (.qoka/<loopScope>/code) where run_code drops each run's REAL script under <runId>/.
@@ -311,11 +316,8 @@ function newestLog(dir: string, sinceMs: number): string | undefined {
  *  `[QOKA_STEP k/N] label` marker the sub-agent printed, plus the last stdout line as a tail. The marker
  *  is MANDATORY (the prompt forces it), so a running turn that shows no marker reads as stuck - which is
  *  the signal we want. */
-function readLiveStep(resultsDir: string, sinceMs: number): { k: number; n: number; label: string; out?: string; at: string } | undefined {
-	const log = newestLog(resultsDir, sinceMs);
-	if (!log) { return undefined; }
-	let txt: string;
-	try { txt = fs.readFileSync(log, 'utf8'); } catch { return undefined; }
+/** Pure parser: the LAST [QOKA_STEP k/N] marker in a run log's text, plus the last stdout line. */
+function parseLiveStep(txt: string): { k: number; n: number; label: string; out?: string; at: string } | undefined {
 	const lines = txt.split(/\r?\n/).filter(l => l.length);
 	let marker: { k: number; n: number; label: string } | undefined;
 	for (let i = lines.length - 1; i >= 0; i--) {
@@ -325,6 +327,15 @@ function readLiveStep(resultsDir: string, sinceMs: number): { k: number; n: numb
 	if (!marker) { return undefined; }
 	const out = lines.length ? lines[lines.length - 1].slice(0, 140) : undefined;
 	return { ...marker, out, at: new Date().toISOString() };
+}
+
+/** Read the within-iteration progress from the newest LOCAL run log (mounted local env case). */
+function readLiveStep(resultsDir: string, sinceMs: number): { k: number; n: number; label: string; out?: string; at: string } | undefined {
+	const log = newestLog(resultsDir, sinceMs);
+	if (!log) { return undefined; }
+	let txt: string;
+	try { txt = fs.readFileSync(log, 'utf8'); } catch { return undefined; }
+	return parseLiveStep(txt);
 }
 
 /**
@@ -361,13 +372,31 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 		run.liveStep = undefined;
 		opts.persist(run);
 		let lastLiveKey = '';
-		const liveTimer = opts.resultsDir ? setInterval(() => {
-			const ls = readLiveStep(opts.resultsDir as string, iterStart - 2000);
-			if (!ls) { return; }
-			const key = `${ls.k}/${ls.n}:${ls.out ?? ''}`;
-			if (key !== lastLiveKey) { lastLiveKey = key; run.liveStep = ls; opts.persist(run); opts.log?.(`iter ${run.iteration}: step ${ls.k}/${ls.n} ${ls.label}`); }
-		}, 2000) : undefined;
+		// Prefer reading the log THROUGH the run env (readIterLog) so a REMOTE SSH run - whose log is only
+		// on the server mid-run - still updates the bar; fall back to the local file for mounted envs.
+		// The poll is async (an ssh cat), so guard against overlap when a read runs longer than the tick.
+		let liveBusy = false;
+		let liveStopped = false;
+		const pollLive = async (): Promise<void> => {
+			if (liveBusy || liveStopped) { return; }
+			liveBusy = true;
+			try {
+				let ls: { k: number; n: number; label: string; out?: string; at: string } | undefined;
+				if (opts.readIterLog) {
+					const txt = await opts.readIterLog();
+					ls = txt ? parseLiveStep(txt) : undefined;
+				} else if (opts.resultsDir) {
+					ls = readLiveStep(opts.resultsDir, iterStart - 2000);
+				}
+				if (!ls || liveStopped) { return; }  // ignore a read that landed after the turn ended
+				const key = `${ls.k}/${ls.n}:${ls.out ?? ''}`;
+				if (key !== lastLiveKey) { lastLiveKey = key; run.liveStep = ls; opts.persist(run); opts.log?.(`iter ${run.iteration}: step ${ls.k}/${ls.n} ${ls.label}`); }
+			} catch { /* transient read error - try again next tick */ }
+			finally { liveBusy = false; }
+		};
+		const liveTimer = (opts.readIterLog || opts.resultsDir) ? setInterval(() => { void pollLive(); }, 2000) : undefined;
 		const r = await agentStep(run, feedback);
+		liveStopped = true;
 		if (liveTimer) { clearInterval(liveTimer); }
 		run.liveStep = undefined;
 		if (typeof r.tokens === 'number') { run.budget.usedTokens += r.tokens; }

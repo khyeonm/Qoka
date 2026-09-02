@@ -101,6 +101,22 @@ function runEnvEvaluatorRunner(cwdRel?: string): ScriptRunner {
 	};
 }
 
+/**
+ * Read the current iteration's live stdout.log FROM the run environment (so a remote SSH run's
+ * progress markers are visible mid-run - the local results/ dir is empty until the run finishes).
+ * relPath is workspace-relative; the command reads it locally when mounted, or via ssh otherwise.
+ */
+function runEnvLogReader(relPath: string): () => Promise<string | undefined> {
+	return async () => {
+		try {
+			const txt = await vscode.commands.executeCommand('aria.qokarun.readRunEnvFile', { relPath }) as string | undefined;
+			return typeof txt === 'string' ? txt : undefined;
+		} catch {
+			return undefined;
+		}
+	};
+}
+
 export interface ToolDefinition {
 	name: string;
 	description: string;
@@ -339,12 +355,16 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	// Evaluator runs in the SAME dir run_code writes to (loops/<folder>/results), so relative paths align
 	// and outputs stay contained under loops/ - never the project-root results//analysis//data/.
 	const evaluatorRunner = runEnvEvaluatorRunner(`loops/${folder}/results`);
+	// run_code writes each run's stdout.log to the flat loops/<folder>/results dir; read it through the
+	// run env so live [QOKA_STEP] markers reach the progress bar even on a remote SSH server.
+	const readIterLog = runEnvLogReader(`loops/${folder}/results/stdout.log`);
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);
-	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })
+	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, readIterLog, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })
 		.then(outcome => { stopRequested.delete(id); abortControllers.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
 		.catch(e => { stopRequested.delete(id); abortControllers.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
-	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers) }));
+	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers),
+		tell_user: 'The loop is running. Tell the user (in their language) to watch it live in the loop detail tab: a "Progress" section appears UNDER the Flow with the current iteration and step. It only shows while the loop runs.' }));
 }
 
 export function buildTools(): ToolDefinition[] {
@@ -388,7 +408,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'start_loop',
-			description: 'Start running an APPROVED loop in the background. The engine sha256-locks the evaluator, then repeats: a sub-agent does the work with the full Qoka work toolset (run_code, pipelines, paper, notes, ...), the locked evaluator runs IN the run environment and judges, until it passes, stalls (same failure 3x), or the budget (iterations/minutes) runs out. Returns immediately; poll loop_status for progress. Only call after the user has confirmed the loop.',
+			description: 'Start running an APPROVED loop in the background. The engine sha256-locks the evaluator, then repeats: a sub-agent does the work with the full Qoka work toolset (run_code, pipelines, paper, notes, ...), the locked evaluator runs IN the run environment and judges, until it passes, stalls (same failure 3x), or the budget (iterations/minutes) runs out. Returns immediately. Do NOT poll; right after it returns, tell the user (in their language) that the loop started and to watch the live "Progress" section that appears UNDER the Flow in the loop detail tab (it only shows while running). Only call after the user has confirmed the loop.',
 			inputSchema: {
 				type: 'object',
 				properties: { loopId: { type: 'string', description: 'The loop id from save_loop / loop_list.' } },

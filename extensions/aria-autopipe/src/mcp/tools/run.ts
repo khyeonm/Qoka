@@ -636,6 +636,8 @@ export const RUN_MCP_INSTRUCTIONS = [
 	'Results: run_code saves each run\'s outputs under the project\'s results/<run-name>/ folder (and its script under analysis/<run-name>/) on the user\'s LOCAL disk, automatically - including runs on a remote SSH server, whose outputs are copied back before the tool returns. stdout is returned in chat.',
 	'Files the editor can display (plots, tables, reports) are then OPENED FOR THE USER as editor tabs, and the tool result names them. So when a run produces a figure or a table, say it is now open in the editor and describe what it shows - do NOT tell the user to go find and open it, and do NOT dump the file contents into chat. Only files that were too large or in a format the editor cannot display are left for the Analysis tab.',
 	'Do NOT hand-copy results: never chain read_file on the server + write_file locally to "bring back" an output. The copy already happened. Read from the LOCAL results/<run-name>/ path if you need the contents. The only exception is a file the result explicitly says was left on the server for being over the auto-copy size limit.',
+	'',
+	'LOCAL <-> SERVER FILE TRANSFER lives on THIS server: to send the user\'s local data to the run target use upload_local_input (here on qoka-run); to bring server files back use download_results. Do NOT look for upload_local_input on the qoka-autopipe MCP - it moved here so both directions sit together.',
 ].join('\n');
 
 /**
@@ -720,4 +722,32 @@ export async function runScriptInEnv(
 
 	const r = await ssh.run(ep, script, { timeoutMs: 120000 });
 	return { stdout: r.stdout, stderr: r.stderr, exitCode: r.exitCode };
+}
+
+/**
+ * Read a small workspace-relative file from INSIDE the active run environment, cheaply. A MOUNTED
+ * local env (WSL / vfkit) streams its output straight to the local disk, so we just read the local
+ * file. A REMOTE SSH host has no mount - the file lives only on the server until the run finishes -
+ * so we `cat` it over the SAME ssh.run channel run_code uses. This lets the loop engine tail a
+ * running iteration's stdout.log for [QOKA_STEP] progress markers even on a remote server (where the
+ * local results/ folder is still empty mid-run). Returns the text, or undefined if not readable yet.
+ */
+export async function readRunEnvFile(relPath: string): Promise<string | undefined> {
+	const safe = (relPath && /^[A-Za-z0-9._/-]+$/.test(relPath) && !relPath.includes('..')) ? relPath.replace(/^\/+|\/+$/g, '') : undefined;
+	if (!safe) { return undefined; }
+	const wsRoot = workspaceFolderPath();
+	const { profile: ep, isBuiltIn } = await resolveRunTarget();
+	const mounted = isBuiltIn && !!wsRoot && isMountedRepo(ep);
+	// Mounted local env: the file IS on the local disk (streamed live) - read it directly, no ssh.
+	if (mounted && wsRoot) {
+		try { return fs.readFileSync(path.join(wsRoot, safe), 'utf8'); } catch { return undefined; }
+	}
+	// Remote SSH host: read it over the run connection. repo_path is the dir the user configured.
+	const repo = (ep.repo_path ?? '').trim().replace(/\/+$/, '').replace(/^~(?=\/|$)/, '$HOME');
+	if (!repo) { return undefined; }
+	try {
+		const { ssh } = services();
+		const r = await ssh.run(ep, `cat "${repo}/${safe}" 2>/dev/null`, { timeoutMs: 8000 });
+		return r.exitCode === 0 ? r.stdout : undefined;
+	} catch { return undefined; }
 }

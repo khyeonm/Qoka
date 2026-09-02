@@ -355,6 +355,9 @@ function renderHtml(webview: vscode.Webview): string {
 			background: var(--vscode-editorHoverWidget-background, #252526); color: var(--vscode-editorHoverWidget-foreground, #ccc);
 			border: 1px solid var(--vscode-editorHoverWidget-border, rgba(127,127,127,0.35)); box-shadow: 0 2px 8px rgba(0,0,0,0.35); pointer-events: none; }
 		.pseg:hover .ptip { display: block; }
+		/* Keep the edge segments' hover box inside the panel instead of clipping past its border. */
+		.pseg.pedge-l .ptip { left: 0; transform: none; }
+		.pseg.pedge-r .ptip { left: auto; right: 0; transform: none; }
 		.pout { font-size: 11px; opacity: 0.75; margin-top: 8px; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		@keyframes qpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 		.lock-line { font-size: 12px; opacity: 0.8; display: flex; align-items: center; gap: 8px; }
@@ -451,7 +454,7 @@ function renderHtml(webview: vscode.Webview): string {
 			return node;
 		}
 		// Flatten the tree into left-rail rows, honoring the expanded set. The synthetic root
-		// ("code"/"results") is NOT shown; its children (iter0/shared, or the run dirs under
+		// ("code"/"results") is NOT shown; its children (.shared/iter0, or the run dirs under
 		// results/) become the top-level rows so the tree starts one level deeper.
 		function flattenTree(root, openMap) {
 			const rows = [];
@@ -473,6 +476,21 @@ function renderHtml(webview: vscode.Webview): string {
 		// Render one folder-tree pane: left = folders (chevron + indent), right = the selected folder's
 		// files (name + optional size, NO tag). onFileClick(fileObj) posts the open message for a file.
 		function renderTreePane(root, leftEl, rightEl, state, showSize, onFileClick) {
+			// Flat case (no sub-folders, e.g. results/ with files directly under it): drop the left
+			// folder rail entirely and show just the file list full-width.
+			if (!Object.keys(root.folders).length) {
+				leftEl.style.display = 'none';
+				const files = root.files || [];
+				rightEl.innerHTML = files.length
+					? files.map((fo, i) => '<div class="tfile" data-i="' + i + '"><span class="rname">' + esc(fo.name) + '</span>'
+						+ (showSize && typeof fo.size === 'number' ? '<span class="rsize">' + fmtSize(fo.size) + '</span>' : '') + '</div>').join('')
+					: '<div class="crnote">No files.</div>';
+				rightEl.querySelectorAll('.tfile').forEach(el => {
+					el.onclick = () => { const fo = files[parseInt(el.getAttribute('data-i'), 10)]; if (fo) { onFileClick(fo); } };
+				});
+				return;
+			}
+			leftEl.style.display = '';  // restore the rail if a previous render had hidden it
 			if (!nodeAt(root, state.sel)) { state.sel = ''; }
 			// Default selection: if the root has no direct files, open + select the first folder so the
 			// right pane isn't empty on first render.
@@ -620,7 +638,10 @@ function renderHtml(webview: vscode.Webview): string {
 			const k = ls ? ls.k : 0;
 			let seg = '';
 			for (let i = 1; i <= n; i++) {
-				const cls = i < k ? 'pseg done' : (i === k ? 'pseg cur' : 'pseg');
+				// Edge segments anchor their hover box to the panel edge so it is not clipped:
+				// the first left-aligns, the last right-aligns; the middle ones stay centered.
+				const edge = i === 1 ? ' pedge-l' : (i === n ? ' pedge-r' : '');
+				const cls = (i < k ? 'pseg done' : (i === k ? 'pseg cur' : 'pseg')) + edge;
 				// Short label ("step N") on the bar; the full step text shows in a hover box (.ptip).
 				const detail = steps[i - 1] ? esc(refine(steps[i - 1])) : '';
 				const tip = detail ? '<div class="ptip">' + detail + '</div>' : '';
@@ -647,10 +668,11 @@ function renderHtml(webview: vscode.Webview): string {
 			const fmtDur = (ms) => (typeof ms !== 'number') ? '' : (ms < 1000 ? ms + 'ms' : (ms < 60000 ? (ms / 1000).toFixed(1) + 's' : Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's'));
 			const cleanDetail = (d) => { d = String(d || '').replace(/\\s+/g, ' ').trim(); return d.length > 140 ? d.slice(0, 139) + '...' : d; };
 			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(cleanDetail(h.detail)) + '</td><td>' + fmtTime(h.at) + '</td></tr>').join('');
-			// Code folder tree: a "shared" folder (the locked evaluator) + one folder per iteration
+			// Code folder tree: a ".shared" folder (the locked evaluator) + one folder per iteration
 			// (iter0, iter1, ...), each holding that iteration's real files (which may have their own subdirs).
+			// The evaluator folder is named ".shared" so it sorts ABOVE iter0 and always sits at the top.
 			const codeItems = [];
-			if (l.evaluatorFile) { codeItems.push({ segs: ['shared'], file: { name: l.evaluatorFile.rel, kind: 'file', path: l.evaluatorFile.abs } }); }
+			if (l.evaluatorFile) { codeItems.push({ segs: ['.shared'], file: { name: l.evaluatorFile.rel, kind: 'file', path: l.evaluatorFile.abs } }); }
 			(l.versions || []).slice().sort((a, b) => a.iter - b.iter).forEach(v => {
 				const iterName = 'iter' + (v.iter >= 0 ? v.iter : '?');
 				(v.files || []).forEach(fp => {
