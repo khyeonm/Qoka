@@ -343,12 +343,18 @@ function renderHtml(webview: vscode.Webview): string {
 		.loopback-svg .lb-label { fill: #e06666; font-size: 10px; font-weight: 700; }
 		/* Progress bar: N segments (planned steps) filled left-to-right; current segment pulses. */
 		.pbar { display: flex; gap: 6px; align-items: flex-end; }
-		.pseg { flex: 1; min-width: 0; }
+		.pseg { flex: 1; min-width: 0; position: relative; }
 		.pseg .pbarnode { height: 6px; border-radius: 3px; background: var(--vscode-widget-border, rgba(127,127,127,0.35)); }
 		.pseg.done .pbarnode { background: #4caf72; }
 		.pseg.cur .pbarnode { background: #4c8dff; animation: qpulse 1.2s ease-in-out infinite; }
 		.pseg .plabel { font-size: 10px; opacity: 0.7; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 		.pseg.cur .plabel { opacity: 1; color: #4c8dff; }
+		/* Hover box: the short "step N" bar reveals the full step text on hover. */
+		.pseg .ptip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 6px; z-index: 20;
+			max-width: 260px; width: max-content; padding: 6px 9px; border-radius: 6px; font-size: 11px; line-height: 1.4; white-space: normal;
+			background: var(--vscode-editorHoverWidget-background, #252526); color: var(--vscode-editorHoverWidget-foreground, #ccc);
+			border: 1px solid var(--vscode-editorHoverWidget-border, rgba(127,127,127,0.35)); box-shadow: 0 2px 8px rgba(0,0,0,0.35); pointer-events: none; }
+		.pseg:hover .ptip { display: block; }
 		.pout { font-size: 11px; opacity: 0.75; margin-top: 8px; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		@keyframes qpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 		.lock-line { font-size: 12px; opacity: 0.8; display: flex; align-items: center; gap: 8px; }
@@ -444,11 +450,13 @@ function renderHtml(webview: vscode.Webview): string {
 			for (const seg of pathStr.split('/')) { node = node && node.folders[seg]; if (!node) { return null; } }
 			return node;
 		}
-		// Flatten the tree into left-rail rows (root first), honoring the expanded set.
+		// Flatten the tree into left-rail rows, honoring the expanded set. The synthetic root
+		// ("code"/"results") is NOT shown; its children (iter0/shared, or the run dirs under
+		// results/) become the top-level rows so the tree starts one level deeper.
 		function flattenTree(root, openMap) {
 			const rows = [];
 			function walk(node, pathStr, depth) {
-				const open = pathStr === '' ? true : !!openMap[pathStr];
+				const open = !!openMap[pathStr];
 				const hasKids = Object.keys(node.folders).length > 0;
 				rows.push({ path: pathStr, name: node.name, depth, hasKids, open });
 				if (open) {
@@ -457,7 +465,9 @@ function renderHtml(webview: vscode.Webview): string {
 					}
 				}
 			}
-			walk(root, '', 0);
+			for (const name of Object.keys(root.folders).sort()) {
+				walk(root.folders[name], name, 0);
+			}
 			return rows;
 		}
 		// Render one folder-tree pane: left = folders (chevron + indent), right = the selected folder's
@@ -611,8 +621,10 @@ function renderHtml(webview: vscode.Webview): string {
 			let seg = '';
 			for (let i = 1; i <= n; i++) {
 				const cls = i < k ? 'pseg done' : (i === k ? 'pseg cur' : 'pseg');
-				const label = steps[i - 1] ? esc(refine(steps[i - 1])) : ('step ' + i);
-				seg += '<div class="' + cls + '"><div class="pbarnode"></div><div class="plabel" title="' + label + '">' + label + '</div></div>';
+				// Short label ("step N") on the bar; the full step text shows in a hover box (.ptip).
+				const detail = steps[i - 1] ? esc(refine(steps[i - 1])) : '';
+				const tip = detail ? '<div class="ptip">' + detail + '</div>' : '';
+				seg += '<div class="' + cls + '"><div class="pbarnode"></div><div class="plabel">step ' + i + '</div>' + tip + '</div>';
 			}
 			let out = '';
 			if (ls && ls.out) { out = '<div class="pout">' + esc(ls.out) + '</div>'; }

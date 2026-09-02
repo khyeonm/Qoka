@@ -129,10 +129,11 @@ until the goal is verifiably met, OR - when the goal is underspecified - ask/off
 Do NOT execute anything; output ONLY the design (or your question/options).
 
 FIRST, A ROUTING CHECK: a loop runs autonomous sub-agents in the background and costs tokens, so
-only build one when the user actually wants a loop. If the user explicitly asked for a loop, proceed.
-If they only asked to "repeat until X" WITHOUT saying loop, stop and ask them (in their own
-language) whether to make it a repeating loop first; design the loop only after they agree. An
-ordinary one-off task is not a loop.
+only build one when the request is actually loop-shaped. Treat it as a loop when the work is
+REPEATED toward a goal/threshold/condition, or when the user said "loop". Treat it as a one-shot
+(no loop) when it finishes in a single pass. If it is AMBIGUOUS (could be either), STOP and ask the
+user, in their own language, whether to run it once with run_code or as a repeating loop, and wait.
+An ordinary one-off task is not a loop.
 
 Ground yourself first (never skip):
 - List the MCP tools and skills you actually have in THIS session; never invent tools.
@@ -165,22 +166,38 @@ Hard rules (adversarially tested - do not relax):
 8. Keep each loop short and its evaluator achievable. Where relevant, strengthen the evaluator with
    negative controls (a control input must NOT pass), a permutation/null check, a static
    anti-cheating check, and a byte-identical re-run.
+9. MANDATORY re-ask - do NOT skip. Before you build the loop, the user MUST have given you two things
+   concretely; if EITHER is missing or vague, STOP and ask for it (in their own language) instead of
+   guessing:
+   (a) the STOP / termination condition - exactly what makes the loop "done" (the checkable success
+       condition, and/or the iteration/time limit). If unclear, ask "what would count as done?".
+   (b) the REQUIRED OUTPUT FILES - what file(s) must exist when the loop finishes (name + what they
+       contain, e.g. "candidates.csv with a score column"). If unclear, ask what output they need.
+   The evaluator and the loop cannot be trusted without both, so treat this as a hard gate.
+10. BUDGET must be confirmed, never silently assumed. If the user did NOT state a budget, do NOT just
+   pick one and run: PROPOSE an inferred budget as two explicit numbers - the max number of iterations
+   AND the max minutes per iteration - explain briefly why (e.g. "generation + docking is slow, so
+   ~15 min per try"), and ASK "shall I proceed with this budget?" in their own language. Because this
+   step spends the user's tokens on background sub-agents, always say so when asking. Wait for a yes.
 
-If a rule (1 or 3) says ask/offer instead of committing, output ONLY that question or those 2-4
+If a rule (1, 3, or 9) says ask/offer instead of committing, output ONLY that question or those 2-4
 options - no loop.
 
-Otherwise present the loop FOR APPROVAL AS PLAIN, NATURAL LANGUAGE - not code. The user is often not a
-programmer, so:
-- Describe it in a few short sentences / bullets in the user's own language: the goal, what happens
-  each iteration, how success is decided (state the check as ONE plain-language sentence, e.g. "passes
-  when the mean is within 0.02 of 0 and the standard deviation is between 0.98 and 1.02"), and the
-  budget (iterations / minutes).
+Otherwise present the loop FOR APPROVAL AS A SHORT SUMMARIZED PLAN in PLAIN, NATURAL LANGUAGE - not
+code - and explicitly ask whether this is the loop flow they want. The user is often not a programmer,
+so:
+- Give a compact summary in the user's own language covering, as a few bullets: the GOAL; WHAT HAPPENS
+  each iteration (the steps in order); HOW SUCCESS IS DECIDED as ONE plain-language sentence (e.g.
+  "passes when the mean is within 0.02 of 0 and the standard deviation is between 0.98 and 1.02"); the
+  REQUIRED OUTPUT FILES that will exist when it finishes; and the BUDGET (max iterations + max minutes
+  per iteration).
 - Do NOT paste the evaluator source code, the LoopSpec JSON, or long code blocks into the approval
   message. At most, if the user is technical and asks, offer to show the evaluator code - otherwise
   keep it hidden. The evaluator is still built and locked internally; the user just does not need to
   read code to approve.
-- Then ask (in the user's own language) whether to run this loop, confirming the budget and noting it
-  runs sub-agents in the background and consumes tokens.
+- Then ask, in the user's own language, a clear confirmation such as "is this the loop flow you want?"
+  - confirming the budget (iterations + minutes per iteration) and noting it runs sub-agents in the
+  background and consumes their tokens. Wait for an explicit yes.
 Only after the user agrees do you call save_loop(spec), then start_loop(loopId) to run it in the
 background. The user (not the agent) approves the evaluator; it is then sha256-locked so the work
 agent cannot alter it.
@@ -334,7 +351,7 @@ export function buildTools(): ToolDefinition[] {
 	return [
 		{
 			name: 'design_loop',
-			description: 'Get the instruction and project context for designing a research loop. WHEN TO CALL: ONLY when the user EXPLICITLY asks to make/run a LOOP (in any language, e.g. "make this a loop", "run it as a loop"). Do NOT call it for an ordinary one-off task - just do that with the normal tools (run_code etc.). If the user asks to REPEAT something until a goal/threshold is met but does NOT say "loop", do NOT call this yet: first ASK them in chat (in their own language) whether to make it a repeating loop, and call design_loop ONLY after they say yes. Returns the design rules (you then write a LoopSpec that follows them) plus the open project context. After writing the LoopSpec, show it to the user, ask for confirmation (and budget), and only on approval call save_loop.',
+			description: 'Get the instruction and project context for designing a research loop. WHEN TO CALL: when the request is loop-shaped - REPEATED work toward a goal/threshold/condition (in any language, e.g. "keep improving X until Y"), or when the user said "loop". Do NOT call it for an ordinary one-off task that finishes in a single pass - use the normal tools (run_code etc.) for that. If it is AMBIGUOUS (could be either), do NOT call this yet: first ASK the user in chat (in their own language) whether to run it once with run_code or as a repeating loop, and call design_loop ONLY after they choose the loop. Returns the design rules (you then write a LoopSpec that follows them) plus the open project context. The rules require you to re-ask for any missing stop condition / required output files / budget, then show a summarized plan and ask "is this the loop flow you want?" - only on approval call save_loop.',
 			inputSchema: {
 				type: 'object',
 				properties: {
