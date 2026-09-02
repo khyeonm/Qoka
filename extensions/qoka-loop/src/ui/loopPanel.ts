@@ -402,9 +402,11 @@ function renderHtml(webview: vscode.Webview): string {
 		.vdot.v-fail { background: #e06666; }
 		/* Code section: ONE wide box split into a directory rail (LEFT) and the selected directory's files
 		   (RIGHT), with a vertical divider. Plain text - no icons, no status colors. */
-		.codepane { display: flex; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); border-radius: 6px; overflow: hidden; min-height: 120px; }
-		.codeleft { flex: 0 0 200px; border-right: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); overflow: auto; background: var(--vscode-editorWidget-background); padding: 4px 0; }
-		.coderight { flex: 1 1 auto; overflow: auto; padding: 6px 4px; }
+		/* Code + Results shown side by side, each as a single inline tree (folders expand, files are leaves). */
+		.treecols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+		.treecol { flex: 1 1 240px; min-width: 240px; }
+		.treecol h2 { margin-top: 0; }
+		.treepane { border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); border-radius: 6px; overflow: auto; max-height: 340px; min-height: 80px; background: var(--vscode-editorWidget-background); padding: 4px 0; }
 				/* Folder tree (LEFT): one row per folder, chevron + indent. Files (RIGHT) are plain names, no tag. */
 		.tfolder { font-size: 12px; padding: 4px 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; border-left: 2px solid transparent; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		.tfolder:hover { background: var(--vscode-list-hoverBackground); }
@@ -430,9 +432,10 @@ function renderHtml(webview: vscode.Webview): string {
 		let loops = [];
 		let selectedId = null;
 		const fmtSize = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
-		// Folder-tree state for the Code and Results sections: which folder path is selected on the left,
-		// and which folders are expanded. Kept across refreshes so the view does not jump while a loop runs.
-		const treeState = { code: { sel: '', open: {} }, results: { sel: '', open: {} } };
+		// Inline-tree state for the Code and Results sections: which folders are expanded (open), plus a
+		// one-time "inited" flag that opens the top-level folders on first render. Kept across refreshes so
+		// the view does not jump while a loop runs.
+		const treeState = { code: { open: {}, inited: false }, results: { open: {}, inited: false } };
 
 		// Build a folder tree from items [{ segs: [folder...], file: {...} }]. Returns the root node.
 		function buildTree(rootName, items) {
@@ -447,84 +450,51 @@ function renderHtml(webview: vscode.Webview): string {
 			}
 			return root;
 		}
-		function nodeAt(root, pathStr) {
-			if (!pathStr) { return root; }
-			let node = root;
-			for (const seg of pathStr.split('/')) { node = node && node.folders[seg]; if (!node) { return null; } }
-			return node;
-		}
-		// Flatten the tree into left-rail rows, honoring the expanded set. The synthetic root
-		// ("code"/"results") is NOT shown; its children (.shared/iter0, or the run dirs under
-		// results/) become the top-level rows so the tree starts one level deeper.
-		function flattenTree(root, openMap) {
+		// Flatten the tree into inline rows (folders AND files together, DFS), honoring the expanded set.
+		// The synthetic root ("code"/"results") is NOT shown; its child folders (.shared/iter0, or the run
+		// dirs under results/) AND its direct files become the top-level rows. Folders come before files at
+		// each level; a folder expands in place, a file is a leaf that opens on click.
+		function flattenInline(root, openMap) {
 			const rows = [];
 			function walk(node, pathStr, depth) {
-				const open = !!openMap[pathStr];
-				const hasKids = Object.keys(node.folders).length > 0;
-				rows.push({ path: pathStr, name: node.name, depth, hasKids, open });
-				if (open) {
-					for (const name of Object.keys(node.folders).sort()) {
-						walk(node.folders[name], pathStr ? pathStr + '/' + name : name, depth + 1);
-					}
+				for (const name of Object.keys(node.folders).sort()) {
+					const child = node.folders[name];
+					const cpath = pathStr ? pathStr + '/' + name : name;
+					const open = !!openMap[cpath];
+					const hasKids = Object.keys(child.folders).length > 0 || (child.files && child.files.length > 0);
+					rows.push({ type: 'folder', name, path: cpath, depth, open, hasKids });
+					if (open) { walk(child, cpath, depth + 1); }
 				}
+				for (const fo of (node.files || [])) { rows.push({ type: 'file', file: fo, depth }); }
 			}
-			for (const name of Object.keys(root.folders).sort()) {
-				walk(root.folders[name], name, 0);
-			}
+			walk(root, '', 0);
 			return rows;
 		}
-		// Render one folder-tree pane: left = folders (chevron + indent), right = the selected folder's
-		// files (name + optional size, NO tag). onFileClick(fileObj) posts the open message for a file.
-		function renderTreePane(root, leftEl, rightEl, state, showSize, onFileClick) {
-			// Flat case (no sub-folders, e.g. results/ with files directly under it): drop the left
-			// folder rail entirely and show just the file list full-width.
-			if (!Object.keys(root.folders).length) {
-				leftEl.style.display = 'none';
-				const files = root.files || [];
-				rightEl.innerHTML = files.length
-					? files.map((fo, i) => '<div class="tfile" data-i="' + i + '"><span class="rname">' + esc(fo.name) + '</span>'
-						+ (showSize && typeof fo.size === 'number' ? '<span class="rsize">' + fmtSize(fo.size) + '</span>' : '') + '</div>').join('')
-					: '<div class="crnote">No files.</div>';
-				rightEl.querySelectorAll('.tfile').forEach(el => {
-					el.onclick = () => { const fo = files[parseInt(el.getAttribute('data-i'), 10)]; if (fo) { onFileClick(fo); } };
-				});
-				return;
-			}
-			leftEl.style.display = '';  // restore the rail if a previous render had hidden it
-			if (!nodeAt(root, state.sel)) { state.sel = ''; }
-			// Default selection: if the root has no direct files, open + select the first folder so the
-			// right pane isn't empty on first render.
-			if (state.sel === '' && (!root.files || !root.files.length)) {
-				const first = Object.keys(root.folders).sort()[0];
-				if (first) { state.sel = first; state.open[first] = true; }
-			}
-			const rows = flattenTree(root, state.open);
-			leftEl.innerHTML = rows.map(r => {
-				const chev = r.hasKids ? (r.open ? '&#9662;' : '&#9656;') : '';
-				const sel = r.path === state.sel ? ' tsel' : '';
-				return '<div class="tfolder' + sel + '" data-path="' + esc(r.path) + '" style="padding-left:' + (6 + r.depth * 14) + 'px">'
-					+ '<span class="tchev">' + chev + '</span><span class="tfname">' + esc(r.name) + '</span></div>';
-			}).join('');
-			const drawRight = () => {
-				const node = nodeAt(root, state.sel) || root;
-				const files = node.files || [];
-				rightEl.innerHTML = files.length
-					? files.map((fo, i) => '<div class="tfile" data-i="' + i + '"><span class="rname">' + esc(fo.name) + '</span>'
-						+ (showSize && typeof fo.size === 'number' ? '<span class="rsize">' + fmtSize(fo.size) + '</span>' : '') + '</div>').join('')
-					: '<div class="crnote">No files in this folder.</div>';
-				rightEl.querySelectorAll('.tfile').forEach(el => {
-					el.onclick = () => { const fo = files[parseInt(el.getAttribute('data-i'), 10)]; if (fo) { onFileClick(fo); } };
-				});
-			};
-			leftEl.querySelectorAll('.tfolder').forEach(el => {
-				el.onclick = () => {
-					const p = el.getAttribute('data-path');
-					if (state.sel === p && p !== '') { state.open[p] = !state.open[p]; }  // re-click a folder toggles it
-					else { state.sel = p; if (p) { state.open[p] = true; } }
-					renderTreePane(root, leftEl, rightEl, state, showSize, onFileClick);
-				};
+		// Render one section as a SINGLE inline tree: folders expand in place (chevron), files are leaves
+		// that open on click. onFileClick(fileObj) posts the open message; showSize adds a byte size.
+		function renderTree(root, el, state, showSize, onFileClick) {
+			// First render: open the top-level folders so the user sees one level in without clicking.
+			if (!state.inited) { state.inited = true; for (const name of Object.keys(root.folders)) { state.open[name] = true; } }
+			const rows = flattenInline(root, state.open);
+			const files = [];
+			el.innerHTML = rows.map(r => {
+				const pad = 6 + r.depth * 14;
+				if (r.type === 'folder') {
+					const chev = r.hasKids ? (r.open ? '&#9662;' : '&#9656;') : '';
+					return '<div class="tfolder" data-path="' + esc(r.path) + '" style="padding-left:' + pad + 'px">'
+						+ '<span class="tchev">' + chev + '</span><span class="tfname">' + esc(r.name) + '</span></div>';
+				}
+				const i = files.push(r.file) - 1;
+				const size = (showSize && typeof r.file.size === 'number') ? '<span class="rsize">' + fmtSize(r.file.size) + '</span>' : '';
+				return '<div class="tfile" data-i="' + i + '" style="padding-left:' + (pad + 16) + 'px">'
+					+ '<span class="rname">' + esc(r.file.name) + '</span>' + size + '</div>';
+			}).join('') || '<div class="crnote">No files.</div>';
+			el.querySelectorAll('.tfolder').forEach(elem => {
+				elem.onclick = () => { const p = elem.getAttribute('data-path'); state.open[p] = !state.open[p]; renderTree(root, el, state, showSize, onFileClick); };
 			});
-			drawRight();
+			el.querySelectorAll('.tfile').forEach(elem => {
+				elem.onclick = () => { const fo = files[parseInt(elem.getAttribute('data-i'), 10)]; if (fo) { onFileClick(fo); } };
+			});
 		}
 
 		const badgeClass = (s) => ({ running:'b-running', success:'b-success', failed:'b-failed', paused:'b-paused', stopped:'b-stopped', 'pending-approval':'b-pending' }[s] || 'b-pending');
@@ -728,30 +698,32 @@ function renderHtml(webview: vscode.Webview): string {
 			h += '<div class="section"><h2>History</h2><table class="hist"><tr><th>#</th><th>verdict</th><th>time</th><th>detail</th><th>at</th></tr>'
 				+ (hist || '<tr><td colspan="5" class="hist-empty">No iterations yet.</td></tr>') + '</table></div>';
 
-			h += '<div class="section"><h2>Code</h2>'
-				+ '<div class="codepane"><div class="codeleft" id="codeleft"></div><div class="coderight" id="coderight"></div></div></div>';
-			h += '<div class="section"><h2>Results</h2>'
-				+ '<div class="codepane"><div class="codeleft" id="resultleft"></div><div class="coderight" id="resultright"></div></div></div>';
-
+			// Code + Results side by side, each a single inline tree (folders expand, files open on click).
+			h += '<div class="section"><div class="treecols">'
+				+ '<div class="treecol"><h2>Code</h2><div class="treepane" id="codetree"></div></div>'
+				+ '<div class="treecol"><h2>Results</h2><div class="treepane" id="resulttree"></div></div>'
+				+ '</div></div>';
 
 			$('detail').innerHTML = h;
 
-			// Code section as a folder tree (left = folders, right = the selected folder's files).
-			const codeLeft = document.getElementById('codeleft'), codeRight = document.getElementById('coderight');
-			if (codeLeft && codeRight) {
-				if (!Object.keys(codeTree.folders).length) { codeLeft.innerHTML = '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>'; codeRight.innerHTML = ''; }
-				else {
-					renderTreePane(codeTree, codeLeft, codeRight, treeState.code, false, (fo) => {
+			const codeTreeEl = document.getElementById('codetree');
+			if (codeTreeEl) {
+				if (!Object.keys(codeTree.folders).length && !(codeTree.files || []).length) {
+					codeTreeEl.innerHTML = '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>';
+				} else {
+					renderTree(codeTree, codeTreeEl, treeState.code, false, (fo) => {
 						if (fo.kind === 'version') { vscode.postMessage({ type: 'openVersion', codeDir: l.codeDir, hash: fo.hash, file: fo.file }); }
 						else { vscode.postMessage({ type: 'openFile', path: fo.path }); }
 					});
 				}
 			}
-			// Results section as a folder tree.
-			const resLeftEl = document.getElementById('resultleft'), resRightEl = document.getElementById('resultright');
-			if (resLeftEl && resRightEl) {
-				if (!Object.keys(resultsTree.folders).length && !resultsTree.files.length) { resLeftEl.innerHTML = '<div class="empty" style="padding:8px;text-align:left">No result files yet.</div>'; resRightEl.innerHTML = ''; }
-				else { renderTreePane(resultsTree, resLeftEl, resRightEl, treeState.results, true, (fo) => vscode.postMessage({ type: 'openFile', path: fo.path })); }
+			const resTreeEl = document.getElementById('resulttree');
+			if (resTreeEl) {
+				if (!Object.keys(resultsTree.folders).length && !resultsTree.files.length) {
+					resTreeEl.innerHTML = '<div class="empty" style="padding:8px;text-align:left">No result files yet.</div>';
+				} else {
+					renderTree(resultsTree, resTreeEl, treeState.results, true, (fo) => vscode.postMessage({ type: 'openFile', path: fo.path }));
+				}
 			}
 			// The fail-return line needs the boxes' measured positions, so draw it after layout.
 			requestAnimationFrame(drawLoopback);

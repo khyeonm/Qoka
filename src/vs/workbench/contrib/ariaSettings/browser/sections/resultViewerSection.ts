@@ -42,7 +42,7 @@ export class ResultViewerSection extends SettingsSection {
 		Object.assign(note.style, { fontSize: '11px', opacity: '0.7', margin: '0 0 10px' });
 
 		const row = append(this.body, $('div'));
-		Object.assign(row.style, { display: 'flex', gap: '8px', flexWrap: 'wrap' });
+		Object.assign(row.style, { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' });
 
 		const manage = append(row, $('button')) as HTMLButtonElement;
 		manage.textContent = 'Manage Result Viewers';
