@@ -12,6 +12,7 @@
 // loop's JSON changes on disk, so a running loop's iterations appear as they happen.
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import * as vscode from 'vscode';
@@ -86,6 +87,7 @@ interface LoopView {
 	lockedHash?: string;
 	history: LoopRun['history'];
 	provider?: string;
+	liveStep?: LoopRun['liveStep'];
 	evaluatorFile?: LoopFile;
 	results: ResultFile[];
 	versions: LoopVersion[];
@@ -137,7 +139,8 @@ function loopResultFiles(run: LoopRun): ResultFile[] {
 			else {
 				let size = 0;
 				try { size = fs.statSync(childAbs).size; } catch { /* keep 0 */ }
-				out.push({ rel: childRel, abs: childAbs, category: classifyResult(e.name), size });
+				// Always use '/' in rel so the webview can split the folder tree the same on every OS.
+				out.push({ rel: childRel.split(path.sep).join('/'), abs: childAbs, category: classifyResult(e.name), size });
 			}
 		}
 	};
@@ -161,6 +164,7 @@ function toView(run: LoopRun): LoopView {
 		lockedHash: run.lockedEvaluatorRef?.hash ?? run.spec.evaluator.hash,
 		history: run.history,
 		provider: run.provider,
+		liveStep: run.liveStep,
 		evaluatorFile: loopEvaluatorFile(run),
 		results: loopResultFiles(run),
 		versions: loopVersions(run),
@@ -222,26 +226,39 @@ export function openLoopPanel(context: vscode.ExtensionContext, loopId?: string)
 			markSidebarOpen(focusId);
 		} else if (msg?.type === 'openVersion' && msg.codeDir && msg.hash) {
 			try {
-				// Open one file from that git version read-only (git show <hash>:<file>), via the
-				// LOOP_FILE_SCHEME content provider with a base64 "git:" query it knows how to resolve.
-				// Keep the real filename in the visible path so the editor picks the right language.
-				const name = (msg.file || 'solution').split('/').pop() || 'solution';
-				const q = 'git:' + Buffer.from(JSON.stringify({ codeDir: msg.codeDir, hash: msg.hash, file: msg.file })).toString('base64');
-				const uri = vscode.Uri.from({ scheme: LOOP_FILE_SCHEME, path: `/${msg.hash.slice(0, 8)}/${name}`, query: q });
-				const doc = await vscode.workspace.openTextDocument(uri);
-				await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+				// A version file is a git blob, not a real file. Materialize it to a temp file named after the
+				// real filename, then open it the SAME way the Analysis tab opens files (vscode.open) - so a
+				// supported extension routes through the Qoka viewer / custom editors, others to the editor.
+				const gitBin = resolveGitBinary();
+				let target = msg.file;
+				if (!target) {
+					const list = execFileSync(gitBin, [...GIT_SAFE_ARGS, '-C', msg.codeDir, 'ls-tree', '-r', '--name-only', msg.hash], { encoding: 'utf8', env: gitEnv() }).split('\n').filter(Boolean);
+					target = list.find(f => f.startsWith('solution.')) || list[0] || 'solution';
+				}
+				const buf = execFileSync(gitBin, [...GIT_SAFE_ARGS, '-C', msg.codeDir, 'show', `${msg.hash}:${target}`], { encoding: 'buffer', env: gitEnv() });
+				const name = target.split('/').pop() || 'file';
+				const dir = path.join(os.tmpdir(), 'qoka-loop-versions', msg.hash.slice(0, 8));
+				fs.mkdirSync(dir, { recursive: true });
+				const tmp = path.join(dir, name);
+				fs.writeFileSync(tmp, buf);
+				await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(tmp), { viewColumn: vscode.ViewColumn.Beside, preview: true });
 			} catch (e) {
 				void vscode.window.showErrorMessage(`Cannot open version: ${(e as Error).message}`);
 			}
 		} else if (msg?.type === 'openFile' && msg.path) {
 			try {
-				// Open a read-only virtual doc (scheme LOOP_FILE_SCHEME) whose query is the real path,
-				// whose visible path keeps the filename (for language detection). Using this scheme
-				// instead of a file: URI stops the Analysis explorer from revealing the hidden .qoka path.
-				const name = msg.path.split(/[\\/]/).pop() || 'file';
-				const uri = vscode.Uri.from({ scheme: LOOP_FILE_SCHEME, path: `/${name}`, query: msg.path });
-				const doc = await vscode.workspace.openTextDocument(uri);
-				await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+				if (/[\\/]\.qoka[\\/]/.test(msg.path)) {
+					// The locked evaluator lives under the hidden .qoka - open it read-only via our scheme so
+					// the Analysis explorer never reveals that internal path.
+					const name = msg.path.split(/[\\/]/).pop() || 'file';
+					const uri = vscode.Uri.from({ scheme: LOOP_FILE_SCHEME, path: `/${name}`, query: msg.path });
+					const doc = await vscode.workspace.openTextDocument(uri);
+					await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+				} else {
+					// Visible result files: open exactly like the Analysis tab - vscode.open routes supported
+					// extensions through the Qoka viewer / custom editors, everything else to the text editor.
+					await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(msg.path), { viewColumn: vscode.ViewColumn.Beside, preview: true });
+				}
 			} catch (e) {
 				void vscode.window.showErrorMessage(`Cannot open file: ${(e as Error).message}`);
 			}
@@ -324,6 +341,16 @@ function renderHtml(webview: vscode.Webview): string {
 		.fpass .ar { font-weight: 700; margin-right: 3px; }
 		.loopback-svg { position: absolute; top: 0; pointer-events: none; overflow: visible; }
 		.loopback-svg .lb-label { fill: #e06666; font-size: 10px; font-weight: 700; }
+		/* Progress bar: N segments (planned steps) filled left-to-right; current segment pulses. */
+		.pbar { display: flex; gap: 6px; align-items: flex-end; }
+		.pseg { flex: 1; min-width: 0; }
+		.pseg .pbarnode { height: 6px; border-radius: 3px; background: var(--vscode-widget-border, rgba(127,127,127,0.35)); }
+		.pseg.done .pbarnode { background: #4caf72; }
+		.pseg.cur .pbarnode { background: #4c8dff; animation: qpulse 1.2s ease-in-out infinite; }
+		.pseg .plabel { font-size: 10px; opacity: 0.7; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+		.pseg.cur .plabel { opacity: 1; color: #4c8dff; }
+		.pout { font-size: 11px; opacity: 0.75; margin-top: 8px; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		@keyframes qpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 		.lock-line { font-size: 12px; opacity: 0.8; display: flex; align-items: center; gap: 8px; }
 		.lock-line .lk { color: #e0b050; }
 		.lock-line .hashmini { opacity: 0.6; font-family: var(--vscode-editor-font-family); font-size: 11px; word-break: break-all; }
@@ -369,25 +396,17 @@ function renderHtml(webview: vscode.Webview): string {
 		.codepane { display: flex; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); border-radius: 6px; overflow: hidden; min-height: 120px; }
 		.codeleft { flex: 0 0 200px; border-right: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); overflow: auto; background: var(--vscode-editorWidget-background); padding: 4px 0; }
 		.coderight { flex: 1 1 auto; overflow: auto; padding: 6px 4px; }
-		/* Parent = the loop folder; shared + iterN hang under it as sibling directory names. */
-		.cparent { font-size: 11px; opacity: 0.6; padding: 6px 10px 5px; font-family: var(--vscode-editor-font-family); word-break: break-all; }
-		.cchild { padding-left: 22px; }
-		.citem, .rcat { font-size: 12px; padding: 5px 10px; cursor: pointer; border-left: 2px solid transparent; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-		.citem:hover, .rcat:hover { background: var(--vscode-list-hoverBackground); }
-		.citem.csel, .rcat.csel { background: var(--vscode-list-activeSelectionBackground, rgba(90,140,255,0.18)); border-left-color: #4c8dff; }
-		.crhdr { font-size: 11px; opacity: 0.7; padding: 2px 6px 8px; font-family: var(--vscode-editor-font-family); }
-		.crfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-family: var(--vscode-editor-font-family); }
-		.crfile:hover { background: var(--vscode-list-hoverBackground); }
+				/* Folder tree (LEFT): one row per folder, chevron + indent. Files (RIGHT) are plain names, no tag. */
+		.tfolder { font-size: 12px; padding: 4px 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; border-left: 2px solid transparent; font-family: var(--vscode-editor-font-family); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		.tfolder:hover { background: var(--vscode-list-hoverBackground); }
+		.tfolder.tsel { background: var(--vscode-list-activeSelectionBackground, rgba(90,140,255,0.18)); border-left-color: #4c8dff; }
+		.tchev { display: inline-block; width: 10px; flex-shrink: 0; opacity: 0.7; font-size: 9px; text-align: center; }
+		.tfname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 		.crnote { font-size: 11px; opacity: 0.55; padding: 6px 8px; line-height: 1.4; }
-		/* Result file rows: filename on the left, size on the right. */
-		.rfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-family: var(--vscode-editor-font-family); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-		.rfile:hover { background: var(--vscode-list-hoverBackground); }
+		.tfile { font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-family: var(--vscode-editor-font-family); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+		.tfile:hover { background: var(--vscode-list-hoverBackground); }
 		.rname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-		.rsize { flex-shrink: 0; opacity: 0.5; font-size: 11px; font-variant-numeric: tabular-nums; }
-		/* Small grey "dir" / "file" badge used instead of an emoji, before each tree/result entry.
-		   Outline only - a bordered pill with NO fill. */
-		.tag { display: inline-block; box-sizing: border-box; min-width: 26px; text-align: center; font-size: 9px; line-height: 14px; height: 15px; padding: 0 5px; border-radius: 8px; border: 1px solid var(--vscode-descriptionForeground, currentColor); background: transparent; color: var(--vscode-descriptionForeground); opacity: 0.7; margin-right: 7px; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: middle; }
-		.empty { opacity: 0.6; padding: 40px; text-align: center; font-size: 13px; }
+		.rsize { flex-shrink: 0; opacity: 0.5; font-size: 11px; font-variant-numeric: tabular-nums; }		.empty { opacity: 0.6; padding: 40px; text-align: center; font-size: 13px; }
 	</style>
 </head>
 <body>
@@ -401,11 +420,84 @@ function renderHtml(webview: vscode.Webview): string {
 		const fmtTime = (iso) => { try { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString(); } catch (e) { return ''; } };
 		let loops = [];
 		let selectedId = null;
-		// Which code item is selected in the Code section: 'ev' (the shared evaluator) or a version hash.
-		let selectedCode = null;
-		// Which category folder is selected in the Results section: 'results' | 'logs' | 'meta'.
-		let selectedResultCat = null;
 		const fmtSize = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+		// Folder-tree state for the Code and Results sections: which folder path is selected on the left,
+		// and which folders are expanded. Kept across refreshes so the view does not jump while a loop runs.
+		const treeState = { code: { sel: '', open: {} }, results: { sel: '', open: {} } };
+
+		// Build a folder tree from items [{ segs: [folder...], file: {...} }]. Returns the root node.
+		function buildTree(rootName, items) {
+			const root = { name: rootName, folders: {}, files: [] };
+			for (const it of items) {
+				let node = root;
+				for (const seg of it.segs) {
+					if (!node.folders[seg]) { node.folders[seg] = { name: seg, folders: {}, files: [] }; }
+					node = node.folders[seg];
+				}
+				node.files.push(it.file);
+			}
+			return root;
+		}
+		function nodeAt(root, pathStr) {
+			if (!pathStr) { return root; }
+			let node = root;
+			for (const seg of pathStr.split('/')) { node = node && node.folders[seg]; if (!node) { return null; } }
+			return node;
+		}
+		// Flatten the tree into left-rail rows (root first), honoring the expanded set.
+		function flattenTree(root, openMap) {
+			const rows = [];
+			function walk(node, pathStr, depth) {
+				const open = pathStr === '' ? true : !!openMap[pathStr];
+				const hasKids = Object.keys(node.folders).length > 0;
+				rows.push({ path: pathStr, name: node.name, depth, hasKids, open });
+				if (open) {
+					for (const name of Object.keys(node.folders).sort()) {
+						walk(node.folders[name], pathStr ? pathStr + '/' + name : name, depth + 1);
+					}
+				}
+			}
+			walk(root, '', 0);
+			return rows;
+		}
+		// Render one folder-tree pane: left = folders (chevron + indent), right = the selected folder's
+		// files (name + optional size, NO tag). onFileClick(fileObj) posts the open message for a file.
+		function renderTreePane(root, leftEl, rightEl, state, showSize, onFileClick) {
+			if (!nodeAt(root, state.sel)) { state.sel = ''; }
+			// Default selection: if the root has no direct files, open + select the first folder so the
+			// right pane isn't empty on first render.
+			if (state.sel === '' && (!root.files || !root.files.length)) {
+				const first = Object.keys(root.folders).sort()[0];
+				if (first) { state.sel = first; state.open[first] = true; }
+			}
+			const rows = flattenTree(root, state.open);
+			leftEl.innerHTML = rows.map(r => {
+				const chev = r.hasKids ? (r.open ? '&#9662;' : '&#9656;') : '';
+				const sel = r.path === state.sel ? ' tsel' : '';
+				return '<div class="tfolder' + sel + '" data-path="' + esc(r.path) + '" style="padding-left:' + (6 + r.depth * 14) + 'px">'
+					+ '<span class="tchev">' + chev + '</span><span class="tfname">' + esc(r.name) + '</span></div>';
+			}).join('');
+			const drawRight = () => {
+				const node = nodeAt(root, state.sel) || root;
+				const files = node.files || [];
+				rightEl.innerHTML = files.length
+					? files.map((fo, i) => '<div class="tfile" data-i="' + i + '"><span class="rname">' + esc(fo.name) + '</span>'
+						+ (showSize && typeof fo.size === 'number' ? '<span class="rsize">' + fmtSize(fo.size) + '</span>' : '') + '</div>').join('')
+					: '<div class="crnote">No files in this folder.</div>';
+				rightEl.querySelectorAll('.tfile').forEach(el => {
+					el.onclick = () => { const fo = files[parseInt(el.getAttribute('data-i'), 10)]; if (fo) { onFileClick(fo); } };
+				});
+			};
+			leftEl.querySelectorAll('.tfolder').forEach(el => {
+				el.onclick = () => {
+					const p = el.getAttribute('data-path');
+					if (state.sel === p && p !== '') { state.open[p] = !state.open[p]; }  // re-click a folder toggles it
+					else { state.sel = p; if (p) { state.open[p] = true; } }
+					renderTreePane(root, leftEl, rightEl, state, showSize, onFileClick);
+				};
+			});
+			drawRight();
+		}
 
 		const badgeClass = (s) => ({ running:'b-running', success:'b-success', failed:'b-failed', paused:'b-paused', stopped:'b-stopped', 'pending-approval':'b-pending' }[s] || 'b-pending');
 		const statusLabel = (s) => s === 'pending-approval' ? 'pending' : s;
@@ -506,6 +598,31 @@ function renderHtml(webview: vscode.Webview): string {
 			} catch (e) { /* best-effort decoration */ }
 		}
 
+		// Progress bar (below Flow): N segments = the loop's PLANNED steps (flow.steps); filled left-to-right
+		// by the sub-agent's [QOKA_STEP k/N] markers. Shown only while the loop is running. The current step
+		// pulses; the last stdout line shows below so a long single step still shows live movement.
+		function progressBar(l) {
+			const running = l.status === 'running' || l.status === 'pending-approval';
+			const ls = l.liveStep;
+			const steps = (l.flow && l.flow.steps) ? l.flow.steps : [];
+			const n = (ls && ls.n) ? ls.n : steps.length;
+			if ((!running && !ls) || !n) { return ''; }
+			const k = ls ? ls.k : 0;
+			let seg = '';
+			for (let i = 1; i <= n; i++) {
+				const cls = i < k ? 'pseg done' : (i === k ? 'pseg cur' : 'pseg');
+				const label = steps[i - 1] ? esc(refine(steps[i - 1])) : ('step ' + i);
+				seg += '<div class="' + cls + '"><div class="pbarnode"></div><div class="plabel" title="' + label + '">' + label + '</div></div>';
+			}
+			let out = '';
+			if (ls && ls.out) { out = '<div class="pout">' + esc(ls.out) + '</div>'; }
+			else if (running && !ls) { out = '<div class="pout" style="opacity:0.55">Waiting for the first [QOKA_STEP] marker...</div>'; }
+			// Header text: which iteration + which step within it (iteration is 1-based for display).
+			const iterNo = (typeof l.iteration === 'number' ? l.iteration : 0) + 1;
+			const hdr = ls ? (' - iteration ' + iterNo + ', step ' + ls.k + ' of ' + ls.n + (ls.label ? ' (' + esc(ls.label) + ')' : '')) : (' - iteration ' + iterNo);
+			return '<div class="section"><h2>Progress' + hdr + '</h2><div class="pbar">' + seg + '</div>' + out + '</div>';
+		}
+
 		function renderDetail() {
 			const l = loops.find(x => x.id === selectedId);
 			if (!l) { $('detail').innerHTML = '<div class="empty">Select a loop.</div>'; return; }
@@ -518,35 +635,27 @@ function renderHtml(webview: vscode.Webview): string {
 			const fmtDur = (ms) => (typeof ms !== 'number') ? '' : (ms < 1000 ? ms + 'ms' : (ms < 60000 ? (ms / 1000).toFixed(1) + 's' : Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's'));
 			const cleanDetail = (d) => { d = String(d || '').replace(/\\s+/g, ' ').trim(); return d.length > 140 ? d.slice(0, 139) + '...' : d; };
 			const hist = (l.history || []).map(h => '<tr><td>' + h.iteration + '</td><td class="' + (h.verdict === 'pass' ? 'v-pass' : 'v-fail') + '">' + esc(h.verdict || '') + '</td><td>' + fmtDur(h.durationMs) + '</td><td>' + esc(cleanDetail(h.detail)) + '</td><td>' + fmtTime(h.at) + '</td></tr>').join('');
-			// Keep the selected code item valid across refreshes: default to the newest version, else the
-			// shared evaluator. selectedCode is 'ev' (the locked evaluator) or a version hash.
-			const hashes = (l.versions || []).map(v => v.hash);
-			if (selectedCode !== 'ev' && hashes.indexOf(selectedCode) < 0) { selectedCode = hashes.length ? hashes[0] : (l.evaluatorFile ? 'ev' : null); }
-			if (selectedCode === 'ev' && !l.evaluatorFile) { selectedCode = hashes.length ? hashes[0] : null; }
-
-			// Code section LEFT rail: a plain-text directory tree under the loop's folder (no icons, no
-			// status colors). The SHARED code (the evaluator) is the top directory; then iter0, iter1, ...
-			// in order. Selecting one fills the RIGHT pane (renderCodeRight) with that directory's files.
-			const dirTag = '<span class="tag">dir</span>';
-			const fileTag = '<span class="tag">file</span>';
-			const leftItems = [];
-			if (l.folder) { leftItems.push('<div class="cparent">' + dirTag + 'loops/' + esc(l.folder) + '</div>'); }
-			if (l.evaluatorFile) {
-				leftItems.push('<div class="citem cchild' + (selectedCode === 'ev' ? ' csel' : '') + '" data-kind="ev">' + dirTag + 'shared</div>');
-			}
-			const vers = (l.versions || []).slice().sort((a, b) => a.iter - b.iter);
-			vers.forEach(v => {
-				leftItems.push('<div class="citem cchild' + (selectedCode === v.hash ? ' csel' : '') + '" data-kind="ver" data-hash="' + esc(v.hash) + '">' + dirTag + 'iter' + (v.iter >= 0 ? v.iter : '?') + '</div>');
+			// Code folder tree: a "shared" folder (the locked evaluator) + one folder per iteration
+			// (iter0, iter1, ...), each holding that iteration's real files (which may have their own subdirs).
+			const codeItems = [];
+			if (l.evaluatorFile) { codeItems.push({ segs: ['shared'], file: { name: l.evaluatorFile.rel, kind: 'file', path: l.evaluatorFile.abs } }); }
+			(l.versions || []).slice().sort((a, b) => a.iter - b.iter).forEach(v => {
+				const iterName = 'iter' + (v.iter >= 0 ? v.iter : '?');
+				(v.files || []).forEach(fp => {
+					const parts = String(fp).split('/');
+					codeItems.push({ segs: [iterName].concat(parts.slice(0, -1)), file: { name: parts[parts.length - 1], kind: 'version', hash: v.hash, file: fp } });
+				});
 			});
-			const leftHtml = leftItems.join('') || '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>';
-			// Results: group files into category folders (results / logs / meta) for a left-folder,
-			// right-files layout like the Code section. Nothing is hidden - logs and meta just get folders.
-			const resByCat = { results: [], logs: [], meta: [] };
-			(l.results || []).forEach(fl => { (resByCat[fl.category] || resByCat.results).push(fl); });
-			const resCats = ['results', 'logs', 'meta'].filter(c => resByCat[c].length);
-			if (selectedResultCat === null || !resByCat[selectedResultCat] || !resByCat[selectedResultCat].length) { selectedResultCat = resCats[0] || null; }
-			const resLeft = resCats.map(c => '<div class="rcat cchild' + (selectedResultCat === c ? ' csel' : '') + '" data-cat="' + c + '">' + dirTag + c + '</div>').join('')
-				|| '<div class="empty" style="padding:8px;text-align:left">No result files yet.</div>';
+			const codeTree = buildTree('code', codeItems);
+			// Make sure every iteration shows as a folder even if it captured no files.
+			(l.versions || []).forEach(v => { const n = 'iter' + (v.iter >= 0 ? v.iter : '?'); if (!codeTree.folders[n]) { codeTree.folders[n] = { name: n, folders: {}, files: [] }; } });
+
+			// Results folder tree: the real directory structure under loops/<folder>/results (nothing hidden).
+			const resItems = (l.results || []).map(fl => {
+				const parts = String(fl.rel).split('/');
+				return { segs: parts.slice(0, -1), file: { name: parts[parts.length - 1], kind: 'file', path: fl.abs, size: fl.size } };
+			});
+			const resultsTree = buildTree('results', resItems);
 
 			let h = '<h1>' + esc(l.title) + '</h1><div class="goal">' + esc(l.goal) + '</div>';
 			h += '<div class="meta">'
@@ -567,6 +676,7 @@ function renderHtml(webview: vscode.Webview): string {
 			h += '<div class="section"><h2>Flow</h2>';
 			h += flowDiagram(l);
 			h += '</div>';
+			h += progressBar(l);
 
 			// Stops on the FIRST of these; derived from the budget + engine rules so it always matches what
 			// the engine does. Kept short - the goal (the success condition) is already shown at the top.
@@ -585,74 +695,30 @@ function renderHtml(webview: vscode.Webview): string {
 				+ (hist || '<tr><td colspan="5" class="hist-empty">No iterations yet.</td></tr>') + '</table></div>';
 
 			h += '<div class="section"><h2>Code</h2>'
-				+ '<div class="codepane"><div class="codeleft">' + leftHtml + '</div><div class="coderight" id="coderight"></div></div></div>';
+				+ '<div class="codepane"><div class="codeleft" id="codeleft"></div><div class="coderight" id="coderight"></div></div></div>';
 			h += '<div class="section"><h2>Results</h2>'
-				+ '<div class="codepane"><div class="codeleft">' + resLeft + '</div><div class="coderight" id="resultright"></div></div></div>';
+				+ '<div class="codepane"><div class="codeleft" id="resultleft"></div><div class="coderight" id="resultright"></div></div></div>';
 
 
 			$('detail').innerHTML = h;
 
-			// RIGHT pane of the Code section: the files of whatever is selected on the left (the shared
-			// evaluator, or one version's captured code). Re-rendered on every left click.
-			function renderCodeRight() {
-				const box = document.getElementById('coderight');
-				if (!box) { return; }
-				const ftag = '<span class="tag">file</span>';
-				let html = '';
-				if (selectedCode === 'ev' && l.evaluatorFile) {
-					html = '<div class="crhdr">shared</div>'
-						+ '<div class="crfile" data-path="' + esc(l.evaluatorFile.abs) + '">' + ftag + esc(l.evaluatorFile.rel) + '</div>'
-						+ '<div class="crnote">Shared across every iteration - the locked evaluator (sha256).</div>';
-				} else {
-					const v = (l.versions || []).find(x => x.hash === selectedCode);
-					if (v) {
-						const fl = (v.files || []).map(fp => '<div class="crfile" data-hash="' + esc(v.hash) + '" data-file="' + esc(fp) + '">' + ftag + esc(fp) + '</div>').join('')
-							|| '<div class="crnote">(no files captured this iteration)</div>';
-						html = '<div class="crhdr">iter' + (v.iter >= 0 ? v.iter : '?') + '</div>' + fl;
-					} else {
-						html = '<div class="crnote">Select an item on the left.</div>';
-					}
+			// Code section as a folder tree (left = folders, right = the selected folder's files).
+			const codeLeft = document.getElementById('codeleft'), codeRight = document.getElementById('coderight');
+			if (codeLeft && codeRight) {
+				if (!Object.keys(codeTree.folders).length) { codeLeft.innerHTML = '<div class="empty" style="padding:8px;text-align:left">No code yet (no iterations, or git unavailable).</div>'; codeRight.innerHTML = ''; }
+				else {
+					renderTreePane(codeTree, codeLeft, codeRight, treeState.code, false, (fo) => {
+						if (fo.kind === 'version') { vscode.postMessage({ type: 'openVersion', codeDir: l.codeDir, hash: fo.hash, file: fo.file }); }
+						else { vscode.postMessage({ type: 'openFile', path: fo.path }); }
+					});
 				}
-				box.innerHTML = html;
-				box.querySelectorAll('.crfile').forEach(el => {
-					el.onclick = () => {
-						const file = el.getAttribute('data-file');
-						if (file) { vscode.postMessage({ type: 'openVersion', codeDir: l.codeDir, hash: el.getAttribute('data-hash'), file: file }); }
-						else { vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') }); }
-					};
-				});
 			}
-			document.querySelectorAll('.citem').forEach(el => {
-				el.onclick = () => {
-					selectedCode = el.getAttribute('data-kind') === 'ev' ? 'ev' : el.getAttribute('data-hash');
-					document.querySelectorAll('.citem').forEach(x => x.classList.remove('csel'));
-					el.classList.add('csel');
-					renderCodeRight();
-				};
-			});
-			renderCodeRight();
-
-			// RIGHT pane of the Results section: the files in the selected category folder (name + size).
-			function renderResultsRight() {
-				const box = document.getElementById('resultright');
-				if (!box) { return; }
-				const files = resByCat[selectedResultCat] || [];
-				box.innerHTML = files.length
-					? files.map(fl => '<div class="rfile" data-path="' + esc(fl.abs) + '"><span class="rname">' + esc(fl.rel.split('/').pop()) + '</span><span class="rsize">' + fmtSize(fl.size) + '</span></div>').join('')
-					: '<div class="crnote">No files.</div>';
-				box.querySelectorAll('.rfile').forEach(el => {
-					el.onclick = () => vscode.postMessage({ type: 'openFile', path: el.getAttribute('data-path') });
-				});
+			// Results section as a folder tree.
+			const resLeftEl = document.getElementById('resultleft'), resRightEl = document.getElementById('resultright');
+			if (resLeftEl && resRightEl) {
+				if (!Object.keys(resultsTree.folders).length && !resultsTree.files.length) { resLeftEl.innerHTML = '<div class="empty" style="padding:8px;text-align:left">No result files yet.</div>'; resRightEl.innerHTML = ''; }
+				else { renderTreePane(resultsTree, resLeftEl, resRightEl, treeState.results, true, (fo) => vscode.postMessage({ type: 'openFile', path: fo.path })); }
 			}
-			document.querySelectorAll('.rcat').forEach(el => {
-				el.onclick = () => {
-					selectedResultCat = el.getAttribute('data-cat');
-					document.querySelectorAll('.rcat').forEach(x => x.classList.remove('csel'));
-					el.classList.add('csel');
-					renderResultsRight();
-				};
-			});
-			renderResultsRight();
 			// The fail-return line needs the boxes' measured positions, so draw it after layout.
 			requestAnimationFrame(drawLoopback);
 		}

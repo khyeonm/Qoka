@@ -88,10 +88,10 @@ async function notifyLoopFinished(id: string, outcome: string): Promise<void> {
  * matters on a truly remote target - the evaluator must read the files run_code wrote there, not
  * a local copy. Falls back to a non-pass verdict if no run environment is reachable.
  */
-function runEnvEvaluatorRunner(): ScriptRunner {
+function runEnvEvaluatorRunner(cwdRel?: string): ScriptRunner {
 	return async (script, language) => {
 		try {
-			const r = await vscode.commands.executeCommand('aria.qokarun.runInEnv', { code: script, language }) as
+			const r = await vscode.commands.executeCommand('aria.qokarun.runInEnv', { code: script, language, cwdRel }) as
 				{ stdout?: string; stderr?: string; exitCode?: number | null } | undefined;
 			if (!r) { return { stdout: '', stderr: 'runInEnv returned nothing', exitCode: 1 }; }
 			return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', exitCode: r.exitCode ?? null };
@@ -197,7 +197,7 @@ so make it a concise, actionable reason. On PASS the detail can be a short confi
   "goal": "one sentence goal",
   "flow": {
     "input": "what it starts from",
-    "steps": ["step 1", "step 2", "on fail: fix & retry"],
+    "steps": ["step 1", "step 2", "..."],  // the REAL ordered execution steps of ONE iteration (e.g. "install tools", "prepare inputs", "run analysis", "write output"). These become the user's PROGRESS BAR: the count is the total, and the sub-agent marks each with [QOKA_STEP k/N] as it runs. Make them concrete and in execution order; do NOT include a trailing "on fail: retry" step (retry is automatic, not a step).
     "checks": [{ "c": "condition", "why": "why this makes the loop trustworthy (e.g. a negative control)" }],
     "output": "what it produces",
     "stops": "15 iterations or 20 min"
@@ -319,7 +319,9 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	const abort = new AbortController();
 	abortControllers.set(id, abort);
 	const agentStep = makeAgentStep({ provider, cwd, loopDir: dir, workMcpServers, loopFolder: folder, signal: abort.signal });
-	const evaluatorRunner = runEnvEvaluatorRunner();
+	// Evaluator runs in the SAME dir run_code writes to (loops/<folder>/results), so relative paths align
+	// and outputs stay contained under loops/ - never the project-root results//analysis//data/.
+	const evaluatorRunner = runEnvEvaluatorRunner(`loops/${folder}/results`);
 	const resuming = run.iteration > 0;
 	void vscode.commands.executeCommand('qoka.loop.open', id);
 	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })

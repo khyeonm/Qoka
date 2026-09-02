@@ -94,4 +94,8 @@ export interface LoopRun {
 	lockedEvaluatorRef?: { path: string; hash: string };
 	/** Why the run is paused/failed, surfaced in the UI. */
 	reason?: string;
+	/** Live within-iteration progress, from the sub-agent's mandatory [QOKA_STEP k/N] markers: which
+	 *  planned step (1-based k of n) is currently running, its label, and a stdout tail. Set while a turn
+	 *  runs, cleared when the loop is not running. Drives the Progress bar in the detail tab. */
+	liveStep?: { k: number; n: number; label: string; out?: string; at: string };
 }

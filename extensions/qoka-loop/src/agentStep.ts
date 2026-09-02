@@ -27,6 +27,9 @@ function historyDigest(run: LoopRun, max = 6): string {
 export function buildPrompt(run: LoopRun, feedback: string | undefined): string {
 	const spec = run.spec;
 	const evaluator = spec.evaluator.code;
+	const planSteps = (spec.flow && spec.flow.steps) ? spec.flow.steps : [];
+	const n = planSteps.length || 1;
+	const planList = planSteps.length ? planSteps.map((s, i) => `   ${i + 1}. ${s}`).join('\n') : '   1. do the work';
 	return [
 		'You are one iteration of an automated research loop. Do the work for THIS turn toward the goal,',
 		'then stop. A separate, LOCKED evaluator (shown below) decides pass/fail after you finish - you',
@@ -38,6 +41,20 @@ export function buildPrompt(run: LoopRun, feedback: string | undefined): string 
 		' - Use the run_code tool to write and run your code in this project (create/edit files as needed).',
 		' - Make the actual output the evaluator checks (e.g. the file/metric it reads).',
 		' - Keep changes minimal and focused; do not fabricate results.',
+		'',
+		`THIS LOOP HAS ${n} PLANNED STEPS:`,
+		planList,
+		'',
+		'*** MANDATORY PROGRESS MARKERS - THIS IS REQUIRED, NOT OPTIONAL ***',
+		`At the START of each of the ${n} steps above, you MUST print a marker line of EXACTLY this form,`,
+		'as the FIRST thing that step does:',
+		`   [QOKA_STEP k/${n}] <short label>`,
+		`where k is the step number (1..${n}). Print it with a real print/echo statement INSIDE the run_code`,
+		'you run for that step (so it lands in the run\'s stdout), e.g. Python: print("[QOKA_STEP 2/' + n + '] docking").',
+		'The user\'s progress bar is driven ONLY by these markers. If you skip them, the user sees the loop as',
+		'FROZEN even while it works, and cannot tell it is progressing. So emit every marker, in order, every',
+		'time - even if you do several steps inside one run_code call, print each step\'s marker before that step.',
+		'For long steps, also print short progress lines (e.g. "docking 3/5") so the bar\'s detail line updates.',
 		'',
 		'LOCKED EVALUATOR (read-only - the engine runs exactly this after your turn):',
 		'```',

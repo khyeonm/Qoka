@@ -129,19 +129,6 @@ function clearDir(dir: string): void {
 	try { fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
 }
 
-/** Keep only the newest child (by mtime) of a results dir, so a FINISHED loop leaves just the final
- *  run's outputs. Done ONCE at the end - never mid-loop, which would delete a file the user has open. */
-function keepOnlyNewestChild(dir: string, log?: (m: string) => void): void {
-	try {
-		const entries = fs.readdirSync(dir, { withFileTypes: true }).filter(e => !e.name.startsWith('.'));
-		if (entries.length <= 1) { return; }
-		const scored = entries.map(e => { let m = 0; try { m = fs.statSync(path.join(dir, e.name)).mtimeMs; } catch { /* keep 0 */ } return { name: e.name, m }; });
-		scored.sort((a, b) => b.m - a.m);
-		for (const s of scored.slice(1)) { try { fs.rmSync(path.join(dir, s.name), { recursive: true, force: true }); } catch { /* best-effort */ } }
-		log?.(`results pruned to final: kept ${scored[0].name}, removed ${scored.length - 1}`);
-	} catch { /* best-effort */ }
-}
-
 /** Record one iteration's code as a git version: overwrite solution.<ext> in the loop's code folder
  *  and commit it (message = "iter N: pass/fail - reason"). The working tree stays the latest code; the
  *  commit history is every attempt (pass + fail), so the Files tab can show a version tree. Local repo,
@@ -303,6 +290,43 @@ function buildIterationFeedback(verdict: Verdict, agent: AgentResult): string {
 	return parts.join('\n\n');
 }
 
+/** Find the most-recently-written *.log under `dir` (recursively) whose mtime is >= `sinceMs` - i.e. a
+ *  run from the CURRENT iteration, not a stale log from a previous one. */
+function newestLog(dir: string, sinceMs: number): string | undefined {
+	let bestPath = ''; let bestM = 0;
+	const walk = (d: string): void => {
+		let entries: fs.Dirent[];
+		try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+		for (const e of entries) {
+			const p = path.join(d, e.name);
+			if (e.isDirectory()) { walk(p); }
+			else if (e.name.endsWith('.log')) { try { const m = fs.statSync(p).mtimeMs; if (m >= sinceMs && m > bestM) { bestM = m; bestPath = p; } } catch { /* skip */ } }
+		}
+	};
+	walk(dir);
+	return bestPath || undefined;
+}
+
+/** Read the current within-iteration progress from the newest run log (from THIS iteration): the LAST
+ *  `[QOKA_STEP k/N] label` marker the sub-agent printed, plus the last stdout line as a tail. The marker
+ *  is MANDATORY (the prompt forces it), so a running turn that shows no marker reads as stuck - which is
+ *  the signal we want. */
+function readLiveStep(resultsDir: string, sinceMs: number): { k: number; n: number; label: string; out?: string; at: string } | undefined {
+	const log = newestLog(resultsDir, sinceMs);
+	if (!log) { return undefined; }
+	let txt: string;
+	try { txt = fs.readFileSync(log, 'utf8'); } catch { return undefined; }
+	const lines = txt.split(/\r?\n/).filter(l => l.length);
+	let marker: { k: number; n: number; label: string } | undefined;
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const mm = /\[QOKA_STEP\s+(\d+)\s*\/\s*(\d+)\]\s*(.*)/.exec(lines[i]);
+		if (mm) { marker = { k: parseInt(mm[1], 10), n: parseInt(mm[2], 10), label: (mm[3] || '').trim().slice(0, 80) }; break; }
+	}
+	if (!marker) { return undefined; }
+	const out = lines.length ? lines[lines.length - 1].slice(0, 140) : undefined;
+	return { ...marker, out, at: new Date().toISOString() };
+}
+
 /**
  * The control loop. Deterministic: the engine decides iterate/stop/pause; the injected
  * agentStep does the work; the locked evaluator judges. Persists after every iteration so
@@ -319,12 +343,6 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 	let feedback: string | undefined;
 	opts.log?.(`runLoop start: id=${run.id} gitPath=${opts.gitPath || 'git'} codeDir=${opts.codeDir || '(none)'} resultsDir=${opts.resultsDir || '(none)'}`);
 
-	// Clear stale outputs ONCE, only on a fresh start (not on resume). We deliberately do NOT clear
-	// results between iterations - that would delete a file the user has opened to inspect. Instead the
-	// results are pruned to the final run at the very end (keepOnlyNewestChild).
-	if (opts.resultsDir && run.iteration === 0) { clearDir(opts.resultsDir); }
-	const prune = (): void => { if (opts.resultsDir) { keepOnlyNewestChild(opts.resultsDir, opts.log); } };
-
 	while (run.iteration < run.budget.maxIter && (Date.now() - startMs) < run.budget.maxMin * 60_000) {
 		if (opts.shouldStop?.()) {
 			run.status = 'stopped';
@@ -332,9 +350,26 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			opts.persist(run);
 			return 'stopped';
 		}
+		// Clear the shared loop results dir at the START of each attempt, so it holds ONLY this iteration's
+		// outputs (the final attempt's remain when the loop ends). Safe now that loop outputs are never
+		// auto-opened in the editor. No end-of-loop prune needed - overwriting per iteration keeps it clean.
+		if (opts.resultsDir) { clearDir(opts.resultsDir); }
 		const iterStart = Date.now();
 		opts.log?.(`iter ${run.iteration}: sub-agent turn starting${feedback ? ' (with previous-error feedback)' : ' (first attempt)'}`);
+		// Live within-iteration progress: reset, then poll the run's stdout log for [QOKA_STEP k/N] markers
+		// while the turn runs, persisting so the detail tab's Progress bar advances in real time.
+		run.liveStep = undefined;
+		opts.persist(run);
+		let lastLiveKey = '';
+		const liveTimer = opts.resultsDir ? setInterval(() => {
+			const ls = readLiveStep(opts.resultsDir as string, iterStart - 2000);
+			if (!ls) { return; }
+			const key = `${ls.k}/${ls.n}:${ls.out ?? ''}`;
+			if (key !== lastLiveKey) { lastLiveKey = key; run.liveStep = ls; opts.persist(run); opts.log?.(`iter ${run.iteration}: step ${ls.k}/${ls.n} ${ls.label}`); }
+		}, 2000) : undefined;
 		const r = await agentStep(run, feedback);
+		if (liveTimer) { clearInterval(liveTimer); }
+		run.liveStep = undefined;
 		if (typeof r.tokens === 'number') { run.budget.usedTokens += r.tokens; }
 		// Make what the sub-agent actually did visible in the "Qoka Loop" output: the tail of its output,
 		// any error it reported, and whether it captured code - so a stuck loop can be diagnosed.
@@ -388,14 +423,12 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 		if (verdict.pass) {
 			run.status = 'success';
 			opts.persist(run);
-			prune();
 			return 'success';
 		}
 		if (noProgress(run)) {
 			run.status = 'failed';
 			run.reason = 'no progress (same failure repeated)';
 			opts.persist(run);
-			prune();
 			return 'failed-structural';
 		}
 		feedback = buildIterationFeedback(verdict, r);
@@ -403,7 +436,6 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 		opts.log?.(`iter ${run.iteration - 1}: feedback handed to next iteration ->\n${feedback}`);
 	}
 
-	prune();
 	run.status = 'failed';
 	run.reason = 'budget exhausted';
 	opts.persist(run);
