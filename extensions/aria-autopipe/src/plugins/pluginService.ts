@@ -28,9 +28,17 @@ export interface DataSourceCommands {
 /** When a plugin viewer claims a whole pipeline result DIRECTORY (rather than
  *  a single file extension). A `results/<run>/` folder carries a
  *  `.qoka-pipeline.json` marker naming the pipeline that produced it; a
- *  pipeline-type plugin whose `names` list includes that name renders the
- *  folder as one dashboard. Mirrors autopipe's `pipeline_match`. */
+ *  pipeline-type plugin claims the folder when ANY of its rules match (the
+ *  marker name is in a rule's `names`, OR all of a rule's `required_files` are
+ *  present). Mirrors autopipe's `pipeline_match`. The current plugins use the
+ *  `rules[]` shape; `names`/`required_files` at the top level is the legacy
+ *  single-rule form, still accepted. */
+export interface PipelineMatchRule {
+	names?: string[];
+	required_files?: string[];
+}
 export interface PipelineMatch {
+	rules?: PipelineMatchRule[];
 	names?: string[];
 	required_files?: string[];
 }
@@ -226,32 +234,46 @@ export class PluginService {
 	}
 
 	/**
-	 * Find a pipeline-type plugin that claims a whole result directory. A
-	 * match needs the folder's marker `pipelineName` to appear in the
-	 * plugin's `pipeline_match.names`, and every `required_files` entry (if
-	 * any) to be present in `dirFiles`. Returns null when nothing matches -
+	 * Find a pipeline-type plugin that claims a whole result directory. Mirrors
+	 * the autopipe app's matcher: collect the plugin's rules (the `rules[]`
+	 * shape plus a legacy top-level names/required_files as one rule), and the
+	 * folder matches when ANY rule matches - either the folder's marker
+	 * `pipelineName` is in the rule's `names`, OR all of the rule's
+	 * `required_files` are present in `dirFiles`. So one viewer can claim a
+	 * folder by name even when its outputs vary, or by output files even when
+	 * the marker name is missing/renamed. Returns null when nothing matches -
 	 * the caller then falls back to the per-file viewer.
 	 */
 	findForPipeline(pipelineName: string, dirFiles: string[]): InstalledPlugin | null {
-		const wanted = pipelineName.trim().toLowerCase();
-		if (!wanted) {
-			return null;
-		}
+		const marker = pipelineName.trim().toLowerCase();
+		// The marker records the Docker image name, which Qoka builds as
+		// `autopipe-<pipeline>`, but a plugin's `names` list the bare pipeline
+		// name (e.g. "aptaselect"). Match on both so the image-name marker still
+		// resolves to the pipeline viewer.
+		const markerCandidates = new Set([marker, marker.replace(/^autopipe-/, '')].filter(Boolean));
 		const present = new Set(dirFiles.map(f => f.toLowerCase()));
 		for (const p of this.listInstalled()) {
 			if (p.manifest.plugin_type !== 'pipeline') {
 				continue;
 			}
 			const match = p.manifest.pipeline_match;
-			if (!match || !Array.isArray(match.names)) {
+			if (!match) {
 				continue;
 			}
-			if (!match.names.some(n => String(n).trim().toLowerCase() === wanted)) {
-				continue;
+			const rules: PipelineMatchRule[] = Array.isArray(match.rules) ? [...match.rules] : [];
+			// Legacy single-rule form: top-level names / required_files.
+			if ((match.names && match.names.length) || (match.required_files && match.required_files.length)) {
+				rules.push({ names: match.names, required_files: match.required_files });
 			}
-			const required = Array.isArray(match.required_files) ? match.required_files : [];
-			if (required.every(f => present.has(String(f).toLowerCase()))) {
-				return p;
+			for (const r of rules) {
+				const names = Array.isArray(r.names) ? r.names : [];
+				if (names.some(n => markerCandidates.has(String(n).trim().toLowerCase()))) {
+					return p;
+				}
+				const required = Array.isArray(r.required_files) ? r.required_files : [];
+				if (required.length && required.every(f => present.has(String(f).trim().toLowerCase()))) {
+					return p;
+				}
 			}
 		}
 		return null;
