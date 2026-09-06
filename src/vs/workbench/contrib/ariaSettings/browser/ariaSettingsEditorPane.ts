@@ -23,6 +23,7 @@ import { ProvidersSection } from './sections/providersSection.js';
 import { ConnectionsSection } from './sections/connectionsSection.js';
 import { AutopipeSection } from './sections/autopipeSection.js';
 import { ResultViewerSection } from './sections/resultViewerSection.js';
+import { BioRenderSection } from './sections/bioRenderSection.js';
 import { SkillsSection } from './sections/skillsSection.js';
 import { onDidRequestSkillsRefresh } from './settingsEvents.js';
 
@@ -126,6 +127,7 @@ export class AriaSettingsEditorPane extends EditorPane {
 		add('Connections', (body, header) => new ConnectionsSection(body, this.commandService, header), false);
 		add('Autopipe', (body, header) => new AutopipeSection(body, this.commandService, header), false);
 		add('Result Viewer', (body, header) => new ResultViewerSection(body, this.commandService, header), false);
+		add('BioRender', (body, header) => new BioRenderSection(body, this.commandService, header), false);
 		const skills = add('Skills', (body, header) => new SkillsSection(body, this.commandService, header), false);
 		// The extension refreshes the Skills UI through aria.skills.requestRefresh.
 		this.sectionStore.add(onDidRequestSkillsRefresh(() => void skills.refresh()));

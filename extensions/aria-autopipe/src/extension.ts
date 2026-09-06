@@ -27,6 +27,8 @@ import { registerSetupCommands } from './commands/setupCommands';
 import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames, NATIVE_VIEWER_NAMES } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
+import { BioRenderAuthService } from './biorender/bioRenderAuth';
+import { registerBioRenderWithProviders, unregisterBioRenderFromProviders } from './registration/biorenderMcp';
 import { ensureWorkspaceScaffold } from './common/workspaceSync';
 import { NotebookKernel } from './notebook/controller';
 
@@ -58,6 +60,32 @@ let lastEnvRegistration: { claude: ClientRegistration; codex: ClientRegistration
 // Set at activate(). refreshAiRegistrations needs globalState for the Codex
 // reload prompt, and it runs outside activate()'s scope.
 let extensionContext: vscode.ExtensionContext | undefined;
+
+// BioRender MCP (built-in remote OAuth server). Qoka owns the token and injects
+// it into the AI CLIs as a bearer header; login lives in Settings. lastBioRenderToken
+// dedupes re-registration when the registration coordinator re-runs.
+let bioRenderAuth: BioRenderAuthService | undefined;
+let lastBioRenderToken: string | null = null;
+
+/** (Re)register or drop the built-in BioRender MCP based on the stored login.
+ *  Refreshes the token if needed. Deduped by token so the coordinator can call
+ *  it freely. `force` bypasses the dedupe (login / logout). */
+async function syncBioRenderRegistration(force = false): Promise<void> {
+	if (!bioRenderAuth) { return; }
+	try {
+		const token = await bioRenderAuth.getValidAccessToken();
+		if (token) {
+			if (!force && token === lastBioRenderToken) { return; }
+			await registerBioRenderWithProviders(token);
+			lastBioRenderToken = token;
+		} else {
+			if (force || lastBioRenderToken !== null) { await unregisterBioRenderFromProviders(); }
+			lastBioRenderToken = null;
+		}
+	} catch (err) {
+		console.warn('[aria-autopipe] syncBioRenderRegistration failed:', (err as Error).message);
+	}
+}
 
 // globalState flag: the user pressed "Continue without the run environment" during
 // first-run WSL/Ubuntu setup. While set, we don't auto-install or gate on launch -
@@ -103,6 +131,7 @@ let wslSetupPending = false;
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
 	extensionContext = context;
+	bioRenderAuth = new BioRenderAuthService(context.secrets);
 
 	// On every activation (idempotent, best-effort): migrate any old autopipe/ +
 	// mixed layout to the unified data/analysis/results tree AND make sure those
@@ -393,6 +422,28 @@ export function activate(context: vscode.ExtensionContext): void {
 			return false;
 		}
 	}));
+
+	// BioRender MCP: login/logout/status for the Settings "BioRender" section.
+	// Login runs Qoka's own OAuth (loopback), stores the token, and injects it
+	// into the AI CLIs as a bearer header so the chat uses the user's account.
+	context.subscriptions.push(
+		vscode.commands.registerCommand('aria.biorender.getStatus', async () => (bioRenderAuth ? bioRenderAuth.getStatus() : { connected: false })),
+		vscode.commands.registerCommand('aria.biorender.login', async () => {
+			if (!bioRenderAuth) { return { ok: false, message: 'BioRender service not ready.' }; }
+			const r = await bioRenderAuth.login();
+			if (r.ok) { await syncBioRenderRegistration(true); }
+			return r;
+		}),
+		vscode.commands.registerCommand('aria.biorender.logout', async () => {
+			if (!bioRenderAuth) { return; }
+			await bioRenderAuth.logout();
+			await syncBioRenderRegistration(true);
+		}),
+	);
+	// Returning user: if a token is already stored, register the built-in
+	// BioRender MCP now (silent refresh); if logged out (or the refresh fails),
+	// clear any stale entry so the CLI never falls back to its own OAuth prompt.
+	void syncBioRenderRegistration(true);
 
 	// Keep the Hub client's base URL in sync with config changes (the user
 	// can switch registries by editing config, even though we don't yet
@@ -1036,6 +1087,10 @@ async function refreshAiRegistrations(): Promise<{ changed: boolean; registered:
 					if (r.ok) { newlyConnected.push('Codex (qoka-environment)'); }
 				}
 			}
+
+			// Keep the built-in BioRender MCP registered too (only re-adds when the
+			// token changed, so this is cheap on repeat coordinator runs).
+			void syncBioRenderRegistration();
 
 			return {
 				changed: newlyConnected.length > 0,
