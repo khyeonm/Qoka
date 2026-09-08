@@ -3,18 +3,18 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { exec, spawn } from 'child_process';
+import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { candidateClaudePaths, candidateCodexPaths } from '../detection/claudeCodeDetector';
+import { BioRenderAuthService, BioRenderStatus, BIORENDER_MCP_URL } from '../biorender/bioRenderAuth';
 
 const execAsync = promisify(exec);
 
 /** Diagnostic log shipped in the release: open View > Output > "Qoka BioRender" to
  *  see exactly what the connect/disconnect flow did (resolved CLI paths, the
- *  command run, the CLI's output, exit code, status) - so Windows/Mac issues can be
- *  diagnosed from the installed build without a rebuild. No secrets are logged (the
- *  OAuth token is stored by the CLI, never printed here). */
+ *  command run, the CLI's output). No secrets are logged - the bearer token is
+ *  never printed here. */
 let bioLog: vscode.OutputChannel | undefined;
 function blog(msg: string): void {
 	try { (bioLog ??= vscode.window.createOutputChannel('Qoka BioRender')).appendLine(`[${new Date().toISOString()}] ${msg}`); } catch { /* noop */ }
@@ -24,15 +24,24 @@ function blog(msg: string): void {
 /**
  * Built-in BioRender MCP (a REMOTE OAuth server at mcp.services.biorender.com).
  *
- * BioRender advertises OAuth, and the AI CLIs run their OWN OAuth for such a
- * server - a statically injected `Authorization` header is ignored, so the
- * earlier "Qoka owns the token" approach did NOT authenticate Claude. Instead we
- * register the server (built-in, headerless) and drive the CLI's own OAuth from
- * Settings via `claude mcp login` / `logout` (the CLI opens the browser and
- * stores the token itself - the same thing the chat's `/mcp` Authenticate does).
+ * Qoka owns the OAuth token itself (BioRenderAuthService: loopback + PKCE + dynamic
+ * client registration, stored in SecretStorage) and injects it into each AI CLI's
+ * MCP config as an `Authorization: Bearer` header. The CLI then sends that header
+ * on connect and never runs its OWN OAuth - so there is exactly ONE browser sign-in
+ * (the Settings "Connect" button), and none at startup. This replaces the earlier
+ * `claude mcp login` approach, under which every MCP client re-authenticated on
+ * connect and popped a browser window on each Qoka launch.
+ *
+ * A stored token survives restarts and is refreshed transparently, so reconnecting
+ * after a restart is silent. Registration is refreshed (remove-then-add, because
+ * `mcp add` refuses to overwrite) whenever we have a fresh token, so each new chat
+ * session picks up a current bearer.
+ *
+ * Verified: Claude Code 2.1.x honors the injected header (sends it from the first
+ * `initialize` and never probes OAuth). Codex header support is best-effort and
+ * still to be confirmed on a machine that has Codex installed.
  */
 
-export const BIORENDER_MCP_URL = 'https://mcp.services.biorender.com/mcp';
 const NAME = 'biorender';
 
 function quoteArg(s: string): string {
@@ -52,209 +61,107 @@ async function resolveBinary(primary: string, candidates: string[]): Promise<str
  *  project's config, never in Claude's global `user` config that every other
  *  VS Code / terminal Claude would also read. Local scope needs a project cwd, so
  *  this returns undefined when no workspace is open (nothing to register into). */
-function claudeLocalScope(): { opts: { timeout: number; cwd: string } } | undefined {
-	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-	return cwd ? { opts: { timeout: 15000, cwd } } : undefined;
+function claudeCwd(): string | undefined {
+	return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
-/** Ensure the built-in BioRender remote MCP is registered (headerless) with each
- *  present AI CLI, so it is there from the start and can be authenticated via the
- *  CLI's own OAuth. Idempotent: skips a CLI that already has it. */
-export async function ensureBioRenderRegistered(): Promise<void> {
+// --- Claude (verified header support) ---
+
+async function claudeRemove(claude: string, cwd: string): Promise<void> {
+	try { await execAsync(`${quoteArg(claude)} mcp remove --scope local ${NAME}`, { timeout: 15000, cwd }); } catch { /* not present - fine */ }
+}
+
+async function claudeAddWithBearer(claude: string, cwd: string, token: string): Promise<void> {
+	// `mcp add` refuses to overwrite an existing server ("already exists"), so remove
+	// first to refresh the bearer header with a current token.
+	await claudeRemove(claude, cwd);
+	const header = `Authorization: Bearer ${token}`;
+	await execAsync(`${quoteArg(claude)} mcp add --scope local ${NAME} ${quoteArg(BIORENDER_MCP_URL)} --transport http --header ${quoteArg(header)}`, { timeout: 15000, cwd });
+}
+
+// --- Codex (best-effort; header support unconfirmed) ---
+
+async function codexRemove(codex: string): Promise<void> {
+	try { await execAsync(`${quoteArg(codex)} mcp remove ${NAME}`, { timeout: 10000 }); } catch { /* not present - fine */ }
+}
+
+async function codexAddWithBearer(codex: string, token: string): Promise<void> {
+	await codexRemove(codex);
+	const header = `Authorization: Bearer ${token}`;
+	// Try to register WITH the header. We deliberately do NOT fall back to a
+	// headerless registration on failure: a headerless remote-OAuth server makes the
+	// CLI run its own OAuth and pop a browser on connect, which is exactly what this
+	// design eliminates. If Codex does not accept --header, biorender is simply not
+	// registered for Codex (surfaced in the log) until that path is confirmed.
+	await execAsync(`${quoteArg(codex)} mcp add ${NAME} --url ${quoteArg(BIORENDER_MCP_URL)} --header ${quoteArg(header)}`, { timeout: 10000 });
+}
+
+/**
+ * Reconcile the BioRender MCP registration with the current login state:
+ *  - logged in  -> register (or refresh) both CLIs with a current bearer header
+ *  - logged out -> remove the registration so nothing tries to connect
+ *  - connected but a transient token refresh failed -> leave the existing
+ *    registration untouched (do NOT remove; the next refresh recovers it)
+ * Safe to call on activation and before each chat session.
+ */
+export async function ensureBioRenderRegistered(auth: BioRenderAuthService): Promise<void> {
+	const connected = await auth.isConnected();
+	const token = connected ? await auth.getValidAccessToken() : null;
+	const cwd = claudeCwd();
+
 	const claude = await resolveBinary('claude', candidateClaudePaths());
-	const scoped = claudeLocalScope();
-	if (claude && scoped) {
-		const q = quoteArg(claude);
-		const { opts } = scoped;
-		if (await needsAdd(`${q} mcp get ${NAME}`, opts)) {
-			try {
-				await execAsync(`${q} mcp add --scope local ${NAME} ${quoteArg(BIORENDER_MCP_URL)} --transport http`, opts);
-				blog('ensureRegistered(claude): added biorender (local scope)');
-			} catch (err) {
-				blog(`ensureRegistered(claude): add failed: ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`);
-			}
+	if (claude && cwd) {
+		if (token) {
+			try { await claudeAddWithBearer(claude, cwd, token); blog('ensureRegistered(claude): registered with bearer header (local scope)'); }
+			catch (err) { blog(`ensureRegistered(claude): add failed: ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`); }
+		} else if (!connected) {
+			await claudeRemove(claude, cwd); blog('ensureRegistered(claude): not logged in -> removed registration');
 		}
 	}
+
 	const codex = await resolveBinary('codex', candidateCodexPaths());
 	if (codex) {
-		const q = quoteArg(codex);
-		if (await needsAdd(`${q} mcp get ${NAME}`, { timeout: 10000 })) {
-			try { await execAsync(`${q} mcp add ${NAME} --url ${quoteArg(BIORENDER_MCP_URL)}`, { timeout: 10000 }); blog('ensureRegistered(codex): added biorender'); } catch { /* best-effort */ }
+		if (token) {
+			try { await codexAddWithBearer(codex, token); blog('ensureRegistered(codex): registered with bearer header'); }
+			catch (err) { blog(`ensureRegistered(codex): add --header failed (Codex header support unconfirmed): ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`); }
+		} else if (!connected) {
+			await codexRemove(codex); blog('ensureRegistered(codex): not logged in -> removed registration');
 		}
 	}
 }
 
-/** Decide whether biorender must be (re)ADDED. CRUCIAL: we only add when the CLI
- *  CLEARLY reports the server is absent. A `mcp get` that times out or errors
- *  ambiguously (common when all 8 Qoka extensions hit ~/.claude.json at once on
- *  activation) must NOT trigger a re-add - re-adding RESETS the server entry and
- *  drops its stored OAuth login, which made BioRender re-authenticate (browser
- *  pop-up) on every window reload / relaunch. */
-async function needsAdd(getCmd: string, opts: { timeout: number; cwd?: string }): Promise<boolean> {
-	try {
-		await execAsync(getCmd, opts);
-		return false; // server present (even if it currently "Needs authentication")
-	} catch (e) {
-		const msg = `${(e as { stdout?: string }).stdout ?? ''}\n${(e as { stderr?: string }).stderr ?? ''}\n${String(e)}`;
-		const clearlyAbsent = /no (mcp )?server|not found|no such|isn't (registered|configured)/i.test(msg);
-		if (!clearlyAbsent) { blog(`needsAdd: ambiguous mcp get failure -> NOT re-adding (avoid wiping auth): ${msg.trim().slice(0, 160)}`); }
-		return clearlyAbsent;
-	}
-}
-
 /**
- * Run `<bin> mcp login biorender` inside a hidden `script` PTY (the CLI needs a TTY)
- * and resolve with the captured output once it exits or `timeoutMs` elapses. The CLI
- * runs the whole OAuth itself (opens the browser + its own loopback listener); we
- * only allocate the PTY and read its output. stdin MUST be /dev/null ('ignore'):
- * a piped stdin is a socketpair, and macOS `script` calls tcgetattr on it and dies
- * with "Operation not supported on socket" before it runs the command.
+ * Connect: run Qoka's own OAuth (opens the browser once), store the token, and
+ * register both CLIs with the bearer header. Cross-platform identical - no PTY, no
+ * terminal, no CLI `mcp login` - because Qoka owns the whole flow.
  */
-function runPtyLogin(bin: string, cwd: string | undefined, timeoutMs: number): Promise<string> {
-	const isMac = process.platform === 'darwin';
-	const inner = `${quoteArg(bin)} mcp login ${NAME}`;
-	const args = isMac ? ['-q', '/dev/null', bin, 'mcp', 'login', NAME] : ['-qfc', inner, '/dev/null'];
-	blog(`login(pty): ${bin} script ${args.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`);
-	return new Promise<string>((resolve) => {
-		let settled = false;
-		let out = '';
-		const child = spawn('script', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-		const finish = () => { if (settled) { return; } settled = true; clearTimeout(timer); try { child.kill(); } catch { /* noop */ } resolve(out); };
-		const onData = (d: Buffer) => { out += d.toString('utf8'); };
-		child.stdout?.on('data', onData);
-		child.stderr?.on('data', onData);
-		child.on('error', (e) => { blog(`login(pty): ${bin} spawn error ${String(e)}`); finish(); });
-		child.on('exit', (code, signal) => { blog(`login(pty): ${bin} exit code=${code} signal=${signal}`); finish(); });
-		const timer = setTimeout(() => { blog(`login(pty): ${bin} timeout after ${timeoutMs}ms`); finish(); }, timeoutMs);
-	});
-}
-
-/**
- * Run the CLI's own OAuth for BioRender. On Linux/macOS this happens WITHOUT
- * showing a terminal (Easy mode's goal is that users never touch one); on Windows,
- * where no headless PTY is available, it falls back to an integrated terminal (see
- * the win32 branch below). `claude mcp login` needs a TTY (a headless child fails
- * with "stdin isn't a terminal"), so we allocate a hidden pseudo-terminal with
- * `script` and drive the flow ourselves:
- *
- *  - Case A (loopback): the CLI opens the browser and catches the OAuth redirect
- *    on its own localhost listener. The PTY just satisfies its TTY check; the
- *    user only signs in.
- *  - Case B (paste redirect URL): the CLI prints an authorize URL and waits for
- *    the redirect URL to be pasted. We parse the redirect port from that URL,
- *    stand up a loopback listener there, capture the browser callback, and type
- *    the full URL back into the CLI's stdin - so the user still only signs in.
- *
- * We also open the authorize URL via `openExternal` (the sandboxed extension host
- * may not open it itself). Resolves once the CLI exits and status confirms the
- * connection, and shows a "start a new chat session" notice so the running
- * session (which connected its MCPs at spawn) picks up the now-authenticated MCP.
- */
-export async function loginBioRender(): Promise<{ ok: boolean; message: string }> {
+export async function loginBioRender(auth: BioRenderAuthService): Promise<{ ok: boolean; message: string }> {
 	blog(`login: start platform=${process.platform}`);
-	await ensureBioRenderRegistered();
-	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-
-	// Windows has no `script` and no headless ConPTY for the ext host, so run the
-	// login in a real integrated terminal (which owns a ConPTY). Two Windows-specific
-	// gotchas we handle here: (1) use FULL binary paths - the terminal's PATH does
-	// NOT include Qoka's isolated ~/.qoka/bin, so a bare `claude`/`codex` is "not
-	// recognized"; (2) PowerShell (the usual default shell) needs the call operator
-	// `&` to run a quoted path, so we force PowerShell and single-quote the paths.
-	// Sign in every installed CLI (Claude and/or Codex) the user has.
-	if (process.platform === 'win32') {
-		// Resolve via resolveBinary (bare name if on the ext host PATH, else a full
-		// candidate path). candidateCodexPaths()[0] alone missed a codex that lives on
-		// PATH but not in ~/.qoka - which is why codex login never ran. The terminal
-		// gets the ext host PATH below, so a bare `codex` resolves there too.
-		const claudeBin = await resolveBinary('claude', candidateClaudePaths());
-		const codexBin = await resolveBinary('codex', candidateCodexPaths());
-		blog(`login(win32): claude=${claudeBin ?? '(none)'} codex=${codexBin ?? '(none)'}`);
-		const cmds: string[] = [];
-		if (claudeBin) { cmds.push(`& '${claudeBin}' mcp login ${NAME}`); }
-		if (codexBin) { cmds.push(`& '${codexBin}' mcp login ${NAME}`); }
-		if (cmds.length === 0) { blog('login(win32): no CLI found'); return { ok: false, message: 'No AI CLI (Claude or Codex) found to sign in to BioRender.' }; }
-		blog(`login(win32): terminal cmd = ${cmds.join('; ')}`);
-		// The claude/codex .cmd wrappers invoke `node`, and Qoka's node lives in an
-		// isolated dir that the plain terminal's PATH does not include ("'node' is not
-		// recognized"). Hand the terminal the extension host's PATH, which DOES resolve
-		// node and the CLIs (it is what runs `claude mcp add` successfully).
-		const extPath = process.env.PATH ?? process.env.Path;
-		const term = vscode.window.createTerminal({
-			name: 'BioRender login', cwd, shellPath: 'powershell.exe',
-			// -ExecutionPolicy Bypass: codex ships as codex.ps1, and the default
-			// PowerShell policy (Restricted/RemoteSigned) refuses to load it
-			// ("cannot be loaded because running scripts is disabled"), which blocked
-			// the codex login. Bypass lets the .ps1 wrapper run for this session only.
-			shellArgs: ['-NoExit', '-ExecutionPolicy', 'Bypass', '-Command', cmds.join('; ')],
-			env: extPath ? { PATH: extPath } : undefined,
-		});
-		term.show(true);
-		return { ok: true, message: 'Complete the BioRender sign-in in the terminal that just opened (a browser opens for sign-in). This updates once connected.' };
-	}
-
-	const claude = await resolveBinary('claude', candidateClaudePaths());
-	if (!claude) { blog('login(pty): claude not found'); return { ok: false, message: 'Claude CLI not found on PATH or known install locations.' }; }
-
-	// Sign Claude in first (its status is what drives the connected/disconnected UI).
-	const claudeOut = await runPtyLogin(claude, cwd, 300000);
-	blog(`login(pty): claude output=<<<\n${claudeOut.slice(0, 4000)}\n>>>`);
-
-	// Then sign Codex in too, best-effort, so a Codex-provider chat can use BioRender
-	// as well. The win32 branch already logs BOTH CLIs in; this makes macOS/Linux
-	// match (previously only Claude was signed in here, so Codex stayed unauthenticated
-	// and chat reported BioRender as not connected). A shorter timeout bounds the wait
-	// if `codex mcp login` is unsupported or stalls; a failure never blocks Claude.
-	const codex = await resolveBinary('codex', candidateCodexPaths());
-	if (codex) {
-		try { const codexOut = await runPtyLogin(codex, cwd, 180000); blog(`login(pty): codex output=<<<\n${codexOut.slice(0, 2000)}\n>>>`); }
-		catch (e) { blog(`login(pty): codex login failed: ${String(e).slice(0, 200)}`); }
-	} else {
-		blog('login(pty): codex not found -> skipping codex login');
-	}
-
-	const st = await bioRenderStatus();
-	blog(`login(pty): post-login status connected=${st.connected}`);
-	const result = st.connected
-		? { ok: true, message: 'Connected to BioRender.' }
-		: { ok: false, message: 'BioRender login did not complete. Click Connect to try again.' };
-	blog(`login(pty): result ok=${result.ok} message=${result.message}`);
-
-	if (result.ok) {
+	const r = await auth.login();
+	blog(`login: auth result ok=${r.ok} account=${r.account ?? '(none)'} ${r.ok ? '' : 'message=' + r.message}`);
+	if (r.ok) {
+		await ensureBioRenderRegistered(auth);
 		void vscode.window.showInformationMessage('BioRender is connected.');
 	}
-	return result;
+	return { ok: r.ok, message: r.message };
 }
 
-/** Clear the CLI's stored BioRender OAuth credentials. */
-export async function logoutBioRender(): Promise<void> {
+/** Disconnect: drop Qoka's stored token and remove the registration from both CLIs
+ *  so the chat no longer sees BioRender. */
+export async function logoutBioRender(auth: BioRenderAuthService): Promise<void> {
 	blog('logout: start');
+	await auth.logout();
+	const cwd = claudeCwd();
 	const claude = await resolveBinary('claude', candidateClaudePaths());
-	const scoped = claudeLocalScope();
-	if (claude && scoped) {
-		try { const r = await execAsync(`${quoteArg(claude)} mcp logout ${NAME}`, scoped.opts); blog(`logout(claude): ${(r.stdout || r.stderr || 'ok').trim().slice(0, 300)}`); } catch (e) { blog(`logout(claude) failed: ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`); }
-	}
+	if (claude && cwd) { await claudeRemove(claude, cwd); blog('logout(claude): removed registration'); }
 	const codex = await resolveBinary('codex', candidateCodexPaths());
-	if (codex) { try { const r = await execAsync(`${quoteArg(codex)} mcp logout ${NAME}`, { timeout: 10000 }); blog(`logout(codex): ${(r.stdout || r.stderr || 'ok').trim().slice(0, 300)}`); } catch (e) { blog(`logout(codex) failed (may be unsupported): ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`); } }
+	if (codex) { await codexRemove(codex); blog('logout(codex): removed registration'); }
 }
 
-/** Connected when Claude Code has BioRender registered and NOT flagged as needing
- *  authentication (`claude mcp get biorender`). */
-export async function bioRenderStatus(): Promise<{ connected: boolean }> {
-	const claude = await resolveBinary('claude', candidateClaudePaths());
-	if (!claude) { blog('status: claude not found -> disconnected'); return { connected: false }; }
-	const scoped = claudeLocalScope();
-	if (!scoped) { blog('status: no workspace -> disconnected'); return { connected: false }; }
-	const q = quoteArg(claude);
-	const { opts } = scoped;
-	try {
-		const out = await execAsync(`${q} mcp get ${NAME}`, opts);
-		const s = out.stdout;
-		const connected = /biorender/i.test(s) && !/needs authentication/i.test(s) && !/not found/i.test(s);
-		blog(`status: connected=${connected} get=<<<\n${s.trim().slice(0, 800)}\n>>>`);
-		return { connected };
-	} catch (e) {
-		blog(`status: mcp get failed: ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`);
-		return { connected: false };
-	}
+/** Connected when Qoka holds a BioRender token (in SecretStorage). Instant, offline
+ *  friendly, and accurate right after connect/disconnect - no CLI round-trip. */
+export async function bioRenderStatus(auth: BioRenderAuthService): Promise<BioRenderStatus> {
+	const st = await auth.getStatus();
+	blog(`status: connected=${st.connected} account=${st.account ?? '(none)'}`);
+	return st;
 }
