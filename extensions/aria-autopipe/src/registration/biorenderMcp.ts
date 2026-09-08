@@ -117,12 +117,16 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 	// `&` to run a quoted path, so we force PowerShell and single-quote the paths.
 	// Sign in every installed CLI (Claude and/or Codex) the user has.
 	if (process.platform === 'win32') {
-		const claudeFull = candidateClaudePaths()[0];
-		const codexFull = candidateCodexPaths()[0];
-		blog(`login(win32): claudeFull=${claudeFull ?? '(none)'} codexFull=${codexFull ?? '(none)'}`);
+		// Resolve via resolveBinary (bare name if on the ext host PATH, else a full
+		// candidate path). candidateCodexPaths()[0] alone missed a codex that lives on
+		// PATH but not in ~/.qoka - which is why codex login never ran. The terminal
+		// gets the ext host PATH below, so a bare `codex` resolves there too.
+		const claudeBin = await resolveBinary('claude', candidateClaudePaths());
+		const codexBin = await resolveBinary('codex', candidateCodexPaths());
+		blog(`login(win32): claude=${claudeBin ?? '(none)'} codex=${codexBin ?? '(none)'}`);
 		const cmds: string[] = [];
-		if (claudeFull) { cmds.push(`& '${claudeFull}' mcp login ${NAME}`); }
-		if (codexFull) { cmds.push(`& '${codexFull}' mcp login ${NAME}`); }
+		if (claudeBin) { cmds.push(`& '${claudeBin}' mcp login ${NAME}`); }
+		if (codexBin) { cmds.push(`& '${codexBin}' mcp login ${NAME}`); }
 		if (cmds.length === 0) { blog('login(win32): no CLI found'); return { ok: false, message: 'No AI CLI (Claude or Codex) found to sign in to BioRender.' }; }
 		blog(`login(win32): terminal cmd = ${cmds.join('; ')}`);
 		// The claude/codex .cmd wrappers invoke `node`, and Qoka's node lives in an
@@ -197,9 +201,15 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 	blog(`login(pty): result ok=${result.ok} message=${result.message}`);
 
 	if (result.ok) {
+		// A new chat SESSION reuses the already-running assistant process, which
+		// connected BioRender (unauthenticated) at startup and cached it - so the chat
+		// still says "needs authentication". Reloading the window restarts that process
+		// so it reconnects WITH the login. Offer a one-click reload.
+		const RELOAD = 'Reload Window';
 		void vscode.window.showInformationMessage(
-			'BioRender is connected. Start a new chat session so the assistant can use BioRender.',
-		);
+			'BioRender is connected. Reload the window so the assistant reconnects with your BioRender login.',
+			RELOAD,
+		).then(choice => { if (choice === RELOAD) { void vscode.commands.executeCommand('workbench.action.reloadWindow'); } });
 	}
 	return result;
 }
