@@ -103,6 +103,33 @@ async function needsAdd(getCmd: string, opts: { timeout: number; cwd?: string })
 }
 
 /**
+ * Run `<bin> mcp login biorender` inside a hidden `script` PTY (the CLI needs a TTY)
+ * and resolve with the captured output once it exits or `timeoutMs` elapses. The CLI
+ * runs the whole OAuth itself (opens the browser + its own loopback listener); we
+ * only allocate the PTY and read its output. stdin MUST be /dev/null ('ignore'):
+ * a piped stdin is a socketpair, and macOS `script` calls tcgetattr on it and dies
+ * with "Operation not supported on socket" before it runs the command.
+ */
+function runPtyLogin(bin: string, cwd: string | undefined, timeoutMs: number): Promise<string> {
+	const isMac = process.platform === 'darwin';
+	const inner = `${quoteArg(bin)} mcp login ${NAME}`;
+	const args = isMac ? ['-q', '/dev/null', bin, 'mcp', 'login', NAME] : ['-qfc', inner, '/dev/null'];
+	blog(`login(pty): ${bin} script ${args.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`);
+	return new Promise<string>((resolve) => {
+		let settled = false;
+		let out = '';
+		const child = spawn('script', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+		const finish = () => { if (settled) { return; } settled = true; clearTimeout(timer); try { child.kill(); } catch { /* noop */ } resolve(out); };
+		const onData = (d: Buffer) => { out += d.toString('utf8'); };
+		child.stdout?.on('data', onData);
+		child.stderr?.on('data', onData);
+		child.on('error', (e) => { blog(`login(pty): ${bin} spawn error ${String(e)}`); finish(); });
+		child.on('exit', (code, signal) => { blog(`login(pty): ${bin} exit code=${code} signal=${signal}`); finish(); });
+		const timer = setTimeout(() => { blog(`login(pty): ${bin} timeout after ${timeoutMs}ms`); finish(); }, timeoutMs);
+	});
+}
+
+/**
  * Run the CLI's own OAuth for BioRender. On Linux/macOS this happens WITHOUT
  * showing a terminal (Easy mode's goal is that users never touch one); on Windows,
  * where no headless PTY is available, it falls back to an integrated terminal (see
@@ -168,59 +195,29 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 
 	const claude = await resolveBinary('claude', candidateClaudePaths());
 	if (!claude) { blog('login(pty): claude not found'); return { ok: false, message: 'Claude CLI not found on PATH or known install locations.' }; }
-	const inner = `${quoteArg(claude)} mcp login ${NAME}`;
 
-	// `script` allocates the PTY. Its flags differ by platform: util-linux uses
-	// `-qfc "<cmd>" <file>`, BSD/macOS uses `-q <file> <cmd> <args...>`.
-	const isMac = process.platform === 'darwin';
-	const args = isMac
-		? ['-q', '/dev/null', claude, 'mcp', 'login', NAME]
-		: ['-qfc', inner, '/dev/null'];
-	blog(`login(pty): claude=${claude} script ${args.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`);
+	// Sign Claude in first (its status is what drives the connected/disconnected UI).
+	const claudeOut = await runPtyLogin(claude, cwd, 300000);
+	blog(`login(pty): claude output=<<<\n${claudeOut.slice(0, 4000)}\n>>>`);
 
-	const result = await new Promise<{ ok: boolean; message: string }>((resolve) => {
-		let settled = false;
-		let out = '';
+	// Then sign Codex in too, best-effort, so a Codex-provider chat can use BioRender
+	// as well. The win32 branch already logs BOTH CLIs in; this makes macOS/Linux
+	// match (previously only Claude was signed in here, so Codex stayed unauthenticated
+	// and chat reported BioRender as not connected). A shorter timeout bounds the wait
+	// if `codex mcp login` is unsupported or stalls; a failure never blocks Claude.
+	const codex = await resolveBinary('codex', candidateCodexPaths());
+	if (codex) {
+		try { const codexOut = await runPtyLogin(codex, cwd, 180000); blog(`login(pty): codex output=<<<\n${codexOut.slice(0, 2000)}\n>>>`); }
+		catch (e) { blog(`login(pty): codex login failed: ${String(e).slice(0, 200)}`); }
+	} else {
+		blog('login(pty): codex not found -> skipping codex login');
+	}
 
-		// stdin MUST be /dev/null ('ignore'), NOT a pipe: Node gives a piped child a
-		// socketpair stdin, and macOS `script` calls tcgetattr on its stdin and dies
-		// with "Operation not supported on socket" (exit 1) before it runs the command.
-		// /dev/null is a plain fd that script tolerates (we never write to stdin anyway).
-		const child = spawn('script', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-
-		const finish = (r: { ok: boolean; message: string }) => {
-			if (settled) { return; }
-			settled = true;
-			clearTimeout(timer);
-			try { child.kill(); } catch { /* noop */ }
-			resolve(r);
-		};
-
-		// The CLI does the whole OAuth itself: opens the browser AND runs its own
-		// loopback listener for the redirect. We must NOT touch that flow (an earlier
-		// version's own loopback listener RACED the CLI for the port and stole its
-		// callback on macOS). We just capture stdout/stderr for the log and wait.
-		const onData = (d: Buffer) => { out += d.toString('utf8'); };
-		child.stdout?.on('data', onData);
-		child.stderr?.on('data', onData);
-		child.on('error', (e) => { blog(`login(pty): spawn error ${String(e)}`); finish({ ok: false, message: 'Could not start the login helper (script/claude not found).' }); });
-		child.on('exit', async (code, signal) => {
-			blog(`login(pty): exit code=${code} signal=${signal} output=<<<\n${out.slice(0, 4000)}\n>>>`);
-			const st = await bioRenderStatus();
-			blog(`login(pty): post-exit status connected=${st.connected}`);
-			finish(st.connected
-				? { ok: true, message: 'Connected to BioRender.' }
-				: { ok: false, message: 'BioRender login did not complete. Click Connect to try again.' });
-		});
-
-		const timer = setTimeout(async () => {
-			blog(`login(pty): timeout after 300s output=<<<\n${out.slice(0, 4000)}\n>>>`);
-			const st = await bioRenderStatus();
-			finish(st.connected
-				? { ok: true, message: 'Connected to BioRender.' }
-				: { ok: false, message: 'BioRender login timed out. Click Connect to try again.' });
-		}, 300000);
-	});
+	const st = await bioRenderStatus();
+	blog(`login(pty): post-login status connected=${st.connected}`);
+	const result = st.connected
+		? { ok: true, message: 'Connected to BioRender.' }
+		: { ok: false, message: 'BioRender login did not complete. Click Connect to try again.' };
 	blog(`login(pty): result ok=${result.ok} message=${result.message}`);
 
 	if (result.ok) {
