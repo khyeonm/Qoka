@@ -47,6 +47,23 @@ export class BioRenderSection extends SettingsSection {
 		Object.assign(this.errEl.style, { fontSize: '11px', color: 'var(--vscode-errorForeground)', marginTop: '6px' });
 		this.errEl.hidden = true;
 
+		// Persistent notice: the chat connects its MCP servers when the session starts,
+		// so a BioRender that was authenticated afterwards is only picked up by a NEW
+		// chat, and even then the CLI's status can lag by a moment. Spell that out here
+		// (the leading "*" is red; the rest uses the normal note colour) so a user who
+		// sees "needs authentication" in chat knows it is expected and how to confirm.
+		const notice = append(this.body, $('div'));
+		Object.assign(notice.style, {
+			fontSize: '11px', lineHeight: '1.5', marginTop: '10px', padding: '8px 10px', borderRadius: '4px',
+			border: '1px solid var(--vscode-panel-border, rgba(127,127,127,0.35))',
+		});
+		const star = append(notice, $('span'));
+		star.textContent = '* ';
+		Object.assign(star.style, { color: 'var(--vscode-errorForeground)' });
+		const noticeText = append(notice, $('span'));
+		noticeText.textContent = 'Connecting can take a moment. If a chat still says BioRender needs authentication, open a new chat or type /mcp in the chat to confirm it is connected.';
+		Object.assign(noticeText.style, { opacity: '0.7' });
+
 		// Show a "checking" state instantly, then update once the (slow) CLI status returns.
 		this.apply({ connected: false }, true);
 		void this.loadAndApply();
