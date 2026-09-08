@@ -93,12 +93,26 @@ export class BioRenderSection extends SettingsSection {
 		if (!button || this.busy) { return; }
 		this.busy = true;
 		if (this.errEl) { this.errEl.hidden = true; }
+		button.hidden = false;
 		button.disabled = true;
 		button.textContent = kind === 'connect' ? 'Connecting...' : 'Disconnecting...';
 		try {
 			if (kind === 'connect') {
 				const r = await this.commandService.executeCommand<{ ok?: boolean; message?: string }>('aria.biorender.login');
-				if (r && r.ok === false && this.errEl) { this.errEl.textContent = r.message ?? 'BioRender login failed.'; this.errEl.hidden = false; }
+				if (r && r.ok === false) {
+					if (this.errEl) { this.errEl.textContent = r.message ?? 'BioRender login failed.'; this.errEl.hidden = false; }
+				} else {
+					// The sign-in finishes ASYNCHRONOUSLY (on Windows it runs in a terminal;
+					// even elsewhere the CLI's status can lag), so a single check would show
+					// "not connected". Poll until the status flips to connected (or give up).
+					for (let i = 0; i < 45; i++) {
+						let st: BioRenderStatus = { connected: false };
+						try { st = (await this.commandService.executeCommand<BioRenderStatus>('aria.biorender.getStatus')) ?? { connected: false }; } catch { /* offline */ }
+						if (st.connected) { this.busy = false; this.apply(st, false); return; }
+						await new Promise(res => setTimeout(res, 2000));
+					}
+					this.busy = false; this.apply({ connected: false }, false); return;
+				}
 			} else {
 				await this.commandService.executeCommand('aria.biorender.logout');
 			}
