@@ -122,7 +122,10 @@ async function ensureDmgBuild(): Promise<void> {
 
 	console.log('Installing dmgbuild and dependencies into venv...');
 	const pipPath = path.join(venvPath, 'bin', 'pip');
-	await spawn(pipPath, ['install', dmgBuildPath], {
+	// Pillow is used both by dmgbuild (badge_icon compositing) and by our
+	// make-dmg-background.py, which draws the DMG background at build time. Install
+	// it explicitly so the background generator never fails on a bare venv.
+	await spawn(pipPath, ['install', dmgBuildPath, 'Pillow'], {
 		stdio: 'inherit'
 	});
 
@@ -162,7 +165,14 @@ async function main(buildDir?: string, outDir?: string): Promise<void> {
 	const appPath = path.join(appRoot, appName);
 	const dmgName = `${product.nameShort}-darwin-${arch}`;
 	const artifactPath = path.join(outDir, `${dmgName}.dmg`);
-	const backgroundPath = path.join(import.meta.dirname, `dmg-background-${quality}.tiff`);
+	// The DMG background is DRAWN at build time by make-dmg-background.py rather than
+	// read from a committed raster. A binary TIFF/PNG in git can be silently
+	// corrupted by text/line-ending normalisation (it broke the background once);
+	// a text generator script cannot. Set up the venv first (it provides Pillow),
+	// then render the background into the output dir.
+	await ensureDmgBuild();
+	const backgroundPath = path.join(outDir, '.dmg-background.tiff');
+	await spawn(getPythonPath(), [path.join(import.meta.dirname, 'make-dmg-background.py'), backgroundPath], { stdio: 'inherit' });
 	const diskIconPath = path.join(root, 'resources', 'darwin', 'code.icns');
 	// Mounted-volume title. Driven by product.json so the DMG window shows the
 	// product name (upstream hardcoded "VS Code" here, which leaked the wrong
@@ -207,6 +217,9 @@ async function main(buildDir?: string, outDir?: string): Promise<void> {
 	} finally {
 		if (fs.existsSync(settingsFile)) {
 			fs.unlinkSync(settingsFile);
+		}
+		if (fs.existsSync(backgroundPath)) {
+			fs.unlinkSync(backgroundPath);
 		}
 	}
 
