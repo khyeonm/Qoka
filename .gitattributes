@@ -9,3 +9,9 @@ ThirdPartyNotices.txt eol=crlf
 *.sh eol=lf
 *.rtf -text
 **/*.json linguist-language=jsonc
+
+# Binary image assets (never line-ending normalize - it corrupts them)
+*.tiff binary
+*.tif binary
+*.png binary
+*.icns binary

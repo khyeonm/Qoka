@@ -201,15 +201,7 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 	blog(`login(pty): result ok=${result.ok} message=${result.message}`);
 
 	if (result.ok) {
-		// A new chat SESSION reuses the already-running assistant process, which
-		// connected BioRender (unauthenticated) at startup and cached it - so the chat
-		// still says "needs authentication". Reloading the window restarts that process
-		// so it reconnects WITH the login. Offer a one-click reload.
-		const RELOAD = 'Reload Window';
-		void vscode.window.showInformationMessage(
-			'BioRender is connected. Reload the window so the assistant reconnects with your BioRender login.',
-			RELOAD,
-		).then(choice => { if (choice === RELOAD) { void vscode.commands.executeCommand('workbench.action.reloadWindow'); } });
+		void vscode.window.showInformationMessage('BioRender is connected.');
 	}
 	return result;
 }

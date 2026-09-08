@@ -1,3 +1,9 @@
 * text eol=lf
 *.exe binary
 *.dll binary
+
+# Binary images must NOT be eol-normalized (corrupts them)
+*.tiff binary
+*.tif binary
+*.png binary
+*.icns binary
