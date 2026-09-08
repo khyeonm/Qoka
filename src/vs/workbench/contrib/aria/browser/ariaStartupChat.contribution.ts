@@ -406,7 +406,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		}
 		if (usable.length > 0 && ok) {
 			const ul = usable.map(p => PROVIDER_LABEL[p]).join(' and ');
-			this.notificationService.info(`${ul} ready. Open a new chat in your AI chat to use the Qoka tools.`);
+			// A brand-new chat picks up the tools, but some providers (e.g. Codex from an
+			// empty window) do not open a new session on demand - reloading Qoka always
+			// works - so offer both.
+			this.notificationService.info(`${ul} ready. Open a new chat, or reload Qoka, to use the tools.`);
 		} else if (usable.length > 0 && !ok) {
 			const ul = usable.map(p => PROVIDER_LABEL[p]).join(' and ');
 			this.notificationService.warn(`Couldn't connect all Qoka tools for ${ul}. Open a new chat; if they are still missing, reload the window.`);
