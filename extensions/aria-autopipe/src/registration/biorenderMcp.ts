@@ -150,7 +150,11 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 		const extPath = process.env.PATH ?? process.env.Path;
 		const term = vscode.window.createTerminal({
 			name: 'BioRender login', cwd, shellPath: 'powershell.exe',
-			shellArgs: ['-NoExit', '-Command', cmds.join('; ')],
+			// -ExecutionPolicy Bypass: codex ships as codex.ps1, and the default
+			// PowerShell policy (Restricted/RemoteSigned) refuses to load it
+			// ("cannot be loaded because running scripts is disabled"), which blocked
+			// the codex login. Bypass lets the .ps1 wrapper run for this session only.
+			shellArgs: ['-NoExit', '-ExecutionPolicy', 'Bypass', '-Command', cmds.join('; ')],
 			env: extPath ? { PATH: extPath } : undefined,
 		});
 		term.show(true);
