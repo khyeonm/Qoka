@@ -61,25 +61,39 @@ export async function ensureBioRenderRegistered(): Promise<void> {
 	if (claude) {
 		const q = quoteArg(claude);
 		const { scope, opts } = claudeScopeOpts();
-		let exists = false;
-		try { await execAsync(`${q} mcp get ${NAME}`, opts); exists = true; } catch { /* not registered */ }
-		if (!exists) {
+		if (await needsAdd(`${q} mcp get ${NAME}`, opts)) {
 			try {
 				await execAsync(`${q} mcp add --scope ${scope} ${NAME} ${quoteArg(BIORENDER_MCP_URL)} --transport http`, opts);
-				console.log('[aria-autopipe] registered built-in BioRender MCP with Claude Code');
+				blog('ensureRegistered(claude): added biorender');
 			} catch (err) {
-				console.error('[aria-autopipe] claude mcp add biorender failed:', (err as { stderr?: string }).stderr ?? String(err));
+				blog(`ensureRegistered(claude): add failed: ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`);
 			}
 		}
 	}
 	const codex = await resolveBinary('codex', candidateCodexPaths());
 	if (codex) {
 		const q = quoteArg(codex);
-		let exists = false;
-		try { await execAsync(`${q} mcp get ${NAME}`, { timeout: 10000 }); exists = true; } catch { /* not registered */ }
-		if (!exists) {
-			try { await execAsync(`${q} mcp add ${NAME} --url ${quoteArg(BIORENDER_MCP_URL)}`, { timeout: 10000 }); } catch { /* best-effort */ }
+		if (await needsAdd(`${q} mcp get ${NAME}`, { timeout: 10000 })) {
+			try { await execAsync(`${q} mcp add ${NAME} --url ${quoteArg(BIORENDER_MCP_URL)}`, { timeout: 10000 }); blog('ensureRegistered(codex): added biorender'); } catch { /* best-effort */ }
 		}
+	}
+}
+
+/** Decide whether biorender must be (re)ADDED. CRUCIAL: we only add when the CLI
+ *  CLEARLY reports the server is absent. A `mcp get` that times out or errors
+ *  ambiguously (common when all 8 Qoka extensions hit ~/.claude.json at once on
+ *  activation) must NOT trigger a re-add - re-adding RESETS the server entry and
+ *  drops its stored OAuth login, which made BioRender re-authenticate (browser
+ *  pop-up) on every window reload / relaunch. */
+async function needsAdd(getCmd: string, opts: { timeout: number; cwd?: string }): Promise<boolean> {
+	try {
+		await execAsync(getCmd, opts);
+		return false; // server present (even if it currently "Needs authentication")
+	} catch (e) {
+		const msg = `${(e as { stdout?: string }).stdout ?? ''}\n${(e as { stderr?: string }).stderr ?? ''}\n${String(e)}`;
+		const clearlyAbsent = /no (mcp )?server|not found|no such|isn't (registered|configured)/i.test(msg);
+		if (!clearlyAbsent) { blog(`needsAdd: ambiguous mcp get failure -> NOT re-adding (avoid wiping auth): ${msg.trim().slice(0, 160)}`); }
+		return clearlyAbsent;
 	}
 }
 
