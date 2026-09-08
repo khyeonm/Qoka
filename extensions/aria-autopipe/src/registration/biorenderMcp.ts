@@ -4,13 +4,22 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { exec, spawn } from 'child_process';
-import * as http from 'http';
-import { URL } from 'url';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { candidateClaudePaths, candidateCodexPaths } from '../detection/claudeCodeDetector';
 
 const execAsync = promisify(exec);
+
+/** Diagnostic log shipped in the release: open View > Output > "Qoka BioRender" to
+ *  see exactly what the connect/disconnect flow did (resolved CLI paths, the
+ *  command run, the CLI's output, exit code, status) - so Windows/Mac issues can be
+ *  diagnosed from the installed build without a rebuild. No secrets are logged (the
+ *  OAuth token is stored by the CLI, never printed here). */
+let bioLog: vscode.OutputChannel | undefined;
+function blog(msg: string): void {
+	try { (bioLog ??= vscode.window.createOutputChannel('Qoka BioRender')).appendLine(`[${new Date().toISOString()}] ${msg}`); } catch { /* noop */ }
+	try { console.log('[biorender]', msg); } catch { /* noop */ }
+}
 
 /**
  * Built-in BioRender MCP (a REMOTE OAuth server at mcp.services.biorender.com).
@@ -96,23 +105,43 @@ export async function ensureBioRenderRegistered(): Promise<void> {
  * session (which connected its MCPs at spawn) picks up the now-authenticated MCP.
  */
 export async function loginBioRender(): Promise<{ ok: boolean; message: string }> {
+	blog(`login: start platform=${process.platform}`);
 	await ensureBioRenderRegistered();
-	const claude = await resolveBinary('claude', candidateClaudePaths());
-	if (!claude) { return { ok: false, message: 'Claude CLI not found on PATH or known install locations.' }; }
 	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-	const inner = `${quoteArg(claude)} mcp login ${NAME}`;
 
-	// Windows has no `script`, and a headless child has no TTY (ConPTY is not
-	// exposed to the extension host), so the invisible-PTY trick below cannot work.
-	// Fall back to a real integrated terminal, which owns a ConPTY: the CLI gets its
-	// TTY, opens the browser, and the user signs in. The Settings section polls the
-	// status and turns green once the login completes.
+	// Windows has no `script` and no headless ConPTY for the ext host, so run the
+	// login in a real integrated terminal (which owns a ConPTY). Two Windows-specific
+	// gotchas we handle here: (1) use FULL binary paths - the terminal's PATH does
+	// NOT include Qoka's isolated ~/.qoka/bin, so a bare `claude`/`codex` is "not
+	// recognized"; (2) PowerShell (the usual default shell) needs the call operator
+	// `&` to run a quoted path, so we force PowerShell and single-quote the paths.
+	// Sign in every installed CLI (Claude and/or Codex) the user has.
 	if (process.platform === 'win32') {
-		const term = vscode.window.createTerminal({ name: 'BioRender login', cwd });
+		const claudeFull = candidateClaudePaths()[0];
+		const codexFull = candidateCodexPaths()[0];
+		blog(`login(win32): claudeFull=${claudeFull ?? '(none)'} codexFull=${codexFull ?? '(none)'}`);
+		const cmds: string[] = [];
+		if (claudeFull) { cmds.push(`& '${claudeFull}' mcp login ${NAME}`); }
+		if (codexFull) { cmds.push(`& '${codexFull}' mcp login ${NAME}`); }
+		if (cmds.length === 0) { blog('login(win32): no CLI found'); return { ok: false, message: 'No AI CLI (Claude or Codex) found to sign in to BioRender.' }; }
+		blog(`login(win32): terminal cmd = ${cmds.join('; ')}`);
+		// The claude/codex .cmd wrappers invoke `node`, and Qoka's node lives in an
+		// isolated dir that the plain terminal's PATH does not include ("'node' is not
+		// recognized"). Hand the terminal the extension host's PATH, which DOES resolve
+		// node and the CLIs (it is what runs `claude mcp add` successfully).
+		const extPath = process.env.PATH ?? process.env.Path;
+		const term = vscode.window.createTerminal({
+			name: 'BioRender login', cwd, shellPath: 'powershell.exe',
+			shellArgs: ['-NoExit', '-Command', cmds.join('; ')],
+			env: extPath ? { PATH: extPath } : undefined,
+		});
 		term.show(true);
-		term.sendText(inner);
 		return { ok: true, message: 'Complete the BioRender sign-in in the terminal that just opened (a browser opens for sign-in). This updates once connected.' };
 	}
+
+	const claude = await resolveBinary('claude', candidateClaudePaths());
+	if (!claude) { blog('login(pty): claude not found'); return { ok: false, message: 'Claude CLI not found on PATH or known install locations.' }; }
+	const inner = `${quoteArg(claude)} mcp login ${NAME}`;
 
 	// `script` allocates the PTY. Its flags differ by platform: util-linux uses
 	// `-qfc "<cmd>" <file>`, BSD/macOS uses `-q <file> <cmd> <args...>`.
@@ -120,12 +149,11 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 	const args = isMac
 		? ['-q', '/dev/null', claude, 'mcp', 'login', NAME]
 		: ['-qfc', inner, '/dev/null'];
+	blog(`login(pty): claude=${claude} script ${args.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`);
 
 	const result = await new Promise<{ ok: boolean; message: string }>((resolve) => {
 		let settled = false;
-		let interceptor: http.Server | undefined;
-		let browserOpened = false;
-		let buf = '';
+		let out = '';
 
 		const child = spawn('script', args, { cwd, env: process.env });
 
@@ -133,65 +161,36 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 			if (settled) { return; }
 			settled = true;
 			clearTimeout(timer);
-			try { interceptor?.close(); } catch { /* noop */ }
 			try { child.kill(); } catch { /* noop */ }
 			resolve(r);
 		};
 
-		const startInterceptor = (authUrl: string) => {
-			// Case B: learn the loopback port the CLI expects from redirect_uri.
-			let port = 0; let host = '127.0.0.1';
-			try {
-				const rd = new URL(authUrl).searchParams.get('redirect_uri');
-				if (rd) {
-					const r = new URL(rd);
-					if (/^(127\.0\.0\.1|localhost)$/.test(r.hostname)) { port = Number(r.port) || 0; host = r.hostname; }
-				}
-			} catch { /* not a loopback redirect */ }
-			if (!port) { return; }
-			const srv = http.createServer((req, res) => {
-				const full = `http://${host}:${port}${req.url ?? '/'}`;
-				res.writeHead(200, { 'Content-Type': 'text/html' });
-				res.end('<html><body style="font-family:sans-serif;padding:2rem">BioRender connected. You can close this tab and return to Qoka.</body></html>');
-				try { child.stdin?.write(full + '\n'); } catch { /* noop */ }
-			});
-			// If the CLI is already listening here (Case A), binding fails - that's fine.
-			srv.on('error', () => { /* Case A: the CLI owns this port */ });
-			srv.listen(port, '127.0.0.1', () => { interceptor = srv; });
-		};
-
-		const onOutput = (data: Buffer) => {
-			buf += data.toString('utf8');
-			if (browserOpened) { return; }
-			const m = buf.match(/https?:\/\/[^\s'"]+/);
-			if (m && /(authorize|oauth|auth|login|biorender)/i.test(m[0])) {
-				browserOpened = true;
-				const authUrl = m[0];
-				// The CLI opens the browser itself; we do NOT also call openExternal - that
-				// double-opened the page and popped VS Code's "open external website?"
-				// prompt AFTER the sign-in had already completed. We only stand up the
-				// loopback interceptor for the "paste redirect URL" flow (Case B).
-				startInterceptor(authUrl);
-			}
-		};
-
-		child.stdout?.on('data', onOutput);
-		child.stderr?.on('data', onOutput);
-		child.on('error', () => finish({ ok: false, message: 'Could not start the login helper (script/claude not found).' }));
-		child.on('exit', async () => {
+		// The CLI does the whole OAuth itself: opens the browser AND runs its own
+		// loopback listener for the redirect. We must NOT touch that flow (an earlier
+		// version's own loopback listener RACED the CLI for the port and stole its
+		// callback on macOS). We just capture stdout/stderr for the log and wait.
+		const onData = (d: Buffer) => { out += d.toString('utf8'); };
+		child.stdout?.on('data', onData);
+		child.stderr?.on('data', onData);
+		child.on('error', (e) => { blog(`login(pty): spawn error ${String(e)}`); finish({ ok: false, message: 'Could not start the login helper (script/claude not found).' }); });
+		child.on('exit', async (code, signal) => {
+			blog(`login(pty): exit code=${code} signal=${signal} output=<<<\n${out.slice(0, 4000)}\n>>>`);
 			const st = await bioRenderStatus();
+			blog(`login(pty): post-exit status connected=${st.connected}`);
 			finish(st.connected
 				? { ok: true, message: 'Connected to BioRender.' }
 				: { ok: false, message: 'BioRender login did not complete. Click Connect to try again.' });
 		});
 
 		const timer = setTimeout(async () => {
+			blog(`login(pty): timeout after 300s output=<<<\n${out.slice(0, 4000)}\n>>>`);
 			const st = await bioRenderStatus();
 			finish(st.connected
 				? { ok: true, message: 'Connected to BioRender.' }
 				: { ok: false, message: 'BioRender login timed out. Click Connect to try again.' });
 		}, 300000);
 	});
+	blog(`login(pty): result ok=${result.ok} message=${result.message}`);
 
 	if (result.ok) {
 		void vscode.window.showInformationMessage(
@@ -203,27 +202,31 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 
 /** Clear the CLI's stored BioRender OAuth credentials. */
 export async function logoutBioRender(): Promise<void> {
+	blog('logout: start');
 	const claude = await resolveBinary('claude', candidateClaudePaths());
 	if (claude) {
 		const { opts } = claudeScopeOpts();
-		try { await execAsync(`${quoteArg(claude)} mcp logout ${NAME}`, opts); } catch { /* best-effort */ }
+		try { const r = await execAsync(`${quoteArg(claude)} mcp logout ${NAME}`, opts); blog(`logout(claude): ${(r.stdout || r.stderr || 'ok').trim().slice(0, 300)}`); } catch (e) { blog(`logout(claude) failed: ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`); }
 	}
 	const codex = await resolveBinary('codex', candidateCodexPaths());
-	if (codex) { try { await execAsync(`${quoteArg(codex)} mcp logout ${NAME}`, { timeout: 10000 }); } catch { /* best-effort */ } }
+	if (codex) { try { const r = await execAsync(`${quoteArg(codex)} mcp logout ${NAME}`, { timeout: 10000 }); blog(`logout(codex): ${(r.stdout || r.stderr || 'ok').trim().slice(0, 300)}`); } catch (e) { blog(`logout(codex) failed (may be unsupported): ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`); } }
 }
 
 /** Connected when Claude Code has BioRender registered and NOT flagged as needing
  *  authentication (`claude mcp get biorender`). */
 export async function bioRenderStatus(): Promise<{ connected: boolean }> {
 	const claude = await resolveBinary('claude', candidateClaudePaths());
-	if (!claude) { return { connected: false }; }
+	if (!claude) { blog('status: claude not found -> disconnected'); return { connected: false }; }
 	const q = quoteArg(claude);
 	const { opts } = claudeScopeOpts();
 	try {
 		const out = await execAsync(`${q} mcp get ${NAME}`, opts);
 		const s = out.stdout;
-		return { connected: /biorender/i.test(s) && !/needs authentication/i.test(s) && !/not found/i.test(s) };
-	} catch {
+		const connected = /biorender/i.test(s) && !/needs authentication/i.test(s) && !/not found/i.test(s);
+		blog(`status: connected=${connected} get=<<<\n${s.trim().slice(0, 800)}\n>>>`);
+		return { connected };
+	} catch (e) {
+		blog(`status: mcp get failed: ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`);
 		return { connected: false };
 	}
 }
