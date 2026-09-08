@@ -48,9 +48,13 @@ async function resolveBinary(primary: string, candidates: string[]): Promise<str
 	return null;
 }
 
-function claudeScopeOpts(): { scope: 'local' | 'user'; opts: { timeout: number; cwd?: string } } {
+/** BioRender is registered at LOCAL (project) scope so it lives ONLY in this
+ *  project's config, never in Claude's global `user` config that every other
+ *  VS Code / terminal Claude would also read. Local scope needs a project cwd, so
+ *  this returns undefined when no workspace is open (nothing to register into). */
+function claudeLocalScope(): { opts: { timeout: number; cwd: string } } | undefined {
 	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-	return cwd ? { scope: 'local', opts: { timeout: 15000, cwd } } : { scope: 'user', opts: { timeout: 15000 } };
+	return cwd ? { opts: { timeout: 15000, cwd } } : undefined;
 }
 
 /** Ensure the built-in BioRender remote MCP is registered (headerless) with each
@@ -58,13 +62,14 @@ function claudeScopeOpts(): { scope: 'local' | 'user'; opts: { timeout: number; 
  *  CLI's own OAuth. Idempotent: skips a CLI that already has it. */
 export async function ensureBioRenderRegistered(): Promise<void> {
 	const claude = await resolveBinary('claude', candidateClaudePaths());
-	if (claude) {
+	const scoped = claudeLocalScope();
+	if (claude && scoped) {
 		const q = quoteArg(claude);
-		const { scope, opts } = claudeScopeOpts();
+		const { opts } = scoped;
 		if (await needsAdd(`${q} mcp get ${NAME}`, opts)) {
 			try {
-				await execAsync(`${q} mcp add --scope ${scope} ${NAME} ${quoteArg(BIORENDER_MCP_URL)} --transport http`, opts);
-				blog('ensureRegistered(claude): added biorender');
+				await execAsync(`${q} mcp add --scope local ${NAME} ${quoteArg(BIORENDER_MCP_URL)} --transport http`, opts);
+				blog('ensureRegistered(claude): added biorender (local scope)');
 			} catch (err) {
 				blog(`ensureRegistered(claude): add failed: ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`);
 			}
@@ -228,9 +233,9 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 export async function logoutBioRender(): Promise<void> {
 	blog('logout: start');
 	const claude = await resolveBinary('claude', candidateClaudePaths());
-	if (claude) {
-		const { opts } = claudeScopeOpts();
-		try { const r = await execAsync(`${quoteArg(claude)} mcp logout ${NAME}`, opts); blog(`logout(claude): ${(r.stdout || r.stderr || 'ok').trim().slice(0, 300)}`); } catch (e) { blog(`logout(claude) failed: ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`); }
+	const scoped = claudeLocalScope();
+	if (claude && scoped) {
+		try { const r = await execAsync(`${quoteArg(claude)} mcp logout ${NAME}`, scoped.opts); blog(`logout(claude): ${(r.stdout || r.stderr || 'ok').trim().slice(0, 300)}`); } catch (e) { blog(`logout(claude) failed: ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`); }
 	}
 	const codex = await resolveBinary('codex', candidateCodexPaths());
 	if (codex) { try { const r = await execAsync(`${quoteArg(codex)} mcp logout ${NAME}`, { timeout: 10000 }); blog(`logout(codex): ${(r.stdout || r.stderr || 'ok').trim().slice(0, 300)}`); } catch (e) { blog(`logout(codex) failed (may be unsupported): ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 300)}`); } }
@@ -241,8 +246,10 @@ export async function logoutBioRender(): Promise<void> {
 export async function bioRenderStatus(): Promise<{ connected: boolean }> {
 	const claude = await resolveBinary('claude', candidateClaudePaths());
 	if (!claude) { blog('status: claude not found -> disconnected'); return { connected: false }; }
+	const scoped = claudeLocalScope();
+	if (!scoped) { blog('status: no workspace -> disconnected'); return { connected: false }; }
 	const q = quoteArg(claude);
-	const { opts } = claudeScopeOpts();
+	const { opts } = scoped;
 	try {
 		const out = await execAsync(`${q} mcp get ${NAME}`, opts);
 		const s = out.stdout;
