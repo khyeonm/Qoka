@@ -155,7 +155,11 @@ export async function loginBioRender(): Promise<{ ok: boolean; message: string }
 		let settled = false;
 		let out = '';
 
-		const child = spawn('script', args, { cwd, env: process.env });
+		// stdin MUST be /dev/null ('ignore'), NOT a pipe: Node gives a piped child a
+		// socketpair stdin, and macOS `script` calls tcgetattr on its stdin and dies
+		// with "Operation not supported on socket" (exit 1) before it runs the command.
+		// /dev/null is a plain fd that script tolerates (we never write to stdin anyway).
+		const child = spawn('script', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
 
 		const finish = (r: { ok: boolean; message: string }) => {
 			if (settled) { return; }
