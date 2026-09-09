@@ -24,22 +24,26 @@ function blog(msg: string): void {
 /**
  * Built-in BioRender MCP (a REMOTE OAuth server at mcp.services.biorender.com).
  *
- * Qoka owns the OAuth token itself (BioRenderAuthService: loopback + PKCE + dynamic
- * client registration, stored in SecretStorage) and injects it into each AI CLI's
- * MCP config as an `Authorization: Bearer` header. The CLI then sends that header
- * on connect and never runs its OWN OAuth - so there is exactly ONE browser sign-in
- * (the Settings "Connect" button), and none at startup. This replaces the earlier
- * `claude mcp login` approach, under which every MCP client re-authenticated on
- * connect and popped a browser window on each Qoka launch.
+ * The two CLIs differ in ONE way that dictates everything here: whether their MCP
+ * config can carry an injected auth header.
  *
- * A stored token survives restarts and is refreshed transparently, so reconnecting
- * after a restart is silent. Registration is refreshed (remove-then-add, because
- * `mcp add` refuses to overwrite) whenever we have a fresh token, so each new chat
- * session picks up a current bearer.
+ *  - CLAUDE accepts `--header`, so Qoka owns the OAuth token (BioRenderAuthService:
+ *    loopback + PKCE + dynamic client registration, in SecretStorage) and injects it
+ *    as `Authorization: Bearer`. Claude sends that header on connect and never runs
+ *    its OWN OAuth - so Claude needs NO browser at startup, only the one Qoka OAuth
+ *    behind the Settings Connect button. The token survives restarts and refreshes
+ *    transparently; registration is remove-then-add (mcp add won't overwrite) at
+ *    LOCAL scope, and we clear ALL scopes first so a stale USER-scope entry from an
+ *    older build can't make Claude re-OAuth (that was the Windows browser storm).
+ *
+ *  - CODEX has no way to attach a header, so Qoka cannot hand it the token. Codex is
+ *    registered HEADERLESS and signs in with its OWN OAuth (its own browser, its own
+ *    stored token). Its single ~/.codex/config.toml has no scopes, so there is only
+ *    one entry and no repeated-browser storm. A Codex user therefore gets a second,
+ *    Codex-driven browser the first time Codex connects.
  *
  * Verified: Claude Code 2.1.x honors the injected header (sends it from the first
- * `initialize` and never probes OAuth). Codex header support is best-effort and
- * still to be confirmed on a machine that has Codex installed.
+ * `initialize` and never probes OAuth).
  */
 
 const NAME = 'biorender';
@@ -68,7 +72,15 @@ function claudeCwd(): string | undefined {
 // --- Claude (verified header support) ---
 
 async function claudeRemove(claude: string, cwd: string): Promise<void> {
-	try { await execAsync(`${quoteArg(claude)} mcp remove --scope local ${NAME}`, { timeout: 15000, cwd }); } catch { /* not present - fine */ }
+	// Remove biorender from EVERY scope, not just local. Earlier Qoka builds
+	// registered it headerless at USER scope; that stale entry lingers in the global
+	// ~/.claude.json and makes Claude run its OWN OAuth (a browser storm) on every
+	// startup - the exact symptom seen on Windows (macOS was clean because its older
+	// builds happened to use local scope). Clearing all scopes guarantees the only
+	// biorender Claude ever sees is our local, bearer-carrying entry.
+	for (const scope of ['local', 'user', 'project']) {
+		try { await execAsync(`${quoteArg(claude)} mcp remove --scope ${scope} ${NAME}`, { timeout: 15000, cwd }); } catch { /* not present in this scope - fine */ }
+	}
 }
 
 async function claudeAddWithBearer(claude: string, cwd: string, token: string): Promise<void> {
@@ -79,21 +91,27 @@ async function claudeAddWithBearer(claude: string, cwd: string, token: string): 
 	await execAsync(`${quoteArg(claude)} mcp add --scope local ${NAME} ${quoteArg(BIORENDER_MCP_URL)} --transport http --header ${quoteArg(header)}`, { timeout: 15000, cwd });
 }
 
-// --- Codex (best-effort; header support unconfirmed) ---
+// --- Codex ---
+// `codex mcp add` has NO way to attach an Authorization header (its usage is
+// `codex mcp add <NAME> (--url <URL> | -- <COMMAND>...)`), so we cannot inject the
+// Qoka-owned token the way we do for Claude. Instead we register Codex HEADERLESS
+// and let Codex run its OWN OAuth: it opens its own browser to sign in and stores
+// its own token. Unlike Claude, Codex keeps a single ~/.codex/config.toml with no
+// scopes, so there is only ever one biorender entry - no stale-scope duplicate that
+// would cause the repeated-browser storm Claude had on Windows.
 
 async function codexRemove(codex: string): Promise<void> {
 	try { await execAsync(`${quoteArg(codex)} mcp remove ${NAME}`, { timeout: 10000 }); } catch { /* not present - fine */ }
 }
 
-async function codexAddWithBearer(codex: string, token: string): Promise<void> {
+async function codexRegisterHeaderless(codex: string): Promise<void> {
+	// remove-first so a stale entry doesn't make `mcp add` fail with "already exists".
 	await codexRemove(codex);
-	const header = `Authorization: Bearer ${token}`;
-	// Try to register WITH the header. We deliberately do NOT fall back to a
-	// headerless registration on failure: a headerless remote-OAuth server makes the
-	// CLI run its own OAuth and pop a browser on connect, which is exactly what this
-	// design eliminates. If Codex does not accept --header, biorender is simply not
-	// registered for Codex (surfaced in the log) until that path is confirmed.
-	await execAsync(`${quoteArg(codex)} mcp add ${NAME} --url ${quoteArg(BIORENDER_MCP_URL)} --header ${quoteArg(header)}`, { timeout: 10000 });
+	await execAsync(`${quoteArg(codex)} mcp add ${NAME} --url ${quoteArg(BIORENDER_MCP_URL)}`, { timeout: 10000 });
+}
+
+async function codexLogout(codex: string): Promise<void> {
+	try { await execAsync(`${quoteArg(codex)} mcp logout ${NAME}`, { timeout: 10000 }); } catch { /* may be unsupported - best-effort */ }
 }
 
 /**
@@ -119,21 +137,26 @@ export async function ensureBioRenderRegistered(auth: BioRenderAuthService): Pro
 		}
 	}
 
+	// Codex can't take an injected header, so register it headerless when the user
+	// has connected BioRender (Qoka's connected flag is the master switch). Codex
+	// then signs in with its own OAuth (its own browser) and stores its own token.
+	// When disconnected, remove the entry so Codex stops trying to connect.
 	const codex = await resolveBinary('codex', candidateCodexPaths());
 	if (codex) {
-		if (token) {
-			try { await codexAddWithBearer(codex, token); blog('ensureRegistered(codex): registered with bearer header'); }
-			catch (err) { blog(`ensureRegistered(codex): add --header failed (Codex header support unconfirmed): ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`); }
-		} else if (!connected) {
-			await codexRemove(codex); blog('ensureRegistered(codex): not logged in -> removed registration');
+		if (connected) {
+			try { await codexRegisterHeaderless(codex); blog('ensureRegistered(codex): registered headerless (Codex signs in with its own OAuth)'); }
+			catch (err) { blog(`ensureRegistered(codex): add failed: ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`); }
+		} else {
+			await codexRemove(codex); blog('ensureRegistered(codex): not connected -> removed registration');
 		}
 	}
 }
 
 /**
- * Connect: run Qoka's own OAuth (opens the browser once), store the token, and
- * register both CLIs with the bearer header. Cross-platform identical - no PTY, no
- * terminal, no CLI `mcp login` - because Qoka owns the whole flow.
+ * Connect: run Qoka's own OAuth (one browser) and reconcile both CLIs. Claude gets
+ * the Qoka token injected as a header (no further browser). Codex is registered
+ * headerless and signs in with its OWN OAuth - so a Codex user gets a second,
+ * Codex-driven browser when Codex first connects (Codex can't accept our token).
  */
 export async function loginBioRender(auth: BioRenderAuthService): Promise<{ ok: boolean; message: string }> {
 	blog(`login: start platform=${process.platform}`);
@@ -155,7 +178,7 @@ export async function logoutBioRender(auth: BioRenderAuthService): Promise<void>
 	const claude = await resolveBinary('claude', candidateClaudePaths());
 	if (claude && cwd) { await claudeRemove(claude, cwd); blog('logout(claude): removed registration'); }
 	const codex = await resolveBinary('codex', candidateCodexPaths());
-	if (codex) { await codexRemove(codex); blog('logout(codex): removed registration'); }
+	if (codex) { await codexLogout(codex); await codexRemove(codex); blog('logout(codex): signed out + removed registration'); }
 }
 
 /** Connected when Qoka holds a BioRender token (in SecretStorage). Instant, offline
