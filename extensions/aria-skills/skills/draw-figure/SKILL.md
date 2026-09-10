@@ -43,6 +43,16 @@ the project so it appears in Qoka's **Manuscript tab -> Figures** section. That 
 reads from `.qoka/figures/`, and saving there also places the file under the Analysis
 tab's hidden `.qoka/figures/` folder.
 
+**First, unless the user already specified, ask which FORMAT and QUALITY they want:**
+- **PNG** (raster) - pick a resolution scale; use **2x or 3x for publication quality**
+  (higher scale = sharper but larger). Shows as a thumbnail in Manuscript -> Figures.
+- **SVG** (editable vector) - resolution-independent (always sharp), best if they will
+  keep editing or need a scalable figure for the paper. Also shows as a thumbnail.
+- **PDF** (vector, for print) - saved, but it will NOT appear as a thumbnail in the
+  Manuscript -> Figures section (that section only shows image formats:
+  PNG/JPG/SVG/GIF/WEBP/BMP). Tell the user this if they choose PDF.
+Default to **PNG at 2x** when the user has no preference.
+
 1. **Resolve the project root** (do NOT trust the working directory, especially under
    Codex). If the Qoka MCP is available, call `get_workspace_info` for the project path;
    otherwise walk up to the nearest ancestor containing a `.qoka` folder:
@@ -52,22 +62,25 @@ tab's hidden `.qoka/figures/` folder.
    If `root` is `/` (no `.qoka`), you are not in a Qoka project - ask the user for the
    project folder instead of guessing.
 
-2. **Get the image DATA from Penpot.** IMPORTANT: the remote Penpot MCP has local
-   file-system access DISABLED, so `export_shape` cannot write to a local path itself.
-   You must obtain the exported image as DATA and write it yourself:
-   - Call `export_shape` (PNG) and look for image bytes / base64 in its result.
-   - If needed, use `execute_code` to export the shape/board in the Penpot plugin and
-     return the result as a base64 string.
+2. **Export the figure and get its DATA from Penpot.** IMPORTANT: the remote Penpot MCP
+   has local file-system access DISABLED, so it cannot write a file itself - you obtain
+   the exported bytes and write them. Export in the chosen FORMAT and (for PNG) the chosen
+   SCALE:
+   - Call `export_shape` with the format/scale and read the base64 bytes from its result
+     (verified: it returns `{ "type": "image", "data": "<base64>", "mimeType": "..." }`).
+   - If needed, use `execute_code` to run the Penpot plugin export with `{ type, scale }`
+     and return the result as a base64 string.
 
-3. **Write the bytes to `<root>/.qoka/figures/`** with a short, slugified name. If you
-   have base64 data:
+3. **Write the bytes to `<root>/.qoka/figures/`** with a short, slugified name and the
+   chosen extension (`.png` / `.svg` / `.pdf`). From base64:
    ```bash
    mkdir -p "$root/.qoka/figures"
-   printf '%s' "<BASE64>" | base64 -d > "$root/.qoka/figures/<short-figure-name>.png"
-   head -c 8 "$root/.qoka/figures/<short-figure-name>.png"   # sanity: PNG starts with the PNG magic
+   printf '%s' "<BASE64>" | base64 -d > "$root/.qoka/figures/<short-figure-name>.<ext>"
+   wc -c "$root/.qoka/figures/<short-figure-name>.<ext>"   # non-empty; for PNG, head -c 8 shows the PNG magic
    ```
    Then tell the user it is saved and now appears in **Manuscript -> Figures** (and under
-   the Analysis tab's `.qoka/figures/`).
+   the Analysis tab's `.qoka/figures/`) - except PDF, which saves but does not thumbnail
+   there.
 
 4. **If you could NOT get the image data** (the export tool returned no bytes - a remote
    mode limitation), do not pretend it was saved. Tell the user plainly that the export
@@ -77,8 +90,10 @@ tab's hidden `.qoka/figures/` folder.
 
 - The ONLY save location for figures is `<root>/.qoka/figures/`. Never save figures to
   `analysis/`, `results/`, `data/`, or the project root.
-- Prefer PNG for the Figures thumbnails, but the user can also keep the editable Penpot
-  file / an SVG export to keep refining.
+- PNG, JPG, and SVG appear as thumbnails in Manuscript -> Figures; PDF and the raw
+  `.penpot` file do NOT. If the user wants PDF, save it but tell them it will not show as
+  a thumbnail there.
+- For publication quality: PNG at 2x-3x scale, or SVG/PDF (vector, always sharp).
 
 ## Rules
 

@@ -28,6 +28,8 @@ export class PenpotSection extends SettingsSection {
 	private button: HTMLButtonElement | undefined;
 	private keyRow: HTMLElement | undefined;
 	private keyInput: HTMLInputElement | undefined;
+	private saveBtn: HTMLButtonElement | undefined;
+	private saveSpin: HTMLElement | undefined;
 	private errEl: HTMLElement | undefined;
 	private busy = false;
 	private serverUrl = 'https://design.penpot.app';
@@ -73,10 +75,15 @@ export class PenpotSection extends SettingsSection {
 			background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)',
 		});
 		this.keyInput = keyInput;
+		const saveSpin = append(keyRow, $('span.codicon.codicon-loading.codicon-modifier-spin')) as HTMLElement;
+		Object.assign(saveSpin.style, { opacity: '0.8', flexShrink: '0' });
+		saveSpin.hidden = true;
+		this.saveSpin = saveSpin;
 		const saveBtn = append(keyRow, $('button')) as HTMLButtonElement;
 		saveBtn.textContent = 'Save';
 		this.secondaryButton(saveBtn);
 		saveBtn.onclick = () => void this.saveEditedKey();
+		this.saveBtn = saveBtn;
 		keyRow.hidden = true;
 
 		this.errEl = append(this.body, $('div'));
@@ -160,10 +167,16 @@ export class PenpotSection extends SettingsSection {
 		if (!value || value === this.currentMask) { return; }
 		this.busy = true;
 		if (this.errEl) { this.errEl.hidden = true; }
+		// Saving re-registers the MCP with the CLIs and can take a few seconds; show a
+		// spinner and lock the Save button so the wait is visible.
+		if (this.saveSpin) { this.saveSpin.hidden = false; }
+		if (this.saveBtn) { this.saveBtn.disabled = true; this.saveBtn.textContent = 'Saving...'; }
 		try {
 			const r = await this.commandService.executeCommand<{ ok?: boolean; message?: string }>('aria.penpot.connect', { key: value, serverUrl: this.serverUrl });
 			if (r && r.ok === false && this.errEl) { this.errEl.textContent = r.message ?? 'Failed to save key.'; this.errEl.hidden = false; }
 		} catch { /* handled by refresh */ }
+		if (this.saveSpin) { this.saveSpin.hidden = true; }
+		if (this.saveBtn) { this.saveBtn.disabled = false; this.saveBtn.textContent = 'Save'; }
 		this.busy = false;
 		await this.loadAndApply();
 	}

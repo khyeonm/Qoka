@@ -22,6 +22,13 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 
+// Minimal shape of the bundled pdf.js module we use to render a PDF's first page as a
+// thumbnail. Typed loosely (the lib is loaded at runtime via dynamic import).
+interface PdfViewport { width: number; height: number }
+interface PdfPage { getViewport(o: { scale: number }): PdfViewport; render(o: { canvasContext: CanvasRenderingContext2D; viewport: PdfViewport; background?: string }): { promise: Promise<void> } }
+interface PdfDoc { getPage(n: number): Promise<PdfPage>; cleanup(): void; destroy(): void }
+interface PdfLib { GlobalWorkerOptions: { workerSrc: string }; getDocument(src: { data: Uint8Array }): { promise: Promise<PdfDoc> } }
+
 /**
  * "Figures" section of the Manuscript tab: a SEPARATE collapsible view (like the
  * Analysis tab's Changes/Snapshots) that shows the generated figures kept hidden
@@ -86,8 +93,15 @@ export class AriaFiguresView extends ViewPane {
 			Object.assign(cell.style, { width: '78px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '3px' });
 			cell.title = f.name;
 			const thumb = append(cell, $('img')) as HTMLImageElement;
-			thumb.src = FileAccess.uriToBrowserUri(f.resource).toString();
 			Object.assign(thumb.style, { width: '78px', height: '78px', objectFit: 'cover', border: '1px solid var(--vscode-widget-border, rgba(127,127,127,0.3))', borderRadius: '4px', background: 'var(--vscode-editorWidget-background)' });
+			if (/\.pdf$/i.test(f.name)) {
+				// PDFs can't render inside an <img>; draw page 1 with the bundled pdf.js
+				// instead. Defensive: any failure just leaves a blank/placeholder thumb.
+				thumb.alt = 'PDF';
+				void this.renderPdfThumbnail(thumb, f.resource);
+			} else {
+				thumb.src = FileAccess.uriToBrowserUri(f.resource).toString();
+			}
 			const cap = append(cell, $('div')); cap.textContent = f.name;
 			Object.assign(cap.style, { fontSize: '10px', opacity: '0.7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 			// Open the figure. Images route to Qoka's native image viewer via the
@@ -102,12 +116,39 @@ export class AriaFiguresView extends ViewPane {
 		if (!dir) { return []; }
 		try {
 			const stat = await this.fileService.resolve(dir);
-			const isImg = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+			const isImg = /\.(png|jpe?g|gif|webp|bmp|svg|pdf)$/i;
 			const files = (stat.children ?? []).filter(c => !c.isDirectory && isImg.test(c.name)).map(c => ({ name: c.name, resource: c.resource }));
 			files.sort((a, b) => a.name.localeCompare(b.name));
 			return files;
 		} catch {
 			return [];
+		}
+	}
+
+	/** Draw page 1 of a PDF as its thumbnail using the bundled pdf.js. Fully defensive:
+	 *  on ANY failure (load, worker, CSP, parse) the thumbnail is left as the placeholder
+	 *  so the rest of the Figures grid keeps working; the PDF still opens on click. */
+	private async renderPdfThumbnail(img: HTMLImageElement, resource: URI): Promise<void> {
+		try {
+			const libUri = FileAccess.asBrowserUri('vs/workbench/contrib/ariaManuscript/browser/media/pdf.js').toString(true);
+			const workerUri = FileAccess.asBrowserUri('vs/workbench/contrib/ariaManuscript/browser/media/pdf.worker.js').toString(true);
+			const pdfjs = await import(libUri) as unknown as PdfLib;
+			pdfjs.GlobalWorkerOptions.workerSrc = workerUri;
+			const file = await this.fileService.readFile(resource);
+			const doc = await pdfjs.getDocument({ data: file.value.buffer.slice() }).promise;
+			const page = await doc.getPage(1);
+			const base = page.getViewport({ scale: 1 });
+			const viewport = page.getViewport({ scale: (156 / base.width) || 1 });
+			const canvas = document.createElement('canvas');
+			canvas.width = Math.max(1, Math.ceil(viewport.width));
+			canvas.height = Math.max(1, Math.ceil(viewport.height));
+			const ctx = canvas.getContext('2d');
+			if (!ctx) { return; }
+			await page.render({ canvasContext: ctx, viewport, background: 'white' }).promise;
+			img.src = canvas.toDataURL('image/png');
+			try { doc.cleanup(); doc.destroy(); } catch { /* noop */ }
+		} catch {
+			// Leave the placeholder; clicking still opens the PDF in the native viewer.
 		}
 	}
 }
