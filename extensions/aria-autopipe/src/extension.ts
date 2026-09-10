@@ -28,8 +28,7 @@ import { registerSetupCommands } from './commands/setupCommands';
 import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames, NATIVE_VIEWER_NAMES, NATIVE_VIEWER_INFO } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
-import { ensureBioRenderRegistered, loginBioRender, logoutBioRender, bioRenderStatus } from './registration/biorenderMcp';
-import { BioRenderAuthService } from './biorender/bioRenderAuth';
+import { PenpotStore, ensurePenpotRegistered, connectPenpot, disconnectPenpot, penpotStatus } from './registration/penpotMcp';
 import { ensureWorkspaceScaffold } from './common/workspaceSync';
 import { NotebookKernel } from './notebook/controller';
 
@@ -62,13 +61,12 @@ let lastEnvRegistration: { claude: ClientRegistration; codex: ClientRegistration
 // reload prompt, and it runs outside activate()'s scope.
 let extensionContext: vscode.ExtensionContext | undefined;
 
-// BioRender MCP (built-in remote OAuth server). Qoka owns the OAuth token itself
-// (BioRenderAuthService, stored in SecretStorage) and injects it into each AI CLI's
-// MCP config as an `Authorization: Bearer` header, so there is one browser sign-in
-// (the Settings Connect button) and none at startup. Set at activate() so
-// refreshAiRegistrations, which runs outside activate()'s scope, can refresh the
-// header for each new chat session.
-let bioAuth: BioRenderAuthService | undefined;
+// Penpot MCP (open-source editable-vector design tool - the figure-drawing feature,
+// replacing the removed BioRender integration). The MCP key is stored in
+// SecretStorage; registration happens from Settings. No OAuth, so it re-registers
+// silently on startup and works for Codex too. Set at activate() so
+// refreshAiRegistrations, which runs outside activate()'s scope, can reach it.
+let penpotStore: PenpotStore | undefined;
 
 // globalState flag: the user pressed "Continue without the run environment" during
 // first-run WSL/Ubuntu setup. While set, we don't auto-install or gate on launch -
@@ -114,7 +112,7 @@ let wslSetupPending = false;
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
 	extensionContext = context;
-	bioAuth = new BioRenderAuthService(context.secrets);
+	penpotStore = new PenpotStore(context.secrets, context.globalState);
 
 	// On every activation (idempotent, best-effort): migrate any old autopipe/ +
 	// mixed layout to the unified data/analysis/results tree AND make sure those
@@ -431,22 +429,19 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	}));
 
-	// BioRender MCP: login/logout/status for the Settings "BioRender" section.
-	// Connect/disconnect/status all go through BioRenderAuthService (Qoka owns the
-	// token): status is the presence of a stored token (instant, accurate right after
-	// connect/disconnect - no CLI round-trip and no globalState flag needed). Connect
-	// runs Qoka's OAuth once and injects the bearer header into the CLIs; disconnect
-	// drops the token and removes the registration.
-	const auth = bioAuth;
+	// Penpot MCP: connect/disconnect/status for the Settings "Penpot" section (the
+	// figure-drawing feature). Status is the presence of a stored MCP key. Connect
+	// stores the key + registers both CLIs with the token URL; disconnect drops it.
+	const store = penpotStore;
 	context.subscriptions.push(
-		vscode.commands.registerCommand('aria.biorender.getStatus', () => auth ? bioRenderStatus(auth) : { connected: false }),
-		vscode.commands.registerCommand('aria.biorender.login', () => auth ? loginBioRender(auth) : { ok: false, message: 'BioRender auth is not available.' }),
-		vscode.commands.registerCommand('aria.biorender.logout', () => auth ? logoutBioRender(auth) : undefined),
+		vscode.commands.registerCommand('aria.penpot.getStatus', () => store ? penpotStatus(store) : { connected: false }),
+		vscode.commands.registerCommand('aria.penpot.connect', (args?: { key?: string; serverUrl?: string }) =>
+			store ? connectPenpot(store, args?.key ?? '', args?.serverUrl) : { ok: false, message: 'Penpot store is not available.' }),
+		vscode.commands.registerCommand('aria.penpot.disconnect', () => store ? disconnectPenpot(store) : undefined),
 	);
-	// Reconcile the registration with the stored token now (fire-and-forget): if a
-	// token is present it re-registers both CLIs with a fresh bearer header, otherwise
-	// it removes any stale registration so nothing tries to connect at startup.
-	if (auth) { void ensureBioRenderRegistered(auth); }
+	// Reconcile the registration with the stored key now (fire-and-forget): registers
+	// both CLIs if a key is stored, otherwise removes any stale registration.
+	if (store) { void ensurePenpotRegistered(store); }
 
 	// Keep the Hub client's base URL in sync with config changes (the user
 	// can switch registries by editing config, even though we don't yet
@@ -1131,12 +1126,10 @@ async function refreshAiRegistrations(): Promise<{ changed: boolean; registered:
 				}
 			}
 
-			// Reconcile the built-in BioRender MCP as part of THIS awaited flow (not
-			// fire-and-forget), so it lands together with the other MCPs and the
-			// chat's "loading until MCPs are registered" gate waits for it too. This
-			// also refreshes the bearer header with a current token, so each new chat
-			// session connects with a valid, non-expired token.
-			if (bioAuth) { await ensureBioRenderRegistered(bioAuth); }
+			// Reconcile the Penpot MCP as part of THIS awaited flow (not fire-and-forget),
+			// so it lands together with the other MCPs and the chat's "loading until MCPs
+			// are registered" gate waits for it too.
+			if (penpotStore) { await ensurePenpotRegistered(penpotStore); }
 
 			return {
 				changed: newlyConnected.length > 0,
