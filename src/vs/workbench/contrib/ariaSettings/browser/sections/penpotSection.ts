@@ -198,7 +198,7 @@ export class PenpotSection extends SettingsSection {
 		const overlay = append(host, $('div'));
 		Object.assign(overlay.style, {
 			position: 'fixed', inset: '0', zIndex: '1000', display: 'flex', alignItems: 'center', justifyContent: 'center',
-			background: 'rgba(0,0,0,0.45)', fontFamily: 'var(--vscode-font-family)',
+			background: 'rgba(0,0,0,0.45)', fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)',
 		});
 		const panel = append(overlay, $('div'));
 		Object.assign(panel.style, {
@@ -206,7 +206,7 @@ export class PenpotSection extends SettingsSection {
 			background: 'var(--vscode-editor-background)', color: 'var(--vscode-foreground)',
 			border: '1px solid var(--vscode-widget-border, rgba(127,127,127,0.35))', borderRadius: '8px',
 			padding: '20px 22px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
-			fontFamily: 'var(--vscode-font-family)', fontSize: '13px', lineHeight: '1.55',
+			fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)', fontSize: '13px', lineHeight: '1.55',
 		});
 		const close = () => { try { overlay.remove(); } catch { /* noop */ } };
 		overlay.onclick = (e) => { if (e.target === overlay) { close(); } };
@@ -332,7 +332,7 @@ export class PenpotSection extends SettingsSection {
 
 	private field(input: HTMLInputElement): void {
 		Object.assign(input.style, {
-			width: '100%', boxSizing: 'border-box', fontSize: '12px', fontFamily: 'var(--vscode-font-family)', padding: '6px 8px', borderRadius: '4px',
+			width: '100%', boxSizing: 'border-box', fontSize: '12px', fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)', padding: '6px 8px', borderRadius: '4px',
 			border: '1px solid var(--vscode-input-border, rgba(127,127,127,0.4))',
 			background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)',
 		});
@@ -353,14 +353,14 @@ export class PenpotSection extends SettingsSection {
 
 	private primaryButton(btn: HTMLButtonElement): void {
 		Object.assign(btn.style, {
-			flexShrink: '0', padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--vscode-font-family)',
+			flexShrink: '0', padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)',
 			border: '1px solid var(--vscode-button-border, transparent)',
 			background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)',
 		});
 	}
 	private secondaryButton(btn: HTMLButtonElement): void {
 		Object.assign(btn.style, {
-			flexShrink: '0', padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--vscode-font-family)',
+			flexShrink: '0', padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)',
 			border: '1px solid var(--vscode-button-border, transparent)',
 			background: 'var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2))',
 			color: 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
