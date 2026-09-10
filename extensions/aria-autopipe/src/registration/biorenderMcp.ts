@@ -71,6 +71,20 @@ function claudeCwd(): string | undefined {
 
 // --- Claude (verified header support) ---
 
+/** The bearer token currently registered for biorender (from `claude mcp get`), or
+ *  null when biorender is not registered / has no Authorization header. Used to skip
+ *  a needless remove-then-add on restart: re-registering unconditionally briefly
+ *  UNREGISTERS biorender, and if the first chat session connects during that gap it
+ *  sees BioRender as signed-out (the "logged out after restart" symptom). When the
+ *  stored config already carries the current token we leave it untouched - no gap. */
+async function claudeCurrentBearer(claude: string, cwd: string): Promise<string | null> {
+	try {
+		const out = await execAsync(`${quoteArg(claude)} mcp get ${NAME}`, { timeout: 15000, cwd });
+		const m = out.stdout.match(/Authorization:\s*Bearer\s+(\S+)/i);
+		return m ? m[1] : null;
+	} catch { return null; }
+}
+
 async function claudeRemove(claude: string, cwd: string): Promise<void> {
 	// Remove biorender from EVERY scope, not just local. Earlier Qoka builds
 	// registered it headerless at USER scope; that stale entry lingers in the global
@@ -114,6 +128,30 @@ async function codexLogout(codex: string): Promise<void> {
 	try { await execAsync(`${quoteArg(codex)} mcp logout ${NAME}`, { timeout: 10000 }); } catch { /* may be unsupported - best-effort */ }
 }
 
+/** Kick off Codex's OWN OAuth so it opens its own browser and stores its own token.
+ *  Best-effort and non-blocking. On Windows the CLI login wants a real terminal
+ *  (no headless ConPTY for the ext host, and the terminal's PATH must include node),
+ *  so we run it in an integrated terminal; elsewhere we run it headless. If it fails
+ *  or `codex mcp login` is unsupported, the user can still authenticate BioRender
+ *  from Codex's own /mcp. */
+function triggerCodexLogin(codex: string): void {
+	if (process.platform === 'win32') {
+		const extPath = process.env.PATH ?? process.env.Path;
+		const term = vscode.window.createTerminal({
+			name: 'BioRender (Codex) login', shellPath: 'powershell.exe',
+			shellArgs: ['-NoExit', '-ExecutionPolicy', 'Bypass', '-Command', `& '${codex}' mcp login ${NAME}`],
+			env: extPath ? { PATH: extPath } : undefined,
+		});
+		term.show(true);
+		blog('login(codex): opened terminal for `codex mcp login`');
+		return;
+	}
+	blog('login(codex): running `codex mcp login` (headless, best-effort)');
+	execAsync(`${quoteArg(codex)} mcp login ${NAME}`, { timeout: 300000 })
+		.then(() => blog('login(codex): mcp login completed'))
+		.catch(e => blog(`login(codex): mcp login failed/unsupported: ${((e as { stderr?: string }).stderr ?? String(e)).slice(0, 200)}`));
+}
+
 /**
  * Reconcile the BioRender MCP registration with the current login state:
  *  - logged in  -> register (or refresh) both CLIs with a current bearer header
@@ -130,8 +168,18 @@ export async function ensureBioRenderRegistered(auth: BioRenderAuthService): Pro
 	const claude = await resolveBinary('claude', candidateClaudePaths());
 	if (claude && cwd) {
 		if (token) {
-			try { await claudeAddWithBearer(claude, cwd, token); blog('ensureRegistered(claude): registered with bearer header (local scope)'); }
-			catch (err) { blog(`ensureRegistered(claude): add failed: ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`); }
+			// Skip the remove-then-add when the stored registration already carries the
+			// current token: re-registering opens a brief window where biorender is
+			// unregistered, and a chat session connecting in that window sees it as
+			// signed-out (the "logged out after restart" symptom). Only (re)register
+			// when the header is missing or the token changed (e.g. after a refresh).
+			const cur = await claudeCurrentBearer(claude, cwd);
+			if (cur === token) {
+				blog('ensureRegistered(claude): current bearer already matches, leaving registration intact (no gap)');
+			} else {
+				try { await claudeAddWithBearer(claude, cwd, token); blog('ensureRegistered(claude): registered with bearer header (local scope)'); }
+				catch (err) { blog(`ensureRegistered(claude): add failed: ${((err as { stderr?: string }).stderr ?? String(err)).slice(0, 200)}`); }
+			}
 		} else if (!connected) {
 			await claudeRemove(claude, cwd); blog('ensureRegistered(claude): not logged in -> removed registration');
 		}
@@ -164,6 +212,11 @@ export async function loginBioRender(auth: BioRenderAuthService): Promise<{ ok: 
 	blog(`login: auth result ok=${r.ok} account=${r.account ?? '(none)'} ${r.ok ? '' : 'message=' + r.message}`);
 	if (r.ok) {
 		await ensureBioRenderRegistered(auth);
+		// Claude is now set up via the injected header. Codex can't take our token, so
+		// kick off its own OAuth here (its own browser) - otherwise Codex has biorender
+		// registered but unauthenticated and the chat reports it as unavailable.
+		const codex = await resolveBinary('codex', candidateCodexPaths());
+		if (codex) { triggerCodexLogin(codex); }
 		void vscode.window.showInformationMessage('BioRender is connected.');
 	}
 	return { ok: r.ok, message: r.message };
