@@ -104,6 +104,14 @@ export const DEFAULT_SKILLS: DefaultSkillSpec[] = [
 		envVars: [],
 	},
 	{
+		name: 'draw-figure',
+		bundledPath: 'skills/draw-figure',
+		category: 'Figures',
+		description: 'Draw editable scientific figures via the Penpot MCP; if Penpot is not connected, route the user to Settings -> Penpot (Figures) to connect.',
+		// Qoka-native routing skill (not K-Dense). No keys - register offline.
+		envVars: [],
+	},
+	{
 		name: 'scanpy',
 		bundledPath: 'skills/scanpy',
 		category: 'Single-cell',

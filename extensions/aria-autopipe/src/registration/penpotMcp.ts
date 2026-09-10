@@ -157,6 +157,23 @@ export async function disconnectPenpot(store: PenpotStore): Promise<void> {
 	await ensurePenpotRegistered(store);
 }
 
+/** Remove any leftover `biorender` MCP registration from an older Qoka build. The
+ *  BioRender integration was removed, but its registration can still sit in the user's
+ *  Claude/Codex config and show up in /mcp. Best-effort and idempotent; run once at
+ *  activation. */
+export async function cleanupBioRenderRegistration(): Promise<void> {
+	const cwd = claudeCwd();
+	const claude = await resolveBinary('claude', candidateClaudePaths());
+	if (claude && cwd) {
+		for (const scope of ['local', 'user', 'project']) {
+			try { await execAsync(`${quoteArg(claude)} mcp remove --scope ${scope} biorender`, { timeout: 15000, cwd }); } catch { /* not present in this scope */ }
+		}
+	}
+	const codex = await resolveBinary('codex', candidateCodexPaths());
+	if (codex) { try { await execAsync(`${quoteArg(codex)} mcp remove biorender`, { timeout: 10000 }); } catch { /* not present */ } }
+	plog('cleanupBioRender: removed any leftover biorender registration');
+}
+
 /** Connected when a key is stored. Returns a masked key for display + the server. */
 export async function penpotStatus(store: PenpotStore): Promise<PenpotStatus> {
 	const key = await store.getKey();

@@ -38,13 +38,11 @@ export class PenpotSection extends SettingsSection {
 		this.busy = false;
 
 		const note = append(this.body, $('div'));
-		note.textContent = 'Connect Penpot (an open-source, editable-vector design tool) so the chat can draw publication figures. Qoka stores your Penpot MCP key and registers it for Claude and Codex; no password is ever seen.';
+		note.textContent = 'Connect Penpot (open-source vector design) so the chat can draw editable figures.';
 		Object.assign(note.style, { fontSize: '11px', opacity: '0.7', margin: '0 0 10px', lineHeight: '1.5' });
 
-		// Persistent notice 1: a new chat is required after connecting. Leading "*" red.
-		this.starNotice('After connecting Penpot, you MUST open a new Claude or Codex chat (or reload Qoka) for it to take effect. A chat already open will not see Penpot.');
-		// Persistent notice 2: a file must be open + connected to draw.
-		this.starNotice('In Penpot, a design file must be OPEN and connected (File -> MCP Server -> Connect) for drawing to work. Check the MCP indicator at the top of the file to confirm it is active.');
+		// One concise persistent notice (leading "*" is red).
+		this.starNotice('After connecting, open a NEW chat for it to take effect. Drawing needs a Penpot file open and connected.');
 
 		// Status row (built once; connect/disconnect update it in place).
 		const row = append(this.body, $('div'));
@@ -175,8 +173,11 @@ export class PenpotSection extends SettingsSection {
 	private openWizard(): void {
 		const doc = this.body.ownerDocument;
 		const overlay = append(doc.body, $('div'));
+		// z-index stays BELOW the workbench modal dialog layer (~2600) so the "open
+		// external website?" confirmation from clicking Open Penpot appears in FRONT of
+		// this wizard instead of behind it.
 		Object.assign(overlay.style, {
-			position: 'fixed', inset: '0', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center',
+			position: 'fixed', inset: '0', zIndex: '1000', display: 'flex', alignItems: 'center', justifyContent: 'center',
 			background: 'rgba(0,0,0,0.45)',
 		});
 		const panel = append(overlay, $('div'));
@@ -184,7 +185,8 @@ export class PenpotSection extends SettingsSection {
 			width: 'min(560px, 92vw)', maxHeight: '86vh', overflowY: 'auto', boxSizing: 'border-box',
 			background: 'var(--vscode-editor-background)', color: 'var(--vscode-foreground)',
 			border: '1px solid var(--vscode-widget-border, rgba(127,127,127,0.35))', borderRadius: '8px',
-			padding: '20px 22px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)', fontSize: '13px', lineHeight: '1.55',
+			padding: '20px 22px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
+			fontFamily: 'var(--vscode-font-family)', fontSize: '13px', lineHeight: '1.55',
 		});
 		const close = () => { try { doc.body.removeChild(overlay); } catch { /* noop */ } };
 		overlay.onclick = (e) => { if (e.target === overlay) { close(); } };
@@ -214,9 +216,10 @@ export class PenpotSection extends SettingsSection {
 				openBtn.onclick = () => void this.commandService.executeCommand('vscode.open', URI.parse(server));
 				this.steps(panel, 'In the Penpot browser tab:', [
 					'Log in (or create a free account).',
-					'Top-right account menu -> Integrations -> MCP Server.',
-					'Enable it and click Generate key.',
-					'Copy the key (it is shown only once).',
+					'Click your account at the bottom-left, then open My account.',
+					'In the left sidebar, open Integrations, then the MCP Server section.',
+					'Under Status, switch it to Enabled.',
+					'Copy the generated key that appears.',
 				]);
 				const hint = append(panel, $('div'));
 				hint.textContent = 'Lost the tab? Click "Open Penpot" again. Then come back here and press Next.';
@@ -239,25 +242,41 @@ export class PenpotSection extends SettingsSection {
 				const err = append(panel, $('div'));
 				Object.assign(err.style, { fontSize: '11px', color: 'var(--vscode-errorForeground)', marginTop: '8px' });
 				err.hidden = true;
-				this.nav(panel, () => { step = 1; render(); }, async () => {
+				const bar = append(panel, $('div'));
+				Object.assign(bar.style, { display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'flex-end', marginTop: '16px' });
+				const spin = append(bar, $('span.codicon.codicon-loading.codicon-modifier-spin')) as HTMLElement;
+				Object.assign(spin.style, { marginRight: 'auto', opacity: '0.8' });
+				spin.hidden = true;
+				const backBtn = append(bar, $('button')) as HTMLButtonElement;
+				backBtn.textContent = 'Back';
+				this.secondaryButton(backBtn);
+				backBtn.onclick = () => { step = 1; render(); };
+				const connectBtn = append(bar, $('button')) as HTMLButtonElement;
+				connectBtn.textContent = 'Connect';
+				this.primaryButton(connectBtn);
+				const resetButtons = () => { spin.hidden = true; connectBtn.disabled = false; backBtn.disabled = false; connectBtn.textContent = 'Connect'; };
+				connectBtn.onclick = async () => {
 					if (!key.trim()) { err.textContent = 'Enter your Penpot MCP key.'; err.hidden = false; return; }
 					err.hidden = true;
+					// Connecting registers the MCP with the CLIs and can take a few seconds;
+					// show a spinner and lock the buttons so the wait is visible.
+					spin.hidden = false; connectBtn.disabled = true; backBtn.disabled = true; connectBtn.textContent = 'Connecting...';
 					try {
 						const r = await this.commandService.executeCommand<{ ok?: boolean; message?: string }>('aria.penpot.connect', { key: key.trim(), serverUrl: server.trim() });
-						if (r && r.ok === false) { err.textContent = r.message ?? 'Connect failed.'; err.hidden = false; return; }
-					} catch (e) { err.textContent = 'Connect failed.'; err.hidden = false; return; }
+						if (r && r.ok === false) { err.textContent = r.message ?? 'Connect failed.'; err.hidden = false; resetButtons(); return; }
+					} catch (e) { err.textContent = 'Connect failed.'; err.hidden = false; resetButtons(); return; }
 					step = 3; render();
 					void this.loadAndApply();
-				}, 'Connect', 'Back');
+				};
 			} else {
 				const ok = append(panel, $('div'));
 				ok.textContent = 'Penpot is connected.';
 				Object.assign(ok.style, { color: 'var(--vscode-charts-green, #4caf50)', fontWeight: '700', margin: '4px 0 8px' });
 				this.steps(panel, 'To start drawing:', [
 					'Open a NEW Claude or Codex chat (or reload Qoka) so the tool is registered.',
-					'In Penpot, open (or create) a design file.',
-					'In that file: File -> MCP Server -> Connect.',
+					'In Penpot, click New project to create a new file.',
 					'Confirm the MCP indicator at the top of the file is active (green).',
+					'If it is not connected: File -> MCP Server -> Connect.',
 					'Keep the file open, then ask the chat to draw (e.g. "draw a signaling pathway in penpot").',
 				]);
 				const warn = append(panel, $('div'));

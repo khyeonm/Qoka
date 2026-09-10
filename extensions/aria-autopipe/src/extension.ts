@@ -28,7 +28,7 @@ import { registerSetupCommands } from './commands/setupCommands';
 import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames, NATIVE_VIEWER_NAMES, NATIVE_VIEWER_INFO } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
-import { PenpotStore, ensurePenpotRegistered, connectPenpot, disconnectPenpot, penpotStatus } from './registration/penpotMcp';
+import { PenpotStore, ensurePenpotRegistered, connectPenpot, disconnectPenpot, penpotStatus, cleanupBioRenderRegistration } from './registration/penpotMcp';
 import { ensureWorkspaceScaffold } from './common/workspaceSync';
 import { NotebookKernel } from './notebook/controller';
 
@@ -442,6 +442,9 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Reconcile the registration with the stored key now (fire-and-forget): registers
 	// both CLIs if a key is stored, otherwise removes any stale registration.
 	if (store) { void ensurePenpotRegistered(store); }
+	// One-time migration cleanup: remove any leftover BioRender registration from an
+	// older build so it stops appearing in /mcp (the feature is gone).
+	void cleanupBioRenderRegistration();
 
 	// Keep the Hub client's base URL in sync with config changes (the user
 	// can switch registries by editing config, even though we don't yet
