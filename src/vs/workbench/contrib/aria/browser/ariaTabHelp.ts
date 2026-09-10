@@ -15,7 +15,8 @@
 
 export type AriaTabKey =
 	| 'files' | 'paper-library' | 'research-note' | 'paper-writer'
-	| 'peer-review' | 'manuscript' | 'autopipe' | 'roadmap' | 'skills' | 'versions';
+	| 'peer-review' | 'manuscript' | 'autopipe' | 'roadmap' | 'skills' | 'versions'
+	| 'penpot';
 
 export interface AriaTabHelp {
 	/** Tab name, used as the "How to use" editor tab title. */
@@ -246,5 +247,47 @@ Save snapshots of your project so you can always return to an earlier state. Thi
 ## Tips
 - Save often - each snapshot is a safe point you can return to.
 - The AI only **suggests** a name - you can always type your own before saving.`,
+	},
+	'penpot': {
+		title: 'Penpot (Figures)',
+		summary: 'Draw editable, publication-ready figures with Penpot from the chat.',
+		howTo: `# Penpot (Figures) - How to use
+
+**Penpot** is a free, open-source design tool for drawing figures. Qoka connects to it so you can ask the chat to draw a figure, then refine it by hand. The result is a real editable vector (not an AI image), so it's safe to use in a paper.
+
+## 1. Connect Penpot (one time)
+1. In this section, click **Connect Penpot**. A step-by-step window opens and stays on screen while you follow along.
+2. Click **Open Penpot** to open Penpot in your browser and log in (a free account is fine).
+3. In Penpot: click your account at the bottom-left, open **My account**, then in the left sidebar open **Integrations → MCP Server**. Switch **Status** to **Enabled** and copy the key it shows.
+4. Come back to Qoka, paste the key, and click **Connect**.
+5. **Open a new chat** (or reload Qoka) so the chat picks up Penpot.
+
+To change or remove it later: paste a new key and click **Save**, or click **Disconnect**.
+
+## 2. Draw a figure (in the chat)
+1. In Penpot, create a project and open a design file (keep it open).
+2. In the chat, just ask - for example:
+   - "Draw a signaling pathway with a receptor, kinase, and nucleus in penpot."
+   - "In penpot, draw a 3-step experimental workflow with arrows."
+   The chat draws it onto your open Penpot file.
+
+## 3. Refine it by hand (in Penpot)
+- Select a drawn group and **Ungroup** it (right-click → Ungroup, or Shift + G) to edit each part - move, recolor, or reshape any element.
+- Everything is editable vector, so it stays sharp at any size.
+
+## 4. Save it to your project
+Ask the chat to save it, e.g. "save this figure as PNG" (or SVG). You'll be asked which **format** and **quality**:
+- **PNG** - a normal image; choose 2x or 3x for publication quality.
+- **SVG** - editable vector, always sharp - best if you'll keep editing it.
+- **PDF** - vector, for print.
+
+The figure is saved to the **Manuscript tab's Figure library**, where you can see all your figures.
+
+## 5. Use a figure in your paper
+In the **Paper Writer**, click **Add from Figure library** to insert any saved figure into your manuscript.
+
+## Tips
+- If the chat says Penpot isn't available, open a **new chat** after connecting.
+- Drawing needs a Penpot design file **open** in your browser.`,
 	},
 };

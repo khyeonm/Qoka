@@ -63,7 +63,7 @@ const manuscriptView: IViewDescriptor = {
 // Changes/Snapshots), showing the generated figures kept in .qoka/figures.
 const figuresView: IViewDescriptor = {
 	id: AriaFiguresView.ID,
-	name: localize2('aria.figures.viewName', "Figures"),
+	name: localize2('aria.figures.viewName', "Figure library"),
 	ctorDescriptor: new SyncDescriptor(AriaFiguresView),
 	canToggleVisibility: true,
 	canMoveView: false,

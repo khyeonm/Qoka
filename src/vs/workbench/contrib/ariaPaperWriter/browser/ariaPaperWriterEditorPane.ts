@@ -514,7 +514,7 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 			// the latter opens an inline checkbox box below (like Paper Library).
 			tools.appendChild(this.button(localize('aria.paperWriter.uploadFigure', "Upload figure"), 'ghost', () => void this.addAssets('aria.paper.addFigures')));
 			tools.appendChild(this.button(
-				this.figurePickerOpen ? localize('aria.paperWriter.hideFigures', "Close Figures") : localize('aria.paperWriter.addFromFigures', "Add from Figures"),
+				this.figurePickerOpen ? localize('aria.paperWriter.hideFigures', "Close Figure library") : localize('aria.paperWriter.addFromFigures', "Add from Figure library"),
 				'ghost', () => void this.toggleFigurePicker()));
 		} else {
 			tools.appendChild(this.button(localize('aria.paperWriter.addSources', "Add files"), 'ghost', () => void this.addAssets('aria.paper.addSources')));

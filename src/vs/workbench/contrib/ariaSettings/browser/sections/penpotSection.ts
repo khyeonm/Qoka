@@ -5,6 +5,8 @@
 
 import { $, append, clearNode } from '../../../../../base/browser/dom.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { ICommandService } from '../../../../../platform/commands/common/commands.js';
+import { ariaHelpActionId, ensureHelpCommand } from '../../../aria/browser/ariaHelpEditor.js';
 import { SettingsSection } from './settingsSection.js';
 
 interface PenpotStatus { connected?: boolean; serverUrl?: string; keyMask?: string }
@@ -35,16 +37,32 @@ export class PenpotSection extends SettingsSection {
 	private serverUrl = 'https://design.penpot.app';
 	private currentMask = '';
 
+	constructor(body: HTMLElement, commandService: ICommandService, header?: HTMLElement) {
+		super(body, commandService, header);
+		// Register the Penpot how-to command (no Penpot *tab* registers it, unlike other
+		// help keys), then add a "How to use?" blue link at the right end of the title row
+		// (same as the Autopipe section) that opens the bundled Penpot how-to page.
+		ensureHelpCommand('penpot');
+		this.addHeaderTextAction('How to use?', 'How to use Penpot', () => { void this.commandService.executeCommand(ariaHelpActionId('penpot')); });
+	}
+
 	async refresh(): Promise<void> {
 		clearNode(this.body);
 		this.busy = false;
 
 		const note = append(this.body, $('div'));
 		note.textContent = 'Connect Penpot (open-source vector design) so the chat can draw editable figures.';
-		Object.assign(note.style, { fontSize: '11px', opacity: '0.7', margin: '0 0 10px', lineHeight: '1.5' });
+		Object.assign(note.style, { fontSize: '11px', opacity: '0.7', margin: '0 0 4px', lineHeight: '1.5' });
 
-		// One concise persistent notice (leading "*" is red).
-		this.starNotice('After connecting, open a NEW chat for it to take effect. Drawing needs a Penpot file open and connected.');
+		// Notice on its own line right under the description (no box): red "*" + text.
+		const notice = append(this.body, $('div'));
+		Object.assign(notice.style, { fontSize: '11px', margin: '0 0 10px', lineHeight: '1.5' });
+		const star = append(notice, $('span'));
+		star.textContent = '* ';
+		Object.assign(star.style, { color: 'var(--vscode-errorForeground)' });
+		const noticeText = append(notice, $('span'));
+		noticeText.textContent = 'After connecting, open a NEW chat for it to take effect. Drawing needs a Penpot file open and connected.';
+		Object.assign(noticeText.style, { opacity: '0.7' });
 
 		// Status row (built once; connect/disconnect update it in place).
 		const row = append(this.body, $('div'));
@@ -93,21 +111,6 @@ export class PenpotSection extends SettingsSection {
 
 		this.apply({ connected: false }, true);
 		void this.loadAndApply();
-	}
-
-	/** A bordered notice box whose leading "*" is red and the rest uses the note colour. */
-	private starNotice(text: string): void {
-		const box = append(this.body, $('div'));
-		Object.assign(box.style, {
-			fontSize: '11px', lineHeight: '1.5', marginTop: '8px', padding: '8px 10px', borderRadius: '4px',
-			border: '1px solid var(--vscode-panel-border, rgba(127,127,127,0.35))',
-		});
-		const star = append(box, $('span'));
-		star.textContent = '* ';
-		Object.assign(star.style, { color: 'var(--vscode-errorForeground)' });
-		const body = append(box, $('span'));
-		body.textContent = text;
-		Object.assign(body.style, { opacity: '0.7' });
 	}
 
 	private async loadAndApply(): Promise<void> {
@@ -196,8 +199,12 @@ export class PenpotSection extends SettingsSection {
 		// z-index) appear IN FRONT of this wizard instead of behind it.
 		const host = (doc.querySelector('.monaco-workbench') as HTMLElement | null) ?? doc.body;
 		const overlay = append(host, $('div'));
+		// z-index just BELOW the workbench modal-dialog layer (`.monaco-dialog-modal-block`
+		// is 2575) so the "open external website?" confirmation still appears in front,
+		// but ABOVE the settings/editor content (otherwise the editor paints over the
+		// overlay and the wizard looks washed-out / see-through).
 		Object.assign(overlay.style, {
-			position: 'fixed', inset: '0', zIndex: '1000', display: 'flex', alignItems: 'center', justifyContent: 'center',
+			position: 'fixed', inset: '0', zIndex: '2570', display: 'flex', alignItems: 'center', justifyContent: 'center',
 			background: 'rgba(0,0,0,0.45)', fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)',
 		});
 		const panel = append(overlay, $('div'));
@@ -299,10 +306,11 @@ export class PenpotSection extends SettingsSection {
 				const warn = append(panel, $('div'));
 				warn.textContent = 'The file must stay open and connected while you use Penpot from chat.';
 				Object.assign(warn.style, { fontSize: '11px', opacity: '0.7', marginTop: '8px' });
-				const done = append(panel, $('button')) as HTMLButtonElement;
+				const doneBar = append(panel, $('div'));
+				Object.assign(doneBar.style, { display: 'flex', justifyContent: 'flex-end', marginTop: '14px' });
+				const done = append(doneBar, $('button')) as HTMLButtonElement;
 				done.textContent = 'Done';
 				this.primaryButton(done);
-				Object.assign(done.style, { marginTop: '14px' });
 				done.onclick = close;
 			}
 		};

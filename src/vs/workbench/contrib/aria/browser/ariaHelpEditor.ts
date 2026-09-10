@@ -63,6 +63,7 @@ export class AriaHelpEditorPane extends EditorPane {
 	static readonly ID = AriaHelpInput.EDITOR_ID;
 
 	private content: HTMLElement | undefined;
+	private viewport: HTMLElement | undefined;
 	private scrollable: DomScrollableElement | undefined;
 	private readonly renderStore = this._register(new DisposableStore());
 
@@ -76,17 +77,26 @@ export class AriaHelpEditorPane extends EditorPane {
 	}
 
 	protected createEditor(parent: HTMLElement): void {
+		// The element handed to DomScrollableElement IS the scroll viewport: scanDomNode
+		// compares its clientHeight to its scrollHeight, so it must have a constrained
+		// height + overflow (set in layout) for overflow to be detected. The styled page
+		// content lives in an inner child that grows freely - if the styled element were
+		// itself the viewport, clientHeight would equal scrollHeight and it never scrolls.
+		const viewport = document.createElement('div');
+		viewport.style.overflow = 'hidden';
 		const content = document.createElement('div');
 		Object.assign(content.style, {
 			boxSizing: 'border-box', padding: '24px 32px', maxWidth: '820px', margin: '0 auto',
 			fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)',
 			color: 'var(--vscode-foreground)', lineHeight: '1.6',
 		});
+		viewport.appendChild(content);
 		this.content = content;
+		this.viewport = viewport;
 
 		// Wrap in a DomScrollableElement so the page scrolls with VS Code's own
 		// overlay scrollbar instead of the platform-native one.
-		this.scrollable = this._register(new DomScrollableElement(content, {
+		this.scrollable = this._register(new DomScrollableElement(viewport, {
 			vertical: ScrollbarVisibility.Auto,
 			horizontal: ScrollbarVisibility.Hidden,
 			useShadows: true,
@@ -122,6 +132,12 @@ export class AriaHelpEditorPane extends EditorPane {
 			node.style.width = `${dimension.width}px`;
 			node.style.height = `${dimension.height}px`;
 		}
+		// Constrain the viewport to the editor size so its content (taller) overflows and
+		// scanDomNode reports a scrollable area.
+		if (this.viewport) {
+			this.viewport.style.width = `${dimension.width}px`;
+			this.viewport.style.height = `${dimension.height}px`;
+		}
 		this.scrollable?.scanDomNode();
 	}
 }
@@ -133,7 +149,7 @@ export function ariaHelpActionId(key: AriaTabKey): string {
 
 const registeredHelpCommands = new Set<string>();
 
-function ensureHelpCommand(key: AriaTabKey): string {
+export function ensureHelpCommand(key: AriaTabKey): string {
 	const id = ariaHelpActionId(key);
 	if (!registeredHelpCommands.has(id)) {
 		registeredHelpCommands.add(id);
