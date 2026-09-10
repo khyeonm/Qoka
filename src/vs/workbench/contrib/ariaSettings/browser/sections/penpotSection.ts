@@ -76,8 +76,9 @@ export class PenpotSection extends SettingsSection {
 		});
 		this.keyInput = keyInput;
 		const saveSpin = append(keyRow, $('span.codicon.codicon-loading.codicon-modifier-spin')) as HTMLElement;
-		Object.assign(saveSpin.style, { opacity: '0.8', flexShrink: '0' });
-		saveSpin.hidden = true;
+		// A `.codicon` sets its own `display`, so `hidden` does not hide it - toggle
+		// `style.display` (start hidden, show only while saving).
+		Object.assign(saveSpin.style, { opacity: '0.8', flexShrink: '0', display: 'none' });
 		this.saveSpin = saveSpin;
 		const saveBtn = append(keyRow, $('button')) as HTMLButtonElement;
 		saveBtn.textContent = 'Save';
@@ -144,6 +145,10 @@ export class PenpotSection extends SettingsSection {
 			this.primaryButton(button);
 			button.disabled = false;
 			button.onclick = () => this.openWizard();
+			// Not connected -> the stored key was cleared; reset the field too so a later
+			// reconnect starts blank.
+			keyInput.value = '';
+			this.currentMask = '';
 			keyRow.hidden = true;
 		}
 	}
@@ -169,13 +174,13 @@ export class PenpotSection extends SettingsSection {
 		if (this.errEl) { this.errEl.hidden = true; }
 		// Saving re-registers the MCP with the CLIs and can take a few seconds; show a
 		// spinner and lock the Save button so the wait is visible.
-		if (this.saveSpin) { this.saveSpin.hidden = false; }
+		if (this.saveSpin) { this.saveSpin.style.display = 'inline-block'; }
 		if (this.saveBtn) { this.saveBtn.disabled = true; this.saveBtn.textContent = 'Saving...'; }
 		try {
 			const r = await this.commandService.executeCommand<{ ok?: boolean; message?: string }>('aria.penpot.connect', { key: value, serverUrl: this.serverUrl });
 			if (r && r.ok === false && this.errEl) { this.errEl.textContent = r.message ?? 'Failed to save key.'; this.errEl.hidden = false; }
 		} catch { /* handled by refresh */ }
-		if (this.saveSpin) { this.saveSpin.hidden = true; }
+		if (this.saveSpin) { this.saveSpin.style.display = 'none'; }
 		if (this.saveBtn) { this.saveBtn.disabled = false; this.saveBtn.textContent = 'Save'; }
 		this.busy = false;
 		await this.loadAndApply();
@@ -185,13 +190,15 @@ export class PenpotSection extends SettingsSection {
 
 	private openWizard(): void {
 		const doc = this.body.ownerDocument;
-		const overlay = append(doc.body, $('div'));
-		// z-index stays BELOW the workbench modal dialog layer (~2600) so the "open
-		// external website?" confirmation from clicking Open Penpot appears in FRONT of
-		// this wizard instead of behind it.
+		// Append INSIDE the workbench, not document.body: this shares the workbench's CSS
+		// variables (so the font matches Qoka) AND its stacking context - the latter lets
+		// the "open external website?" confirmation dialog (a workbench modal at a higher
+		// z-index) appear IN FRONT of this wizard instead of behind it.
+		const host = (doc.querySelector('.monaco-workbench') as HTMLElement | null) ?? doc.body;
+		const overlay = append(host, $('div'));
 		Object.assign(overlay.style, {
 			position: 'fixed', inset: '0', zIndex: '1000', display: 'flex', alignItems: 'center', justifyContent: 'center',
-			background: 'rgba(0,0,0,0.45)',
+			background: 'rgba(0,0,0,0.45)', fontFamily: 'var(--vscode-font-family)',
 		});
 		const panel = append(overlay, $('div'));
 		Object.assign(panel.style, {
@@ -201,7 +208,7 @@ export class PenpotSection extends SettingsSection {
 			padding: '20px 22px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
 			fontFamily: 'var(--vscode-font-family)', fontSize: '13px', lineHeight: '1.55',
 		});
-		const close = () => { try { doc.body.removeChild(overlay); } catch { /* noop */ } };
+		const close = () => { try { overlay.remove(); } catch { /* noop */ } };
 		overlay.onclick = (e) => { if (e.target === overlay) { close(); } };
 
 		let step = 1;
@@ -257,9 +264,6 @@ export class PenpotSection extends SettingsSection {
 				err.hidden = true;
 				const bar = append(panel, $('div'));
 				Object.assign(bar.style, { display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'flex-end', marginTop: '16px' });
-				const spin = append(bar, $('span.codicon.codicon-loading.codicon-modifier-spin')) as HTMLElement;
-				Object.assign(spin.style, { marginRight: 'auto', opacity: '0.8' });
-				spin.hidden = true;
 				const backBtn = append(bar, $('button')) as HTMLButtonElement;
 				backBtn.textContent = 'Back';
 				this.secondaryButton(backBtn);
@@ -267,13 +271,13 @@ export class PenpotSection extends SettingsSection {
 				const connectBtn = append(bar, $('button')) as HTMLButtonElement;
 				connectBtn.textContent = 'Connect';
 				this.primaryButton(connectBtn);
-				const resetButtons = () => { spin.hidden = true; connectBtn.disabled = false; backBtn.disabled = false; connectBtn.textContent = 'Connect'; };
+				const resetButtons = () => { connectBtn.disabled = false; backBtn.disabled = false; connectBtn.textContent = 'Connect'; };
 				connectBtn.onclick = async () => {
 					if (!key.trim()) { err.textContent = 'Enter your Penpot MCP key.'; err.hidden = false; return; }
 					err.hidden = true;
 					// Connecting registers the MCP with the CLIs and can take a few seconds;
-					// show a spinner and lock the buttons so the wait is visible.
-					spin.hidden = false; connectBtn.disabled = true; backBtn.disabled = true; connectBtn.textContent = 'Connecting...';
+					// the button label ("Connecting...") + disabled state signal the wait.
+					connectBtn.disabled = true; backBtn.disabled = true; connectBtn.textContent = 'Connecting...';
 					try {
 						const r = await this.commandService.executeCommand<{ ok?: boolean; message?: string }>('aria.penpot.connect', { key: key.trim(), serverUrl: server.trim() });
 						if (r && r.ok === false) { err.textContent = r.message ?? 'Connect failed.'; err.hidden = false; resetButtons(); return; }
@@ -328,7 +332,7 @@ export class PenpotSection extends SettingsSection {
 
 	private field(input: HTMLInputElement): void {
 		Object.assign(input.style, {
-			width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px', borderRadius: '4px',
+			width: '100%', boxSizing: 'border-box', fontSize: '12px', fontFamily: 'var(--vscode-font-family)', padding: '6px 8px', borderRadius: '4px',
 			border: '1px solid var(--vscode-input-border, rgba(127,127,127,0.4))',
 			background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)',
 		});
@@ -349,14 +353,14 @@ export class PenpotSection extends SettingsSection {
 
 	private primaryButton(btn: HTMLButtonElement): void {
 		Object.assign(btn.style, {
-			flexShrink: '0', padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
+			flexShrink: '0', padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--vscode-font-family)',
 			border: '1px solid var(--vscode-button-border, transparent)',
 			background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)',
 		});
 	}
 	private secondaryButton(btn: HTMLButtonElement): void {
 		Object.assign(btn.style, {
-			flexShrink: '0', padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
+			flexShrink: '0', padding: '5px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--vscode-font-family)',
 			border: '1px solid var(--vscode-button-border, transparent)',
 			background: 'var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2))',
 			color: 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',

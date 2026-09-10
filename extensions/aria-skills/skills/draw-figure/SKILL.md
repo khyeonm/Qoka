@@ -18,9 +18,9 @@ element and export SVG/PDF - so it is suitable for a paper, unlike a raster AI i
 
 2. **If Penpot IS available:** use its MCP tools to draw what the user described - place
    shapes, icons, arrows, and labels and compose the layout. Penpot draws into the design
-   file the user currently has OPEN and connected in Penpot; if the tools report no
-   connected file, ask the user to open a Penpot file and connect it (File -> MCP Server
-   -> Connect). After drawing, tell the user how to refine it on the Penpot canvas:
+   file the user currently has open in Penpot; if the tools report no open file, ask the
+   user to create a project in the Penpot dashboard and open a file. After drawing, tell
+   the user how to refine it on the Penpot canvas:
    - They can **Ungroup** a drawn group to edit each element individually (select it,
      then right-click -> Ungroup, or press Ctrl/Cmd + Shift + G), then move, recolor, or
      reshape each part.
@@ -45,13 +45,12 @@ tab's hidden `.qoka/figures/` folder.
 
 **First, unless the user already specified, ask which FORMAT and QUALITY they want:**
 - **PNG** (raster) - pick a resolution scale; use **2x or 3x for publication quality**
-  (higher scale = sharper but larger). Shows as a thumbnail in Manuscript -> Figures.
+  (higher scale = sharper but larger).
 - **SVG** (editable vector) - resolution-independent (always sharp), best if they will
-  keep editing or need a scalable figure for the paper. Also shows as a thumbnail.
-- **PDF** (vector, for print) - saved, but it will NOT appear as a thumbnail in the
-  Manuscript -> Figures section (that section only shows image formats:
-  PNG/JPG/SVG/GIF/WEBP/BMP). Tell the user this if they choose PDF.
-Default to **PNG at 2x** when the user has no preference.
+  keep editing or need a scalable figure for the paper.
+- **PDF** (vector, for print).
+Default to **PNG at 2x** when the user has no preference. Any of these show up in the
+Manuscript tab's Figures list.
 
 1. **Resolve the project root** (do NOT trust the working directory, especially under
    Codex). If the Qoka MCP is available, call `get_workspace_info` for the project path;
@@ -78,9 +77,8 @@ Default to **PNG at 2x** when the user has no preference.
    printf '%s' "<BASE64>" | base64 -d > "$root/.qoka/figures/<short-figure-name>.<ext>"
    wc -c "$root/.qoka/figures/<short-figure-name>.<ext>"   # non-empty; for PNG, head -c 8 shows the PNG magic
    ```
-   Then tell the user it is saved and now appears in **Manuscript -> Figures** (and under
-   the Analysis tab's `.qoka/figures/`) - except PDF, which saves but does not thumbnail
-   there.
+   Then tell the user it is saved to the **Manuscript tab's Figures list** (phrase it that
+   way to the user - do not mention the internal `.qoka/figures` path).
 
 4. **If you could NOT get the image data** (the export tool returned no bytes - a remote
    mode limitation), do not pretend it was saved. Tell the user plainly that the export
@@ -88,11 +86,9 @@ Default to **PNG at 2x** when the user has no preference.
    can move it in themselves: the project's `.qoka/figures/` folder (Manuscript ->
    Figures reads from there). Offer to retry via `execute_code` if that path is available.
 
-- The ONLY save location for figures is `<root>/.qoka/figures/`. Never save figures to
+- The ONLY save location for figures is `<root>/.qoka/figures/` (this is the internal
+  path; to the user, call it the Manuscript tab's Figures list). Never save figures to
   `analysis/`, `results/`, `data/`, or the project root.
-- PNG, JPG, and SVG appear as thumbnails in Manuscript -> Figures; PDF and the raw
-  `.penpot` file do NOT. If the user wants PDF, save it but tell them it will not show as
-  a thumbnail there.
 - For publication quality: PNG at 2x-3x scale, or SVG/PDF (vector, always sharp).
 
 ## Rules
