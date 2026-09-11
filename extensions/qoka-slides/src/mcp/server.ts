@@ -46,9 +46,11 @@ const SERVER_INSTRUCTIONS = [
 	'write built on a stale copy is refused instead of silently discarding the user\'s edits. Keep changes',
 	'minimal and do not fabricate content.',
 	'',
-	'== Templates & ratio ==',
-	'list_themes shows the available designs. When creating a deck, pick a design and an aspect (16:9 default,',
-	'or 4:3). The user chooses the design first, then the ratio.',
+	'== Creating a new deck ==',
+	'When the user asks to MAKE / CREATE new slides, call new_slides - it opens a popup where the USER enters',
+	'the title and picks the design + ratio, then creates and opens the deck. Do NOT ask the user for those',
+	'yourself, and do NOT call create_deck for a fresh deck. (create_deck is only for seeding markup you',
+	'already have; list_themes shows the designs.)',
 ].join('\n');
 
 interface SseSession {

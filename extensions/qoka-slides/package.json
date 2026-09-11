@@ -14,11 +14,8 @@
 	],
 	"contributes": {
 		"commands": [
-			{
-				"command": "qoka.slides.open",
-				"title": "Open Slides",
-				"category": "Qoka"
-			}
+			{ "command": "qoka.slides.open", "title": "Open Slides", "category": "Qoka" },
+			{ "command": "qoka.slides.new", "title": "New Slides", "category": "Qoka" }
 		]
 	},
 	"scripts": {

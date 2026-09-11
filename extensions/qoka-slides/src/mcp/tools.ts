@@ -69,6 +69,15 @@ export function buildTools(extensionPath: string): ToolDefinition[] {
 			handler: async () => { await revealSlides(); return ok('Slides tab opened.'); },
 		},
 		{
+			name: 'new_slides',
+			description: 'Open the "New slides" popup so the USER enters a title and picks a design + ratio, which then creates the deck and opens it. USE THIS whenever the user asks to make / create a new slide deck - do NOT ask them for a title, design or ratio yourself, and do NOT call create_deck for a fresh deck; the popup collects those from the user. (create_deck is only for seeding markup you already have.)',
+			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+			handler: async () => {
+				try { await vscode.commands.executeCommand('qoka.slides.new'); return ok('Opened the New slides popup for the user.'); }
+				catch (e) { return err((e as Error).message); }
+			},
+		},
+		{
 			name: 'list_decks',
 			description: 'List every slide deck in this project (slug, title, slide count, last-modified). Use get_deck to read one.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -144,7 +153,7 @@ export function buildTools(extensionPath: string): ToolDefinition[] {
 					}
 					const slug = await newSlug(title);
 					await createDeck(slug, meta, seed);
-					await revealSlides();
+					try { await vscode.commands.executeCommand('qoka.slides.openDeck', slug); } catch { /* editor optional */ }
 					return json({ slug, revision: await deckRevision(slug), slides: splitSlides(seed).length });
 				} catch (e) { return err((e as Error).message); }
 			},
