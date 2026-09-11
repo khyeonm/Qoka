@@ -38,10 +38,10 @@ element and export SVG/PDF - so it is suitable for a paper, unlike a raster AI i
 ## Saving / exporting a figure into the project
 
 When the user wants to SAVE or EXPORT the figure (e.g. "save it as PNG", "export this
-figure"), do NOT just hand them a download and leave it - write the exported file INTO
-the project so it appears in Qoka's **Manuscript tab -> Figures** section. That section
-reads from `.qoka/figures/`, and saving there also places the file under the Analysis
-tab's hidden `.qoka/figures/` folder.
+figure"), save it into the project so it appears in the **Manuscript tab's Figure
+library**. Use the Qoka **`save_figure`** MCP tool for this - **NOT run_code and NOT
+Bash** (run_code creates `results/<run>/` and `analysis/<run>/` folders, and a figure is
+not analysis code, so it must never clutter those).
 
 **First, unless the user already specified, ask which FORMAT and QUALITY they want:**
 - **PNG** (raster) - pick a resolution scale; use **2x or 3x for publication quality**
@@ -49,46 +49,25 @@ tab's hidden `.qoka/figures/` folder.
 - **SVG** (editable vector) - resolution-independent (always sharp), best if they will
   keep editing or need a scalable figure for the paper.
 - **PDF** (vector, for print).
-Default to **PNG at 2x** when the user has no preference. Any of these show up in the
-Manuscript tab's Figures list.
+Default to **PNG at 2x** when the user has no preference.
 
-1. **Resolve the project root** (do NOT trust the working directory, especially under
-   Codex). If the Qoka MCP is available, call `get_workspace_info` for the project path;
-   otherwise walk up to the nearest ancestor containing a `.qoka` folder:
-   ```bash
-   root="$PWD"; while [ "$root" != "/" ] && [ ! -d "$root/.qoka" ]; do root="$(dirname "$root")"; done
-   ```
-   If `root` is `/` (no `.qoka`), you are not in a Qoka project - ask the user for the
-   project folder instead of guessing.
+1. **Export the figure from Penpot to get its bytes.** Call `export_shape` in the chosen
+   FORMAT and (for PNG) the chosen SCALE, and read the base64 from its result (verified:
+   it returns `{ "type": "image", "data": "<base64>", "mimeType": "..." }`). If needed,
+   use `execute_code` to run the Penpot plugin export with `{ type, scale }` and return
+   the result as a base64 string. (The remote Penpot MCP cannot write local files itself,
+   so you must obtain the bytes and hand them to `save_figure`.)
 
-2. **Export the figure and get its DATA from Penpot.** IMPORTANT: the remote Penpot MCP
-   has local file-system access DISABLED, so it cannot write a file itself - you obtain
-   the exported bytes and write them. Export in the chosen FORMAT and (for PNG) the chosen
-   SCALE:
-   - Call `export_shape` with the format/scale and read the base64 bytes from its result
-     (verified: it returns `{ "type": "image", "data": "<base64>", "mimeType": "..." }`).
-   - If needed, use `execute_code` to run the Penpot plugin export with `{ type, scale }`
-     and return the result as a base64 string.
+2. **Call `save_figure`** with `data` = that base64 (or the full data: URL), `name` = a
+   short figure name, and `format` = the chosen extension. It writes the figure into the
+   project and the Figure library refreshes automatically. Do NOT resolve paths, mkdir,
+   `base64 -d`, or run_code yourself - `save_figure` handles all of that.
 
-3. **Write the bytes to `<root>/.qoka/figures/`** with a short, slugified name and the
-   chosen extension (`.png` / `.svg` / `.pdf`). From base64:
-   ```bash
-   mkdir -p "$root/.qoka/figures"
-   printf '%s' "<BASE64>" | base64 -d > "$root/.qoka/figures/<short-figure-name>.<ext>"
-   wc -c "$root/.qoka/figures/<short-figure-name>.<ext>"   # non-empty; for PNG, head -c 8 shows the PNG magic
-   ```
-   Then tell the user it is saved to the **Manuscript tab's Figures list** (phrase it that
-   way to the user - do not mention the internal `.qoka/figures` path).
+3. Tell the user the figure is saved to the **Manuscript tab's Figure library**. Phrase it
+   that way - do NOT mention any internal folder path.
 
-4. **If you could NOT get the image data** (the export tool returned no bytes - a remote
-   mode limitation), do not pretend it was saved. Tell the user plainly that the export
-   downloaded to their browser's Downloads folder and give them the exact target so they
-   can move it in themselves: the project's `.qoka/figures/` folder (Manuscript ->
-   Figures reads from there). Offer to retry via `execute_code` if that path is available.
-
-- The ONLY save location for figures is `<root>/.qoka/figures/` (this is the internal
-  path; to the user, call it the Manuscript tab's Figures list). Never save figures to
-  `analysis/`, `results/`, `data/`, or the project root.
+- Save figures ONLY via `save_figure`. Never write figures with run_code/Bash, and never
+  into `analysis/`, `results/`, `data/`, or the project root.
 - For publication quality: PNG at 2x-3x scale, or SVG/PDF (vector, always sharp).
 
 ## Rules

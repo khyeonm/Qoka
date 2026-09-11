@@ -15,6 +15,7 @@ import { VM_TOOLS } from './vm';
 import { NOTEBOOK_TOOLS } from './notebook';
 import { CONFIGURE_INPUT_TOOLS } from './configureInput';
 import { RUN_TOOLS } from './run';
+import { FIGURE_TOOLS } from './figures';
 
 // qoka-autopipe = PIPELINE LIFECYCLE ONLY. The run environment/connection tools
 // (get_workspace_info, start_server, get/set_vm_resources) moved to qoka-environment;
@@ -57,6 +58,7 @@ export const RUN_SERVER_TOOLS: ToolDefinition[] = [
 	RESULT_TOOLS[0],   // download_results
 	// show_results (RESULT_TOOLS[1]) stays disabled - the in-app viewer is gone.
 	...PROJECT_TOOLS,  // list_run_outputs, save_results_to_project
+	...FIGURE_TOOLS,   // save_figure (writes a figure to .qoka/figures, no run_code scaffolding)
 ];
 
 /**
