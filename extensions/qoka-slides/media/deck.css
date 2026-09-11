@@ -1,0 +1,76 @@
+/* Viewer-only layout: fullscreen frame, slide positioning, print.
+   Shared slide-content styling lives in slide.css. */
+  /* Only a bare reset here - background/overflow/font live on .deck so that when
+     this stylesheet is loaded on another route (e.g. SvelteKit hover-preload of
+     a deck link), it can't repaint or reflow that page's <body>. */
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+  }
+  .deck {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--frame);
+    font-family: "Source Serif 4", "Noto Serif KR", "Times New Roman", "Malgun Gothic", serif;
+    color: var(--text);
+    overflow: hidden;
+  }
+  .slide {
+    position: absolute;
+    /* Size the slide frame to the deck's own aspect ratio (--ar-w/--ar-h come
+       from the theme; default 16:9) so a 4:3 deck fills its frame instead of
+       being letterboxed inside a 16:9 box. */
+    width: min(100vw, calc(100vh * var(--ar-w, 16) / var(--ar-h, 9)));
+    height: min(100vh, calc(100vw * var(--ar-h, 9) / var(--ar-w, 16)));
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .slide.current { opacity: 1; pointer-events: auto; z-index: 1; }
+
+  /* print / PDF export - all slides visible, one per page */
+  @media print {
+    @page { size: 20in 11.25in; margin: 0; }
+    html, body {
+      background: #FFFFFF;
+      overflow: visible;
+      height: auto;
+      width: 20in;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .deck {
+      position: static;
+      display: block;
+      width: 20in;
+      height: auto;
+      background: #fff;
+    }
+    .slide {
+      position: static !important;
+      display: flex !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      width: 20in;
+      height: 11.25in;
+      max-width: none;
+      max-height: none;
+      page-break-after: always;
+      break-after: page;
+    }
+    .slide:last-child { page-break-after: auto; break-after: auto; }
+    /* on-screen affordances only - the Edit pill and the per-prompt Copy buttons
+       are controls, not slide content, and must not end up in the PDF */
+    .edit-fab, .copy-btn { display: none !important; }
+    /* inner is the theme's canvas size (16:9 = 1920×1080, 4:3 = 1440×1080) */
+    .slide-inner {
+      transform: none !important;
+      width: var(--canvas-w, 1920px);
+      height: var(--canvas-h, 1080px);
+    }
+  }
+

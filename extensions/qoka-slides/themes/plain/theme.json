@@ -1,0 +1,18 @@
+{
+  "name": "기본",
+  "description": "로고 없는 산세리프 중립 테마 · 상단 띠 없음 · 16:9",
+  "aspect": "16:9",
+  "accent": "#334155",
+  "accentSoft": "#e2e8f0",
+  "foot": "",
+  "logo": null,
+  "strip": false,
+  "headSize": "46.6002px",
+  "titleSize": "71.28px",
+  "fonts": {
+    "head": "\"Montserrat\", \"Noto Sans KR\", system-ui, sans-serif",
+    "body": "\"Inter\", \"Noto Sans KR\", system-ui, sans-serif",
+    "ui": "\"Inter\", \"Noto Sans KR\", system-ui, sans-serif",
+    "mono": "\"JetBrains Mono\", \"Noto Sans KR\", monospace"
+  }
+}

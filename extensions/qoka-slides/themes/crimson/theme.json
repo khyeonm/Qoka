@@ -1,0 +1,19 @@
+{
+  "name": "Crimson",
+  "description": "Crimson accent with soft background art, Montserrat + Inter.",
+  "aspect": "4:3",
+  "accent": "#c85059",
+  "accentSoft": "#f5e2e3",
+  "foot": "",
+  "logo": null,
+  "chromeLogo": false,
+  "strip": false,
+  "headSize": "46.6002px",
+  "titleSize": "66.96px",
+  "fonts": {
+    "head": "\"Montserrat\", \"Noto Sans KR\", system-ui, sans-serif",
+    "body": "\"Inter\", \"Noto Sans KR\", system-ui, sans-serif",
+    "ui": "\"Inter\", \"Noto Sans KR\", system-ui, sans-serif",
+    "mono": "\"JetBrains Mono\", \"Noto Sans KR\", monospace"
+  }
+}

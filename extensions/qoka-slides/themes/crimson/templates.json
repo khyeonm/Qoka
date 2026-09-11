@@ -1,0 +1,262 @@
+[
+  {
+    "id": "title",
+    "name": "제목",
+    "bg": "asset:title-bg.png",
+    "boxes": [
+      {
+        "kind": "text",
+        "x": 14.5,
+        "y": 23.4,
+        "w": 71,
+        "h": 14.8,
+        "text": "제목",
+        "font": "head",
+        "size": 8,
+        "color": "accent",
+        "align": "center",
+        "valign": "center",
+        "weight": 800
+      },
+      {
+        "kind": "text",
+        "x": 26.5,
+        "y": 55.4,
+        "w": 47,
+        "h": 9.8,
+        "text": "부제목",
+        "font": "head",
+        "size": 3.6,
+        "color": "ink",
+        "align": "center",
+        "valign": "center",
+        "weight": 500
+      }
+    ]
+  },
+  {
+    "id": "chapter",
+    "name": "챕터 제목",
+    "bg": "asset:content-bg-flip.png",
+    "boxes": [
+      {
+        "kind": "text",
+        "x": 10,
+        "y": 25.52,
+        "w": 80,
+        "h": 6,
+        "text": "SECTION",
+        "font": "ui",
+        "size": 2.6,
+        "color": "accent",
+        "align": "center",
+        "valign": "center",
+        "weight": 700,
+        "upper": true,
+        "tracking": 0.18
+      },
+      {
+        "kind": "text",
+        "x": 10,
+        "y": 36.37,
+        "w": 80,
+        "h": 18,
+        "text": "챕터 제목",
+        "font": "head",
+        "size": 7,
+        "color": "#c85059",
+        "align": "center",
+        "valign": "center",
+        "weight": 800,
+        "shadow": true
+      }
+    ]
+  },
+  {
+    "id": "text",
+    "name": "텍스트",
+    "bg": "asset:content-bg-flip.png",
+    "boxes": [
+      {
+        "kind": "text",
+        "x": 8.1,
+        "y": 4.87,
+        "w": 83.8,
+        "h": 7.9,
+        "text": "제목",
+        "font": "head",
+        "size": 4.6,
+        "color": "#c85059",
+        "align": "left",
+        "valign": "center",
+        "weight": 800,
+        "shadow": true
+      },
+      {
+        "kind": "text",
+        "x": 8.1,
+        "y": 15.52,
+        "w": 83.8,
+        "h": 66,
+        "text": "• 첫 번째 요점\n• 두 번째 요점",
+        "font": "body",
+        "size": 3.4,
+        "color": "ink",
+        "align": "left",
+        "valign": "center",
+        "weight": 400
+      }
+    ]
+  },
+  {
+    "id": "text-image-h",
+    "name": "텍스트 + 이미지 (가로)",
+    "bg": "asset:content-bg-flip.png",
+    "boxes": [
+      {
+        "kind": "text",
+        "x": 8.1,
+        "y": 4.87,
+        "w": 83.8,
+        "h": 7.9,
+        "text": "제목",
+        "font": "head",
+        "size": 4.6,
+        "color": "#c85059",
+        "align": "left",
+        "valign": "center",
+        "weight": 800,
+        "shadow": true
+      },
+      {
+        "kind": "text",
+        "x": 8.1,
+        "y": 15.52,
+        "w": 40,
+        "h": 66,
+        "text": "• 첫 번째 요점\n• 두 번째 요점",
+        "font": "body",
+        "size": 3.2,
+        "color": "ink",
+        "align": "left",
+        "valign": "center",
+        "weight": 400
+      },
+      {
+        "kind": "image",
+        "x": 52,
+        "y": 15.52,
+        "w": 40,
+        "h": 66
+      }
+    ]
+  },
+  {
+    "id": "text-image-v",
+    "name": "텍스트 + 이미지 (세로)",
+    "bg": "asset:content-bg-flip.png",
+    "boxes": [
+      {
+        "kind": "text",
+        "x": 8.1,
+        "y": 4.87,
+        "w": 83.8,
+        "h": 7.9,
+        "text": "제목",
+        "font": "head",
+        "size": 4.6,
+        "color": "#c85059",
+        "align": "left",
+        "valign": "center",
+        "weight": 800,
+        "shadow": true
+      },
+      {
+        "kind": "text",
+        "x": 8.1,
+        "y": 14.52,
+        "w": 83.8,
+        "h": 14,
+        "text": "• 첫 번째 요점",
+        "font": "body",
+        "size": 3.0,
+        "color": "ink",
+        "align": "left",
+        "valign": "top",
+        "weight": 400
+      },
+      {
+        "kind": "image",
+        "x": 14,
+        "y": 32.52,
+        "w": 72,
+        "h": 52
+      }
+    ]
+  },
+  {
+    "id": "image",
+    "name": "이미지",
+    "bg": "asset:content-bg-flip.png",
+    "boxes": [
+      {
+        "kind": "text",
+        "x": 8.1,
+        "y": 3.37,
+        "w": 83.8,
+        "h": 7.5,
+        "text": "제목",
+        "font": "head",
+        "size": 4.2,
+        "color": "#c85059",
+        "align": "left",
+        "valign": "center",
+        "weight": 800,
+        "shadow": true
+      },
+      {
+        "kind": "image",
+        "x": 8.1,
+        "y": 11.52,
+        "w": 83.8,
+        "h": 74
+      }
+    ]
+  },
+  {
+    "id": "two-images",
+    "name": "이미지 2개",
+    "bg": "asset:content-bg-flip.png",
+    "boxes": [
+      {
+        "kind": "text",
+        "x": 8.1,
+        "y": 4.87,
+        "w": 83.8,
+        "h": 7.9,
+        "text": "제목",
+        "font": "head",
+        "size": 4.6,
+        "color": "#c85059",
+        "align": "left",
+        "valign": "center",
+        "weight": 800,
+        "shadow": true
+      },
+      {
+        "kind": "image",
+        "x": 8.1,
+        "y": 15.52,
+        "w": 40,
+        "h": 66
+      },
+      {
+        "kind": "image",
+        "x": 52,
+        "y": 15.52,
+        "w": 40,
+        "h": 66
+      }
+    ]
+  }
+]

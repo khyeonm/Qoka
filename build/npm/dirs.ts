@@ -26,6 +26,7 @@ export const dirs = [
 	'extensions/aria-paper',
 	'extensions/aria-overview',
 	'extensions/qoka-loop',
+	'extensions/qoka-slides',
 	'extensions/configuration-editing',
 	'extensions/css-language-features',
 	'extensions/css-language-features/server',

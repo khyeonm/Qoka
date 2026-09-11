@@ -246,6 +246,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		'aria.hypothesis.reregisterMcp',
 		'aria.overview.reregisterMcp',
 		'qoka.loop.reregisterMcp',
+		'aria.slides.reregisterMcp',
 	];
 
 	/** Each Qoka MCP extension also exposes this: returns { name, port } for its
@@ -265,6 +266,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		'aria.hypothesis.mcpInfo',
 		'aria.overview.mcpInfo',
 		'qoka.loop.mcpInfo',
+		'aria.slides.mcpInfo',
 	];
 
 	/**

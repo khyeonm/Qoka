@@ -1,0 +1,136 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* App chrome for the Slides tab. The slides themselves render with their own
+   theme (slide.css + theme vars); this file styles the surrounding shell using
+   VS Code's webview theme tokens so it blends with the editor. */
+
+html, body { height: 100%; margin: 0; }
+body {
+	font-family: var(--vscode-font-family);
+	font-size: 13px;
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+	overflow: hidden;
+}
+button {
+	font-family: inherit;
+	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	background: var(--vscode-button-secondaryBackground, transparent);
+	border: 1px solid var(--vscode-contrastBorder, transparent);
+	border-radius: 4px;
+	padding: 3px 10px;
+	cursor: pointer;
+}
+button:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground)); }
+
+#app { display: flex; height: 100vh; }
+
+/* ---- sidebar (deck list) ---- */
+#sidebar {
+	width: 240px;
+	flex: none;
+	border-right: 1px solid var(--vscode-panel-border, rgba(128,128,128,.3));
+	display: flex;
+	flex-direction: column;
+	background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+#sidebar-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 12px;
+	font-weight: 600;
+	border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,.2));
+}
+#new-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+#new-btn:hover { background: var(--vscode-button-hoverBackground); }
+#deck-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+#deck-list li {
+	display: flex; align-items: center; gap: 6px;
+	padding: 7px 8px; border-radius: 5px; cursor: pointer;
+}
+#deck-list li:hover { background: var(--vscode-list-hoverBackground); }
+#deck-list li.active { background: var(--vscode-list-inactiveSelectionBackground); }
+#deck-list li .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#deck-list li .del { opacity: 0; border: none; background: transparent; padding: 0 4px; font-size: 15px; line-height: 1; }
+#deck-list li:hover .del { opacity: .7; }
+#deck-list li .del:hover { opacity: 1; color: var(--vscode-errorForeground); background: transparent; }
+
+/* ---- stage (toolbar + frame) ---- */
+#stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#toolbar {
+	display: flex; align-items: center; gap: 8px;
+	padding: 6px 12px;
+	border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,.2));
+}
+#deck-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+#spacer { flex: 1; }
+#counter { font-variant-numeric: tabular-nums; opacity: .8; min-width: 56px; text-align: center; }
+
+#frame {
+	flex: 1; position: relative;
+	display: flex; align-items: center; justify-content: center;
+	overflow: hidden;
+	background: var(--vscode-editorWidget-background, #2a2a2a);
+	padding: 12px;
+}
+.deck { display: flex; align-items: center; justify-content: center; }
+
+/* single-slide fit: JS sets each .slide box to the scaled canvas and --scale on
+   the inner; scale from the top-left so the canvas fills the box exactly. */
+#frame .deck .slide {
+	position: relative;
+	overflow: hidden;
+	margin: auto;
+	background: #ffffff;
+	box-shadow: 0 4px 24px rgba(0,0,0,.35);
+}
+#frame .deck .slide .slide-inner {
+	position: absolute;
+	top: 0; left: 0;
+	transform-origin: top left;
+	transform: scale(var(--scale, 1));
+}
+
+#empty {
+	position: absolute; inset: 0;
+	display: flex; align-items: center; justify-content: center;
+	color: var(--vscode-descriptionForeground);
+	padding: 24px; text-align: center;
+}
+
+/* ---- slideshow (present) mode ---- */
+body.present #sidebar, body.present #toolbar { display: none; }
+body.present #frame { background: #000; padding: 0; }
+
+/* ---- new-deck dialog ---- */
+#newdlg {
+	position: fixed; inset: 0;
+	display: flex; align-items: center; justify-content: center;
+	background: rgba(0,0,0,.45); z-index: 20;
+}
+#newdlg .dlg {
+	background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
+	border-radius: 8px; padding: 18px 20px; width: 360px; max-width: 90vw;
+	box-shadow: 0 8px 40px rgba(0,0,0,.4);
+}
+#newdlg h3 { margin: 0 0 12px; }
+#newdlg label { display: block; margin-bottom: 12px; }
+#newdlg input[type=text] {
+	width: 100%; margin-top: 4px; box-sizing: border-box;
+	padding: 6px 8px; border-radius: 4px;
+	border: 1px solid var(--vscode-input-border, rgba(128,128,128,.3));
+	background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+}
+#newdlg .field { margin-bottom: 12px; }
+#newdlg .field > span { display: block; margin-bottom: 6px; opacity: .85; }
+#nd-themes, #nd-ratio { display: flex; flex-wrap: wrap; gap: 6px; }
+#nd-themes button.sel, #nd-ratio button.sel {
+	background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent;
+}
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+#nd-create { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }

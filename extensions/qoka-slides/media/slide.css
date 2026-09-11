@@ -1,0 +1,520 @@
+:root {
+    --text: #000000;
+    --bg: #FFFFFF;
+    --muted: #555555;
+    --accent1: #058DC7;
+    --accent2: #50B432;
+    --accent3: #ED561B;
+    --dk2: #158158;
+    --hlink: #2200CC;
+    --pnu-blue: #005aab;
+    --pnu-green: #00a65e;
+    --pnu-blue-soft: #DCE7F2;
+    --frame: #1f1f1f;
+    /* theme-driven defaults (overridden per deck via themeVars(); see themes.ts) */
+    --font-head: "Source Serif 4", "Noto Serif KR", "Times New Roman", serif;
+    --font-body: "Source Serif 4", "Noto Serif KR", serif;
+    --font-ui: "Open Sans", "Noto Sans KR", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", "Noto Sans KR", monospace;
+    --strip-display: block;
+    /* literal px, not calc(4.4 * var(--ch)): var() inside a custom property is
+       substituted where the property is *declared*, and --ch does not exist at
+       :root. Themes override both with px too (see themeStore.ts). */
+    --h1-size: 44.5741px;
+    --title-size: 64.8px;
+  }
+  * { box-sizing: border-box; }
+
+  /* ---- the slide scale ------------------------------------------------------
+     Every length below is design px on the fixed canvas. --ch and --cw are 1% of
+     the slide's text area, the two figures that are not the same on every slide:
+     a content slide is inset by the padding declared here, a title slide only
+     horizontally. They replace cqh/cqw, which could not be trusted - .slide-inner
+     declares its own padding, a container cannot query itself, so that padding
+     silently fell back to *viewport* units and dragged the content box (and so
+     every descendant font size) around with the browser window: 1cqh measured
+     10.24px in a 900px-tall window, 9.98px at 1329px, 10.13px when printing.
+     Pinned here to what they resolved to at print size.                        */
+  .slide-inner {
+    --ch: 10.1304688px;                                     /* (1080 - 28.08 - 38.88) / 100, snapped to Chromium's 1/64px */
+    --cw: calc((var(--canvas-w, 1920px) - 153.6px) / 100);  /* 17.664px at 16:9, 12.864px at 4:3 */
+  }
+  .slide.title .slide-inner {
+    --ch: 10.8px;                                           /* no vertical padding on a cover */
+    --cw: calc((var(--canvas-w, 1920px) - 230.4px) / 100);  /* 16.896px at 16:9, 12.096px at 4:3 */
+  }
+
+  /* fixed-size design canvas; transform: scale() set by JS to fit .slide */
+  .slide-inner {
+    position: relative;
+    width: var(--canvas-w, 1920px);
+    height: var(--canvas-h, 1080px);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    padding: 28.08px 76.8px 38.88px;
+    /* Nothing queries this container any more - kept for the size/layout
+       containment it implies, which makes .slide-inner a stacking context so a
+       shape at z-index:-1 still paints above the slide background instead of
+       vanishing behind it. Older hand-written cqh/cqw also keeps resolving. */
+    container-type: size;
+    transform-origin: center center;
+    transform: scale(var(--scale, 1));
+    flex: none;
+  }
+  .slide.title .slide-inner {
+    padding: 0 115.2px;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* academic chrome: thin blue accent at top + soft hairline at bottom */
+  .slide:not(.title) .slide-inner::before {
+    content: "";
+    display: var(--strip-display);
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: calc(0.6 * var(--ch));
+    background: var(--pnu-blue);
+  }
+  .slide:not(.title) .slide-inner::after {
+    content: "";
+    display: var(--strip-display);
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: calc(0.25 * var(--ch));
+    background: var(--pnu-blue-soft);
+  }
+  .brand {
+    position: absolute;
+    top: calc(1.6 * var(--ch)); right: calc(2 * var(--cw));
+    height: var(--logo-h, calc(8 * var(--ch))); width: auto;
+    pointer-events: none;
+    z-index: 5;
+  }
+  /* template text boxes (absolutely positioned from a theme template spec) */
+  .tbox { overflow-wrap: break-word; white-space: pre-wrap; }
+  /* drawn shapes (rectangle / rounded rectangle / circle). Geometry, fill,
+     border and radius all live in the inline style; box-sizing keeps the border
+     inside the declared width/height so W/H match what the editor reports. */
+  .shape { box-sizing: border-box; }
+  .snum {
+    position: absolute;
+    bottom: calc(1.3 * var(--ch)); right: calc(1.8 * var(--cw));
+    font-family: var(--font-ui);
+    font-size: calc(2.1 * var(--ch)); color: var(--muted);
+    z-index: 5; user-select: none;
+  }
+  .foot {
+    position: absolute;
+    bottom: calc(1.3 * var(--ch)); left: calc(1.8 * var(--cw));
+    font-family: var(--font-ui);
+    font-size: calc(2.1 * var(--ch)); color: var(--muted);
+    z-index: 5; user-select: none;
+  }
+
+  /* section title (content slides) */
+  .slide:not(.title) .slide-inner > h1 {
+    font-family: var(--font-head);
+    font-size: var(--h1-size);
+    margin: 0 0 calc(3.4 * var(--ch)) 0;
+    font-weight: 700;
+    text-align: left;
+    line-height: 1.25;
+    padding-right: calc(9 * var(--cw));            /* leave room for the brand logo */
+    color: var(--text);
+  }
+
+  /* title slide */
+  .slide.title .titlebrand {
+    height: calc(14 * var(--ch)); width: auto;
+    margin: 0 auto calc(4.5 * var(--ch));
+    display: block;
+  }
+  .slide.title h1 {
+    text-align: center;
+    font-family: var(--font-head);
+    font-size: var(--title-size);
+    margin: 0;
+    font-weight: 700;
+    line-height: 1.35;
+    padding-right: 0;
+  }
+  .slide.title .subtitle {
+    text-align: center;
+    font-size: calc(3.4 * var(--ch));
+    line-height: 1.9;
+    margin-top: calc(5 * var(--ch));
+    font-family: var(--font-head);
+  }
+  .slide.title .rule {
+    width: calc(22 * var(--cw)); height: 2px;
+    background: var(--pnu-blue);
+    margin: calc(3.5 * var(--ch)) auto 0;
+  }
+  .slide.title .venue {
+    margin-top: calc(1.2 * var(--ch));
+    font-size: calc(2.7 * var(--ch));
+    color: var(--muted);
+    font-style: italic;
+    text-align: center;
+  }
+
+  /* key-point bullets above an image */
+  .key {
+    list-style-type: disc;
+    margin: 0 0 calc(1.6 * var(--ch)) 0;
+    padding-left: calc(3.2 * var(--cw));
+    font-size: calc(3.1 * var(--ch));
+    line-height: 1.55;
+    font-family: var(--font-body);
+  }
+  .key li { margin-bottom: calc(0.5 * var(--ch)); }
+  .key li:last-child { margin-bottom: 0; }
+  .key a { color: var(--hlink); text-decoration: underline; }
+
+  /* generic content body */
+  .body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+  .body img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  .body.split { gap: calc(2 * var(--cw)); }
+  .body.split img { max-width: 49%; max-height: 100%; }
+  .body.text { flex-direction: column; gap: calc(3 * var(--ch)); text-align: center; }
+  /* text-left / figure-right */
+  .body.lr { flex-direction: row; gap: calc(2.5 * var(--cw)); align-items: center; }
+  .body.lr .key { flex: 1; max-width: 46%; margin: 0; padding-left: calc(3 * var(--cw)); }
+  .body.lr img { flex: 1.2; max-width: 54%; max-height: 100%; object-fit: contain; }
+
+  /* preview cards (S5) */
+  .preview {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: calc(2.6 * var(--cw));
+    align-items: stretch; padding: 0 calc(1 * var(--cw)); width: 100%;
+  }
+  .preview .card {
+    text-align: center;
+    padding: calc(2.4 * var(--ch)) calc(1.4 * var(--cw));
+    border-top: 3px solid var(--pnu-blue);
+    background: #FAFBFC;
+  }
+  .preview .name { font-size: calc(4.4 * var(--ch)); font-weight: 700; margin-bottom: calc(0.4 * var(--ch)); font-family: var(--font-body); }
+  .preview .expand { font-size: calc(2.4 * var(--ch)); color: var(--muted); font-style: italic; margin-bottom: calc(1.4 * var(--ch)); line-height: 1.4; }
+  .preview .tier { font-size: calc(2.8 * var(--ch)); color: var(--muted); line-height: 1.5; }
+  .preview .card.t1 .name { color: var(--accent1); }
+  .preview .card.t2 .name { color: var(--dk2); }
+  .preview .card.t3 .name { color: var(--accent3); }
+
+  /* two-question (S10) */
+  .twoq {
+    display: flex; flex-direction: column; gap: calc(4.5 * var(--ch));
+    text-align: center; font-size: calc(4.6 * var(--ch)); line-height: 1.45;
+    max-width: 88%; margin: 0 auto;
+    font-family: var(--font-body);
+  }
+  .twoq .q { color: var(--text); }
+  .twoq .a { color: var(--accent3); font-weight: 700; }
+
+  /* line stack (S11, S15) */
+  .lines {
+    display: flex; flex-direction: column; gap: calc(2.6 * var(--ch));
+    text-align: center; font-size: calc(4 * var(--ch)); line-height: 1.5;
+    max-width: 88%; margin: 0 auto;
+    font-family: var(--font-body);
+  }
+  .lines .head { color: var(--pnu-blue); font-weight: 700; }
+
+  /* definition (S2, S4) */
+  .defn {
+    display: flex; flex-direction: column; gap: calc(2.4 * var(--ch));
+    font-size: calc(4 * var(--ch)); line-height: 1.5;
+    text-align: center;
+    max-width: 86%;
+    margin: 0 auto;
+    font-family: var(--font-body);
+  }
+  .defn .lead {
+    font-size: calc(4.8 * var(--ch)); font-weight: 700; color: var(--pnu-blue);
+  }
+
+  /* gap list (S4) */
+  .gaps {
+    display: flex; flex-direction: column; gap: calc(2.6 * var(--ch));
+    font-size: calc(3.3 * var(--ch)); line-height: 1.5;
+    max-width: 90%; margin: 0 auto;
+    font-family: var(--font-body);
+  }
+  .gaps .gap { display: flex; align-items: baseline; gap: calc(1.4 * var(--cw)); }
+  .gaps .gn { color: var(--pnu-blue); font-weight: 700; min-width: calc(3.4 * var(--ch)); font-size: calc(3.8 * var(--ch)); }
+  .gaps .glabel { font-weight: 700; }
+  .gaps .gnote { color: var(--muted); font-style: italic; margin-top: calc(0.6 * var(--ch)); line-height: 1.45; }
+  .gaps .gresolved { color: var(--text); margin-top: calc(0.6 * var(--ch)); line-height: 1.45; font-size: calc(3.1 * var(--ch)); }
+  .gaps .gresolved b { color: var(--pnu-blue); font-weight: 700; }
+
+  /* gap badge on preview cards */
+  .preview .gapmark {
+    font-family: var(--font-ui);
+    font-size: calc(2 * var(--ch)); color: var(--pnu-blue);
+    text-transform: uppercase; letter-spacing: 0.12em;
+    margin-bottom: calc(0.6 * var(--ch));
+    font-weight: 700;
+  }
+
+  /* paper precedent cards (S3) */
+  .papers {
+    display: grid; grid-template-columns: 1fr 1fr; gap: calc(3 * var(--cw));
+    width: 100%; padding: 0 calc(3 * var(--cw));
+  }
+  .papers .paper {
+    display: flex; flex-direction: column; gap: calc(1.4 * var(--ch));
+    padding: calc(2.4 * var(--ch)) calc(1.6 * var(--cw));
+    border-left: 4px solid var(--pnu-blue);
+    background: #FAFBFC;
+  }
+  .papers .ptitle { font-size: calc(4 * var(--ch)); font-weight: 700; color: var(--pnu-blue); font-family: var(--font-body); }
+  .papers .pauthors { font-size: calc(2.8 * var(--ch)); color: var(--muted); font-style: italic; }
+  .papers .pclaim { font-size: calc(3.1 * var(--ch)); line-height: 1.55; font-family: var(--font-body); }
+
+  /* citations footer */
+  .cites {
+    position: absolute; bottom: calc(3 * var(--ch)); left: 0; right: 0;
+    text-align: center;
+    font-family: var(--font-ui);
+    font-size: calc(2.4 * var(--ch)); color: var(--muted);
+    line-height: 1.7;
+    padding: 0 calc(8 * var(--cw));
+  }
+  .cites a { color: var(--hlink); text-decoration: underline; }
+
+  /* principles (S20) */
+  .principles {
+    display: flex; flex-direction: column; gap: calc(4.2 * var(--ch));
+    font-size: calc(5.2 * var(--ch)); padding-left: calc(6 * var(--cw));
+    font-family: var(--font-body);
+  }
+  .principles .row { display: flex; align-items: baseline; gap: calc(1.6 * var(--cw)); }
+  .principles .n { color: var(--pnu-blue); font-weight: 700; min-width: calc(3.5 * var(--ch)); }
+
+  /* meta (S21) */
+  .meta {
+    font-size: calc(5.2 * var(--ch)); text-align: center; max-width: 84%;
+    line-height: 1.5; margin: 0 auto;
+    font-family: var(--font-body);
+  }
+
+  /* inline logo (S5, S22) */
+  .clogo {
+    display: block;
+    margin: 0 auto calc(3 * var(--ch));
+    height: calc(7 * var(--ch)); width: auto;
+  }
+  .clogo.lg { height: calc(12 * var(--ch)); margin-bottom: calc(4 * var(--ch)); }
+
+  /* no-photo icon (S2) */
+  .nophoto { display: block; margin: 0 auto calc(3 * var(--ch)); height: calc(18 * var(--ch)); width: auto; }
+
+  /* DILI collaborator strip (S8–S11) - replaces the .foot byline */
+  .collab {
+    position: absolute;
+    bottom: calc(1.2 * var(--ch)); left: calc(1.8 * var(--cw));
+    display: flex; gap: calc(1 * var(--cw)); align-items: center;
+    font-family: var(--font-ui);
+    font-size: calc(2 * var(--ch)); color: var(--muted);
+    z-index: 6;
+  }
+  .collab .cwith { font-style: italic; }
+  .collab .person { display: flex; align-items: center; gap: calc(0.5 * var(--cw)); }
+  .collab .person img {
+    width: calc(3.6 * var(--ch)); height: calc(3.6 * var(--ch));
+    border-radius: 50%; object-fit: cover; background: #e5e7eb;
+    display: block;
+  }
+  .collab .cname { color: var(--text); }
+  .collab .caff { font-style: italic; color: var(--muted); }
+
+  /* acknowledgments (S23) */
+  .ack {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: calc(3 * var(--cw));
+    align-items: center;
+    padding: 0 calc(4 * var(--cw));
+  }
+  .ack ul {
+    font-size: calc(3.4 * var(--ch)); line-height: 2;
+    list-style-type: disc; padding-left: calc(1.5 * var(--cw)); margin: 0;
+    font-family: var(--font-body);
+  }
+  .ack .labphoto {
+    width: 100%; max-height: calc(62 * var(--ch));
+    object-fit: contain;
+    display: block;
+  }
+  .url {
+    position: absolute; bottom: calc(3.2 * var(--ch)); left: 0; right: 0;
+    text-align: center;
+    font-family: var(--font-ui);
+    font-size: calc(2.8 * var(--ch));
+  }
+  .url a { color: var(--hlink); text-decoration: underline; }
+
+
+  /* SCSOK intro slide */
+  .scsok-intro { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .scsok-intro .scsok-shot { max-width: 78%; max-height: 100%; object-fit: contain; display: block; }
+  .scsok-intro .scsok-kasra { position: absolute; top: 0; right: 0; height: calc(8 * var(--ch)); width: auto; object-fit: contain; }
+
+  /* SCSOK workshops grid */
+  .scsok-grid {
+    display: grid;
+    grid-template-columns: 0.8fr 1.2fr;
+    grid-template-rows: 1fr 1fr;
+    gap: calc(0.5 * var(--ch)) calc(1 * var(--cw));
+    width: 100%; height: 100%;
+  }
+  .scsok-grid .cell {
+    margin: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: calc(0.3 * var(--ch)); min-height: 0; overflow: hidden;
+  }
+  .scsok-grid .cell img {
+    height: calc(36 * var(--ch)); width: auto; max-width: 100%;
+    object-fit: contain; display: block;
+  }
+  .scsok-grid .cell.wide img { height: calc(42 * var(--ch)); max-width: 80%; }
+  .scsok-grid .cell .yr { line-height: 1.25; }
+  .scsok-grid .cell .yr .loc { color: var(--text); font-style: normal; }
+  .scsok-grid .cell .yr {
+    font-size: calc(3.2 * var(--ch)); color: var(--text); font-family: var(--font-body);
+  }
+  .scsok-grid .cell.wide { grid-column: 1 / -1; }
+  .scsok-caption {
+    text-align: center; font-size: calc(3.2 * var(--ch));
+    margin: calc(0.4 * var(--ch)) 0 0;
+    font-family: var(--font-body);
+  }
+
+  /* shell command block (tutorial) */
+  .cmd {
+    width: 100%; max-width: 90%; margin: calc(1 * var(--ch)) auto 0;
+    background: #0f1b2d; color: #e8eef7;
+    border-left: 5px solid var(--pnu-blue);
+    border-radius: 6px;
+    padding: calc(2.4 * var(--ch)) calc(2.4 * var(--cw));
+    font-family: var(--font-mono);
+    font-size: calc(2.5 * var(--ch)); line-height: 1.7;
+    text-align: left; white-space: pre-wrap; word-break: break-all;
+  }
+  .cmd .tok { color: var(--pnu-green); font-weight: 700; }   /* command keyword */
+  .cmd .cmt { color: #9fb3c8; font-style: italic; }          /* comment */
+  .cmd.sm { font-size: calc(2.1 * var(--ch)); }
+  /* natural-language prompt shown inside a command-line box */
+  .cmd.nl { white-space: normal; word-break: keep-all; line-height: 1.6; }
+  .cmd.nl code { background: rgba(255,255,255,0.10); color: #ffd479; padding: 0 0.35em; border-radius: 3px; }
+  .cmd.nl b { color: #7fd1a0; font-weight: 700; }
+  /* Copy button injected (top-right) into every prompt box at runtime. */
+  .copy-btn {
+    float: right;
+    margin: calc(-0.8 * var(--ch)) calc(-0.8 * var(--cw)) calc(0.6 * var(--ch)) calc(1.4 * var(--cw));
+    font-family: var(--font-ui);
+    font-size: calc(1.9 * var(--ch)); font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #cfe0f5; background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.22); border-radius: 5px;
+    padding: calc(0.5 * var(--ch)) calc(1.1 * var(--cw)); cursor: pointer; user-select: none;
+  }
+  .copy-btn:hover { background: rgba(255,255,255,0.18); }
+  .copy-btn.copied { color: #7fd1a0; border-color: #7fd1a0; }
+  /* standalone label sitting above a box (outside it) */
+  .plabel { display: inline-block; font-family: var(--font-ui);
+            font-size: calc(2.6 * var(--ch)); font-weight: 700; letter-spacing: 0.04em;
+            color: var(--pnu-green); text-transform: uppercase; }
+  .plabel::before { content: "\25B7 "; }
+
+  /* natural-language prompt to Claude (tutorial) */
+  .promptbox {
+    width: 100%; max-width: 92%; margin: 0 auto;
+    background: #F5FAF6;
+    border: 1px solid #cfe6d6;
+    border-left: 5px solid var(--pnu-green);
+    border-radius: 6px;
+    padding: calc(2.2 * var(--ch)) calc(2.4 * var(--cw)) calc(2.4 * var(--ch));
+    text-align: left;
+    font-family: var(--font-body);
+    font-size: calc(3 * var(--ch)); line-height: 1.55;
+  }
+  .promptbox .plabel {
+    display: inline-block; margin-bottom: calc(1 * var(--ch));
+    font-family: var(--font-ui);
+    font-size: calc(2 * var(--ch)); font-weight: 700; letter-spacing: 0.04em;
+    color: var(--pnu-green); text-transform: uppercase;
+  }
+  .promptbox .plabel::before { content: "▷ "; }
+  .promptbox.sm { font-size: calc(2.5 * var(--ch)); }
+  .promptbox code, .cmd code { font-family: var(--font-mono); }
+  .promptbox b { color: var(--pnu-blue); font-weight: 700; }
+
+  /* simple wrapper to stack a prompt under a short note */
+  .stack { display: flex; flex-direction: column; gap: calc(2.2 * var(--ch)); width: 100%; align-items: center; justify-content: center; }
+  .stack .note { font-size: calc(2.7 * var(--ch)); color: var(--muted); font-style: italic; text-align: center; font-family: var(--font-body); }
+
+  /* comparison table (tutorial) */
+  table.tbl { border-collapse: collapse; width: 86%; margin: 0 auto; font-size: calc(3.2 * var(--ch));
+              font-family: var(--font-body); }
+  table.tbl th, table.tbl td { border: 1px solid #cdd6e0; padding: calc(1.8 * var(--ch)) calc(1.8 * var(--cw)); text-align: center; line-height: 1.4; }
+  table.tbl thead th { background: var(--pnu-blue); color: #fff; font-weight: 700; }
+  table.tbl tbody th { background: var(--pnu-blue-soft); color: var(--pnu-blue); font-weight: 700; }
+  table.tbl tbody tr:nth-child(even) td { background: #f5f8fb; }
+  table.tbl .yes { color: var(--pnu-green); font-weight: 700; }
+  table.tbl .no  { color: #b0392b; font-weight: 700; }
+
+  /* tutorial sizing - fill the slide more */
+  .key { font-size: calc(3.35 * var(--ch)); line-height: 1.6; }
+  .cmd { font-size: calc(3 * var(--ch)); }
+  .promptbox { font-size: calc(3.35 * var(--ch)); }
+  .promptbox.sm { font-size: calc(3 * var(--ch)); }
+
+  /* gallery: things built with Claude Code */
+  .gallery {
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr;
+    gap: calc(1.2 * var(--ch)) calc(1.6 * var(--cw)); width: 100%; height: 100%;
+  }
+  .gallery .cell { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 0; gap: calc(0.6 * var(--ch)); }
+  .gallery .cell img { width: 100%; height: 100%; max-height: calc(26 * var(--ch)); object-fit: contain; border: 1px solid #e2e8f0; background: #fff; }
+  .gallery .cell .cap { font-size: calc(2.1 * var(--ch)); color: var(--muted); font-family: var(--font-body); text-align: center; line-height: 1.25; }
+
+  /* text-only slides: vertically centered, open spacing to fill */
+  .lines.fill { gap: calc(4 * var(--ch)); font-size: calc(4.2 * var(--ch)); max-width: 86%; }
+  /* gallery captions can be long (full pptx names) */
+  .gallery .cell img { max-height: calc(22 * var(--ch)); }
+  .gallery .cell .cap { font-size: calc(1.85 * var(--ch)); }
+
+  /* figure body above a collaborator / url strip: keep clear of it */
+  .body:has(+ .collab) { padding-bottom: calc(6 * var(--ch)); }
+  .body:has(+ .url) { padding-bottom: calc(6 * var(--ch)); }
+
+  /* maximize figure size: scale up to fill the box (not just max-constrain) */
+  img.fitw { width: 100%; height: 100%; object-fit: contain; max-width: none; max-height: none; }
+  .body.split.fitw img { width: 49%; height: 100%; object-fit: contain; max-width: none; max-height: none; }
+
+  /* text on top, image below */
+  .body.tb { flex-direction: column; gap: calc(2.4 * var(--ch)); }
+  .body.tb .key { align-self: flex-start; max-width: 96%; margin: 0; padding-left: calc(3.2 * var(--cw)); text-align: left; }
+  .body.tb img { width: 88%; flex: 1; min-height: 0; object-fit: contain; max-width: none; max-height: none; }
+
+  /* image placeholder (unfilled image slot) - sized to match a real image */
+  .img-ph { background: #eef1f5; border-radius: 6px; min-height: calc(20 * var(--ch)); box-sizing: border-box; }
+  .body.split .img-ph { flex: 1; align-self: stretch; }
+  .body.lr .img-ph { flex: 1.2; max-width: 54%; align-self: stretch; }
+  .body.tb .img-ph { width: 88%; flex: 1; }
+  .gallery .cell .img-ph { width: 100%; height: 100%; max-height: calc(22 * var(--ch)); }
+

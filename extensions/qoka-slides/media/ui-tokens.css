@@ -1,0 +1,42 @@
+/* Shared UI design tokens for the product chrome (main page, editor, viewer).
+   One source of truth for accent, greys, borders, radii and shadows so the
+   three surfaces read as a single product. Slides themselves stay theme-driven
+   (--pnu-* in slide.css); these --ui-* tokens are for the app chrome only and
+   the slide themes are chosen to complement this accent. */
+:root {
+	/* accent - the overall product theme; slide themes complement it */
+	--ui-accent: #1a73e8;
+	--ui-accent-hover: #1765cc;
+	--ui-accent-soft: #e8f0fe;
+
+	/* neutrals */
+	--ui-ink: #202124;
+	--ui-ink-2: #3c4043;
+	--ui-muted: #5f6368;
+	--ui-faint: #9aa0a6;
+
+	/* surfaces & borders */
+	--ui-surface: #ffffff;
+	--ui-bg: #f7f8fa;
+	--ui-hover: #f1f3f4;
+	--ui-hover-soft: #f8f9fa;
+	--ui-border: #e5e7eb;
+	--ui-border-2: #eceef1;
+	--ui-border-strong: #dadce0;
+
+	/* danger */
+	--ui-danger: #d93025;
+	--ui-danger-hover: #c5221f;
+	--ui-danger-soft: #fce8e6;
+	--ui-danger-border: #f3b4ae;
+
+	/* radii */
+	--ui-radius: 8px;
+	--ui-radius-md: 10px;
+	--ui-radius-lg: 16px;
+
+	/* elevation */
+	--ui-shadow-sm: 0 1px 2px rgba(60, 64, 67, 0.1);
+	--ui-shadow: 0 8px 24px rgba(60, 64, 67, 0.2);
+	--ui-shadow-lg: 0 24px 60px -12px rgba(32, 33, 36, 0.5);
+}

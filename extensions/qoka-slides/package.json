@@ -1,0 +1,34 @@
+{
+	"name": "qoka-slides",
+	"displayName": "Qoka Slides",
+	"description": "Slides MCP + presentation editor: lets the AI assistant build and edit slide decks (HTML slides on a fixed canvas), rendered live in a Slides tab. Built into Qoka.",
+	"version": "0.0.1",
+	"publisher": "aria",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.123.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {
+		"commands": [
+			{
+				"command": "qoka.slides.open",
+				"title": "Open Slides",
+				"category": "Qoka"
+			}
+		]
+	},
+	"scripts": {
+		"compile": "node build.mjs",
+		"watch": "node build.mjs --watch",
+		"typecheck": "tsc -p ./ --noEmit"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"esbuild": "^0.24.2",
+		"typescript": "^5.6.2"
+	}
+}

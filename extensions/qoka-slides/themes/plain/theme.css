@@ -1,0 +1,5 @@
+/* Optional extra CSS for the PNU theme, injected inside the deck (viewer,
+   editor, thumbnail). Target slide classes only (e.g. .slide-inner, .tbox) —
+   these rules render within the deck subtree. The core look (accent, fonts,
+   sizes, aspect) comes from theme.json; templates come from templates.json.
+   Left intentionally minimal — the PNU look is fully covered by the tokens. */

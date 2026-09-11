@@ -1,0 +1,68 @@
+[
+  {
+    "id": "title",
+    "name": "제목",
+    "bg": "surface",
+    "boxes": [
+      { "kind": "text", "x": 12, "y": 37, "w": 76, "h": 14, "text": "제목", "font": "head", "size": 6, "color": "ink", "align": "center", "valign": "center", "weight": 700 },
+      { "kind": "text", "x": 18, "y": 55, "w": 64, "h": 8, "text": "부제목", "font": "head", "size": 3.2, "color": "muted", "align": "center", "valign": "top", "weight": 400 }
+    ]
+  },
+  {
+    "id": "chapter",
+    "name": "챕터 제목",
+    "bg": "accent",
+    "boxes": [
+      { "kind": "text", "x": 10, "y": 31, "w": 80, "h": 6, "text": "SECTION", "font": "ui", "size": 2.4, "color": "white", "align": "center", "valign": "center", "weight": 700, "upper": true, "tracking": 0.18 },
+      { "kind": "text", "x": 10, "y": 40, "w": 80, "h": 18, "text": "챕터 제목", "font": "head", "size": 7, "color": "white", "align": "center", "valign": "center", "weight": 700 }
+    ]
+  },
+  {
+    "id": "text",
+    "name": "텍스트",
+    "bg": "surface",
+    "boxes": [
+      { "kind": "text", "x": 6, "y": 7, "w": 88, "h": 10, "text": "제목", "font": "head", "size": 4.4, "color": "ink", "align": "left", "valign": "top", "weight": 700 },
+      { "kind": "text", "x": 6, "y": 24, "w": 88, "h": 66, "text": "• 첫 번째 요점\n• 두 번째 요점", "font": "body", "size": 3.4, "color": "ink", "align": "left", "valign": "center", "weight": 400 }
+    ]
+  },
+  {
+    "id": "text-image-h",
+    "name": "텍스트 + 이미지 (가로)",
+    "bg": "surface",
+    "boxes": [
+      { "kind": "text", "x": 6, "y": 7, "w": 88, "h": 10, "text": "제목", "font": "head", "size": 4.4, "color": "ink", "align": "left", "valign": "top", "weight": 700 },
+      { "kind": "text", "x": 6, "y": 24, "w": 42, "h": 66, "text": "• 첫 번째 요점\n• 두 번째 요점", "font": "body", "size": 3.2, "color": "ink", "align": "left", "valign": "center", "weight": 400 },
+      { "kind": "image", "x": 52, "y": 24, "w": 42, "h": 66 }
+    ]
+  },
+  {
+    "id": "text-image-v",
+    "name": "텍스트 + 이미지 (세로)",
+    "bg": "surface",
+    "boxes": [
+      { "kind": "text", "x": 6, "y": 7, "w": 88, "h": 10, "text": "제목", "font": "head", "size": 4.4, "color": "ink", "align": "left", "valign": "top", "weight": 700 },
+      { "kind": "text", "x": 6, "y": 22, "w": 88, "h": 16, "text": "• 첫 번째 요점", "font": "body", "size": 3.0, "color": "ink", "align": "left", "valign": "top", "weight": 400 },
+      { "kind": "image", "x": 12, "y": 42, "w": 76, "h": 50 }
+    ]
+  },
+  {
+    "id": "image",
+    "name": "이미지",
+    "bg": "surface",
+    "boxes": [
+      { "kind": "text", "x": 6, "y": 6, "w": 88, "h": 9, "text": "제목", "font": "head", "size": 4.0, "color": "ink", "align": "left", "valign": "top", "weight": 700 },
+      { "kind": "image", "x": 6, "y": 18, "w": 88, "h": 76 }
+    ]
+  },
+  {
+    "id": "two-images",
+    "name": "이미지 2개",
+    "bg": "surface",
+    "boxes": [
+      { "kind": "text", "x": 6, "y": 7, "w": 88, "h": 10, "text": "제목", "font": "head", "size": 4.4, "color": "ink", "align": "left", "valign": "top", "weight": 700 },
+      { "kind": "image", "x": 6, "y": 24, "w": 42, "h": 66 },
+      { "kind": "image", "x": 52, "y": 24, "w": 42, "h": 66 }
+    ]
+  }
+]
