@@ -21,6 +21,8 @@
 	window.addEventListener('message', (e) => {
 		const m = e.data || {};
 		if (m.type === 'deck') { renderDeck(m); }
+		else if (m.type === 'print') { printDeck(); }
+		else if (m.type === 'extract') { vscode.postMessage({ type: 'geometry', model: extractGeometry() }); }
 	});
 
 	function renderDeck(m) {
@@ -247,7 +249,101 @@
 		vscode.postMessage({ type: 'save', html: cleanMarkup() });
 	}
 
+	// --- export --------------------------------------------------------------
+	// PDF: print the slides exactly as rendered. We add a print-only stylesheet
+	// sized to the canvas (one slide per page at full scale) and call print(); the
+	// user picks "Save as PDF". High fidelity because it prints the real CSS.
+	function printDeck() {
+		setEditing(false);
+		const wasPresent = document.body.classList.contains('present');
+		if (wasPresent) { document.body.classList.remove('present'); layout(); }
+		const cw = state.canvas.w, ch = state.canvas.h;
+		// A print-only stylesheet does all the work: @media print rules override the
+		// on-screen inline sizing / display:none via !important, so every slide renders
+		// full-size, one per page, with no visible flash on screen.
+		let ps = document.getElementById('print-css');
+		if (!ps) { ps = document.createElement('style'); ps.id = 'print-css'; document.head.appendChild(ps); }
+		ps.textContent = '@media print {'
+			+ '@page { size: ' + cw + 'px ' + ch + 'px; margin: 0; }'
+			+ 'html, body { background: #fff !important; overflow: visible !important; }'
+			+ '#toolbar, #filmstrip, #overlay, #empty { display: none !important; }'
+			+ '#stage, #frame { display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important; background: #fff !important; }'
+			+ '.deck { display: block !important; }'
+			+ '#frame .deck .slide { display: block !important; width: ' + cw + 'px !important; height: ' + ch + 'px !important; margin: 0 !important; box-shadow: none !important; page-break-after: always; break-after: page; overflow: hidden; }'
+			+ '#frame .deck .slide:last-child { page-break-after: auto; break-after: auto; }'
+			+ '#frame .deck .slide .slide-inner { transform: none !important; }'
+			+ '.qk-chrome { display: block !important; }'
+			+ '}';
+		setTimeout(() => { window.print(); }, 60);
+	}
+
+	// PPTX: measure every positioned element (design px on the canvas) so the
+	// extension can rebuild editable text boxes + images. Each slide is briefly
+	// shown so getBoundingClientRect returns real geometry.
+	function rgbToHex(c) {
+		const m = /rgba?\(([^)]+)\)/.exec(c || '');
+		if (!m) { return '#333333'; }
+		const p = m[1].split(',').map((x) => parseFloat(x));
+		const h = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+		return '#' + h(p[0]) + h(p[1]) + h(p[2]);
+	}
+	function fillOrNull(c) {
+		const m = /rgba?\(([^)]+)\)/.exec(c || '');
+		if (!m) { return null; }
+		const p = m[1].split(',').map((x) => parseFloat(x));
+		if (p.length > 3 && p[3] < 0.05) { return null; } // transparent
+		return rgbToHex(c);
+	}
+	function primaryFont(ff) {
+		const first = (ff || '').split(',')[0].trim().replace(/^["']|["']$/g, '');
+		return first || undefined;
+	}
+	function extractGeometry() {
+		const cw = state.canvas.w, ch = state.canvas.h;
+		const list = Array.from(slides());
+		const prevIdx = state.idx;
+		const model = { canvas: { w: cw, h: ch }, slides: [] };
+		const sc = state.scale || 1;
+		list.forEach((s) => {
+			list.forEach((o) => { o.style.display = o === s ? 'block' : 'none'; });
+			const inner = s.querySelector('.slide-inner');
+			const elements = [];
+			if (inner) {
+				const ir = inner.getBoundingClientRect();
+				inner.querySelectorAll(':scope > *').forEach((el) => {
+					if (el.classList.contains('qk-chrome')) { return; }
+					const r = el.getBoundingClientRect();
+					const box = { x: (r.left - ir.left) / sc, y: (r.top - ir.top) / sc, w: r.width / sc, h: r.height / sc };
+					const img = el.tagName === 'IMG' ? el : el.querySelector('img');
+					if (img) {
+						const src = img.getAttribute('src') || '';
+						elements.push(Object.assign({ kind: 'image', fig: img.getAttribute('data-fig') || null, src: src.indexOf('data:') === 0 ? src : null }, box));
+						return;
+					}
+					const text = (el.innerText || el.textContent || '').trim();
+					if (!text) { return; }
+					const cs = getComputedStyle(el);
+					const align = cs.textAlign === 'center' ? 'center' : (cs.textAlign === 'right' || cs.textAlign === 'end') ? 'right' : 'left';
+					elements.push(Object.assign({
+						kind: 'text', text,
+						fontSize: parseFloat(cs.fontSize) || 24,
+						color: rgbToHex(cs.color),
+						bold: (parseInt(cs.fontWeight, 10) || 400) >= 600,
+						italic: cs.fontStyle === 'italic',
+						align,
+						fontFace: primaryFont(cs.fontFamily),
+						fill: fillOrNull(cs.backgroundColor),
+					}, box));
+				});
+			}
+			model.slides.push({ elements });
+		});
+		show(prevIdx);
+		return model;
+	}
+
 	// --- toolbar / nav / present ---------------------------------------------
+	$('exportBtn').addEventListener('click', () => vscode.postMessage({ type: 'export' }));
 	$('prev').addEventListener('click', () => show(state.idx - 1));
 	$('next').addEventListener('click', () => show(state.idx + 1));
 	$('editBtn').addEventListener('click', () => setEditing(!state.editing));

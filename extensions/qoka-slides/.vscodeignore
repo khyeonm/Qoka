@@ -1,0 +1,13 @@
+# qoka-slides ships a single bundled entry point, out/extension.js, produced by
+# build.mjs (esbuild, bundle: true). That bundle already inlines pptxgenjs (and
+# its jszip dependency tree) used for PowerPoint export, so the node_modules copies
+# are never required at runtime and would only bloat the installer.
+
+# Build-time only - out/extension.js is the shipped runtime file.
+src/**
+build.mjs
+tsconfig.json
+package-lock.json
+
+# Fully inlined into out/extension.js, not needed at runtime.
+node_modules/**

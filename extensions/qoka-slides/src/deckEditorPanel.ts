@@ -13,6 +13,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { readMeta, readText, writeText, readFigures, deckDir, figuresDir, slidesRoot, canvasFor, Aspect } from './storage';
 import { loadTheme, themeVars, Theme } from './themes';
+import { exportDeckToPptx, ExportModel } from './pptxExport';
 
 export class DeckEditorPanel {
 	private static current: DeckEditorPanel | undefined;
@@ -51,6 +52,8 @@ export class DeckEditorPanel {
 			if (!m) { return; }
 			if (m.type === 'ready' && this.slug) { void this.sendDeck(this.slug); }
 			else if (m.type === 'save' && this.slug && typeof m.html === 'string') { void this.save(this.slug, m.html); }
+			else if (m.type === 'export') { void this.chooseExport(); }
+			else if (m.type === 'geometry' && this.slug && m.model) { void this.exportPptx(this.slug, m.model as ExportModel); }
 		}, null, this.disposables);
 	}
 
@@ -118,6 +121,40 @@ export class DeckEditorPanel {
 		}
 	}
 
+	/** Export flow: ask the user for a format. PDF prints the rendered slides (high
+	 *  fidelity, via the webview); PPTX asks the webview for element geometry and
+	 *  builds an editable deck (after warning about the CSS-only styling that is lost). */
+	private async chooseExport(): Promise<void> {
+		if (!this.slug) { return; }
+		const pick = await vscode.window.showQuickPick(
+			[
+				{ label: 'PDF', detail: 'High-fidelity print of the slides exactly as rendered (save as PDF in the print dialog).' },
+				{ label: 'PowerPoint (.pptx)', detail: 'Editable slides you can rearrange in PowerPoint. Theme backgrounds, gradients and web fonts may be lost.' },
+			],
+			{ placeHolder: 'Export slides as', ignoreFocusOut: true },
+		);
+		if (!pick) { return; }
+		if (pick.label === 'PDF') {
+			this.panel.webview.postMessage({ type: 'print' });
+			return;
+		}
+		const proceed = await vscode.window.showWarningMessage(
+			'Export to editable PowerPoint. Text and images become native, editable shapes, but theme backgrounds, gradient fills and custom web fonts may not carry over exactly.',
+			{ modal: true },
+			'Export',
+		);
+		if (proceed === 'Export') { this.panel.webview.postMessage({ type: 'extract' }); }
+	}
+
+	private async exportPptx(slug: string, model: ExportModel): Promise<void> {
+		try {
+			const saved = await exportDeckToPptx(slug, model);
+			if (saved) { void vscode.window.showInformationMessage(`Slides exported to ${saved}`); }
+		} catch (e) {
+			void vscode.window.showErrorMessage(`Could not export PowerPoint: ${(e as Error).message}`);
+		}
+	}
+
 	private html(): string {
 		const webview = this.panel.webview;
 		const nonce = crypto.randomBytes(16).toString('hex');
@@ -178,6 +215,7 @@ export class DeckEditorPanel {
 	<div id="toolbar">
 		<span id="deck-title"></span>
 		<span id="spacer"></span>
+		<button id="exportBtn" type="button" title="Export to PDF or PowerPoint">Export</button>
 		<button id="editBtn" type="button">Edit</button>
 		<button id="prev" type="button" title="Previous slide">&#8249;</button>
 		<span id="counter"></span>
