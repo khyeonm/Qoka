@@ -28,6 +28,7 @@ export class PenpotSection extends SettingsSection {
 	private dot: HTMLElement | undefined;
 	private label: HTMLElement | undefined;
 	private button: HTMLButtonElement | undefined;
+	private openBtn: HTMLButtonElement | undefined;
 	private keyRow: HTMLElement | undefined;
 	private keyInput: HTMLInputElement | undefined;
 	private saveBtn: HTMLButtonElement | undefined;
@@ -75,6 +76,15 @@ export class PenpotSection extends SettingsSection {
 		this.label = label;
 		const button = append(row, $('button')) as HTMLButtonElement;
 		this.button = button;
+
+		// "Open Penpot" - jump straight to the Penpot app to draw (shown once connected,
+		// since drawing needs a Penpot file open in the canvas).
+		const openBtn = append(row, $('button')) as HTMLButtonElement;
+		openBtn.textContent = 'Open Penpot';
+		this.secondaryButton(openBtn);
+		openBtn.hidden = true;
+		openBtn.onclick = () => void this.commandService.executeCommand('vscode.open', URI.parse(this.serverUrl));
+		this.openBtn = openBtn;
 
 		// Stored key display: masked but editable, with a Save button (shown only when
 		// connected). Editing the value and pressing Save re-registers with the new key.
@@ -128,10 +138,12 @@ export class PenpotSection extends SettingsSection {
 			dot.style.background = 'var(--vscode-charts-yellow, #e6c200)';
 			label.textContent = 'Penpot: checking...';
 			button.hidden = true;
+			if (this.openBtn) { this.openBtn.hidden = true; }
 			keyRow.hidden = true;
 			return;
 		}
 		button.hidden = false;
+		if (this.openBtn) { this.openBtn.hidden = !status.connected; }
 		if (status.connected) {
 			dot.style.background = 'var(--vscode-charts-green, #4caf50)';
 			label.textContent = 'Penpot: connected';

@@ -18,8 +18,15 @@ element and export SVG/PDF - so it is suitable for a paper, unlike a raster AI i
 
 2. **If Penpot IS available:** use its MCP tools to draw what the user described - place
    shapes, icons, arrows, and labels and compose the layout. Penpot draws into the design
-   file the user currently has open in Penpot; if the tools report no open file, ask the
-   user to create a project in the Penpot dashboard and open a file. After drawing, tell
+   file the user currently has open in Penpot. **If the tools report no open file (or a
+   draw call fails because no canvas/file is connected), give the user a LINK to open
+   Penpot and the exact steps, then stop and wait:**
+
+   > Open Penpot to draw: **https://design.penpot.app** (or click **Open Penpot** in
+   > Settings -> Penpot (Figures)). Open or create a design file, then connect it with
+   > **File -> MCP Server -> Connect**. Tell me when it's open and I'll draw the figure.
+
+   Do not keep retrying the draw tools until the user confirms a file is open. After drawing, tell
    the user how to refine it on the Penpot canvas:
    - They can **Ungroup** a drawn group to edit each element individually (select it,
      then right-click -> Ungroup, or press Ctrl/Cmd + Shift + G), then move, recolor, or

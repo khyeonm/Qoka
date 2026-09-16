@@ -70,6 +70,9 @@ The assistant searches the paper databases and adds what you ask for to the list
 - **Note** - click **+ Add note** to jot a note; the button becomes **Edit note** once you've saved one.
 - **Copy DOI** - copy the paper's DOI to paste elsewhere.
 
+## Download a paper's PDF
+Want the actual PDF file, not just the library entry? **Ask the AI assistant in the chat**, for example "Save the PDF of this paper" or "Download the PDF for the CRISPR base editing paper". The assistant looks for an accessible PDF (open access, or through your own institutional access), and if it finds one it downloads the file and it appears in the **Downloaded PDFs** section. If no downloadable PDF is available, it tells you and saves nothing.
+
 ## Tips
 - To find *new* papers, ask the AI assistant in the chat - the search box here only filters what you've already saved.
 - Ask the assistant to summarise a saved paper, or to add tags and notes for you.`,
