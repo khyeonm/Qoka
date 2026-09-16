@@ -17,6 +17,8 @@ import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as 
 import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { AriaManuscriptView } from './ariaManuscriptView.js';
+import { AriaFiguresView } from './ariaFiguresView.js';
+import { Codicon } from '../../../../base/common/codicons.js';
 import { registerAriaTabHelpTitleAction } from '../../aria/browser/ariaHelpEditor.js';
 
 // The consolidated "Manuscript" tab merges the old Paper Writing and Peer Review
@@ -48,9 +50,14 @@ const manuscriptContainer: ViewContainer = Registry.as<IViewContainersRegistry>(
 		order: 16,
 	}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: false });
 
+// Two collapsible sections in one "Manuscript" container, mirroring the Analysis
+// tab (Folders + Changes + Snapshots): the writing/reviews section and a separate
+// "Figure library" section. Neither view is named "Manuscript" - the single
+// container title provides that, so there is no duplicate header. The writing
+// section is named "Draft" (its content is the paper drafts + reviews).
 const manuscriptView: IViewDescriptor = {
 	id: AriaManuscriptView.ID,
-	name: localize2('aria.manuscript.viewName', "Manuscript"),
+	name: localize2('aria.manuscript.viewName', "Draft"),
 	containerIcon: manuscriptContainerIcon,
 	ctorDescriptor: new SyncDescriptor(AriaManuscriptView),
 	canToggleVisibility: false,
@@ -58,10 +65,17 @@ const manuscriptView: IViewDescriptor = {
 	order: 1,
 };
 
-// Figures live INSIDE the Manuscript view as a collapsible "Figure library"
-// section (see AriaManuscriptView), so the container holds a single view and its
-// title merges with the container - no duplicate "Manuscript" header.
-Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([manuscriptView], manuscriptContainer);
+const figuresView: IViewDescriptor = {
+	id: AriaFiguresView.ID,
+	name: localize2('aria.manuscript.figuresViewName', "Figure library"),
+	containerIcon: Codicon.fileMedia,
+	ctorDescriptor: new SyncDescriptor(AriaFiguresView),
+	canToggleVisibility: true,
+	canMoveView: false,
+	order: 2,
+};
+
+Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([manuscriptView, figuresView], manuscriptContainer);
 
 // "How to use?" link in the view's title bar.
 registerAriaTabHelpTitleAction(AriaManuscriptView.ID, 'manuscript');

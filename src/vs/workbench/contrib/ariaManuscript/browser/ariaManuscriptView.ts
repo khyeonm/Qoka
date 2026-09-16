@@ -6,7 +6,6 @@
 import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { basename, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { localize } from '../../../../nls.js';
 import { IAction } from '../../../../base/common/actions.js';
 import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
@@ -72,8 +71,7 @@ export class AriaManuscriptView extends ViewPane {
 		this._register(this.fileService.onDidFilesChange(e => {
 			const papers = this.papersDir();
 			const reviews = this.reviewsDir();
-			const figures = this.figuresDir();
-			if ((papers && e.affects(papers)) || (reviews && e.affects(reviews)) || (figures && e.affects(figures))) { void this.refresh(); }
+			if ((papers && e.affects(papers)) || (reviews && e.affects(reviews))) { void this.refresh(); }
 		}));
 	}
 
@@ -94,7 +92,6 @@ export class AriaManuscriptView extends ViewPane {
 	private folderUri(): URI | undefined { return this.workspaceContextService.getWorkspace().folders[0]?.uri; }
 	private papersDir(): URI | undefined { const f = this.folderUri(); return f ? joinPath(f, '.qoka', 'manuscript', 'draft') : undefined; }
 	private reviewsDir(): URI | undefined { const f = this.folderUri(); return f ? joinPath(f, '.qoka', 'manuscript', 'review') : undefined; }
-	private figuresDir(): URI | undefined { const f = this.folderUri(); return f ? joinPath(f, '.qoka', 'figures') : undefined; }
 
 	private async refresh(): Promise<void> {
 		const root = this.viewBody;
@@ -113,7 +110,6 @@ export class AriaManuscriptView extends ViewPane {
 		const reviewsDir = this.reviewsDir();
 		const paperExports = await Promise.all(papers.map(p => this.loadExports(joinPath(p.folder, 'export'))));
 		const reviewExports = await Promise.all(reviews.map(r => reviewsDir ? this.loadExports(joinPath(reviewsDir, r.execId, 'export')) : Promise.resolve([])));
-		const figures = isEmpty ? [] : await this.loadFigures();
 
 		if (seq !== this.refreshSeq) { return; } // a newer refresh superseded this one
 
@@ -152,87 +148,8 @@ export class AriaManuscriptView extends ViewPane {
 				this.renderExports(root, reviewExports[i]);
 			});
 		}
-
-		this.renderFiguresSection(root, figures);
-	}
-
-	/** The "Figure library" collapsible section: generated figures kept in
-	 *  `.qoka/figures/` shown as thumbnails. A DOM-collapsible section (not a
-	 *  separate view) so the Manuscript tab has a single, un-duplicated title. */
-	private renderFiguresSection(root: HTMLElement, figures: { name: string; resource: URI }[]): void {
-		const header = append(root, $('div'));
-		Object.assign(header.style, { display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', margin: '14px 0 4px', userSelect: 'none', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em', opacity: '0.8' });
-		const chev = append(header, $('span.codicon.codicon-chevron-down')) as HTMLElement;
-		const title = append(header, $('span')); title.textContent = localize('aria.figures.section', "Figure library");
-		const body = append(root, $('div'));
-		let open = true;
-		const apply = () => { body.style.display = open ? 'block' : 'none'; chev.className = open ? 'codicon codicon-chevron-down' : 'codicon codicon-chevron-right'; };
-		header.onclick = () => { open = !open; apply(); };
-		apply();
-
-		if (figures.length === 0) {
-			const p = append(body, $('div'));
-			p.textContent = localize('aria.figures.empty', "No figures yet. Ask the chat to create one.");
-			Object.assign(p.style, { opacity: '0.7', fontSize: '12.5px', margin: '2px 6px' });
-			return;
-		}
-		const grid = append(body, $('div'));
-		Object.assign(grid.style, { display: 'flex', flexWrap: 'wrap', gap: '8px', paddingTop: '2px' });
-		for (const f of figures) {
-			const cell = append(grid, $('div'));
-			Object.assign(cell.style, { width: '78px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '3px' });
-			cell.title = f.name;
-			const thumb = append(cell, $('img')) as HTMLImageElement;
-			Object.assign(thumb.style, { width: '78px', height: '78px', objectFit: 'cover', border: '1px solid var(--vscode-widget-border, rgba(127,127,127,0.3))', borderRadius: '4px', background: 'var(--vscode-editorWidget-background)' });
-			if (/\.pdf$/i.test(f.name)) {
-				thumb.alt = 'PDF';
-				void this.renderPdfThumbnail(thumb, f.resource);
-			} else {
-				thumb.src = FileAccess.uriToBrowserUri(f.resource).toString();
-			}
-			const cap = append(cell, $('div')); cap.textContent = f.name;
-			Object.assign(cap.style, { fontSize: '10px', opacity: '0.7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
-			cell.onclick = () => { void this.editorService.openEditor({ resource: f.resource, options: { pinned: true } }); };
-		}
-	}
-
-	private async loadFigures(): Promise<{ name: string; resource: URI }[]> {
-		const dir = this.figuresDir();
-		if (!dir) { return []; }
-		try {
-			const stat = await this.fileService.resolve(dir);
-			const isImg = /\.(png|jpe?g|gif|webp|bmp|svg|pdf)$/i;
-			const files = (stat.children ?? []).filter(c => !c.isDirectory && isImg.test(c.name)).map(c => ({ name: c.name, resource: c.resource }));
-			files.sort((a, b) => a.name.localeCompare(b.name));
-			return files;
-		} catch {
-			return [];
-		}
-	}
-
-	/** Draw page 1 of a PDF as its thumbnail using the bundled pdf.js. Fully defensive. */
-	private async renderPdfThumbnail(img: HTMLImageElement, resource: URI): Promise<void> {
-		try {
-			const libUri = FileAccess.asBrowserUri('vs/workbench/contrib/ariaManuscript/browser/media/pdf.js').toString(true);
-			const workerUri = FileAccess.asBrowserUri('vs/workbench/contrib/ariaManuscript/browser/media/pdf.worker.js').toString(true);
-			const pdfjs = await import(libUri) as unknown as { GlobalWorkerOptions: { workerSrc: string }; getDocument(src: { data: Uint8Array }): { promise: Promise<{ getPage(n: number): Promise<{ getViewport(o: { scale: number }): { width: number; height: number }; render(o: { canvasContext: CanvasRenderingContext2D; viewport: { width: number; height: number }; background?: string }): { promise: Promise<void> } }>; cleanup(): void; destroy(): void }> } };
-			pdfjs.GlobalWorkerOptions.workerSrc = workerUri;
-			const file = await this.fileService.readFile(resource);
-			const doc = await pdfjs.getDocument({ data: file.value.buffer.slice() }).promise;
-			const page = await doc.getPage(1);
-			const base = page.getViewport({ scale: 1 });
-			const viewport = page.getViewport({ scale: (156 / base.width) || 1 });
-			const canvas = document.createElement('canvas');
-			canvas.width = Math.max(1, Math.ceil(viewport.width));
-			canvas.height = Math.max(1, Math.ceil(viewport.height));
-			const ctx = canvas.getContext('2d');
-			if (!ctx) { return; }
-			await page.render({ canvasContext: ctx, viewport, background: 'white' }).promise;
-			img.src = canvas.toDataURL('image/png');
-			try { doc.cleanup(); doc.destroy(); } catch { /* noop */ }
-		} catch {
-			// Leave the placeholder; clicking still opens the PDF in the native viewer.
-		}
+		// Figures now live in their own "Figure library" view (AriaFiguresView),
+		// registered as a separate collapsible section in this container.
 	}
 
 	/** Read a row's export/ folder file list (sorted). [] when there is no folder. */
