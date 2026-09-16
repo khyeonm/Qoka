@@ -247,6 +247,16 @@ export class AriaHypothesisMcpServer {
 					protocolVersion: negotiated,
 					serverInfo: { name: 'qoka-hypothesis', version: '0.0.1' },
 					capabilities: { tools: {} },
+					instructions:
+						'Use this server in ANY chat session, not only while building a roadmap. ' +
+						'Whenever the user proposes, refines, or asks about a research hypothesis or idea ' +
+						'(e.g. "has anyone shown X causes Y?", "is this hypothesis novel?", "find studies testing this", ' +
+						'or before designing an experiment/analysis for a hypothesis), OFFER to check the literature ' +
+						'("Want me to search the research corpus for this hypothesis?") and, if they agree, use search_hypothesis: ' +
+						'first extract a rare anchoring `primary` keyword plus 1-3 defining terms, then judge each returned ' +
+						'candidate STRICTLY from its context windows (keyword co-occurrence does NOT prove the hypothesis is ' +
+						'present), and call get_hypothesis_fulltext when a context window is too short. For each matching paper, ' +
+						'also report the concrete experimental methods it used.',
 				};
 			}
 			case 'notifications/initialized':

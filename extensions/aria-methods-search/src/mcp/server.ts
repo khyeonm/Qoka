@@ -245,6 +245,14 @@ export class AriaMethodsSearchMcpServer {
 					protocolVersion: negotiated,
 					serverInfo: { name: 'qoka-methods-search', version: '0.0.1' },
 					capabilities: { tools: {} },
+					instructions:
+						'Use this server in ANY chat session, not only while building a roadmap. ' +
+						'Whenever the user has a hypothesis or research goal and wants to know HOW to test it ' +
+						'(e.g. "what methods should I use to test this?", "how would I study X?", "recommend assays/experiments ' +
+						'for this hypothesis", or when planning an analysis for a hypothesis), call recommend_methods with the ' +
+						'hypothesis sentence. It returns concrete methods that tested SIMILAR hypotheses, ranked by paper_support ' +
+						'(how many papers used each), in `keyword` and `semantic` views (semantic is usually more on-target). ' +
+						'Offer this proactively rather than waiting to be asked.',
 				};
 			}
 			case 'notifications/initialized':
