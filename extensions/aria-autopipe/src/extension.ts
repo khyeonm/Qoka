@@ -29,6 +29,7 @@ import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames, NATIVE_VIEWER
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
 import { PenpotStore, ensurePenpotRegistered, connectPenpot, disconnectPenpot, penpotStatus, cleanupBioRenderRegistration } from './registration/penpotMcp';
+import { ensureWhirickRegistered } from './registration/whirickMcp';
 import { ensureWorkspaceScaffold } from './common/workspaceSync';
 import { NotebookKernel } from './notebook/controller';
 
@@ -445,6 +446,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	// One-time migration cleanup: remove any leftover BioRender registration from an
 	// older build so it stops appearing in /mcp (the feature is gone).
 	void cleanupBioRenderRegistration();
+
+	// whirick MCP (the Slides tab): a standard OAuth remote MCP at a fixed URL. Register
+	// the bare URL with both CLIs at startup; the CLIs drive the OAuth themselves on
+	// first use, so there is nothing to connect/store here.
+	void ensureWhirickRegistered();
 
 	// Keep the Hub client's base URL in sync with config changes (the user
 	// can switch registries by editing config, even though we don't yet
@@ -1133,6 +1139,7 @@ async function refreshAiRegistrations(): Promise<{ changed: boolean; registered:
 			// so it lands together with the other MCPs and the chat's "loading until MCPs
 			// are registered" gate waits for it too.
 			if (penpotStore) { await ensurePenpotRegistered(penpotStore); }
+			await ensureWhirickRegistered();
 
 			return {
 				changed: newlyConnected.length > 0,
