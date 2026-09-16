@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { browserLoadingSuppressor } from '../../browserView/common/browserLoadingSuppress.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -692,9 +693,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 
 		document.body.appendChild(overlay);
 		requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+		// Keep the native integrated browser hidden while this loading page is up, so
+		// the WCV does not brighten on top of it before loading actually finishes.
+		browserLoadingSuppressor.begin('aria-install-loading-overlay');
 
 		return {
 			hide: () => {
+				browserLoadingSuppressor.end('aria-install-loading-overlay');
 				overlay.style.opacity = '0';
 				setTimeout(() => overlay.remove(), 200);
 			},

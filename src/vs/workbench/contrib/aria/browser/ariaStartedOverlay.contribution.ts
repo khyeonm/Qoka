@@ -5,6 +5,7 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { timeout } from '../../../../base/common/async.js';
+import { browserLoadingSuppressor } from '../../browserView/common/browserLoadingSuppress.js';
 import { isWindows } from '../../../../base/common/platform.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
@@ -714,6 +715,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		const overlay = document.createElement('div');
 		overlay.id = 'aria-started-overlay';
+		// Tracked by the integrated browser's overlay manager so the native
+		// WebContentsView hides behind this loading cover instead of floating on top.
+		overlay.classList.add('aria-browser-cover');
 		overlay.style.position = 'fixed';
 		overlay.style.inset = '0';
 		overlay.style.background = 'var(--vscode-editor-background, #1e1e1e)';
@@ -734,6 +738,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		document.body.appendChild(overlay);
 		this.overlay = overlay;
+		// Hide the native integrated browser while this cover is up (it floats above
+		// the DOM and would otherwise paint on top of the loading screen).
+		browserLoadingSuppressor.begin('aria-started-overlay');
 
 		this.render();
 	}
@@ -746,6 +753,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		this.overlay.remove();
 		this.overlay = undefined;
 		this.removeHideWorkbenchStyle();
+		browserLoadingSuppressor.end('aria-started-overlay');
 	}
 
 	/** React to the roadmap wizard editor opening / closing. */

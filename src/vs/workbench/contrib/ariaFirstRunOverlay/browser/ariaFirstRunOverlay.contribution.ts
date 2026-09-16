@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { browserLoadingSuppressor } from '../../browserView/common/browserLoadingSuppress.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -442,6 +443,9 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 
 		const overlay = document.createElement('div');
 		overlay.id = OVERLAY_ID;
+		// Tracked by the integrated browser's overlay manager so the native
+		// WebContentsView hides behind this cover instead of floating on top.
+		overlay.classList.add('aria-browser-cover');
 		overlay.style.position = 'fixed';
 		overlay.style.inset = '0';
 		overlay.style.background = 'rgba(0, 0, 0, 0.78)';
@@ -489,6 +493,9 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 
 		document.body.appendChild(overlay);
 		this.overlay = overlay;
+		// Hide the native integrated browser while this cover is up (it floats above
+		// the DOM and would otherwise paint on top of the loading screen).
+		browserLoadingSuppressor.begin('aria-first-run-overlay');
 
 		requestAnimationFrame(() => {
 			overlay.style.opacity = '1';
@@ -502,6 +509,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		}
 		this.overlay = undefined;
 		this.subtitleEl = undefined;
+		browserLoadingSuppressor.end('aria-first-run-overlay');
 		overlay.style.opacity = '0';
 		setTimeout(() => {
 			overlay.remove();

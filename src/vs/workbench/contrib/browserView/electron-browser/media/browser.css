@@ -835,3 +835,12 @@
 		}
 	}
 }
+
+/* While the integrated browser page is the active editor, hide notification
+   toasts: the native WebContentsView floats above the DOM, so a toast can only
+   sit behind it (invisible) or flash in front when the WCV briefly pauses. Keep
+   them consistently out of the way; they remain in the status-bar bell and the
+   notification center (which is an explicit user action). */
+.monaco-workbench.qoka-browser-suppress-toasts > .notifications-toasts {
+	display: none !important;
+}

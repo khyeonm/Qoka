@@ -15,12 +15,20 @@ export enum BrowserOverlayType {
 	Hover = 'hover',
 	Dialog = 'dialog',
 	Notification = 'notification',
+	// A transient corner toast (bottom-right). Unlike the opened notification
+	// center, it must NOT pause/hide the whole browser.
+	NotificationToast = 'notificationToast',
+	Loading = 'loading',
 	Unknown = 'unknown'
 }
 
 const OVERLAY_DEFINITIONS: ReadonlyArray<{ className: string; type: BrowserOverlayType }> = [
 	{ className: 'monaco-menu-container', type: BrowserOverlayType.Menu },
 	{ className: 'action-list-submenu-panel', type: BrowserOverlayType.Menu },
+	// Qoka Easy-mode rail hover flyout: a floating labels panel over the editor
+	// (and thus over the native browser). Track it so the browser hides while it
+	// is open instead of covering it.
+	{ className: 'aria-rail-flyout', type: BrowserOverlayType.Menu },
 	{ className: 'quick-input-widget', type: BrowserOverlayType.QuickInput },
 	{ className: 'monaco-hover', type: BrowserOverlayType.Hover },
 	{ className: 'editor-widget', type: BrowserOverlayType.Hover },
@@ -28,7 +36,13 @@ const OVERLAY_DEFINITIONS: ReadonlyArray<{ className: string; type: BrowserOverl
 	{ className: 'monaco-dialog-modal-block', type: BrowserOverlayType.Dialog },
 	{ className: 'monaco-modal-editor-block', type: BrowserOverlayType.Dialog },
 	{ className: 'notifications-center', type: BrowserOverlayType.Notification },
-	{ className: 'notification-toast-container', type: BrowserOverlayType.Notification },
+	{ className: 'notification-toast-container', type: BrowserOverlayType.NotificationToast },
+	// Full-screen startup / loading covers (Qoka). These are painted above the
+	// workbench during launch and first-run; the native WebContentsView floats
+	// over the DOM, so without tracking them the browser would show on top of the
+	// loading screen. Tracked as Loading (hides the WCV, no "paused" message).
+	{ className: 'aria-browser-cover', type: BrowserOverlayType.Loading },
+	{ className: 'aria-wsl-overlay', type: BrowserOverlayType.Loading },
 	// Context view is very generic, so treat the content as unknown
 	{ className: 'context-view', type: BrowserOverlayType.Unknown }
 ];

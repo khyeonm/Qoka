@@ -9,8 +9,10 @@ import { getZoomFactor } from '../../../../../base/browser/browser.js';
 import { StandardKeyboardEvent } from '../../../../../base/browser/keyboardEvent.js';
 import { encodeBase64, VSBuffer } from '../../../../../base/common/buffer.js';
 import { DisposableStore, MutableDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
+import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
+import { ILifecycleService, LifecyclePhase } from '../../../../services/lifecycle/common/lifecycle.js';
 import {
 	IBrowserViewKeyDownEvent,
 } from '../../../../../platform/browserView/common/browserView.js';
@@ -24,6 +26,7 @@ import {
 	IContainerLayoutOverride,
 } from '../browserEditor.js';
 import { BrowserOverlayManager, BrowserOverlayType } from '../overlayManager.js';
+import { browserLoadingSuppressor } from '../../common/browserLoadingSuppress.js';
 
 /**
  * Default browser renderer: drives a Chromium WebContentsView.
@@ -46,6 +49,11 @@ class WebContentsViewRendererFeature extends BrowserEditorContribution {
 	private _model: IBrowserViewModel | undefined;
 	private _editorVisible = false;
 	private _overlayObscured = false;
+	private _browserActive = false;
+	// The native WCV floats over the workbench DOM, so on launch / window reload it
+	// can paint over the still-assembling workbench. Keep it hidden until the
+	// workbench has restored, then show as normal.
+	private _workbenchRestored = false;
 
 	private readonly _placeholderScreenshot = $('.browser-placeholder-screenshot');
 	private readonly _overlayPauseEl = $('.browser-overlay-paused');
@@ -61,8 +69,24 @@ class WebContentsViewRendererFeature extends BrowserEditorContribution {
 		editor: BrowserEditor,
 		@ILogService private readonly logService: ILogService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
+		@ICommandService private readonly commandService: ICommandService,
+		@ILifecycleService lifecycleService: ILifecycleService,
 	) {
 		super(editor);
+
+		// Gate the WCV until the workbench is fully ready. `Restored` fires before the
+		// workbench chrome has actually painted, so the native view would still flash
+		// over a half-drawn window; `Eventually` (workbench idle) is the first point it
+		// is visually done. Already true for a normal editor open (no delay); only
+		// launch / reload waits. Then re-evaluate visibility.
+		if (lifecycleService.phase >= LifecyclePhase.Eventually) {
+			this._workbenchRestored = true;
+		} else {
+			lifecycleService.when(LifecyclePhase.Eventually).then(() => {
+				this._workbenchRestored = true;
+				this._refresh();
+			});
+		}
 
 		this._overlayManager = this._register(new BrowserOverlayManager(editor.window));
 
@@ -80,6 +104,9 @@ class WebContentsViewRendererFeature extends BrowserEditorContribution {
 		this._overlayPauseContent = { location: BrowserWidgetLocation.ContentArea, element: this._overlayPauseEl, order: 200 };
 
 		this._register(this._overlayManager.onDidChangeOverlayState(() => this._refreshOverlayObscured()));
+		// A startup / loading cover flips this directly; re-evaluate so the WCV hides
+		// under it and reappears the instant it is gone.
+		this._register(browserLoadingSuppressor.onDidChange(() => this._refresh()));
 		this._refresh();
 	}
 
@@ -130,12 +157,32 @@ class WebContentsViewRendererFeature extends BrowserEditorContribution {
 		}));
 		this._register(addDisposableListener(container, EventType.BLUR, () => this._cancelFocusTimeout()));
 
+		// Clicking back into the browser area dismisses any notification that is
+		// covering / pausing it, so the page never stays frozen behind a toast or the
+		// notification center with no way back. (hideList / hideToasts are no-ops when
+		// nothing is showing, so this is safe on every click.)
+		this._register(addDisposableListener(container, EventType.MOUSE_DOWN, () => {
+			void this.commandService.executeCommand('notifications.hideList');
+			void this.commandService.executeCommand('notifications.hideToasts');
+		}));
+
 		// Cross-window focus logic uses this checker because the WCV lives
 		// outside the DOM tree and can't be detected with activeElement.
 		this._register(registerExternalFocusChecker(() => ({
 			hasFocus: this._model?.focused ?? false,
 			window: this._model?.focused ? this.editor.window : undefined,
 		})));
+
+		// Full-screen startup / loading covers are direct <body> children. Watch for
+		// them being added or removed with a dedicated observer (independent of the
+		// overlay manager's timing) and re-evaluate visibility, so the native WCV
+		// never lingers on top of the loading screen.
+		const body = container.ownerDocument.body;
+		if (body) {
+			const coverObserver = new this.editor.window.MutationObserver(() => this._refreshOverlayObscured());
+			coverObserver.observe(body, { childList: true });
+			this._register(toDisposable(() => coverObserver.disconnect()));
+		}
 
 		this._refreshOverlayObscured();
 	}
@@ -185,6 +232,9 @@ class WebContentsViewRendererFeature extends BrowserEditorContribution {
 		store.add(model.onDidNavigate(() => this._refresh()));
 		store.add(model.onDidChangeLoadingState(() => this._refresh()));
 
+		// Account for a startup/loading cover (or other overlay) that is already
+		// up when the model attaches, so the WCV starts hidden behind it.
+		this._refreshOverlayObscured();
 		this._refresh();
 		void this._doScreenshot();
 	}
@@ -207,9 +257,18 @@ class WebContentsViewRendererFeature extends BrowserEditorContribution {
 
 	// -- Internals ----------------------------------------------------------
 
+	/** A full-screen startup / loading cover is up (checked live, so the WCV never
+	 *  floats over the loading screen even if overlap detection has not fired yet). */
+	private _startupCoverPresent(): boolean {
+		return !!this._container?.ownerDocument.querySelector('.aria-browser-cover, .aria-wsl-overlay');
+	}
+
 	private _shouldShowPage(): boolean {
 		return this._editorVisible
+			&& this._workbenchRestored
 			&& !this._overlayObscured
+			&& !browserLoadingSuppressor.suppressed
+			&& !this._startupCoverPresent()
 			&& !!this._model?.url
 			&& !this._model?.error;
 	}
@@ -227,6 +286,25 @@ class WebContentsViewRendererFeature extends BrowserEditorContribution {
 		// Overlay-pause overlay: fades in when an overlay obscures the page.
 		const pauseActive = !!this._model?.url && this._editorVisible && this._overlayObscured;
 		this._overlayPauseEl.classList.toggle('visible', pauseActive);
+
+		// While the browser page is the active editor, suppress notification toasts
+		// so they never flash in front of the WCV (e.g. when the rail flyout briefly
+		// pauses it). They stay reachable via the status-bar bell / notification
+		// center. Toggled on the stable workbench root so toasts created later are
+		// hidden too.
+		const browserActive = this._editorVisible && !!this._model?.url;
+		this.editor.window.document.querySelector('.monaco-workbench')
+			?.classList.toggle('qoka-browser-suppress-toasts', browserActive);
+
+		// When the user switches TO the browser (e.g. clicks the Slides tab) while a
+		// notification is up, auto-dismiss it: the native WCV would otherwise cover it
+		// and the page would look frozen with no explanation. Fire only on the edge so
+		// the user can still open the notification center on purpose while here.
+		if (browserActive && !this._browserActive) {
+			void this.commandService.executeCommand('notifications.hideList');
+			void this.commandService.executeCommand('notifications.hideToasts');
+		}
+		this._browserActive = browserActive;
 
 		if (!this._model) {
 			return;
@@ -254,9 +332,19 @@ class WebContentsViewRendererFeature extends BrowserEditorContribution {
 			return;
 		}
 		const overlays = this._overlayManager.getOverlappingOverlays(this._container);
-		const obscured = overlays.length > 0;
-		const hasNotification = overlays.some(o => o.type === BrowserOverlayType.Notification);
-		this._overlayPauseEl.classList.toggle('show-message', hasNotification);
+		// Full-screen startup / loading covers hide the workbench with
+		// visibility:hidden, so the browser container keeps a rect but overlap
+		// hit-testing is unreliable, while the native WebContentsView still floats
+		// on top of the loading screen. Detect these covers directly by presence
+		// and always hide the browser while one is up.
+		const coverPresent = !!this._container.ownerDocument.querySelector('.aria-browser-cover, .aria-wsl-overlay');
+		// A transient corner toast no longer pauses the browser: blanking the whole
+		// WebContentsView for a small corner popup is too aggressive (it stays
+		// reachable via the status-bar bell). The OPENED notification center, menus,
+		// dialogs and quick input still pause so the user can interact with them.
+		const blocking = overlays.filter(o => o.type !== BrowserOverlayType.NotificationToast);
+		const obscured = coverPresent || blocking.length > 0;
+		this._overlayPauseEl.classList.toggle('show-message', false);
 		if (obscured !== this._overlayObscured) {
 			this._overlayObscured = obscured;
 			this._refresh();
