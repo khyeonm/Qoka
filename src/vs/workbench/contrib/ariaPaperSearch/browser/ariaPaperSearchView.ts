@@ -98,6 +98,7 @@ export class AriaPaperSearchView extends ViewPane {
 	private listContainer: HTMLElement | undefined;
 	private statsEl: HTMLElement | undefined;
 	private tagSelect: HTMLSelectElement | undefined;
+	private searchInput: HTMLInputElement | undefined;
 
 	private latestState: PaperLibraryState = { papers: [], tags: [] };
 	private searchQuery = '';
@@ -210,6 +211,7 @@ export class AriaPaperSearchView extends ViewPane {
 		toolbar.style.marginBottom = '10px';
 
 		const searchInput = append(toolbar, $('input')) as HTMLInputElement;
+		this.searchInput = searchInput;
 		searchInput.type = 'search';
 		searchInput.placeholder = 'Search saved papers...';
 		this.styleInput(searchInput);
@@ -403,8 +405,37 @@ export class AriaPaperSearchView extends ViewPane {
 		}
 	}
 
+	/**
+	 * Reveal the library entry a note cited (by its `[@citekey]`): clear any active
+	 * filter so the card is not hidden, expand it, and scroll it into view with a
+	 * brief highlight. Called from a note's citation hover card. Refreshes first if
+	 * the library has not loaded yet (the view may have just been opened).
+	 */
+	async revealPaper(citekey: string): Promise<void> {
+		if (!this.latestState.papers.some(p => p.citekey === citekey)) {
+			await this.refresh();
+		}
+		const entry = this.latestState.papers.find(p => p.citekey === citekey);
+		if (!entry) { return; }
+		// Clear filters so nothing hides the target card.
+		this.searchQuery = '';
+		this.tagFilter = '';
+		if (this.searchInput) { this.searchInput.value = ''; }
+		if (this.tagSelect) { this.tagSelect.value = ''; }
+		this.expanded.add(entry.id);
+		this.renderList();
+		// After the list re-renders, bring the card into view and flash it.
+		const card = this.listContainer?.querySelector(`[data-paper-id="${CSS.escape(entry.id)}"]`) as HTMLElement | null;
+		if (!card) { return; }
+		card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		card.style.transition = 'box-shadow 0.2s ease';
+		card.style.boxShadow = '0 0 0 2px var(--vscode-focusBorder, #2ba7c9)';
+		setTimeout(() => { card.style.boxShadow = ''; }, 1400);
+	}
+
 	private renderPaperCard(parent: HTMLElement, paper: PaperLibraryEntry): void {
 		const card = append(parent, $('div'));
+		card.setAttribute('data-paper-id', paper.id);
 		card.style.background = 'var(--vscode-editorWidget-background, rgba(127,127,127,0.06))';
 		card.style.border = '1px solid var(--vscode-panel-border, rgba(127,127,127,0.18))';
 		card.style.borderRadius = '4px';
@@ -835,14 +866,20 @@ export class AriaDownloadedPdfsView extends ViewPane {
 		if (this.statsEl) { this.statsEl.textContent = this.pdfFiles.length ? `${this.pdfFiles.length} PDF(s)` : ''; }
 		if (!this.pdfFiles.length) {
 			const empty = append(container, $('div'));
-			empty.textContent = 'No PDFs downloaded yet.';
 			empty.style.padding = '16px';
 			empty.style.textAlign = 'center';
-			empty.style.opacity = '0.6';
+			empty.style.opacity = '0.7';
 			empty.style.fontSize = '12px';
+			empty.style.lineHeight = '1.5';
 			empty.style.background = 'rgba(127, 127, 127, 0.05)';
 			empty.style.border = '1px dashed rgba(127, 127, 127, 0.25)';
 			empty.style.borderRadius = '4px';
+			const title = append(empty, $('div'));
+			title.textContent = 'No PDFs downloaded yet.';
+			const hint = append(empty, $('div'));
+			hint.textContent = 'To save a paper as PDF, ask the AI assistant in the chat to download it. If an accessible PDF is found, it is saved here.';
+			hint.style.marginTop = '6px';
+			hint.style.opacity = '0.85';
 			return;
 		}
 		for (const f of this.pdfFiles) {

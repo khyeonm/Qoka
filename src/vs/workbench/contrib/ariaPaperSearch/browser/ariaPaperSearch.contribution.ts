@@ -25,6 +25,7 @@ import { IFileService, FileChangeType } from '../../../../platform/files/common/
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { URI } from '../../../../base/common/uri.js';
+import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 
 const ARIA_PAPER_SEARCH_CONTAINER_ID = 'workbench.view.ariaPaperSearch';
 
@@ -143,3 +144,12 @@ class AriaPdfDownloadRevealContribution extends Disposable implements IWorkbench
 
 Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
 	.registerWorkbenchContribution(AriaPdfDownloadRevealContribution, LifecyclePhase.Restored);
+
+// Open the Paper Library and jump to a specific paper by its note citekey. Called
+// when the user clicks a citation's hover card in a research note.
+CommandsRegistry.registerCommand('aria.paperSearch.revealPaper', async (accessor, citekey?: string) => {
+	if (typeof citekey !== 'string' || !citekey) { return; }
+	const viewsService = accessor.get(IViewsService);
+	const view = await viewsService.openView(AriaPaperSearchView.ID, true);
+	await (view as AriaPaperSearchView | null)?.revealPaper(citekey);
+});

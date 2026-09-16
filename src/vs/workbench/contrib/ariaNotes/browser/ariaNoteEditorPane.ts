@@ -5,7 +5,7 @@
 
 import { Dimension } from '../../../../base/browser/dom.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
-import { VSBuffer } from '../../../../base/common/buffer.js';
+import { VSBuffer, decodeBase64 } from '../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
@@ -15,6 +15,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IQuickInputService, IQuickPickItem, QuickPickInput } from '../../../../platform/quickinput/common/quickInput.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -77,6 +78,7 @@ export class AriaNoteEditorPane extends EditorPane {
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 	) {
 		super(AriaNoteEditorPane.ID, group, telemetryService, themeService, storageService);
 
@@ -244,11 +246,15 @@ export class AriaNoteEditorPane extends EditorPane {
 		if (!this.webviewHost) {
 			return;
 		}
+		// Also serve uploaded note assets (image / video / audio / file blocks) from
+		// the project's assets folder, so a local upload's webview URL resolves.
+		const assets = this.assetsDir();
+		const roots = assets ? [MEDIA_ROOT, assets] : [MEDIA_ROOT];
 		const webview = this.webviewStore.add(this.webviewService.createWebviewElement({
 			title: undefined,
 			// Keep the service worker - it serves our local bundle (notesEditor.js/.css).
 			options: {},
-			contentOptions: { allowScripts: true, localResourceRoots: [MEDIA_ROOT] },
+			contentOptions: { allowScripts: true, localResourceRoots: roots },
 			extension: undefined,
 		}));
 		this.webview = webview;
@@ -261,6 +267,7 @@ export class AriaNoteEditorPane extends EditorPane {
 		const msg = message as {
 			type?: string; blocks?: unknown[]; token?: string;
 			id?: string; blockId?: string; offset?: number;
+			name?: string; mime?: string; data?: string; citekey?: string; url?: string;
 		} | undefined;
 		if (!msg) {
 			return;
@@ -285,7 +292,82 @@ export class AriaNoteEditorPane extends EditorPane {
 			if (typeof msg.id === 'string') {
 				void this.skipCitation(msg.id);
 			}
+		} else if (msg.type === 'upload' && typeof msg.id === 'string' && typeof msg.data === 'string') {
+			void this.handleUpload(msg.id, typeof msg.name === 'string' ? msg.name : 'file', msg.data);
+		} else if (msg.type === 'cite:openPaper' && typeof msg.citekey === 'string') {
+			// The user clicked a citation's hover card: jump to that paper in the Paper Library.
+			void this.commandService.executeCommand('aria.paperSearch.revealPaper', msg.citekey);
+		} else if (msg.type === 'download' && typeof msg.url === 'string') {
+			// A file/image/video/audio block's "Download" - the webview sandbox blocks the
+			// anchor download, so save it ourselves via a native Save dialog.
+			void this.handleDownload(msg.url, typeof msg.name === 'string' ? msg.name : '');
 		}
+	}
+
+	/**
+	 * Save a note asset to a location the user picks (native Save dialog). The URL is
+	 * the block's webview resource URL; the bytes come from the project's assets
+	 * folder (matched by filename), or by reversing the webview URL to a file path.
+	 */
+	private async handleDownload(url: string, name: string): Promise<void> {
+		try {
+			let base = '';
+			try { base = decodeURIComponent(new URL(url).pathname.split('/').pop() || ''); } catch { base = ''; }
+			let source: URI | undefined;
+			const assets = this.assetsDir();
+			if (assets && base) {
+				const cand = joinPath(assets, base);
+				if (await this.fileService.exists(cand)) { source = cand; }
+			}
+			if (!source) {
+				try {
+					const u = new URL(url);
+					if (u.hostname.split('+')[0] === 'file') { source = URI.file(decodeURIComponent(u.pathname)); }
+				} catch { /* not a reversible webview URL */ }
+			}
+			if (!source || !(await this.fileService.exists(source))) { return; }
+			const suggested = (name || base || 'file').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'file';
+			const folder = this.workspaceContextService.getWorkspace().folders[0];
+			const defaultUri = folder ? joinPath(folder.uri, suggested) : URI.file(suggested);
+			const dst = await this.fileDialogService.showSaveDialog({ defaultUri, saveLabel: 'Save' });
+			if (!dst) { return; }
+			const content = await this.fileService.readFile(source);
+			await this.fileService.writeFile(dst, content.value);
+		} catch { /* best-effort: a failed save must not break the note */ }
+	}
+
+	/** Where uploaded note assets are stored (image / video / audio / file blocks). */
+	private assetsDir(): URI | undefined {
+		const folder = this.workspaceContextService.getWorkspace().folders[0];
+		return folder ? joinPath(folder.uri, '.qoka', 'notebook', 'assets') : undefined;
+	}
+
+	/**
+	 * Save an uploaded file under the project's note-assets folder and hand the
+	 * webview back a URL to store in the block. The bytes arrive base64-encoded from
+	 * the editor's uploadFile handler; the folder is a localResourceRoot so the
+	 * returned webview URL resolves.
+	 */
+	private async handleUpload(id: string, name: string, base64: string): Promise<void> {
+		const done = (payload: { url?: string; error?: string }) => void this.webview?.postMessage({ type: 'upload:done', id, ...payload });
+		try {
+			const dir = this.assetsDir();
+			if (!dir) { throw new Error('Open a project folder to upload files.'); }
+			const target = joinPath(dir, this.uniqueAssetName(name));
+			await this.fileService.writeFile(target, decodeBase64(base64));
+			done({ url: asWebviewUri(target).toString(true) });
+		} catch (e) {
+			done({ error: e instanceof Error ? e.message : String(e) });
+		}
+	}
+
+	/** A filesystem-safe, collision-resistant name preserving the extension. */
+	private uniqueAssetName(name: string): string {
+		const dot = name.lastIndexOf('.');
+		const ext = dot > 0 ? name.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]+/g, '') : '';
+		const base = (dot > 0 ? name.slice(0, dot) : name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'file';
+		const stamp = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+		return ext ? `${base}-${stamp}.${ext}` : `${base}-${stamp}`;
 	}
 
 	/**

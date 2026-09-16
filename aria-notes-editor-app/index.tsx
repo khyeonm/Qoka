@@ -317,15 +317,22 @@ function MarkerHighlight({ rect, theme, z }: { rect: DOMRect; theme: 'light' | '
 
 // --- hover card -------------------------------------------------------------
 
-function HoverCard({ paper, x, y }: { paper: CitablePaper; x: number; y: number }) {
+function HoverCard({ paper, x, y, onOpen, onMouseEnter, onMouseLeave }: {
+	paper: CitablePaper; x: number; y: number;
+	onOpen: () => void; onMouseEnter: () => void; onMouseLeave: () => void;
+}) {
 	const authors = paper.authors?.length
 		? (paper.authors.length > 3 ? `${paper.authors.slice(0, 3).join(', ')} et al.` : paper.authors.join(', '))
 		: 'Unknown author';
 	return (
 		<div
+			onClick={onOpen}
+			onMouseEnter={onMouseEnter}
+			onMouseLeave={onMouseLeave}
+			title="Open this paper in the Paper Library"
 			style={{
 				position: 'fixed', left: Math.min(x, window.innerWidth - 340), top: y + 18,
-				maxWidth: '320px', zIndex: 40, pointerEvents: 'none',
+				maxWidth: '320px', zIndex: 40, pointerEvents: 'auto', cursor: 'pointer',
 				background: 'var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background))',
 				color: 'var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground))',
 				border: '1px solid var(--vscode-editorHoverWidget-border, rgba(127,127,127,0.35))',
@@ -335,6 +342,7 @@ function HoverCard({ paper, x, y }: { paper: CitablePaper; x: number; y: number 
 		>
 			<div style={{ fontWeight: 600, marginBottom: '3px' }}>{paper.title}</div>
 			<div style={{ opacity: 0.8 }}>{authors}{paper.year ? ` · ${paper.year}` : ''}</div>
+			<div style={{ marginTop: '5px', fontSize: '11px', color: 'var(--vscode-textLink-foreground)' }}>Open in Paper Library ↗</div>
 		</div>
 	);
 }
@@ -352,6 +360,27 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 }) {
 	const editor = useCreateBlockNote({
 		initialContent: blocks && blocks.length ? (blocks as never) : undefined,
+		// Local upload for image / video / audio / file blocks: hand the bytes to the
+		// editor pane, which saves the file under the project and returns a webview URL
+		// to store in the block. Without this, BlockNote only offers "Embed URL".
+		uploadFile: async (file: File): Promise<string> => {
+			const buf = new Uint8Array(await file.arrayBuffer());
+			let bin = '';
+			const chunk = 0x8000;
+			for (let i = 0; i < buf.length; i += chunk) { bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + chunk))); }
+			const data = btoa(bin);
+			const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+			return await new Promise<string>((resolve, reject) => {
+				const handler = (e: MessageEvent) => {
+					const m = e.data;
+					if (!m || m.type !== 'upload:done' || m.id !== id) { return; }
+					window.removeEventListener('message', handler);
+					if (typeof m.url === 'string') { resolve(m.url); } else { reject(new Error(typeof m.error === 'string' ? m.error : 'Upload failed')); }
+				};
+				window.addEventListener('message', handler);
+				vscode.postMessage({ type: 'upload', id, name: file.name, mime: file.type, data });
+			});
+		},
 	});
 	const ref = useRef<HTMLDivElement>(null);
 	const outerRef = useRef<HTMLDivElement>(null);
@@ -421,8 +450,28 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 		[editor, docVersion, papers],
 	);
 
+	// A file / image / video / audio block's "Download" creates an <a download> and
+	// clicks it - which the webview sandbox blocks, so nothing happens. Intercept
+	// those clicks and let the editor pane save the file via a native Save dialog.
+	useEffect(() => {
+		const onClick = (e: MouseEvent) => {
+			const a = (e.target as HTMLElement | null)?.closest?.('a[download]') as HTMLAnchorElement | null;
+			if (!a || !a.href) { return; }
+			e.preventDefault();
+			e.stopPropagation();
+			vscode.postMessage({ type: 'download', url: a.href, name: a.getAttribute('download') || '' });
+		};
+		document.addEventListener('click', onClick, true);
+		return () => document.removeEventListener('click', onClick, true);
+	}, []);
+
 	// Hover card. Read-only inspection, so it never touches the document and
-	// works the same in review mode.
+	// works the same in review mode. The card is clickable (opens the paper in the
+	// Paper Library), so hiding is deferred by a short grace period - long enough to
+	// move the pointer from the marker onto the card without it vanishing.
+	const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const cancelHide = useCallback(() => { if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = undefined; } }, []);
+	const scheduleHide = useCallback(() => { if (!hideTimer.current) { hideTimer.current = setTimeout(() => { hideTimer.current = undefined; setHover(undefined); }, 220); } }, []);
 	const onMouseMove = useCallback((e: ReactMouseEvent) => {
 		if (placement) { return; }                       // placing takes over the pointer
 		const position = positionFromPoint(e.clientX, e.clientY);
@@ -430,10 +479,13 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 		const span = (position && prose !== undefined)
 			? citationAtOffset(prose, position.offset, papers)
 			: undefined;
-		setHover(span && position
-			? { citekey: span.citekey, blockId: position.blockId, start: span.start, end: span.end, x: e.clientX, y: e.clientY }
-			: undefined);
-	}, [proseByBlock, papers, placement]);
+		if (span && position) {
+			cancelHide();
+			setHover({ citekey: span.citekey, blockId: position.blockId, start: span.start, end: span.end, x: e.clientX, y: e.clientY });
+		} else {
+			scheduleHide();
+		}
+	}, [proseByBlock, papers, placement, cancelHide, scheduleHide]);
 
 	// Measure the hovered marker. Keyed on the SPAN, not the pointer, so moving
 	// the mouse within one citation does not re-measure on every frame.
@@ -567,6 +619,7 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 			subtext: 'Insert a citation from your Paper Library',
 			aliases: ['cite', 'citation', 'reference', 'bib'],
 			group: 'Research',
+			icon: <span style={{ fontSize: 16 }}>🔖</span>,
 			onItemClick: startPick,
 		};
 		const all: DefaultReactSuggestionItem[] = [...getDefaultReactSlashMenuItems(editor), citeItem];
@@ -612,7 +665,7 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 				ref={ref}
 				style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', cursor: placement ? 'crosshair' : undefined }}
 				onMouseMove={onMouseMove}
-				onMouseLeave={() => setHover(undefined)}
+				onMouseLeave={scheduleHide}
 				// Measured rects are viewport-relative. The transient hover highlight is
 				// simply dropped on scroll; the selected reference's highlight is meant
 				// to persist while you look for it, so it is re-measured instead.
@@ -657,7 +710,12 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 					{hoverRects.map((rect, i) => (
 						<MarkerHighlight key={`hov-${i}`} rect={rect} theme={theme} z={39} />
 					))}
-					<HoverCard paper={hoveredPaper} x={hover.x} y={hover.y} />
+					<HoverCard
+						paper={hoveredPaper} x={hover.x} y={hover.y}
+						onMouseEnter={cancelHide}
+						onMouseLeave={() => { cancelHide(); setHover(undefined); }}
+						onOpen={() => { cancelHide(); setHover(undefined); vscode.postMessage({ type: 'cite:openPaper', citekey: hover.citekey }); }}
+					/>
 				</>
 			) : null}
 		</div>
