@@ -9,9 +9,47 @@ import { Codicon } from '../../../../base/common/codicons.js';
 import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { registerThemingParticipant } from '../../../../platform/theme/common/themeService.js';
 import { localize2 } from '../../../../nls.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ViewContainer, ViewContainerLocation, IViewContainersRegistry, Extensions as ViewContainerExtensions, IViewsRegistry, Extensions as ViewExtensions, IViewDescriptor } from '../../../common/views.js';
+import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
+import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
+import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
+import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
+import { IBrowserViewWorkbenchService } from '../../browserView/common/browserView.js';
 import { QokaSlidesView } from './qokaSlidesView.js';
+
+/** whirick web app: the Slides tab embeds it in the native integrated browser. */
+export const WHIRICK_BASE_URL = 'https://slides.pnucolab.com';
+/** Glob that identifies the whirick browser tab, so it is reused (singleton). */
+const WHIRICK_URL_FILTER = 'https://slides.pnucolab.com/**';
+
+/** Non-deck top-level whirick routes: their first path segment is NOT a deck slug. */
+const WHIRICK_RESERVED_SEGMENTS = new Set(['', 'create', 'new', 'settings', 'folders', 'login', 'logout']);
+
+/** The deck/slide the user currently has open in the whirick web view, if any. */
+export interface WhirickWebContext {
+	url: string;
+	/** Deck slug from the path (e.g. `/abc123/edit` -> `abc123`), or null on a non-deck page. */
+	slug: string | null;
+	/** 1-based slide number from the `#sN` fragment, or null. */
+	slide: number | null;
+}
+
+/** Parse a whirick URL into the deck slug and slide number it points at. */
+export function parseWhirickUrl(url: string): WhirickWebContext {
+	let slug: string | null = null;
+	let slide: number | null = null;
+	try {
+		const u = new URL(url);
+		const seg = u.pathname.split('/').filter(Boolean)[0] ?? '';
+		if (!WHIRICK_RESERVED_SEGMENTS.has(seg)) { slug = seg; }
+		const m = /^#s(\d+)$/.exec(u.hash);
+		if (m) { slide = parseInt(m[1], 10); }
+	} catch { /* malformed URL */ }
+	return { url, slug, slide };
+}
 
 /**
  * Slides - a left-sidebar activity-bar tab. Unlike Memory / Overview (which
@@ -66,3 +104,60 @@ const slidesView: IViewDescriptor = {
 };
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([slidesView], slidesContainer);
+
+/**
+ * Open the whirick slide app in the native integrated browser. Slides are managed
+ * by whirick (not locally), so the Slides tab is this web view. `path` deep-links
+ * within the app (e.g. `/<slug>/edit#s3`); omit it to open the app's home.
+ * Reuses the existing whirick tab when one is already open (singleton).
+ */
+CommandsRegistry.registerCommand('qoka.slides.openWeb', async (accessor, path?: string) => {
+	const url = WHIRICK_BASE_URL + (typeof path === 'string' && path ? (path.startsWith('/') ? path : '/' + path) : '');
+	await accessor.get(ICommandService).executeCommand('workbench.action.browser.open', {
+		url,
+		reuseUrlFilter: WHIRICK_URL_FILTER,
+	});
+});
+
+/**
+ * Read what the user currently has open in the whirick web view (deck slug +
+ * slide number), so the AI can act on "this deck / this slide". Returns null when
+ * no whirick tab is open. Backing command for the qoka-slides MCP get_current_slides.
+ */
+CommandsRegistry.registerCommand('qoka.slides.getWebContext', (accessor): WhirickWebContext | null => {
+	const svc = accessor.get(IBrowserViewWorkbenchService);
+	for (const input of svc.getKnownBrowserViews().values()) {
+		const url = input.url;
+		if (url && url.startsWith(WHIRICK_BASE_URL)) {
+			return parseWhirickUrl(url);
+		}
+	}
+	return null;
+});
+
+/**
+ * Slides tab behaves like Memory / Overview: selecting its activity-bar icon opens
+ * the whirick web app full-width in the editor area and collapses the sidebar,
+ * rather than showing a local list.
+ */
+class QokaSlidesLayoutContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.qoka.slidesLayout';
+
+	constructor(
+		@IPaneCompositePartService paneCompositeService: IPaneCompositePartService,
+		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+		@ICommandService private readonly commandService: ICommandService,
+	) {
+		super();
+		this._register(paneCompositeService.onDidPaneCompositeOpen(e => {
+			if (e.viewContainerLocation !== ViewContainerLocation.Sidebar) { return; }
+			if (e.composite.getId() === SLIDES_CONTAINER_ID) {
+				void this.commandService.executeCommand('qoka.slides.openWeb');
+				try { this.layoutService.setPartHidden(true, Parts.SIDEBAR_PART); } catch { /* layout not ready */ }
+			}
+		}));
+	}
+}
+
+Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
+	.registerWorkbenchContribution(QokaSlidesLayoutContribution, LifecyclePhase.Restored);

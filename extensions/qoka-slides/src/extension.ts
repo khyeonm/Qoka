@@ -4,14 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { buildTools } from './mcp/tools';
 import { QokaSlidesMcpServer } from './mcp/server';
-import { DeckEditorPanel } from './deckEditorPanel';
-import { NewDeckPanel } from './newDeckPanel';
-import { newSlug, createDeck, deleteDeck, readMeta, writeMeta, DeckMeta } from './storage';
-import { listThemes, loadTheme } from './themes';
-import { seedDeckXml } from './templates';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
 
@@ -36,49 +30,11 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[qoka-slides] activate()');
 	const extUri = context.extensionUri;
-	const themesRoot = path.join(extUri.fsPath, 'themes');
-
-	// --- Slides commands (the deck list is a core sidebar view that calls these) --
-	context.subscriptions.push(vscode.commands.registerCommand('qoka.slides.open', async () => {
-		try { await vscode.commands.executeCommand('workbench.view.qokaSlides'); } catch { /* container not ready */ }
-	}));
-	context.subscriptions.push(vscode.commands.registerCommand('qoka.slides.openDeck', (slug: string) => {
-		if (slug) { DeckEditorPanel.open(extUri, slug); }
-	}));
-
-	context.subscriptions.push(vscode.commands.registerCommand('qoka.slides.new', () => {
-		const designs = listThemes(themesRoot).map(t => ({ id: t.id, name: t.name }));
-		NewDeckPanel.open(designs, async (choice) => {
-			try {
-				const theme = loadTheme(themesRoot, choice.theme, choice.aspect);
-				const seed = theme ? seedDeckXml(theme) : '<section class="slide"><div class="slide-inner"></div></section>';
-				const meta: DeckMeta = { title: choice.title, theme: choice.theme, aspect: choice.aspect };
-				const slug = await newSlug(choice.title);
-				await createDeck(slug, meta, seed);
-				DeckEditorPanel.open(extUri, slug);
-			} catch (e) {
-				void vscode.window.showErrorMessage(`Could not create the slide deck: ${(e as Error).message}`);
-			}
-		});
-	}));
-
-	context.subscriptions.push(vscode.commands.registerCommand('qoka.slides.rename', async (slug: string) => {
-		if (!slug) { return; }
-		const meta = await readMeta(slug);
-		const title = (await vscode.window.showInputBox({ prompt: 'Slides title', value: meta.title ?? slug, ignoreFocusOut: true }))?.trim();
-		if (!title) { return; }
-		meta.title = title;
-		await writeMeta(slug, meta);
-	}));
-
-	context.subscriptions.push(vscode.commands.registerCommand('qoka.slides.delete', async (slug: string) => {
-		if (!slug) { return; }
-		const meta = await readMeta(slug);
-		const pick = await vscode.window.showWarningMessage(`Delete "${meta.title ?? slug}"? This cannot be undone.`, { modal: true }, 'Delete');
-		if (pick === 'Delete') { await deleteDeck(slug); }
-	}));
 
 	// --- MCP server ----------------------------------------------------------
+	// The qoka-slides MCP is only a bridge to the Slides tab (the whirick web app);
+	// decks are created and edited through whirick's own MCP, so there are no local
+	// deck commands here any more.
 	mcpServer = new QokaSlidesMcpServer(buildTools(extUri.fsPath));
 	const startPromise = mcpServer.start();
 	startPromise.catch(() => { /* handled below */ });

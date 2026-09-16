@@ -1,7 +1,7 @@
 {
 	"name": "qoka-slides",
 	"displayName": "Qoka Slides",
-	"description": "Slides MCP + presentation editor: lets the AI assistant build and edit slide decks (HTML slides on a fixed canvas), rendered live in a Slides tab. Built into Qoka.",
+	"description": "Slides MCP bridge: opens the whirick slide app in the Slides tab and tells the AI which deck the user is viewing. Built into Qoka.",
 	"version": "0.0.1",
 	"publisher": "aria",
 	"license": "MIT",
@@ -12,19 +12,11 @@
 	"activationEvents": [
 		"onStartupFinished"
 	],
-	"contributes": {
-		"commands": [
-			{ "command": "qoka.slides.open", "title": "Open Slides", "category": "Qoka" },
-			{ "command": "qoka.slides.new", "title": "New Slides", "category": "Qoka" }
-		]
-	},
+	"contributes": {},
 	"scripts": {
 		"compile": "node build.mjs",
 		"watch": "node build.mjs --watch",
 		"typecheck": "tsc -p ./ --noEmit"
-	},
-	"dependencies": {
-		"pptxgenjs": "^3.12.0"
 	},
 	"devDependencies": {
 		"@types/node": "^20",
