@@ -16,6 +16,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService, IQuickPickItem, QuickPickInput } from '../../../../platform/quickinput/common/quickInput.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -79,6 +80,7 @@ export class AriaNoteEditorPane extends EditorPane {
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
+		@INotificationService private readonly notificationService: INotificationService,
 	) {
 		super(AriaNoteEditorPane.ID, group, telemetryService, themeService, storageService);
 
@@ -315,25 +317,48 @@ export class AriaNoteEditorPane extends EditorPane {
 			try { base = decodeURIComponent(new URL(url).pathname.split('/').pop() || ''); } catch { base = ''; }
 			let source: URI | undefined;
 			const assets = this.assetsDir();
-			if (assets && base) {
-				const cand = joinPath(assets, base);
-				if (await this.fileService.exists(cand)) { source = cand; }
+			// Match by the URL's filename (the stored unique asset name) first, then by
+			// the block's display name as a fallback.
+			for (const candName of [base, name].filter(Boolean)) {
+				if (source) { break; }
+				if (assets) { const c = joinPath(assets, candName); if (await this.fileService.exists(c)) { source = c; } }
 			}
 			if (!source) {
+				// Reverse the webview resource URL (file+…vscode-resource…/<path>) to its file path.
 				try {
 					const u = new URL(url);
-					if (u.hostname.split('+')[0] === 'file') { source = URI.file(decodeURIComponent(u.pathname)); }
+					if (u.hostname.split('+')[0] === 'file') { const c = URI.file(decodeURIComponent(u.pathname)); if (await this.fileService.exists(c)) { source = c; } }
 				} catch { /* not a reversible webview URL */ }
 			}
-			if (!source || !(await this.fileService.exists(source))) { return; }
-			const suggested = (name || base || 'file').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'file';
+			if (!source) {
+				this.notificationService.warn(`Couldn't find the file to download (${base || name || url}).`);
+				return;
+			}
+			// Keep the saved file's real extension. The bytes are copied verbatim from
+			// `source`, but the block's display name does not always carry the extension
+			// (e.g. a video block whose name lost its `.mp4`); saving those bytes under a
+			// bare name reads as "not a valid video" because the OS cannot tell its type.
+			// The source path (the stored asset name) is the reliable extension.
+			const srcName = source.path.split('/').pop() || '';
+			const srcExt = srcName.includes('.') ? srcName.slice(srcName.lastIndexOf('.') + 1).toLowerCase().replace(/[^a-z0-9]+/g, '') : '';
+			let suggested = (name || base || 'file').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'file';
+			if (srcExt && !suggested.toLowerCase().endsWith(`.${srcExt}`)) { suggested = `${suggested}.${srcExt}`; }
 			const folder = this.workspaceContextService.getWorkspace().folders[0];
 			const defaultUri = folder ? joinPath(folder.uri, suggested) : URI.file(suggested);
-			const dst = await this.fileDialogService.showSaveDialog({ defaultUri, saveLabel: 'Save' });
+			const dst = await this.fileDialogService.showSaveDialog({
+				defaultUri, saveLabel: 'Save',
+				...(srcExt ? { filters: [{ name: srcExt.toUpperCase(), extensions: [srcExt] }, { name: 'All Files', extensions: ['*'] }] } : {}),
+			});
 			if (!dst) { return; }
-			const content = await this.fileService.readFile(source);
-			await this.fileService.writeFile(dst, content.value);
-		} catch { /* best-effort: a failed save must not break the note */ }
+			// Copy through the file provider (server-side / native fast copy for a
+			// same-provider file:// -> file://) instead of round-tripping the whole
+			// file as a buffer through readFile + writeFile. A large asset (e.g. a
+			// multi-MB video) sent as one buffer could be reported as written yet not
+			// persist, whereas a provider copy mirrors a plain `cp` and is reliable.
+			await this.fileService.copy(source, dst, true /* overwrite: user confirmed in the Save dialog */);
+		} catch (e) {
+			this.notificationService.warn(`Couldn't download the file: ${e instanceof Error ? e.message : String(e)}`);
+		}
 	}
 
 	/** Where uploaded note assets are stored (image / video / audio / file blocks). */
