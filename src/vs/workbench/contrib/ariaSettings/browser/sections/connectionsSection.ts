@@ -201,6 +201,17 @@ export class ConnectionsSection extends SettingsSection {
 					void this.commandService.executeCommand('aria.wslPrompt.show', 'install');
 				};
 			}
+			// Explicit "Reconnect" (⟳) on the right: the row click reconnects/restarts the
+			// built-in server, but that is not discoverable.
+			const reconnect = append(row, $('span.codicon.codicon-refresh')) as HTMLElement;
+			reconnect.title = 'Reconnect';
+			Object.assign(reconnect.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
+			reconnect.onclick = (e) => {
+				e.stopPropagation();
+				try { localStorage.removeItem('aria.autopipe.wslSetupSkipped'); } catch { /* ignore */ }
+				if (active && vm?.status === 'ready') { void this.refresh(); }
+				else { void this.commandService.executeCommand('aria.autopipe.vm.setup').then(() => this.refresh()); }
+			};
 		}
 
 		// Saved SSH servers.
@@ -227,6 +238,16 @@ export class ConnectionsSection extends SettingsSection {
 			trash.onclick = async (e) => {
 				e.stopPropagation();
 				try { await this.commandService.executeCommand('aria.autopipe.ssh.remove', p.id); } catch { /* handled */ }
+				await this.refresh();
+			};
+			// Explicit "Reconnect" to the right of delete: clicking the row already
+			// reconnects (activates) this server, but that is not discoverable.
+			const reconnect = append(row, $('span.codicon.codicon-refresh')) as HTMLElement;
+			reconnect.title = 'Reconnect';
+			Object.assign(reconnect.style, { cursor: 'pointer', opacity: '0.7', flexShrink: '0', padding: '2px' });
+			reconnect.onclick = async (e) => {
+				e.stopPropagation();
+				try { await this.commandService.executeCommand('aria.autopipe.ssh.setActiveById', p.id); } catch { /* handled */ }
 				await this.refresh();
 			};
 			if (this.editingId === p.id) {

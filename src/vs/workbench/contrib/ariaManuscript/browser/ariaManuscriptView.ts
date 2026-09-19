@@ -238,6 +238,7 @@ export class AriaManuscriptView extends ViewPane {
 	private chooseNew(): void {
 		const doc = this.viewBody?.ownerDocument ?? document;
 		const backdrop = doc.createElement('div');
+		backdrop.classList.add('aria-modal-overlay');
 		Object.assign(backdrop.style, { position: 'fixed', inset: '0', zIndex: '2000', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' });
 		const card = doc.createElement('div');
 		Object.assign(card.style, {

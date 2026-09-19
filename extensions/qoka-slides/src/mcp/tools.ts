@@ -25,7 +25,7 @@ function asString(v: unknown): string | undefined { return typeof v === 'string'
 function asNumber(v: unknown): number | undefined { return typeof v === 'number' && Number.isFinite(v) ? v : undefined; }
 
 /** The deck/slide the user currently has open in the whirick web view. */
-interface WhirickWebContext { url: string; slug: string | null; slide: number | null }
+interface WhirickWebContext { url: string; slug: string | null; slide: number | null; loginRequired: boolean }
 
 /**
  * qoka-slides MCP: the bridge between the AI and the Slides tab (whirick web app,
@@ -41,8 +41,10 @@ export function buildTools(_extensionPath: string): ToolDefinition[] {
 			description: [
 				'Open / reveal the Slides tab (the whirick web app) in Qoka, optionally navigating it to a',
 				'specific deck and slide so the user watches your edits live. Call this BEFORE you start',
-				'creating or editing a deck. `slug` is the whirick deck slug (from whirick\'s own MCP, e.g.',
-				'list_decks); `slide` is the 1-based slide number to jump to. Omit both to just open the app home.',
+				'creating or editing a deck - but ONLY once you already have whirick\'s own deck tools; if the user',
+				'wants slides and those tools are absent, call connect_whirick FIRST instead of this. `slug` is the',
+				'whirick deck slug (from whirick\'s own MCP, e.g. list_decks); `slide` is the 1-based slide number to',
+				'jump to. Omit both to just open the app home.',
 			].join(' '),
 			inputSchema: {
 				type: 'object',
@@ -72,17 +74,42 @@ export function buildTools(_extensionPath: string): ToolDefinition[] {
 			name: 'get_current_slides',
 			description: [
 				'Report what the user currently has open in the Slides tab (the whirick web app): the deck',
-				'`slug` and the 1-based `slide` number, plus the raw `url`. Use this when the user says "this',
-				'deck" / "the slide I\'m looking at" without naming one, so you act on what they actually see.',
-				'Returns { open: false } when no Slides tab is open (then ask which deck, or use whirick\'s',
-				'list_decks). `slug` is null on a non-deck page (the home / create screens).',
+				'`slug`, the 1-based `slide` number, the raw `url`, and `loginRequired`. Use this when the user',
+				'says "this deck" / "the slide I\'m looking at" without naming one, so you act on what they actually',
+				'see, AND at the START of any slide task to check `loginRequired`. Returns { open: false } when no',
+				'Slides tab is open. `slug` is null on a non-deck page (home / create / login screens).',
+				'`loginRequired: true` means the tab is on whirick\'s login page - the user is NOT signed in to the',
+				'Slides tab yet, so decks cannot be shown or built; guide them to log in and wait (see below).',
 			].join(' '),
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			handler: async () => {
 				try {
 					const ctx = await vscode.commands.executeCommand<WhirickWebContext | null>('qoka.slides.getWebContext');
 					if (!ctx) { return json({ open: false }); }
-					return json({ open: true, slug: ctx.slug, slide: ctx.slide, url: ctx.url });
+					return json({ open: true, slug: ctx.slug, slide: ctx.slide, url: ctx.url, loginRequired: ctx.loginRequired });
+				} catch (e) {
+					return err((e as Error).message);
+				}
+			},
+		},
+		{
+			name: 'connect_whirick',
+			description: [
+				'Connects Codex to whirick, the slide app that actually builds slides. CALL THIS FIRST, before',
+				'anything else, the moment the user asks to make or edit slides UNLESS you already have whirick\'s',
+				'own deck tools (create_deck / add_slide / update_slide) in this session. Slides can ONLY be made',
+				'through whirick - you cannot make a slide by writing its text in chat - so if those whirick tools',
+				'are absent you MUST call connect_whirick immediately: do NOT ask about topic/audience/length, do',
+				'NOT write any slide content, do NOT call open_slides. It registers whirick with Codex; a whirick',
+				'sign-in popup then appears to approve, plus a one-time "Reload Window" prompt to reload. Relay the',
+				'returned status message to the user verbatim, then STOP (no loop, no slide content) until they',
+				'approve, reload, and ask again. (Codex only - Claude authorises via /mcp.)',
+			].join(' '),
+			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+			handler: async () => {
+				try {
+					const res = await vscode.commands.executeCommand<{ status?: string; reloadOffered?: boolean }>('aria.slides.connectWhirickCodex');
+					return json(res ?? { status: 'No response from the connection setup.' });
 				} catch (e) {
 					return err((e as Error).message);
 				}

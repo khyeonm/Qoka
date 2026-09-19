@@ -211,6 +211,7 @@ export class PenpotSection extends SettingsSection {
 		// z-index) appear IN FRONT of this wizard instead of behind it.
 		const host = (doc.querySelector('.monaco-workbench') as HTMLElement | null) ?? doc.body;
 		const overlay = append(host, $('div'));
+		overlay.classList.add('aria-modal-overlay');
 		// z-index just BELOW the workbench modal-dialog layer (`.monaco-dialog-modal-block`
 		// is 2575) so the "open external website?" confirmation still appears in front,
 		// but ABOVE the settings/editor content (otherwise the editor paints over the

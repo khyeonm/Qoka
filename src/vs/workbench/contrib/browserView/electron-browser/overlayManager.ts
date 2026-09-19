@@ -35,6 +35,11 @@ const OVERLAY_DEFINITIONS: ReadonlyArray<{ className: string; type: BrowserOverl
 	{ className: 'suggest-details-container', type: BrowserOverlayType.Hover },
 	{ className: 'monaco-dialog-modal-block', type: BrowserOverlayType.Dialog },
 	{ className: 'monaco-modal-editor-block', type: BrowserOverlayType.Dialog },
+	// Qoka's own custom modals / popups (chooser cards, wizards, dropdown menus)
+	// are plain DOM appended to the body with inline styles - not monaco widgets -
+	// so they carry this shared marker class. Without it the native WebContentsView
+	// floats on top and the popup is stuck behind the browser (unclickable).
+	{ className: 'aria-modal-overlay', type: BrowserOverlayType.Dialog },
 	{ className: 'notifications-center', type: BrowserOverlayType.Notification },
 	{ className: 'notification-toast-container', type: BrowserOverlayType.NotificationToast },
 	// Full-screen startup / loading covers (Qoka). These are painted above the

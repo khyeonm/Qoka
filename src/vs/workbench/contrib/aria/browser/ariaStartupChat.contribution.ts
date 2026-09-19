@@ -175,6 +175,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					// Prune pre-rename duplicate MCP entries so tools don't show twice.
 					try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
 				} finally {
+					// whirick (the Slides tab) is a URL-based OAuth MCP, so it can't ride the
+					// port-based fast path above. Register it with CLAUDE here - after applyConfig,
+					// right before the gate opens - so it lands in the first session with the port
+					// servers (a plain `claude mcp add` merges, it doesn't clobber them). Codex is
+					// NOT registered here: its eager OAuth would fire at startup before the user is
+					// ready; it is set up on demand via aria.slides.connectWhirickCodex.
+					try { await this.commandService.executeCommand('aria.slides.registerWhirickClaude'); } catch { /* best-effort */ }
 					// Registration (config write) is DONE (or was skipped) - now let the chat
 					// session connect to MCP. Without this the chat connected at server-START
 					// (markAriaSetupReady) and raced ahead of its own config, so every server

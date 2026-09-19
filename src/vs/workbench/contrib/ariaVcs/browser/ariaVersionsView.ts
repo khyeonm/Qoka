@@ -416,6 +416,7 @@ export class AriaVersionsView extends ViewPane {
 	private showSaveDialog(suggested: string, previousTitle: string | undefined, groupDefault: boolean): Promise<{ title: string; group: boolean } | undefined> {
 		return new Promise(resolve => {
 			const backdrop = document.createElement('div');
+			backdrop.classList.add('aria-modal-overlay');
 			Object.assign(backdrop.style, {
 				position: 'fixed', inset: '0', zIndex: '100000',
 				display: 'flex', alignItems: 'center', justifyContent: 'center',

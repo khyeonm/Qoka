@@ -29,7 +29,7 @@ import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames, NATIVE_VIEWER
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
 import { PenpotStore, ensurePenpotRegistered, connectPenpot, disconnectPenpot, penpotStatus, cleanupBioRenderRegistration } from './registration/penpotMcp';
-import { ensureWhirickRegistered } from './registration/whirickMcp';
+import { registerWhirickWithClaude, registerWhirickWithCodex } from './registration/whirickMcp';
 import { ensureWorkspaceScaffold } from './common/workspaceSync';
 import { NotebookKernel } from './notebook/controller';
 
@@ -447,10 +447,20 @@ export function activate(context: vscode.ExtensionContext): void {
 	// older build so it stops appearing in /mcp (the feature is gone).
 	void cleanupBioRenderRegistration();
 
-	// whirick MCP (the Slides tab): a standard OAuth remote MCP at a fixed URL. Register
-	// the bare URL with both CLIs at startup; the CLIs drive the OAuth themselves on
-	// first use, so there is nothing to connect/store here.
-	void ensureWhirickRegistered();
+	// whirick MCP (the Slides tab). Two providers, two very different flows:
+	//  - Claude connects lazily (the user authorises on demand via /mcp), so it is
+	//    registered as a default MCP by the workbench startup coordinator via
+	//    aria.slides.registerWhirickClaude - landing in the first session with the rest.
+	//  - Codex eagerly OAuths every registered server the instant it activates, so
+	//    registering whirick at startup fires the browser popup before the user is ready
+	//    and it never sticks. Instead the Slides bridge calls aria.slides.connectWhirickCodex
+	//    on demand (when the user asks Codex to make slides): it registers Codex and offers
+	//    a one-time window reload, the only way Codex re-reads its config and runs the OAuth
+	//    while the user is waiting for it.
+	context.subscriptions.push(
+		vscode.commands.registerCommand('aria.slides.registerWhirickClaude', () => registerWhirickWithClaude()),
+		vscode.commands.registerCommand('aria.slides.connectWhirickCodex', (arg?: { skipReloadPrompt?: boolean }) => connectWhirickCodex(!!arg?.skipReloadPrompt)),
+	);
 
 	// Keep the Hub client's base URL in sync with config changes (the user
 	// can switch registries by editing config, even though we don't yet
@@ -1061,6 +1071,46 @@ async function maybeOfferCodexReload(): Promise<void> {
 	});
 }
 
+/**
+ * On-demand Codex setup for the whirick Slides MCP. Registers whirick with Codex and
+ * offers the one-time window reload that makes Codex re-read its config and run the
+ * OAuth (while the user is waiting for it, so it actually sticks). Called by the Slides
+ * bridge when the user asks Codex to make slides and whirick is not connected yet.
+ */
+async function connectWhirickCodex(skipReloadPrompt = false): Promise<{ status: string; reloadOffered: boolean }> {
+	let codexActive = false;
+	try {
+		const detection = await detectAiProviders();
+		codexActive = detection.providers.some(p => p.kind === 'codex' && p.installed && p.active);
+	} catch { /* detection best-effort */ }
+	if (!codexActive) {
+		return { status: 'Codex is not the active assistant here, so there is nothing to set up.', reloadOffered: false };
+	}
+	const reg = await registerWhirickWithCodex();
+	if (!reg.ok) {
+		return { status: 'Could not register the slide app with Codex (is the Codex CLI installed?).', reloadOffered: false };
+	}
+	// Whether just added or already present, Codex only connects (and runs its OAuth)
+	// after a window reload. The Slides onboarding shows its own Reload button, so it
+	// passes skipReloadPrompt; the AI-chat path (no button) still gets this prompt.
+	const context = extensionContext;
+	if (context && !skipReloadPrompt) {
+		void vscode.window.showInformationMessage(
+			'Connect Codex to the slide app: approve the whirick sign-in popup that appears, then reload the window.',
+			'Reload Window',
+		).then(async (choice) => {
+			if (choice === 'Reload Window') {
+				await context.globalState.update(PENDING_CODEX_RELOAD_KEY, true);
+				await vscode.commands.executeCommand('workbench.action.reloadWindow');
+			}
+		});
+	}
+	return {
+		status: 'Connected the slide app to Codex. Approve the whirick sign-in popup that appears, then reload the window (a "Reload Window" prompt is up). Once you have approved and reloaded, ask for the slides again.',
+		reloadOffered: !skipReloadPrompt,
+	};
+}
+
 let refreshInFlight: Promise<{ changed: boolean; registered: boolean }> | null = null;
 async function refreshAiRegistrations(): Promise<{ changed: boolean; registered: boolean }> {
 	// Coalesce rapid-fire onDidChange events (extension installs often
@@ -1139,7 +1189,9 @@ async function refreshAiRegistrations(): Promise<{ changed: boolean; registered:
 			// so it lands together with the other MCPs and the chat's "loading until MCPs
 			// are registered" gate waits for it too.
 			if (penpotStore) { await ensurePenpotRegistered(penpotStore); }
-			await ensureWhirickRegistered();
+			// whirick with CLAUDE only (a default MCP). Codex is registered on demand
+			// (aria.slides.connectWhirickCodex) so its eager OAuth does not fire at startup.
+			await registerWhirickWithClaude();
 
 			return {
 				changed: newlyConnected.length > 0,

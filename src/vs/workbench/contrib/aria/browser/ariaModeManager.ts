@@ -326,6 +326,7 @@ export class AriaModeManager extends Disposable implements IWorkbenchContributio
 
 		const doc = wb.ownerDocument;
 		const overlay = doc.createElement('div');
+		overlay.classList.add('aria-modal-overlay');
 		Object.assign(overlay.style, {
 			position: 'absolute', inset: '0', zIndex: '100000',
 			display: 'flex', alignItems: 'center', justifyContent: 'center',

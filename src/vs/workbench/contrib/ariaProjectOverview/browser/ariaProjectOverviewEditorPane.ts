@@ -710,6 +710,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		const doc = trigger.ownerDocument;
 		const rect = trigger.getBoundingClientRect();
 		const menu = doc.createElement('div');
+		menu.classList.add('aria-modal-overlay');
 		Object.assign(menu.style, {
 			position: 'fixed', left: `${rect.left}px`, top: `${rect.bottom + 4}px`,
 			minWidth: `${Math.max(rect.width, 180)}px`, maxWidth: '340px', zIndex: '3000',

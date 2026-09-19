@@ -212,6 +212,7 @@ export class NotebookHistorySection {
 	private showPreview(entry: SnapshotEntry, blocks: PreviewBlock[], hasPrev: boolean): void {
 		const doc = this.listEl.ownerDocument;
 		const backdrop = doc.createElement('div');
+		backdrop.classList.add('aria-modal-overlay');
 		Object.assign(backdrop.style, {
 			position: 'fixed', inset: '0', zIndex: '2000', display: 'flex',
 			alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)',
