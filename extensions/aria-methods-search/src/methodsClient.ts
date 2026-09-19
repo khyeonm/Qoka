@@ -10,9 +10,9 @@ import { QOKA_API_KEY } from './qokaKey.js';
 
 /**
  * Client for the logic-graph methods recommendation on the Qoka server. The
- * graph (Neo4j) and the embeddings model live on the lab server (gemma4) which
- * the desktop app can't reach directly, so all queries go through the Django
- * API (`/api/methods/...`), exactly like the cross-project memory client.
+ * graph (Neo4j) lives on the lab server which the desktop app can't reach
+ * directly, so all queries go through the Django API (`/api/methods/...`),
+ * exactly like the cross-project memory client.
  *
  * Auth mirrors aria-memory: we never construct a user id - the app's JWT (from
  * the `aria` auth session) is sent as a Bearer token and the server authorizes
@@ -26,6 +26,13 @@ import { QOKA_API_KEY } from './qokaKey.js';
  */
 
 const SERVER_URL = process.env.ARIA_METHODS_SERVER_URL || 'https://qoka.org';
+/**
+ * The key actually sent. A release build has it baked into `qokaKey.ts` by CI;
+ * a local dev build leaves that empty, so fall back to a `QOKA_API_KEY` env var
+ * exported in the shell that launched the app. Without either, gated endpoints
+ * answer 401 and the tools report that instead of data.
+ */
+const APP_KEY = QOKA_API_KEY || process.env.QOKA_API_KEY || '';
 const ALLOW_SELF_SIGNED = process.env.ARIA_METHODS_INSECURE_TLS === '1';
 
 /** A single recommended method row. */
@@ -43,7 +50,13 @@ export interface Unavailable {
 
 export interface Recommendation {
 	keyword: MethodRow[] | Unavailable;
-	semantic: MethodRow[] | Unavailable;
+	/** Query-expansion mode: the union of the hypotheses matched by EVERY phrasing the
+	 *  assistant supplied. Present only when `expansions` were sent. Benchmarked as the
+	 *  most phrasing-stable mode, so it is what the tool reports when available. */
+	keyword_expanded?: MethodRow[] | Unavailable;
+	/** Embedding (vector) mode. Being retired - see recommend_methods; kept so an older
+	 *  server that still returns it does not break the client. */
+	semantic?: MethodRow[] | Unavailable;
 }
 
 export interface HypothesisMatch {
@@ -63,7 +76,7 @@ function postJson(path: string, body: unknown, timeoutMs = 30000): Promise<unkno
 			headers: {
 				'content-type': 'application/json',
 				'content-length': Buffer.byteLength(payload),
-				'x-qoka-key': QOKA_API_KEY,
+				'x-qoka-key': APP_KEY,
 			},
 			timeout: timeoutMs,
 		};
@@ -90,16 +103,27 @@ function postJson(path: string, body: unknown, timeoutMs = 30000): Promise<unkno
 }
 
 /**
- * Recommend methods for a hypothesis. Returns both keyword and semantic modes
- * side by side; either side may be an `{ unavailable }` marker while the graph
- * or embeddings are still being loaded.
+ * Recommend methods for a hypothesis. A list may be an `{ unavailable }` marker
+ * while the graph is being (re)loaded, so callers must handle that shape.
  */
-export async function recommendMethods(hypothesis: string, topK = 10): Promise<Recommendation> {
-	const res = await postJson('/api/methods/recommend', { hypothesis, top_k: topK }) as Recommendation;
-	return {
-		keyword: res?.keyword ?? [],
-		semantic: res?.semantic ?? [],
-	};
+export async function recommendMethods(hypothesis: string, topK = 10, expansions: string[] = []): Promise<Recommendation> {
+	// `expansions` are other phrasings of the SAME hypothesis, written by the assistant.
+	// The server searches each one separately and unions the matched hypotheses, which
+	// recovers the paraphrase robustness the embedding mode used to provide (measured:
+	// phrasing stability 0.29 expanded vs 0.23 embedding over 30 hypotheses).
+	const body: Record<string, unknown> = { hypothesis, top_k: topK };
+	if (expansions.length) {
+		body.expansions = expansions.slice(0, 5);
+	}
+	const res = await postJson('/api/methods/recommend', body) as Recommendation;
+	const out: Recommendation = { keyword: res?.keyword ?? [] };
+	if (res?.keyword_expanded !== undefined) {
+		out.keyword_expanded = res.keyword_expanded;
+	}
+	if (res?.semantic !== undefined) {
+		out.semantic = res.semantic;
+	}
+	return out;
 }
 
 /** Inspect which stored hypotheses match a query (transparency / debugging). */

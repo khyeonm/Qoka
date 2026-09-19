@@ -299,15 +299,17 @@ export class AriaNotebookView extends ViewPane {
 		this.lastTreeSignature = signature;
 
 		clearNode(body);
-		// Header row: a one-line hint + the "New page" action.
-		const header = append(body, $('div'));
-		Object.assign(header.style, { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' });
-		const hint = append(header, $('div'));
+		// A one-line description, a divider, then a full-width "+ New" button
+		// (matching the Manuscript tab), then the page list below it.
+		const hint = append(body, $('div'));
 		hint.textContent = 'Write notes, draw a research roadmap, or fill in the overview.';
-		Object.assign(hint.style, { flex: '1', minWidth: '0', fontSize: '11px', opacity: '0.65', lineHeight: '1.35' });
-		const add = append(header, $('span.codicon.codicon-add')) as HTMLElement;
+		Object.assign(hint.style, { fontSize: '11px', opacity: '0.65', lineHeight: '1.35', marginBottom: '8px' });
+		const divider = append(body, $('div'));
+		Object.assign(divider.style, { height: '1px', background: 'var(--vscode-editorWidget-border, rgba(127,127,127,0.25))', marginBottom: '10px' });
+		const add = append(body, $('button')) as HTMLButtonElement;
+		add.textContent = '+ New';
 		add.title = 'New page';
-		Object.assign(add.style, { flexShrink: '0', cursor: 'pointer', padding: '3px', opacity: '0.8' });
+		Object.assign(add.style, { width: '100%', padding: '6px 10px', marginBottom: '10px', fontSize: '12px', cursor: 'pointer', borderRadius: '4px', border: 'none', background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)' });
 		// Nest new pages under the Overview root by default, so the tree grows
 		// inside itself rather than sprouting siblings next to the root.
 		add.onclick = () => void this.promptNewPage(OVERVIEW_PAGE_ID);
@@ -657,6 +659,7 @@ export class AriaNotebookView extends ViewPane {
 		const doc = this.viewBody?.ownerDocument ?? document;
 		return new Promise(resolve => {
 			const backdrop = doc.createElement('div');
+			backdrop.classList.add('aria-modal-overlay');
 			Object.assign(backdrop.style, {
 				position: 'fixed', inset: '0', zIndex: '2000', display: 'flex',
 				alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)',

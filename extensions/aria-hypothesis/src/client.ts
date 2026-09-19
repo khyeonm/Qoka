@@ -24,6 +24,13 @@ import { QOKA_API_KEY } from './qokaKey.js';
  */
 
 const SERVER_URL = process.env.ARIA_HYPOTHESIS_SERVER_URL || 'https://qoka.org';
+/**
+ * The key actually sent. A release build has it baked into `qokaKey.ts` by CI;
+ * a local dev build leaves that empty, so fall back to a `QOKA_API_KEY` env var
+ * exported in the shell that launched the app. Without either, gated endpoints
+ * answer 401 and the tools report that instead of data.
+ */
+const APP_KEY = QOKA_API_KEY || process.env.QOKA_API_KEY || '';
 const ALLOW_SELF_SIGNED = process.env.ARIA_HYPOTHESIS_INSECURE_TLS === '1';
 
 // The server greps the whole corpus (~4-5s) per query; allow generous headroom
@@ -41,7 +48,7 @@ function postJson(path: string, body: unknown, timeoutMs: number): Promise<unkno
 			headers: {
 				'content-type': 'application/json',
 				'content-length': Buffer.byteLength(payload),
-				'x-qoka-key': QOKA_API_KEY,
+				'x-qoka-key': APP_KEY,
 			},
 			timeout: timeoutMs,
 		};

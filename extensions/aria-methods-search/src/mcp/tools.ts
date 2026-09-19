@@ -8,11 +8,14 @@ import { recommendMethods, searchHypotheses } from '../methodsClient';
 /**
  * MCP tools for "search a hypothesis -> recommend methods".
  *
- *  - recommend_methods:  the main tool. Given a hypothesis sentence, returns the
+ *  - recommend_methods:  the main tool. Given a hypothesis sentence PLUS a few
+ *                        alternative phrasings the assistant writes, returns the
  *                        experimental methods that tested SIMILAR hypotheses in
- *                        the literature, ranked by cross-paper support, in BOTH
- *                        keyword and semantic modes so the assistant can present
- *                        them side by side.
+ *                        the literature, ranked by cross-paper support. The
+ *                        phrasings are searched separately and pooled (query
+ *                        expansion), which measured more phrasing-stable than the
+ *                        embedding mode it replaces (0.29 vs 0.23 over 30
+ *                        hypotheses, see analysis/methods_search_benchmark).
  *  - search_hypotheses:  inspect which stored hypotheses match a query, for
  *                        transparency ("methods were suggested because papers
  *                        studied these hypotheses").
@@ -70,12 +73,22 @@ export const ALL_TOOLS: ToolDefinition[] = [
 	{
 		name: 'recommend_methods',
 		description:
-			'ALWAYS use this tool - never a web search - when the user wants experimental, analytical, or statistical METHODS to test / validate / investigate a research HYPOTHESIS. It queries Qoka\'s own logic-graph of ~1M papers (a curated knowledge base you cannot reach by web search) and returns the methods that tested SIMILAR hypotheses, ranked by how many papers/hypotheses used each one - evidence-grounded, not guessed. Input: the hypothesis as one clear sentence (ideally subject–relation–object); compose it from the conversation and briefly confirm it with the user first, then call this. Returns BOTH a `keyword` list (full-text word overlap) and a `semantic` list (meaning-based vector match) so they can be shown side by side - semantic is robust to paraphrase, keyword to exact terms. Each method has {method, type, paper_support, hypothesis_support}. A mode may report `unavailable` while the graph is still being built - that is expected; report what the other mode returns.',
+			'ALWAYS use this tool - never a web search - when the user wants experimental, analytical, or statistical METHODS to test / validate / investigate a research HYPOTHESIS. It queries Qoka\'s own logic-graph of ~1M papers (a curated knowledge base you cannot reach by web search) and returns the methods that tested SIMILAR hypotheses, ranked by how many papers/hypotheses used each one - evidence-grounded, not guessed.\n\n'
+			+ 'INPUT - two parts, BOTH required in practice:\n'
+			+ '  1. `hypothesis`: one clear sentence (ideally subject-relation-object). Compose it from the conversation and briefly confirm it with the user first.\n'
+			+ '  2. `expansions`: 3 OTHER WAYS TO SAY THE SAME HYPOTHESIS, written by you. This is NOT optional padding - the search matches WORDS against stored hypotheses, and the literature states the same idea with different vocabulary, so one phrasing alone misses most of the relevant papers. Vary the vocabulary deliberately: swap in synonyms (inhibition/blockade/suppression), switch between spelled-out names and abbreviations BOTH ways (pancreatic ductal adenocarcinoma <-> PDAC, single-cell RNA sequencing <-> scRNA-seq), and change the sentence structure. Keep the exact meaning - do not broaden, narrow, or add claims.\n\n'
+			+ 'Example - hypothesis: "Autophagy inhibition sensitizes pancreatic cancer cells to gemcitabine." expansions: ["Blocking autophagic flux enhances gemcitabine cytotoxicity in pancreatic ductal adenocarcinoma.", "Suppression of autophagy increases the sensitivity of PDAC cells to gemcitabine treatment.", "Pancreatic tumour cells become more responsive to gemcitabine when autophagy is impaired."]\n\n'
+			+ 'OUTPUT: `keyword_expanded` is the primary result (it pools the hypotheses matched by every phrasing) - report that one. `keyword` (your sentence alone) is a narrower fallback; use it only if `keyword_expanded` is missing. Each method has {method, type, paper_support, hypothesis_support}; higher support means more independent papers used it. A list may instead report `unavailable` while the graph is being rebuilt - say so plainly rather than inventing methods. If the results look generic (Western blot, flow cytometry...), that means the corpus has little specific support for this hypothesis; tell the user rather than presenting them as targeted recommendations.',
 		inputSchema: {
 			type: 'object',
 			required: ['hypothesis'],
 			properties: {
 				hypothesis: { type: 'string', description: 'The hypothesis to search, as one clear sentence.' },
+				expansions: {
+					type: 'array',
+					description: 'THREE other phrasings of the SAME hypothesis that you write (synonyms, abbreviation <-> full name in both directions, different sentence structure). Each is searched separately and the matches are pooled, which is what makes the result robust to how the user happened to word it. Omitting this searches your one sentence only and misses most relevant papers.',
+					items: { type: 'string' },
+				},
 				top_k: { type: 'integer', description: 'Max methods per mode (default 10, max 50).' },
 			},
 		},
@@ -84,9 +97,18 @@ export const ALL_TOOLS: ToolDefinition[] = [
 			if (!hypothesis) {
 				return errorResult('recommend_methods requires a non-empty `hypothesis`.');
 			}
+			const expansions = Array.isArray(args.expansions)
+				? args.expansions.map(e => String(e).trim()).filter(e => e && e !== hypothesis).slice(0, 5)
+				: [];
 			try {
-				const rec = await recommendMethods(hypothesis, clampTopK(args.top_k));
-				return textResult(JSON.stringify(rec, null, 2));
+				const rec = await recommendMethods(hypothesis, clampTopK(args.top_k), expansions);
+				const payload = expansions.length === 0
+					// No expansions: the result is the narrow single-phrasing search. Say so in the
+					// payload so the model asks itself for phrasings next time instead of presenting
+					// a thin list as authoritative.
+					? { ...rec, note: 'Searched ONE phrasing only because `expansions` was empty. Relevant papers that word the hypothesis differently were missed. Call recommend_methods again with 3 alternative phrasings in `expansions`.' }
+					: rec;
+				return textResult(JSON.stringify(payload, null, 2));
 			} catch (err) {
 				return errorResult(`Could not recommend methods: ${(err as Error).message}`);
 			}

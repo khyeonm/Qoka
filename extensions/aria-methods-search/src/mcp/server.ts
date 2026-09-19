@@ -249,9 +249,13 @@ export class AriaMethodsSearchMcpServer {
 						'Use this server in ANY chat session, not only while building a roadmap. ' +
 						'Whenever the user has a hypothesis or research goal and wants to know HOW to test it ' +
 						'(e.g. "what methods should I use to test this?", "how would I study X?", "recommend assays/experiments ' +
-						'for this hypothesis", or when planning an analysis for a hypothesis), call recommend_methods with the ' +
-						'hypothesis sentence. It returns concrete methods that tested SIMILAR hypotheses, ranked by paper_support ' +
-						'(how many papers used each), in `keyword` and `semantic` views (semantic is usually more on-target). ' +
+						'for this hypothesis", or when planning an analysis for a hypothesis), call recommend_methods. ' +
+						'ALWAYS pass two things: the hypothesis as one clear sentence, AND `expansions` - three other ways to ' +
+						'say that same hypothesis, which you write yourself (synonyms, abbreviation and full name in both ' +
+						'directions, different sentence structure, same meaning). The search matches words against stored ' +
+						'hypotheses, so a single phrasing misses the papers that word the idea differently; every phrasing is ' +
+						'searched separately and the matches are pooled. Report the `keyword_expanded` list, ranked by ' +
+						'paper_support (how many independent papers used each method). ' +
 						'Offer this proactively rather than waiting to be asked.',
 				};
 			}

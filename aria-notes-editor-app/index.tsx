@@ -450,20 +450,84 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 		[editor, docVersion, papers],
 	);
 
-	// A file / image / video / audio block's "Download" creates an <a download> and
-	// clicks it - which the webview sandbox blocks, so nothing happens. Intercept
-	// those clicks and let the editor pane save the file via a native Save dialog.
+	// A file / image / video / audio block's "Download" (and "Open") calls
+	// window.open(assetUrl), which the webview sandbox silently blocks - so nothing
+	// happens. Intercept window.open for our own note-asset URLs and let the editor
+	// pane save the file via a native Save dialog instead. Real external links
+	// (http(s) to a normal host) are passed through untouched.
 	useEffect(() => {
-		const onClick = (e: MouseEvent) => {
-			const a = (e.target as HTMLElement | null)?.closest?.('a[download]') as HTMLAnchorElement | null;
-			if (!a || !a.href) { return; }
+		const original = window.open;
+		const isNoteAsset = (u: string) =>
+			/vscode-resource|vscode-cdn|vscode-webview|file\+/.test(u)
+			|| u.includes('.qoka/notebook/assets') || u.includes('%2F.qoka%2Fnotebook%2Fassets') || /[?&/]assets[/=]/.test(u);
+		const patched = ((url?: string | URL, ...rest: unknown[]) => {
+			const u = url == null ? '' : String(url);
+			try { console.log('[note-download] window.open called', u, 'asset=', isNoteAsset(u)); } catch { /* ignore */ }
+			if (u && isNoteAsset(u)) {
+				// Recover the block's original filename for a nicer Save dialog default.
+				let name = '';
+				try {
+					walkBlocks(editor.document as unknown[], block => {
+						const props = (block as { props?: { url?: unknown; name?: unknown } }).props;
+						if (!name && props && String(props.url ?? '') === u && typeof props.name === 'string') { name = props.name; }
+					});
+				} catch { /* best-effort filename lookup */ }
+				vscode.postMessage({ type: 'download', url: u, name });
+				return null;
+			}
+			return (original as ((...a: unknown[]) => Window | null) | undefined)?.apply(window, [url, ...rest]) ?? null;
+		}) as typeof window.open;
+		// window.open may be non-writable in the webview; fall back to defineProperty.
+		let applied = false;
+		try { window.open = patched; applied = window.open === patched; } catch { /* non-writable */ }
+		if (!applied) {
+			try { Object.defineProperty(window, 'open', { configurable: true, writable: true, value: patched }); applied = window.open === patched; } catch { /* frozen */ }
+		}
+		try { console.log('[note-download] window.open override applied:', applied); } catch { /* ignore */ }
+		return () => { try { window.open = original; } catch { /* ignore */ } };
+	}, [editor]);
+
+	// The real download path: BlockNote's file/image/audio/video "Download" toolbar
+	// button does not reliably call window.open in the webview, so intercept the press
+	// on it (capture phase, mousedown - the toolbar may vanish before a 'click' lands),
+	// read the selected block's asset url, and let the editor pane save it. Also logs
+	// every button press so an unmatched button's real attributes are visible.
+	useEffect(() => {
+		const handle = (e: Event) => {
+			const start = e.target as HTMLElement | null;
+			const btn = start?.closest?.('button, [role="button"], .bn-button, [aria-label], [data-test]') as HTMLElement | null;
+			if (!btn) { return; }
+			const aria = btn.getAttribute('aria-label') || '';
+			const title = btn.getAttribute('title') || '';
+			const dtest = btn.getAttribute('data-test') || '';
+			const text = (btn.textContent || '').trim();
+			const isDownload = /download/i.test(aria) || /download/i.test(title) || /download/i.test(dtest) || (/download/i.test(text) && text.length < 30);
+			if (e.type === 'mousedown') {
+				try { console.log('[note-download] press aria=', JSON.stringify(aria), 'title=', JSON.stringify(title), 'data-test=', JSON.stringify(dtest), 'text=', JSON.stringify(text.slice(0, 24)), 'isDownload=', isDownload); } catch { /* ignore */ }
+			}
+			if (!isDownload || e.type !== 'mousedown') { return; }
 			e.preventDefault();
 			e.stopPropagation();
-			vscode.postMessage({ type: 'download', url: a.href, name: a.getAttribute('download') || '' });
+			try {
+				const editorAny = editor as unknown as {
+					getSelection?: () => { blocks?: Array<{ props?: { url?: unknown; name?: unknown } }> } | undefined;
+					getTextCursorPosition?: () => { block?: { props?: { url?: unknown; name?: unknown } } };
+				};
+				const sel = editorAny.getSelection?.()?.blocks;
+				const block = (sel && sel.length === 1 ? sel[0] : editorAny.getTextCursorPosition?.()?.block);
+				const url = block?.props?.url;
+				const name = typeof block?.props?.name === 'string' ? block.props.name : '';
+				console.log('[note-download] download intercepted; url=', url);
+				if (typeof url === 'string' && url) { vscode.postMessage({ type: 'download', url, name }); }
+			} catch (err) { try { console.log('[note-download] intercept error', err); } catch { /* ignore */ } }
 		};
-		document.addEventListener('click', onClick, true);
-		return () => document.removeEventListener('click', onClick, true);
-	}, []);
+		document.addEventListener('mousedown', handle, true);
+		document.addEventListener('click', handle, true);
+		return () => {
+			document.removeEventListener('mousedown', handle, true);
+			document.removeEventListener('click', handle, true);
+		};
+	}, [editor]);
 
 	// Hover card. Read-only inspection, so it never touches the document and
 	// works the same in review mode. The card is clickable (opens the paper in the
@@ -561,6 +625,30 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 		});
 	}, [placement, editor]);
 
+	// Notion-style: clicking the empty area below the last block places the cursor
+	// at the end of the note (adding a trailing empty paragraph when the last block
+	// is not already one) so the user can just click-and-type. Without this the
+	// click lands on the scroll container - outside ProseMirror - and does nothing.
+	const onEmptyAreaMouseDown = useCallback((e: ReactMouseEvent) => {
+		if (!editable || placement) { return; }
+		const target = e.target as HTMLElement | null;
+		// Real block clicks are handled by the editor itself; only act when the click
+		// is in the empty padding OUTSIDE the ProseMirror editable surface.
+		if (!target || target.closest('.ProseMirror') || target.closest('.bn-block-outer')) { return; }
+		const doc = editor.document as Array<{ type?: string; content?: unknown }>;
+		const last = doc[doc.length - 1];
+		e.preventDefault();
+		if (!last) { editor.focus(); return; }
+		const isEmptyParagraph = last.type === 'paragraph' && Array.isArray(last.content) && last.content.length === 0;
+		if (isEmptyParagraph) {
+			editor.setTextCursorPosition(last as never, 'end');
+		} else {
+			const inserted = editor.insertBlocks([{ type: 'paragraph' }] as never, last as never, 'after');
+			if (inserted && inserted[0]) { editor.setTextCursorPosition(inserted[0], 'end'); }
+		}
+		editor.focus();
+	}, [editor, editable, placement]);
+
 	// --- /cite -------------------------------------------------------------
 
 	const startPick = useCallback(() => {
@@ -619,7 +707,9 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 			subtext: 'Insert a citation from your Paper Library',
 			aliases: ['cite', 'citation', 'reference', 'bib'],
 			group: 'Research',
-			icon: <span style={{ fontSize: 16 }}>🔖</span>,
+			// Desaturate + darken the (red) bookmark emoji so it reads as a dark-grey
+			// glyph, matching the monochrome slash-menu icons instead of standing out.
+			icon: <span style={{ fontSize: 16, filter: 'grayscale(1) brightness(0.55)' }}>🔖</span>,
 			onItemClick: startPick,
 		};
 		const all: DefaultReactSuggestionItem[] = [...getDefaultReactSlashMenuItems(editor), citeItem];
@@ -664,6 +754,7 @@ function Editor({ blocks, editable, decorations, papers, placement, panelHeight,
 			<div
 				ref={ref}
 				style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', cursor: placement ? 'crosshair' : undefined }}
+				onMouseDown={onEmptyAreaMouseDown}
 				onMouseMove={onMouseMove}
 				onMouseLeave={scheduleHide}
 				// Measured rects are viewport-relative. The transient hover highlight is
