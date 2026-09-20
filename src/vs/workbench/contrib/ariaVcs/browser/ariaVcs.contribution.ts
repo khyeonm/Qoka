@@ -97,3 +97,19 @@ MenuRegistry.appendMenuItem(MenuId.ViewTitle, {
 	group: 'navigation', order: 2,
 	when: inChangesView,
 });
+
+// --- Snapshots title-bar action: Refresh (mirrors the Changes Refresh) ------
+const SNAP_REFRESH_ID = 'aria.vcs.ui.snapshots.refresh';
+
+function snapshotsView2(accessor: ServicesAccessor): AriaVersionsView | undefined {
+	const v = accessor.get(IViewsService).getViewWithId(AriaSnapshotsView.ID);
+	return v instanceof AriaVersionsView ? v : undefined;
+}
+
+CommandsRegistry.registerCommand(SNAP_REFRESH_ID, (accessor) => snapshotsView2(accessor)?.refreshNow());
+
+MenuRegistry.appendMenuItem(MenuId.ViewTitle, {
+	command: { id: SNAP_REFRESH_ID, title: localize('aria.vcs.refreshSnapshotsTooltip', "Refresh"), icon: Codicon.refresh },
+	group: 'navigation', order: 2,
+	when: ContextKeyExpr.equals('view', AriaSnapshotsView.ID),
+});

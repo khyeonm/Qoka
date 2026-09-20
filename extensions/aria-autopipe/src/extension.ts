@@ -110,6 +110,39 @@ let wslLaunchDecided = false;
  *  opted-out users, so their loader is never held waiting for a setup that won't run. */
 let wslSetupPending = false;
 
+/** Prepend the resolved git binary's directory (bundled MinGit on Windows) to this
+ *  extension host's PATH so the AI CLIs' spawned `git` finds it even when no system git
+ *  is installed. Asks aria-vcs (`aria.vcs.resolveGitPath`) for the path, retrying briefly
+ *  in case that extension activates a moment later. No-op when git is plain 'git' (system
+ *  git already on PATH) or on Linux/Mac (no bundled binary). Best-effort; never throws. */
+async function ensureGitOnPath(): Promise<void> {
+	try {
+		let gitPath: string | undefined;
+		for (let attempt = 0; attempt < 5 && !gitPath; attempt++) {
+			try {
+				gitPath = await vscode.commands.executeCommand<string | undefined>('aria.vcs.resolveGitPath');
+			} catch {
+				await new Promise(r => setTimeout(r, 500)); // aria-vcs may not be active yet
+			}
+		}
+		if (!gitPath || gitPath === 'git' || !path.isAbsolute(gitPath)) {
+			console.log(`[aria-autopipe] AI git: system git (${gitPath ?? 'unresolved'}), PATH unchanged`);
+			return;
+		}
+		const gitDir = path.dirname(gitPath);
+		const sep = process.platform === 'win32' ? ';' : ':';
+		const current = process.env.PATH ?? '';
+		if (current.split(sep).some(p => p.trim().toLowerCase() === gitDir.toLowerCase())) {
+			console.log(`[aria-autopipe] AI git: bundled git dir already on PATH (${gitDir})`);
+			return;
+		}
+		process.env.PATH = `${gitDir}${sep}${current}`;
+		console.log(`[aria-autopipe] AI git: prepended bundled git dir to PATH -> ${gitDir}`);
+	} catch (e) {
+		console.log(`[aria-autopipe] ensureGitOnPath failed: ${(e as Error).message}`);
+	}
+}
+
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-autopipe] activate()');
 	extensionContext = context;
@@ -120,6 +153,13 @@ export function activate(context: vscode.ExtensionContext): void {
 	// three dirs + the README exist, so a freshly opened project always shows
 	// them - even for remote-only users who never start the built-in VM.
 	try { ensureWorkspaceScaffold(); } catch { /* best-effort */ }
+
+	// Make the bundled git (MinGit on Windows) reachable by the AI CLIs' OWN `git`
+	// commands - their raw-git auto-commit runs `git` from the extension host's
+	// environment, so prepend the resolved git binary's directory to this process's
+	// PATH. On Linux/Mac (no bundled binary) aria-vcs returns the system `git`, already
+	// on PATH, so this is a no-op there.
+	void ensureGitOnPath();
 
 	// In-app PDF viewer (pdf.js) as the default editor for .pdf, so downloaded papers
 	// (Paper Library) and pipeline result PDFs render inside Qoka as an editor tab

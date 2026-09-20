@@ -122,30 +122,47 @@ export class VcsService {
 		// global config is found, so we don't override the user's real
 		// name on shared / multi-tool machines.
 		await this.ensureLocalIdentity(workspacePath);
+		// Baseline commit so a freshly-tracked project starts CLEAN: the scaffold files
+		// (README.md, CLAUDE.md, AGENTS.md, .gitignore) and any files already in the
+		// folder are captured as the initial version, instead of lingering as pending
+		// changes. Respects .gitignore (data/ + results/ excluded). No-op when there is
+		// nothing to commit. Best-effort - never blocks tracking.
+		try {
+			await git(['add', '-A'], workspacePath);
+			const staged = await git(['diff', '--cached', '--name-only'], workspacePath);
+			if (staged.trim().length > 0) {
+				await git(['commit', '-m', 'Initialize Qoka project'], workspacePath);
+			}
+		} catch { /* best-effort */ }
 	}
 
 	/** Write (or top up) a project `.gitignore` so Qoka's own working files never
 	 *  land in a snapshot. Idempotent - the Qoka block is only appended once. */
 	private ensureGitignore(workspacePath: string): void {
 		const HEADER = '# --- Qoka: assistant/app working files (kept out of snapshots) ---';
-		const block = [
-			HEADER,
-			'.claude/',        // Claude Code project/session config (MCP, settings)
-			'.codex/',         // Codex working dir
-			'.mcp.json',       // MCP server config - ports change every launch
-			'.qoka/',          // Qoka app state (roadmaps etc.) - managed by the app
-			'node_modules/',
-			'.DS_Store',
-			'',
-		].join('\n');
+		// Qoka's own working files, PLUS the generated input/output trees:
+		//   data/    - large inputs (staged/linked per run, not source to version)
+		//   results/ - regenerable outputs + logs (often large / binary)
+		// so snapshots AND auto-commit version only the real work (code, notes, drafts),
+		// never large or unmergeable binaries. Top up any missing lines idempotently.
+		const entries = [
+			'.claude/', '.codex/', '.mcp.json', '.qoka/', 'node_modules/', '.DS_Store',
+			'data/', 'results/',
+			// Qoka-generated AI instruction files - regenerated per project open, so they
+			// are local tool config, not versioned content.
+			'CLAUDE.md', 'AGENTS.md', 'README.md',
+		];
 		const gitignorePath = path.join(workspacePath, '.gitignore');
 		let existing = '';
 		try { existing = fs.readFileSync(gitignorePath, 'utf8'); } catch { /* no file yet */ }
-		if (existing.includes(HEADER)) {
-			return;
-		}
+		const hasLine = (p: string) => existing.split(/\r?\n/).some(l => l.trim() === p);
+		const missing = entries.filter(p => !hasLine(p));
+		if (missing.length === 0) { return; }
+		const lines: string[] = [];
+		if (!existing.includes(HEADER)) { lines.push(HEADER); }
+		lines.push(...missing, '');
 		const sep = existing && !existing.endsWith('\n') ? '\n' : '';
-		try { fs.writeFileSync(gitignorePath, existing + sep + block); } catch { /* best-effort */ }
+		try { fs.writeFileSync(gitignorePath, existing + sep + lines.join('\n')); } catch { /* best-effort */ }
 	}
 
 	private async ensureLocalIdentity(workspacePath: string): Promise<void> {

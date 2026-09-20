@@ -222,29 +222,85 @@ export function ensureWorkspaceScaffold(root?: string): void {
 			fs.mkdirSync(d, { recursive: true });
 		} catch { /* best-effort */ }
 	}
+	// Auto-commit: seed the AI-instruction files so Claude Code (CLAUDE.md) and Codex
+	// (AGENTS.md) commit meaningful work on their own, without the user running git.
+	// Idempotent (marker-guarded) and never clobbers the user's own content.
+	ensureAiCommitInstructions(folder);
+	// Make sure .gitignore keeps data/ + results/ (and Qoka's working files) out of git
+	// BEFORE any commit happens, so auto-commit versions only the real work.
+	ensureProjectGitignore(folder);
+}
+
+/** Patterns kept out of git: Qoka's own working files, the generated data/ (large
+ *  inputs) and results/ (regenerable outputs) trees, and the Qoka-generated AI
+ *  instruction files (CLAUDE.md / AGENTS.md are regenerated per project open, so they
+ *  are local tool config, not versioned content). Mirrors aria-vcs's list. */
+const GITIGNORE_ENTRIES = ['.claude/', '.codex/', '.mcp.json', '.qoka/', 'node_modules/', '.DS_Store', 'data/', 'results/', 'CLAUDE.md', 'AGENTS.md', 'README.md'];
+
+/** Ensure the project's `.gitignore` carries GITIGNORE_ENTRIES. Written here at project
+ *  open (not only on the first snapshot) so the file is present before any commit - the
+ *  AI's raw-git auto-commit, or aria-vcs snapshots. Idempotent per-line; best-effort. */
+function ensureProjectGitignore(folder: string): void {
 	try {
-		const readme = path.join(folder, 'README.md');
-		if (!fs.existsSync(readme)) { fs.writeFileSync(readme, PROJECT_README, 'utf8'); }
+		const file = path.join(folder, '.gitignore');
+		let existing = '';
+		try { existing = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
+		const hasLine = (p: string) => existing.split(/\r?\n/).some(l => l.trim() === p);
+		const missing = GITIGNORE_ENTRIES.filter(p => !hasLine(p));
+		if (missing.length === 0) { return; }
+		const sep = existing && !existing.endsWith('\n') ? '\n' : '';
+		fs.writeFileSync(file, existing + sep + missing.join('\n') + '\n', 'utf8');
 	} catch { /* best-effort */ }
 }
 
-const PROJECT_README = [
-	'# Qoka project',
+const AUTO_COMMIT_MARKER = '<!-- qoka:auto-commit:start -->';
+
+/** The raw-git auto-commit guidance injected into CLAUDE.md and AGENTS.md. Kept as a
+ *  marker-delimited block so we can detect it and never duplicate it. */
+const AUTO_COMMIT_BLOCK = [
+	AUTO_COMMIT_MARKER,
+	'## Auto-commit (Qoka)',
 	'',
-	'This project uses three top-level folders:',
+	'Keep the project history current WITHOUT the user having to run git.',
 	'',
-	'- **`data/`** - input data. Put your datasets here (or Qoka links them in when a',
-	'  run uses them). Per-run input summaries are written to `data/<run-name>/`.',
-	'- **`analysis/`** - the CODE. `run_code` scripts you asked to keep, notebooks',
-	'  (`.ipynb`), and autopipe pipeline code (one folder per pipeline). Quick',
-	'  throwaway checks are not kept here; low-value scratch code goes under',
-	'  `.qoka/analysis/`.',
-	'- **`results/`** - the OUTPUTS. Every run\'s result files and logs land in',
-	'  `results/<run-name>/`. A few open automatically as editor tabs (plots first).',
-	'',
-	'You drive all of this from the chat - Qoka fills these folders for you.',
+	'- The project is a git repo (Qoka sets it up). If `git status` reports it is NOT a repo',
+	'  yet, run `git init` and set a local identity first, then continue.',
+	'- After finishing a MEANINGFUL unit of work (a feature, a fix, a coherent change the',
+	'  user asked for), commit it: `git add -A` then `git commit -m "<short imperative summary>"`.',
+	'  (`data/` and `results/` are gitignored, so `git add -A` stages only your real work.)',
+	'- One commit per meaningful, self-contained change. Do NOT commit after every tiny edit,',
+	'  and do NOT lump unrelated changes into one commit.',
+	'- git commands (add / status / commit / log / diff) are VERSION CONTROL, NOT analysis',
+	'  code: run them DIRECTLY in your shell in the project directory. The "run code through',
+	'  Qoka tools, not the terminal" rule is ONLY about running analysis / scripts, never git.',
+	'- Do NOT `git push` and do not touch remotes - commits stay LOCAL.',
+	'- Never commit secrets, credentials, or large data files (rely on .gitignore; never',
+	'  force-add ignored paths). Never commit another person\'s changes.',
+	'- If git reports a missing identity, set it LOCALLY only: `git config user.name "Qoka"`',
+	'  and `git config user.email "user@localhost"` (never change the global git config).',
+	'<!-- qoka:auto-commit:end -->',
 	'',
 ].join('\n');
+
+/** Ensure CLAUDE.md (Claude Code) and AGENTS.md (Codex) both carry the auto-commit block.
+ *  Creates the file if absent; appends the block if the file exists without it; leaves it
+ *  untouched once the marker is present. Best-effort - never throws. */
+function ensureAiCommitInstructions(folder: string): void {
+	for (const name of ['CLAUDE.md', 'AGENTS.md']) {
+		try {
+			const file = path.join(folder, name);
+			if (fs.existsSync(file)) {
+				const current = fs.readFileSync(file, 'utf8');
+				if (current.includes(AUTO_COMMIT_MARKER)) { continue; }
+				const sep = current.length === 0 || current.endsWith('\n') ? '\n' : '\n\n';
+				fs.writeFileSync(file, current + sep + AUTO_COMMIT_BLOCK, 'utf8');
+			} else {
+				const header = `# Project instructions for AI assistants\n\n`;
+				fs.writeFileSync(file, header + AUTO_COMMIT_BLOCK, 'utf8');
+			}
+		} catch { /* best-effort */ }
+	}
+}
 
 /**
  * One-time migration from the old split layout to the unified data/analysis/results

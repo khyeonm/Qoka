@@ -125,9 +125,16 @@ export class AriaVersionsView extends ViewPane {
 		const folder = this.workspaceContextService.getWorkspace().folders[0];
 		if (!folder) { return; }
 		try {
+			// Watch the workspace INCLUDING the git state (index / HEAD / logs / refs), so an
+			// EXTERNAL commit (the AI's raw-git auto-commit) refreshes BOTH the Changes and
+			// Snapshots sections immediately. A commit touches only `.git/`, NOT the working
+			// tree, so the old blanket `**/.git/**` exclude meant a commit never fired a
+			// refresh (Changes stayed stale, the new snapshot did not appear). Only the noisy
+			// `.git/objects/` blob store is skipped - the same approach VS Code's own SCM uses;
+			// the 400ms debounce collapses a burst of git writes into one refresh.
 			this.watcherStore.add(this.fileService.watch(folder.uri, {
 				recursive: true,
-				excludes: ['**/.git/**', '**/node_modules/**', '**/.aria/**'],
+				excludes: ['**/.git/objects/**', '**/node_modules/**', '**/.aria/**'],
 			}));
 			this.watcherStore.add(this.fileService.onDidFilesChange(e => {
 				if (e.affects(folder.uri)) { this.refreshScheduler.schedule(); }
