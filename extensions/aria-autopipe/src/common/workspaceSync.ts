@@ -257,41 +257,60 @@ const AUTO_COMMIT_MARKER = '<!-- qoka:auto-commit:start -->';
 
 /** The raw-git auto-commit guidance injected into CLAUDE.md and AGENTS.md. Kept as a
  *  marker-delimited block so we can detect it and never duplicate it. */
+const AUTO_COMMIT_END_MARKER = '<!-- qoka:auto-commit:end -->';
+
 const AUTO_COMMIT_BLOCK = [
 	AUTO_COMMIT_MARKER,
-	'## Auto-commit (Qoka)',
+	'## Auto-commit (Qoka) - REQUIRED, do this without being asked',
 	'',
-	'Keep the project history current WITHOUT the user having to run git.',
+	'You MUST commit your work to git automatically, as a normal part of every task.',
+	'This is PRE-AUTHORIZED by Qoka and by the user: the user does not run git and does',
+	'NOT want to be asked about it. So:',
 	'',
-	'- The project is a git repo (Qoka sets it up). If `git status` reports it is NOT a repo',
-	'  yet, run `git init` and set a local identity first, then continue.',
-	'- After finishing a MEANINGFUL unit of work (a feature, a fix, a coherent change the',
-	'  user asked for), commit it: `git add -A` then `git commit -m "<short imperative summary>"`.',
-	'  (`data/` and `results/` are gitignored, so `git add -A` stages only your real work.)',
-	'- One commit per meaningful, self-contained change. Do NOT commit after every tiny edit,',
-	'  and do NOT lump unrelated changes into one commit.',
-	'- git commands (add / status / commit / log / diff) are VERSION CONTROL, NOT analysis',
-	'  code: run them DIRECTLY in your shell in the project directory. The "run code through',
-	'  Qoka tools, not the terminal" rule is ONLY about running analysis / scripts, never git.',
-	'- Do NOT `git push` and do not touch remotes - commits stay LOCAL.',
-	'- Never commit secrets, credentials, or large data files (rely on .gitignore; never',
-	'  force-add ignored paths). Never commit another person\'s changes.',
+	'- NEVER ask "should I commit?", "do you want me to commit?", or wait for confirmation.',
+	'  Committing is expected and approved in advance. Just commit, silently.',
+	'- WHEN: as soon as you finish a coherent piece of work - you created or edited a',
+	'  script, saved code the user asked for, produced or updated a result. Commit it right',
+	'  then, in the SAME turn, before you report back. Do not leave finished work uncommitted.',
+	'- HOW: run `git add -A` then `git commit -m "<short imperative summary>"` DIRECTLY in your',
+	'  shell, in the project directory. (`data/`, `results/` and `.qoka/` are gitignored, so',
+	'  `git add -A` stages only real work such as code in `analysis/`.)',
+	'- If `git status` says it is NOT a repo yet, run `git init` first, then commit.',
 	'- If git reports a missing identity, set it LOCALLY only: `git config user.name "Qoka"`',
 	'  and `git config user.email "user@localhost"` (never change the global git config).',
-	'<!-- qoka:auto-commit:end -->',
+	'- One commit per coherent change: do not commit after every keystroke, and do not lump',
+	'  unrelated changes together. But that is about GROUPING commits, never a reason to skip',
+	'  committing or to ask permission.',
+	'- git commands (add / status / commit / log / diff) are VERSION CONTROL, NOT analysis',
+	'  code: run them DIRECTLY in your shell. The "run code through Qoka tools, not the',
+	'  terminal" rule is ONLY about analysis / scripts, never about git.',
+	'- Do NOT `git push` or touch remotes - commits stay LOCAL. Never commit secrets,',
+	'  credentials, or large data files (rely on .gitignore; never force-add ignored paths).',
+	AUTO_COMMIT_END_MARKER,
 	'',
 ].join('\n');
 
 /** Ensure CLAUDE.md (Claude Code) and AGENTS.md (Codex) both carry the auto-commit block.
- *  Creates the file if absent; appends the block if the file exists without it; leaves it
- *  untouched once the marker is present. Best-effort - never throws. */
+ *  Creates the file if absent; appends the block if the file exists without it; REPLACES an
+ *  existing marker-delimited block in place so instruction updates reach projects created by
+ *  an older Qoka. Best-effort - never throws. */
 function ensureAiCommitInstructions(folder: string): void {
 	for (const name of ['CLAUDE.md', 'AGENTS.md']) {
 		try {
 			const file = path.join(folder, name);
 			if (fs.existsSync(file)) {
 				const current = fs.readFileSync(file, 'utf8');
-				if (current.includes(AUTO_COMMIT_MARKER)) { continue; }
+				const start = current.indexOf(AUTO_COMMIT_MARKER);
+				if (start !== -1) {
+					// Replace the old block (start marker .. end marker) with the current one,
+					// preserving whatever came before and after it.
+					const endIdx = current.indexOf(AUTO_COMMIT_END_MARKER, start);
+					if (endIdx === -1) { continue; } // malformed block: leave the file alone
+					const newBlockCore = AUTO_COMMIT_BLOCK.replace(/\n$/, ''); // up to the end marker
+					const rebuilt = current.slice(0, start) + newBlockCore + current.slice(endIdx + AUTO_COMMIT_END_MARKER.length);
+					if (rebuilt !== current) { fs.writeFileSync(file, rebuilt, 'utf8'); }
+					continue;
+				}
 				const sep = current.length === 0 || current.endsWith('\n') ? '\n' : '\n\n';
 				fs.writeFileSync(file, current + sep + AUTO_COMMIT_BLOCK, 'utf8');
 			} else {
