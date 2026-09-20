@@ -81,9 +81,9 @@ jobs:
         run: git clone --branch "${GITHUB_REF_NAME}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
 
       # Stamp the real git commit into product.json so the desktop client and the
-      # REH server (built from the same commit in the build-reh job) agree during the
-      # Remote-SSH handshake. Without it product.commit is empty ("undefined") and the
-      # server folder / version check are unreliable.
+      # REH server (built from the same tag by the separate release-reh.yml workflow)
+      # agree during the Remote-SSH handshake. Without it product.commit is empty
+      # ("undefined") and the server folder / version check are unreliable.
       - name: Set build commit
         shell: bash
         run: |
@@ -402,116 +402,4 @@ jobs:
           for f in artifacts/*; do gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; done
           # Publish the release (a re-tag can leave it as an unlisted draft, whose
           # assets 404 for anonymous download / the qoka.org buttons).
-          gh release edit "${GITHUB_REF_NAME}" --draft=false --latest 2>/dev/null || true
-
-  # Build the REH (the remote server "qoka-server") for Linux x64 and attach it to the
-  # release as qoka-reh-linux-x64.tar.gz. Remote-SSH (open-remote-ssh) reads
-  # product.json's serverDownloadUrlTemplate and installs this on whatever server the
-  # user connects to. Linux x64 only for now (most lab servers are linux-x64); add
-  # arm64 / darwin the same way when needed. Runs in parallel with the desktop build.
-  build-reh:
-    needs: [verify-version]
-    if: always() && (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
-    runs-on: ubuntu-22.04
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      GITHUB_TOKEN: ${{ github.token }}
-      npm_config_arch: x64
-      npm_config_target_arch: x64
-    steps:
-      - name: Clone
-        shell: bash
-        run: git clone --branch "${GITHUB_REF_NAME}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
-
-      - name: Set build commit
-        shell: bash
-        run: |
-          C="$(git rev-parse HEAD)"
-          jq --arg c "$C" '.commit = $c' product.json > product.json.tmp && mv product.json.tmp product.json
-          echo "commit set to $C"
-
-      - name: Install Node from .nvmrc
-        shell: bash
-        run: |
-          V="$(tr -d '[:space:]' < .nvmrc)"
-          F="node-v$V-linux-x64"
-          curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
-          echo "$PWD/$F/bin" >> "$GITHUB_PATH"
-
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
-
-      # The REH compile-src peaks above the Linux runner's ~7 GB RAM (the desktop
-      # build runs on 14-16 GB macOS/Windows runners). Add swap so the 8 GB-heap
-      # build spills instead of being OOM-killed (exit 143).
-      - name: Add swap space
-        run: |
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
-
-      - name: Install dependencies
-        shell: bash
-        run: |
-          ulimit -n 65536 2>/dev/null || true
-          n=0
-          until npm install; do
-            n=$((n+1)); [ "$n" -ge 3 ] && { echo "npm install failed after $n tries"; exit 1; }
-            echo "npm install attempt $n failed; retrying in 15s..."; sleep 15
-          done
-
-      - name: Inject Qoka API key into extensions
-        shell: bash
-        env:
-          QOKA_API_KEY: ${{ secrets.QOKA_API_KEY }}
-        run: |
-          set -e
-          for ext in aria-hypothesis aria-methods-search; do
-            printf "export const QOKA_API_KEY = '%s';\n" "$QOKA_API_KEY" > "extensions/$ext/src/qokaKey.ts"
-          done
-
-      - name: Build Qoka extensions
-        shell: bash
-        run: |
-          set -e
-          ulimit -n 65536 2>/dev/null || true
-          transpile_tasks=""
-          for d in extensions/aria-*/ extensions/qoka-*/; do
-            name="$(basename "$d")"
-            if [ -f "$d/build.mjs" ]; then
-              (cd "$d" && npm install && node build.mjs)
-            elif [ -f "$d/tsconfig.json" ]; then
-              transpile_tasks="$transpile_tasks transpile-extension:$name"
-            fi
-          done
-          if [ -n "$transpile_tasks" ]; then npm run gulp -- $transpile_tasks; fi
-
-      - name: Build REH (qoka-server, linux-x64)
-        shell: bash
-        run: |
-          ulimit -n 65536 2>/dev/null || true
-          npm run gulp vscode-reh-linux-x64-min
-
-      - name: Package REH tarball
-        shell: bash
-        run: |
-          mkdir -p artifacts
-          # BUILD_ROOT is the parent of the repo; the reh build lands in
-          # ../vscode-reh-linux-x64. Tar it so the archive has a single top dir
-          # (open-remote-ssh's install script extracts with --strip-components 1).
-          tar -czf artifacts/qoka-reh-linux-x64.tar.gz -C "$PWD/.." vscode-reh-linux-x64
-          ls -la artifacts/
-
-      - name: Attach REH to the tag's release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: |
-          VER="${GITHUB_REF_NAME#qoka-v}"
-          gh release create "${GITHUB_REF_NAME}" --title "Qoka ${VER}" --notes "Qoka ${VER}" 2>/dev/null || true
-          gh release upload "${GITHUB_REF_NAME}" artifacts/qoka-reh-linux-x64.tar.gz --clobber
           gh release edit "${GITHUB_REF_NAME}" --draft=false --latest 2>/dev/null || true

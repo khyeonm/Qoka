@@ -1,0 +1,123 @@
+# Builds ONLY the REH (the remote server "qoka-server") for Linux x64 and attaches
+# it to an existing release, without rebuilding the desktop app. Trigger it manually
+# (Actions -> "Release (REH)" -> Run workflow) with the release tag to build from and
+# attach to (e.g. qoka-v0.4.18). The REH is built from THAT tag's commit so it matches
+# the desktop client's commit for the Remote-SSH handshake.
+#
+# Runs on a Linux runner with added swap: the REH compile-src peaks above the runner's
+# ~7 GB RAM and is otherwise OOM-killed (exit 143). Remote-SSH (open-remote-ssh) reads
+# product.json's serverDownloadUrlTemplate and downloads this tarball onto whatever
+# server the user connects to.
+name: Release (REH)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to build the REH from and attach it to (e.g. qoka-v0.4.18)'
+        required: true
+        default: 'qoka-v0.4.18'
+
+permissions:
+  contents: write
+
+jobs:
+  build-reh:
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.release_tag }}
+      npm_config_arch: x64
+      npm_config_target_arch: x64
+    steps:
+      - name: Clone at the release tag
+        shell: bash
+        run: git clone --depth 1 --branch "$TAG" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+
+      - name: Set build commit
+        shell: bash
+        run: |
+          C="$(git rev-parse HEAD)"
+          jq --arg c "$C" '.commit = $c' product.json > product.json.tmp && mv product.json.tmp product.json
+          echo "commit set to $C"
+
+      - name: Install Node from .nvmrc
+        shell: bash
+        run: |
+          V="$(tr -d '[:space:]' < .nvmrc)"
+          F="node-v$V-linux-x64"
+          curl -fsSL "https://nodejs.org/dist/v$V/$F.tar.xz" | tar -xJ
+          echo "$PWD/$F/bin" >> "$GITHUB_PATH"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
+
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          ulimit -n 65536 2>/dev/null || true
+          n=0
+          until npm install; do
+            n=$((n+1)); [ "$n" -ge 3 ] && { echo "npm install failed after $n tries"; exit 1; }
+            echo "npm install attempt $n failed; retrying in 15s..."; sleep 15
+          done
+
+      - name: Inject Qoka API key into extensions
+        shell: bash
+        env:
+          QOKA_API_KEY: ${{ secrets.QOKA_API_KEY }}
+        run: |
+          set -e
+          for ext in aria-hypothesis aria-methods-search; do
+            printf "export const QOKA_API_KEY = '%s';\n" "$QOKA_API_KEY" > "extensions/$ext/src/qokaKey.ts"
+          done
+
+      - name: Build Qoka extensions
+        shell: bash
+        run: |
+          set -e
+          ulimit -n 65536 2>/dev/null || true
+          transpile_tasks=""
+          for d in extensions/aria-*/ extensions/qoka-*/; do
+            name="$(basename "$d")"
+            if [ -f "$d/build.mjs" ]; then
+              (cd "$d" && npm install && node build.mjs)
+            elif [ -f "$d/tsconfig.json" ]; then
+              transpile_tasks="$transpile_tasks transpile-extension:$name"
+            fi
+          done
+          if [ -n "$transpile_tasks" ]; then npm run gulp -- $transpile_tasks; fi
+
+      - name: Build REH (qoka-server, linux-x64)
+        shell: bash
+        run: |
+          ulimit -n 65536 2>/dev/null || true
+          npm run gulp vscode-reh-linux-x64-min
+
+      - name: Package REH tarball
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          # BUILD_ROOT is the parent of the repo; the reh build lands in
+          # ../vscode-reh-linux-x64. Tar so the archive has a single top dir
+          # (open-remote-ssh extracts with --strip-components 1).
+          tar -czf artifacts/qoka-reh-linux-x64.tar.gz -C "$PWD/.." vscode-reh-linux-x64
+          ls -la artifacts/
+
+      - name: Attach REH to the release
+        shell: bash
+        run: |
+          gh release upload "$TAG" artifacts/qoka-reh-linux-x64.tar.gz --clobber
+          echo "Uploaded qoka-reh-linux-x64.tar.gz to release $TAG"
