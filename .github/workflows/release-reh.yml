@@ -47,8 +47,11 @@ jobs:
           # The REH must report the SAME product.commit as the desktop client of the
           # target release so Remote-SSH's version handshake matches. The build tooling
           # comes from BUILD_REF (e.g. main), but the reported commit is the tag's.
+          # getVersion() reads BUILD_SOURCEVERSION first (a 40-char SHA), and the build
+          # writes THAT into product.commit, overriding git HEAD (= BUILD_REF's tip).
           git fetch --depth 1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
           C="$(git rev-list -n1 "$TAG")"
+          echo "BUILD_SOURCEVERSION=$C" >> "$GITHUB_ENV"
           jq --arg c "$C" '.commit = $c' product.json > product.json.tmp && mv product.json.tmp product.json
           echo "REH will report commit $C (from tag $TAG), built from $BUILD_REF"
 
