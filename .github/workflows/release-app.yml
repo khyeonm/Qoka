@@ -444,6 +444,17 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
           sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev fakeroot
 
+      # The REH compile-src peaks above the Linux runner's ~7 GB RAM (the desktop
+      # build runs on 14-16 GB macOS/Windows runners). Add swap so the 8 GB-heap
+      # build spills instead of being OOM-killed (exit 143).
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Install dependencies
         shell: bash
         run: |
