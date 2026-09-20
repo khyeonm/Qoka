@@ -13,7 +13,7 @@ import * as optimize from './lib/optimize.ts';
 import { inlineMeta } from './lib/inlineMeta.ts';
 import product from '../product.json' with { type: 'json' };
 import { getProductionDependencies } from './lib/dependencies.ts';
-import { readISODate } from './lib/date.ts';
+import { readISODate, writeISODate } from './lib/date.ts';
 import vfs from 'vinyl-fs';
 import packageJson from '../package.json' with { type: 'json' };
 import { untar } from './lib/util.ts';
@@ -30,6 +30,8 @@ import log from 'fancy-log';
 import buildfile from './buildfile.ts';
 import { fetchUrls, fetchGithub } from './lib/fetch.ts';
 import { getRipgrepExcludeFilter } from './lib/copilot.ts';
+import { useEsbuildTranspile } from './buildConfig.ts';
+import { runEsbuildBundle } from './lib/esbuild.ts';
 
 
 const rcedit = promisify(rceditCallback);
@@ -591,14 +593,41 @@ function tweakProductForServerWeb(product: typeof import('../product.json')) {
 			const serverTaskCI = task.define(`vscode-${type}${dashed(platform)}${dashed(arch)}${dashed(minified)}-ci`, task.series(...packageTasks));
 			task.task(serverTaskCI);
 
-			const serverTask = task.define(`vscode-${type}${dashed(platform)}${dashed(arch)}${dashed(minified)}`, task.series(
-				compileBuildWithManglingTask,
-				cleanExtensionsBuildTask,
-				compileNonNativeExtensionsBuildTask,
-				compileExtensionMediaBuildTask,
-				minified ? minifyTask : bundleTask,
-				serverTaskCI
-			));
+			let serverTask: task.Task;
+			if (useEsbuildTranspile) {
+				// Mirror the desktop build: transpile+bundle from src with esbuild
+				// (no tsc type-check). The legacy compileBuildWithManglingTask path
+				// below type-checks the whole tree and fails on upstream server-side
+				// files (agentHost/copilot/Xaa) that the desktop build tolerates.
+				const esbuildTarget = type === 'reh' ? 'server' : 'server-web';
+				const esbuildBundleTask = task.define(
+					`esbuild-bundle-vscode-${type}${dashed(platform)}${dashed(arch)}${dashed(minified)}`,
+					() => runEsbuildBundle(
+						sourceFolderName,
+						!!minified,
+						true,
+						esbuildTarget,
+						minified ? `https://main.vscode-cdn.net/sourcemaps/${commit}/core` : undefined
+					)
+				);
+				serverTask = task.define(`vscode-${type}${dashed(platform)}${dashed(arch)}${dashed(minified)}`, task.series(
+					cleanExtensionsBuildTask,
+					compileNonNativeExtensionsBuildTask,
+					compileExtensionMediaBuildTask,
+					writeISODate('out-build'),
+					esbuildBundleTask,
+					serverTaskCI
+				));
+			} else {
+				serverTask = task.define(`vscode-${type}${dashed(platform)}${dashed(arch)}${dashed(minified)}`, task.series(
+					compileBuildWithManglingTask,
+					cleanExtensionsBuildTask,
+					compileNonNativeExtensionsBuildTask,
+					compileExtensionMediaBuildTask,
+					minified ? minifyTask : bundleTask,
+					serverTaskCI
+				));
+			}
 			task.task(serverTask);
 		});
 	});
