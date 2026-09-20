@@ -422,7 +422,7 @@ export class AriaProjectOverviewEditorPane extends EditorPane {
 		} catch { /* best-effort */ }
 	}
 
-	override setEditorVisible(visible: boolean): void {
+	protected override setEditorVisible(visible: boolean): void {
 		super.setEditorVisible(visible);
 		// Coming back to the tab (e.g. after the AI moved to the Roadmap and back)
 		// must always show what is on disk now.

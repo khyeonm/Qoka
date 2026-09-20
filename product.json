@@ -32,6 +32,7 @@
 	"serverLicensePrompt": "",
 	"serverApplicationName": "qoka-server",
 	"serverDataFolderName": ".qoka-server",
+	"serverDownloadUrlTemplate": "https://github.com/khyeonm/Qoka/releases/latest/download/qoka-reh-${os}-${arch}.tar.gz",
 	"tunnelApplicationName": "qoka-tunnel",
 	"win32DirName": "Qoka",
 	"win32NameVersion": "Qoka",
