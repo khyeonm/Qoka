@@ -14,9 +14,13 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag to build the REH from and attach it to (e.g. qoka-v0.4.18)'
+        description: 'Release to attach the REH to, and whose commit the REH reports (e.g. qoka-v0.4.18)'
         required: true
         default: 'qoka-v0.4.18'
+      build_ref:
+        description: 'Branch/ref to build the REH from (holds the build tooling; runtime is identical to the tag)'
+        required: true
+        default: 'main'
 
 permissions:
   contents: write
@@ -29,19 +33,24 @@ jobs:
       GH_REPO: ${{ github.repository }}
       GITHUB_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.release_tag }}
+      BUILD_REF: ${{ inputs.build_ref }}
       npm_config_arch: x64
       npm_config_target_arch: x64
     steps:
-      - name: Clone at the release tag
+      - name: Clone the build ref
         shell: bash
-        run: git clone --depth 1 --branch "$TAG" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+        run: git clone --depth 1 --branch "$BUILD_REF" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
 
-      - name: Set build commit
+      - name: Set build commit to the release tag's commit
         shell: bash
         run: |
-          C="$(git rev-parse HEAD)"
+          # The REH must report the SAME product.commit as the desktop client of the
+          # target release so Remote-SSH's version handshake matches. The build tooling
+          # comes from BUILD_REF (e.g. main), but the reported commit is the tag's.
+          git fetch --depth 1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          C="$(git rev-list -n1 "$TAG")"
           jq --arg c "$C" '.commit = $c' product.json > product.json.tmp && mv product.json.tmp product.json
-          echo "commit set to $C"
+          echo "REH will report commit $C (from tag $TAG), built from $BUILD_REF"
 
       - name: Install Node from .nvmrc
         shell: bash
