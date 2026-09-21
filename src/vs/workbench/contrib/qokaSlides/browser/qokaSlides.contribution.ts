@@ -25,9 +25,19 @@ import { IBrowserViewWorkbenchService } from '../../browserView/common/browserVi
 import { QokaSlidesView } from './qokaSlidesView.js';
 
 /** whirick web app: the Slides tab embeds it in the native integrated browser. */
-export const WHIRICK_BASE_URL = 'https://slides.pnucolab.com';
-/** Glob that identifies the whirick browser tab, so it is reused (singleton). */
-const WHIRICK_URL_FILTER = 'https://slides.pnucolab.com/**';
+export const WHIRICK_BASE_URL = 'https://whirick.level4.kr';
+/**
+ * level4 unified SSO login. whirick bounces signed-out users here; after they sign in
+ * they are redirected back to WHIRICK_BASE_URL. Kept as its own host so the web view
+ * can recognise the login round-trip (loginRequired) and reuse the one Slides tab.
+ */
+const WHIRICK_LOGIN_HOST = 'sso.level4.kr';
+/**
+ * Glob that identifies the whirick browser tab, so it is reused (singleton). Matches
+ * any level4.kr host so the tab is reused across the whirick <-> SSO login redirect
+ * instead of spawning a second tab while the user signs in.
+ */
+const WHIRICK_URL_FILTER = 'https://*.level4.kr/**';
 
 /** Non-deck top-level whirick routes: their first path segment is NOT a deck slug. */
 const WHIRICK_RESERVED_SEGMENTS = new Set(['', 'create', 'new', 'settings', 'folders', 'login', 'logout']);
@@ -55,8 +65,14 @@ export function parseWhirickUrl(url: string): WhirickWebContext {
 	try {
 		const u = new URL(url);
 		const seg = u.pathname.split('/').filter(Boolean)[0] ?? '';
-		if (seg === 'login') { loginRequired = true; }
-		if (!WHIRICK_RESERVED_SEGMENTS.has(seg)) { slug = seg; }
+		// Signed-out users are bounced to the level4 SSO login host; whirick's own
+		// /login path is kept as a fallback. Either way, nothing can be shown until
+		// they sign in, so the deck slug stays null.
+		if (u.host === WHIRICK_LOGIN_HOST || seg === 'login') {
+			loginRequired = true;
+		} else if (!WHIRICK_RESERVED_SEGMENTS.has(seg)) {
+			slug = seg;
+		}
 		const m = /^#s(\d+)$/.exec(u.hash);
 		if (m) { slide = parseInt(m[1], 10); }
 	} catch { /* malformed URL */ }
@@ -140,7 +156,9 @@ CommandsRegistry.registerCommand('qoka.slides.getWebContext', (accessor): Whiric
 	const svc = accessor.get(IBrowserViewWorkbenchService);
 	for (const input of svc.getKnownBrowserViews().values()) {
 		const url = input.url;
-		if (url && url.startsWith(WHIRICK_BASE_URL)) {
+		// Match the whirick app tab, or the SSO login tab it redirects to while signed
+		// out (so the AI sees loginRequired rather than "no Slides tab open").
+		if (url && (url.startsWith(WHIRICK_BASE_URL) || url.startsWith(`https://${WHIRICK_LOGIN_HOST}`))) {
 			return parseWhirickUrl(url);
 		}
 	}
@@ -155,8 +173,10 @@ CommandsRegistry.registerCommand('qoka.slides.getWebContext', (accessor): Whiric
 const ONBOARDING_SUPPRESS_ID = 'qoka-slides-onboarding';
 const ONBOARDING_FONT = 'var(--vscode-font-family, system-ui, sans-serif)';
 // Set once the user clicks "Go to slides" - after that, the Slides tab goes straight
-// to the web view. Reset it to see the onboarding again.
-const ONBOARDING_DONE_KEY = 'qoka.slides.onboardingDone';
+// to the web view. Reset it to see the onboarding again. The `.v2` suffix retires the
+// pre-level4 "done" flag: whirick moved to a new host + SSO login, so every user should
+// re-run the setup once (connect the AI to whirick BEFORE the SSO sign-in).
+const ONBOARDING_DONE_KEY = 'qoka.slides.onboardingDone.v2';
 // Set by the Codex "Reload Window" button just before the reload, so the onboarding
 // re-opens after the window comes back (the reload otherwise destroys it, hiding the
 // steps below it). Cleared as soon as it is consumed.

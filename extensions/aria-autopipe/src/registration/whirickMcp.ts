@@ -70,7 +70,7 @@ function ensureQokaCliOnPath(): void {
  */
 
 const NAME = 'whirick';
-const SERVER_URL = 'https://slides.pnucolab.com/mcp';
+const SERVER_URL = 'https://whirick.level4.kr/mcp';
 
 let wLog: vscode.OutputChannel | undefined;
 function wlog(msg: string): void {
