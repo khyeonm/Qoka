@@ -1649,6 +1649,11 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 * the folder is not open anywhere, reuse THIS window as before.
 	 */
 	private async openExistingProject(folderUri: URI): Promise<void> {
+		// Gate BEFORE opening: ask (in a popup on top of the picker) before turning an
+		// existing non-Qoka folder into a Qoka project. Cancelling keeps the picker up.
+		if (!(await this.confirmProjectSetup(folderUri))) {
+			return;
+		}
 		const nativeHost = this.nativeHost();
 		const existingWindowId = nativeHost ? await this.findWindowWithFolder(nativeHost, folderUri) : undefined;
 		if (nativeHost && existingWindowId !== undefined) {
@@ -1796,6 +1801,14 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		// recent / Open Project (which work).
 		const folderUri = URI.file(result[0].fsPath);
 		pushTrail(`createNewProject: target=${folderUri.fsPath}`);
+		// Gate BEFORE opening: if the chosen folder is an existing, non-empty, non-Qoka
+		// folder (a common slip is picking the PARENT after creating a new folder in the
+		// dialog), ask - in a popup ON TOP of this picker - before turning it into a Qoka
+		// project. Cancelling keeps the picker up so nothing is created or opened.
+		if (!(await this.confirmProjectSetup(folderUri))) {
+			pushTrail('createNewProject: user cancelled setup of the chosen folder');
+			return;
+		}
 		// Create the project FOLDER via the file service (main process): immediate
 		// and reliable. Routing this through the aria-roadmap command instead meant
 		// that on a FIRST launch the folder was created only AFTER that extension
@@ -1839,6 +1852,116 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		this.rememberPickedModeForFolder(folderUri);
 		this.pickAndDismiss(() => {
 			void this.hostService.openWindow([{ folderUri }], { forceReuseWindow: true });
+		});
+	}
+
+	/**
+	 * The single gate, run BEFORE a folder is opened (New Project AND Open Project).
+	 * Returns true when the folder may be opened, false when the user cancelled.
+	 *  - Already a Qoka project (`.qoka/` exists) -> open, no prompt.
+	 *  - Empty folder -> mark it (`.qoka/`) + open, no prompt (nothing to disturb).
+	 *  - Existing, non-empty, non-Qoka folder -> ASK in a popup on top of the picker,
+	 *    listing what Qoka will add. On confirm, create `.qoka/` so it opens as a Qoka
+	 *    project (every extension then treats it consistently); on cancel, open nothing.
+	 * Creating `.qoka/` here - before the window opens - is why no per-extension guard is
+	 * needed: by the time extensions activate, the folder either IS a Qoka project or was
+	 * never opened.
+	 */
+	private async confirmProjectSetup(folderUri: URI): Promise<boolean> {
+		let hasQoka = false;
+		let childCount: number | undefined;
+		try {
+			const stat = await this.fileService.resolve(folderUri);
+			if (!stat.isDirectory) { return true; }
+			childCount = stat.children?.length ?? 0;
+			hasQoka = !!stat.children?.some(c => c.name === '.qoka');
+		} catch {
+			return true; // folder does not exist yet (a brand-new New Project folder) - allow
+		}
+		if (hasQoka) { return true; } // already a Qoka project
+		if (childCount === 0) {
+			// Empty: safe to adopt silently.
+			try { await this.fileService.createFolder(URI.joinPath(folderUri, '.qoka')); } catch { /* best-effort */ }
+			return true;
+		}
+		const name = folderUri.fsPath.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || folderUri.fsPath;
+		const ok = await this.confirmInOverlay(
+			`Set up "${name}" as a Qoka project?`,
+			`This folder already has files in it. To use it with Qoka, the following will be added:\n\n`
+			+ `•  data/, analysis/, results/ folders\n`
+			+ `•  a Qoka settings block in CLAUDE.md and AGENTS.md\n`
+			+ `•  Qoka entries in .gitignore`,
+			'Continue', 'Cancel',
+		);
+		if (!ok) { return false; }
+		try { await this.fileService.createFolder(URI.joinPath(folderUri, '.qoka')); } catch { /* best-effort */ }
+		return true;
+	}
+
+	/**
+	 * A confirmation dialog rendered INSIDE the Started overlay (z-index 1000000), so it
+	 * is visible over the full-screen picker - a normal notification toast or modal would
+	 * be painted behind the overlay. Resolves true on the confirm button, false otherwise.
+	 */
+	private confirmInOverlay(title: string, detail: string, confirmLabel: string, cancelLabel: string): Promise<boolean> {
+		return new Promise<boolean>((resolve) => {
+			const host = this.overlay;
+			if (!host) { resolve(false); return; }
+			const backdrop = document.createElement('div');
+			Object.assign(backdrop.style, {
+				position: 'fixed', inset: '0', zIndex: '2000000', background: 'rgba(0, 0, 0, 0.55)',
+				display: 'flex', alignItems: 'center', justifyContent: 'center',
+				fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)', padding: '16px', boxSizing: 'border-box',
+			});
+			backdrop.style.setProperty('-webkit-app-region', 'no-drag');
+			const card = document.createElement('div');
+			Object.assign(card.style, {
+				width: 'min(480px, 100%)', boxSizing: 'border-box',
+				background: 'var(--vscode-editorWidget-background, #252526)', color: 'var(--vscode-foreground, #cccccc)',
+				border: '1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.35))', borderRadius: '8px',
+				padding: '20px', boxShadow: '0 8px 30px rgba(0, 0, 0, 0.45)',
+			});
+			// Title row: a yellow warning triangle (VS Code codicon) at the far left, then
+			// the title text.
+			const titleRow = document.createElement('div');
+			Object.assign(titleRow.style, { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' });
+			const warnIcon = document.createElement('span');
+			warnIcon.className = 'codicon codicon-warning';
+			Object.assign(warnIcon.style, { fontSize: '18px', flexShrink: '0', color: 'var(--vscode-editorWarning-foreground, #cca700)' });
+			const t = document.createElement('span');
+			t.textContent = title;
+			Object.assign(t.style, { fontSize: '15px', fontWeight: '600', color: 'var(--vscode-errorForeground, #f14c4c)' });
+			titleRow.appendChild(warnIcon);
+			titleRow.appendChild(t);
+			const d = document.createElement('div');
+			d.textContent = detail;
+			Object.assign(d.style, { fontSize: '12.5px', opacity: '0.85', lineHeight: '1.5', marginBottom: '18px', whiteSpace: 'pre-line' });
+			const row = document.createElement('div');
+			Object.assign(row.style, { display: 'flex', justifyContent: 'flex-end', gap: '8px' });
+			const makeBtn = (label: string, primary: boolean): HTMLButtonElement => {
+				const b = document.createElement('button');
+				b.textContent = label;
+				Object.assign(b.style, {
+					padding: '6px 16px', fontSize: '13px', borderRadius: '4px', cursor: 'pointer', fontFamily: 'inherit',
+					border: primary ? 'none' : '1px solid var(--vscode-button-border, rgba(127, 127, 127, 0.45))',
+					background: primary ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground, transparent)',
+					color: primary ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
+				});
+				return b;
+			};
+			const cancelBtn = makeBtn(cancelLabel, false);
+			const okBtn = makeBtn(confirmLabel, true);
+			const finish = (v: boolean): void => { try { backdrop.remove(); } catch { /* already gone */ } resolve(v); };
+			cancelBtn.onclick = () => finish(false);
+			okBtn.onclick = () => finish(true);
+			card.appendChild(titleRow);
+			card.appendChild(d);
+			row.appendChild(cancelBtn);
+			row.appendChild(okBtn);
+			card.appendChild(row);
+			backdrop.appendChild(card);
+			host.appendChild(backdrop);
+			okBtn.focus();
 		});
 	}
 

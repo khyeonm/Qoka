@@ -30,7 +30,7 @@ import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
 import { PenpotStore, ensurePenpotRegistered, connectPenpot, disconnectPenpot, penpotStatus, cleanupBioRenderRegistration } from './registration/penpotMcp';
 import { registerWhirickWithClaude, registerWhirickWithCodex } from './registration/whirickMcp';
-import { ensureWorkspaceScaffold } from './common/workspaceSync';
+import { ensureQokaProjectOnOpen, setUpQokaProjectNow } from './common/workspaceSync';
 import { NotebookKernel } from './notebook/controller';
 
 let mcpServer: QokaMcpServer | undefined;
@@ -148,11 +148,14 @@ export function activate(context: vscode.ExtensionContext): void {
 	extensionContext = context;
 	penpotStore = new PenpotStore(context.secrets, context.globalState);
 
-	// On every activation (idempotent, best-effort): migrate any old autopipe/ +
-	// mixed layout to the unified data/analysis/results tree AND make sure those
-	// three dirs + the README exist, so a freshly opened project always shows
-	// them - even for remote-only users who never start the built-in VM.
-	try { ensureWorkspaceScaffold(); } catch { /* best-effort */ }
+	// On every activation (best-effort): set up the unified data/analysis/results tree
+	// ONLY for a folder that is a Qoka project (has a `.qoka/` dir), is empty, or where
+	// the user opts in when asked. A pre-existing non-Qoka folder is left untouched -
+	// nothing is created, edited, or removed until the user says so.
+	try { ensureQokaProjectOnOpen(); } catch { /* best-effort */ }
+	// Escape hatch: let the user set up the current folder as a Qoka project on demand
+	// (for a folder that was opened without a `.qoka/` marker).
+	context.subscriptions.push(vscode.commands.registerCommand('aria.autopipe.setupProject', () => setUpQokaProjectNow()));
 
 	// Make the bundled git (MinGit on Windows) reachable by the AI CLIs' OWN `git`
 	// commands - their raw-git auto-commit runs `git` from the extension host's

@@ -71,6 +71,10 @@
 				"title": "Qoka: Autopipe Status"
 			},
 			{
+				"command": "aria.autopipe.setupProject",
+				"title": "Qoka: Set up this folder as a project"
+			},
+			{
 				"command": "aria.autopipe.restartNotebookKernel",
 				"title": "Restart Kernel",
 				"category": "Qoka",

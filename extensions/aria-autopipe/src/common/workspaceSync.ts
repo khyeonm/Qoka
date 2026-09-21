@@ -196,9 +196,8 @@ export function isMountedRepo(profile: SshProfile): boolean {
  * Create Qoka's local project scaffold on first launch:
  *   <workspaceFolder>/{data,analysis,results}/
  * so the mounted run environment has the dirs it writes into and the Analysis tab
- * shows them. Runs the one-time old-layout migration first. Idempotent, and never
- * removes anything: an existing folder is left exactly as it is. No-ops without an
- * open folder.
+ * shows them. Idempotent, and never removes anything: an existing folder is left
+ * exactly as it is. No-ops without an open folder.
  *
  * These used to get a `.gitkeep` so the empty tree survived git. Dropped: the
  * moment a run writes a result the folder appears in git by itself, Qoka recreates
@@ -209,9 +208,7 @@ export function isMountedRepo(profile: SshProfile): boolean {
 export function ensureWorkspaceScaffold(root?: string): void {
 	const folder = root ?? workspaceFolderPath();
 	if (!folder) { return; }
-	// Run the one-time migration from the old autopipe/ + mixed layout FIRST, then
-	// make sure the three unified dirs exist.
-	migrateProjectLayout(folder);
+	// Make sure the three unified dirs exist (idempotent - never removes anything).
 	const dirs = [
 		path.join(folder, 'data'),
 		path.join(folder, 'analysis'),
@@ -229,6 +226,38 @@ export function ensureWorkspaceScaffold(root?: string): void {
 	// Make sure .gitignore keeps data/ + results/ (and Qoka's working files) out of git
 	// BEFORE any commit happens, so auto-commit versions only the real work.
 	ensureProjectGitignore(folder);
+}
+
+/**
+ * On-open maintenance. A folder is Qoka's own iff it has a `.qoka/` dir. The workbench's
+ * project picker gates BEFORE opening and, with the user's consent, creates `.qoka/` for
+ * an existing non-Qoka folder (or silently for an empty one) - so by the time this runs
+ * the folder either IS a Qoka project or was opened some other way and must be left
+ * alone. So: `.qoka/` present -> keep the data/analysis/results + AI-instruction scaffold
+ * current; otherwise do nothing (never prompt, never create anything).
+ */
+export function ensureQokaProjectOnOpen(): void {
+	const folder = workspaceFolderPath();
+	if (!folder) { return; }
+	if (fs.existsSync(path.join(folder, '.qoka'))) {
+		ensureWorkspaceScaffold(folder);
+	}
+}
+
+/**
+ * Explicit "set up THIS folder as a Qoka project", for the Command Palette command a user
+ * runs to adopt a folder that was opened without `.qoka/`. Creates the `.qoka/` marker and
+ * scaffolds.
+ */
+export function setUpQokaProjectNow(): void {
+	const folder = workspaceFolderPath();
+	if (!folder) {
+		void vscode.window.showInformationMessage('Open a folder first, then set it up as a Qoka project.');
+		return;
+	}
+	try { fs.mkdirSync(path.join(folder, '.qoka'), { recursive: true }); } catch { /* best-effort */ }
+	ensureWorkspaceScaffold(folder);
+	void vscode.window.showInformationMessage(`"${path.basename(folder)}" is now a Qoka project.`);
 }
 
 /** Patterns kept out of git: Qoka's own working files, the generated data/ (large
@@ -318,59 +347,6 @@ function ensureAiCommitInstructions(folder: string): void {
 				fs.writeFileSync(file, header + AUTO_COMMIT_BLOCK, 'utf8');
 			}
 		} catch { /* best-effort */ }
-	}
-}
-
-/**
- * One-time migration from the old split layout to the unified data/analysis/results
- * tree. Idempotent and best-effort (never throws, never overwrites an existing
- * destination):
- *   autopipe/pipelines/<name>/            -> analysis/<name>/     (code, by pipeline name)
- *   autopipe/pipelines_output/<run>/      -> results/<run>/       (outputs, by run name)
- *   autopipe/pipelines_input/<n>.manifest.json -> data/<n>/manifest.json
- * The old run_code `analysis/<id>/` folders (code + outputs mixed) are LEFT in
- * place - they already live under analysis/ and cannot be split retroactively.
- * The emptied `autopipe/` dir is removed at the end.
- */
-export function migrateProjectLayout(root?: string): void {
-	const folder = root ?? workspaceFolderPath();
-	if (!folder) { return; }
-	const oldBase = path.join(folder, 'autopipe');
-	if (!fs.existsSync(oldBase)) { return; }
-	const moveChildren = (fromDir: string, toDir: string, transform?: (name: string) => string) => {
-		if (!fs.existsSync(fromDir)) { return; }
-		try {
-			for (const entry of fs.readdirSync(fromDir, { withFileTypes: true })) {
-				const from = path.join(fromDir, entry.name);
-				const to = path.join(toDir, transform ? transform(entry.name) : entry.name);
-				if (fs.existsSync(to)) { continue; } // never clobber an already-migrated dest
-				try { ensureLocalDir(path.dirname(to)); fs.renameSync(from, to); }
-				catch { /* leave it; best-effort */ }
-			}
-		} catch { /* best-effort */ }
-	};
-	try {
-		moveChildren(path.join(oldBase, 'pipelines'), path.join(folder, 'analysis'));
-		moveChildren(path.join(oldBase, 'pipelines_output'), path.join(folder, 'results'));
-		// Input manifests: `<name>.manifest.json` -> `data/<name>/manifest.json`.
-		const oldInput = path.join(oldBase, 'pipelines_input');
-		if (fs.existsSync(oldInput)) {
-			for (const entry of fs.readdirSync(oldInput, { withFileTypes: true })) {
-				if (!entry.isFile() || !entry.name.endsWith('.manifest.json')) { continue; }
-				const name = entry.name.replace(/\.manifest\.json$/, '');
-				const to = path.join(folder, 'data', name, 'manifest.json');
-				if (fs.existsSync(to)) { continue; }
-				try { ensureLocalDir(path.dirname(to)); fs.renameSync(path.join(oldInput, entry.name), to); }
-				catch { /* best-effort */ }
-			}
-		}
-		// Remove the now-empty autopipe/ tree (rmSync no-ops if non-empty leftovers
-		// remain - we only want to clear a fully-migrated tree).
-		try { fs.rmSync(oldBase, { recursive: true, force: false }); }
-		catch { /* something left behind - leave the dir for the user to inspect */ }
-		console.log(`${LOG_PREFIX}: migrated old autopipe/ layout to data/analysis/results in ${folder}`);
-	} catch (err) {
-		console.warn(`${LOG_PREFIX}: layout migration skipped:`, (err as Error).message);
 	}
 }
 
