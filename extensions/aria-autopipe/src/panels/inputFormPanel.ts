@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { services } from '../common/services';
 import { resolveRunTarget } from '../runtime/builtinServer';
 import { localToRunEnvPath } from '../common/pathMapping';
-import { parseConfigFields, formatValue, setYamlValue, ConfigField } from '../common/configFields';
+import { parseConfigFields, formatValue, setDeepValue, setListBlock, listItemsFromText, ConfigField } from '../common/configFields';
 import { workspacePathsFor, SshProfile } from '../common/types';
 import { shellEscape } from '../common/roCrate';
 import { findPipelineDir } from '../common/dockerEnv';
@@ -128,14 +128,25 @@ async function handleSave(
 	for (const f of fields) {
 		// No data yet: do not stage or rewrite the file fields; note them for the AI.
 		if (noData && f.isFile) { dataKeys.push(f.key); continue; }
-		const raw = String(values[f.key] ?? f.value).trim();
+		const current = String(values[f.key] ?? f.value);
+		const raw = current.trim();
+		// Leave an untouched field exactly as it was, so a save that changes nothing
+		// rewrites nothing - important for a key heading a nested mapping (parses as an
+		// empty scalar) and to keep comments/structure byte-for-byte.
+		if (raw === String(f.value).trim()) { continue; }
+		if (f.kind === 'list') {
+			// A YAML list block: rewrite its items in place, keeping indentation/type.
+			const items = listItemsFromText(current, f.sep ?? '\n', f.quoted ?? false);
+			yaml = setListBlock(yaml, f.key, items);
+			continue;
+		}
 		if (f.isFile) {
 			// Stage ONLY a real NEW source path. An empty box, or a value that is still
 			// the container /input/ form (the existing default), means "no new file" -
 			// leave the config's current value exactly as it is. NEVER overwrite a file
 			// path with "" (that was the empty-clobber bug: clearing/leaving a file box
-			// saved an empty path).
-			if (raw === '' || raw.startsWith('/input/') || raw === String(f.value).trim()) { continue; }
+			// saved an empty path). An unchanged value was already skipped above.
+			if (raw === '' || raw.startsWith('/input/')) { continue; }
 			let src = raw;
 			if (isBuiltIn) {
 				const mapped = localToRunEnvPath(src);
@@ -149,15 +160,12 @@ async function handleSave(
 				panel.webview.postMessage({ type: 'aria.input.error', error: `Could not stage "${f.key}": ${ln.stderr.trim() || 'symlink failed'}` });
 				return;
 			}
-			yaml = setYamlValue(yaml, f.key, formatValue(`/input/${base}`, 'string'));
+			yaml = setDeepValue(yaml, f.key, formatValue(`/input/${base}`, 'string'));
 			continue;
 		}
-		// Non-file: only rewrite fields the user actually CHANGED. Leaving untouched
-		// keys alone keeps the original line verbatim - important for a key that heads a
-		// nested mapping (e.g. `groups:` with indented children), which parses as an
-		// empty scalar and would otherwise be clobbered into `groups: ""`.
-		if (raw === String(f.value).trim()) { continue; }
-		yaml = setYamlValue(yaml, f.key, formatValue(raw, f.type));
+		// Non-file scalar (top-level or nested `parent.child`): write the changed value
+		// back in place, keeping the YAML structure and type.
+		yaml = setDeepValue(yaml, f.key, formatValue(raw, f.type));
 	}
 
 	await ssh.writeFile(profile, configPath, yaml);
@@ -199,6 +207,15 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 				: `<button type="button" class="btn btn-secondary browse" data-browse="${escapeHtml(f.key)}">Browse server…</button>`;
 			const ph = serverHint ? 'path on the SSH server' : 'file path';
 			control = `<div class="filerow"><input type="text" data-key="${escapeHtml(f.key)}" data-type="string" data-file="1" value="${escapeHtml(f.value)}" placeholder="${ph}">${btn}</div>`;
+		} else if (f.kind === 'list') {
+			// A YAML list block. One comma-separated line when no item has a comma,
+			// otherwise a multi-line textarea (one item per line).
+			if ((f.sep ?? '') === '\n') {
+				const n = Math.min(8, (f.value || '').split('\n').length + 1);
+				control = `<textarea data-key="${escapeHtml(f.key)}" data-type="string" rows="${n}">${escapeHtml(f.value)}</textarea>`;
+			} else {
+				control = `<input type="text" data-key="${escapeHtml(f.key)}" data-type="string" value="${escapeHtml(f.value)}" placeholder="comma-separated list">`;
+			}
 		} else if (f.type === 'bool') {
 			const t = f.value === 'true';
 			control = `<select data-key="${escapeHtml(f.key)}" data-type="bool"><option value="true"${t ? ' selected' : ''}>true</option><option value="false"${!t ? ' selected' : ''}>false</option></select>`;
@@ -211,7 +228,7 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 		return `<div class="field"><label>${label}</label>${desc}${control}</div>`;
 	}).join('');
 
-	const noFields = fields.length ? '' : '<div class="empty">This pipeline\'s config.yaml has no editable top-level values. You can still name the run and start it.</div>';
+	const noFields = fields.length ? '' : '<div class="empty">This pipeline\'s config.yaml has no editable values. You can still name the run and start it.</div>';
 
 	return `<!doctype html>
 <html>
@@ -235,7 +252,8 @@ function renderHtml(webview: vscode.Webview, pipelineName: string, fields: Confi
 		.fdesc, .fhint { font-size: 11px; opacity: 0.7; max-width: 620px; }
 		.fdesc { margin-bottom: 6px; }
 		.fhint { margin-top: 4px; }
-		input[type=text], input[type=number], select { width: 100%; max-width: 620px; box-sizing: border-box; padding: 5px 8px; font-size: 12px; font-family: var(--vscode-font-family); color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent)); border-radius: 3px; }
+		input[type=text], input[type=number], select, textarea { width: 100%; max-width: 620px; box-sizing: border-box; padding: 5px 8px; font-size: 12px; font-family: var(--vscode-font-family); color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent)); border-radius: 3px; }
+			textarea { font-family: var(--vscode-editor-font-family, monospace); resize: vertical; }
 		.runbar input { width: 220px; }
 		.filerow { display: flex; gap: 8px; align-items: center; }
 		.filerow input { flex: 1; }

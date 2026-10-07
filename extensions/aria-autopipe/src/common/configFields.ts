@@ -9,22 +9,36 @@
  *
  * A faithful TypeScript port of autopipe-app's viewer.rs input_* helpers: Qoka has
  * no separate input schema, so - exactly like autopipe - the "form" is derived at
- * runtime from the pipeline's own config.yaml (top-level scalars + comments). Type
- * is inferred from the raw YAML scalar, "required" from a "required" keyword in the
- * comment, and "is file" from a key-name allowlist or a value already under /input/.
+ * runtime from the pipeline's own config.yaml. The parser is "deep": it exposes
+ * top-level scalars, nested mapping leaves (as `parent.child`) and list blocks (as
+ * one multi-line field), so a config that groups or lists its values still edits
+ * correctly and writes back keeping the YAML structure and type.
+ *
+ * Whether a key renders a file picker is decided from the comment first (an
+ * explicit `(input file)` / `(not a file)` marker), and only guessed when the
+ * comment is silent (a file-ish key name AND a value that looks like a path).
  */
 
 export type FieldType = 'string' | 'int' | 'float' | 'bool';
 
 export interface ConfigField {
+	/** Dotted path for a nested leaf (e.g. `qc.min_reads`), bare key otherwise. */
 	key: string;
-	/** The display value (unquoted). */
+	/** The display value (unquoted; for a list, items joined by `sep`). */
 	value: string;
 	type: FieldType;
 	/** True when this field should render a file picker (input data file). */
 	isFile: boolean;
 	required: boolean;
 	description: string;
+	/** 'scalar' for a single value, 'list' for a YAML list block. */
+	kind: 'scalar' | 'list';
+	/** Indentation of the value's line (spaces), for writing back in place. */
+	indent: number;
+	/** List only: how items were joined for display (', ' or '\n'). */
+	sep?: string;
+	/** List only: whether the file quotes its items (so save re-quotes them). */
+	quoted?: boolean;
 }
 
 // Key names that denote a pickable INPUT data file. Precise on purpose: a value
@@ -33,13 +47,51 @@ export interface ConfigField {
 // or defaults already pointing into the /input mount, qualify.
 const FILE_KEYS = ['r1', 'r2', 'reads', 'input', 'fastq', 'fq', 'reference', 'genome', 'fasta', 'fa', 'bam'];
 
-/** Whether a config field is a pickable INPUT file. */
+/** Whether a config field is a pickable INPUT file (by key name or /input/ value). */
 export function isFileField(key: string, value: string): boolean {
 	const k = key.toLowerCase();
 	if (FILE_KEYS.some(fk => k === fk || k.endsWith(`_${fk}`) || k.startsWith(`${fk}_`))) {
 		return true;
 	}
 	return value.trim().startsWith('/input/');
+}
+
+/**
+ * Explicit file markers an author can put in a config comment. They decide whether
+ * the Input page shows a file picker, and are stripped from the text shown as the
+ * field's description.
+ *   `(input file)` -> always a file picker
+ *   `(not a file)` -> never a file picker, even for a name like `genome`
+ * Returns the marker (true/false, or undefined when none) and the cleaned text.
+ */
+export function takeFileMarker(desc: string): { marker: boolean | undefined; cleaned: string } {
+	const YES = ['(input file)', '(input files)'];
+	const NO = ['(not a file)', '(not file)'];
+	const lower = desc.toLowerCase();
+	let marker: boolean | undefined;
+	let out = desc;
+	for (const m of [...YES, ...NO]) {
+		const pos = lower.indexOf(m);
+		if (pos !== -1) {
+			marker = YES.includes(m);
+			out = desc.slice(0, pos) + desc.slice(pos + m.length);
+			break;
+		}
+	}
+	const cleaned = out.split(/\s+/).filter(Boolean).join(' ').replace(/^[ -]+|[ -]+$/g, '');
+	return { marker, cleaned };
+}
+
+/**
+ * Heuristic used when a comment carries no explicit marker: the key has to be
+ * named like an input file AND the value has to look like a path (or be blank,
+ * i.e. still to be filled in). The value test keeps identifiers such as
+ * `genome: "mm10"` out of the file picker.
+ */
+export function looksLikeFile(key: string, value: string): boolean {
+	if (!isFileField(key, value)) { return false; }
+	const v = value.trim();
+	return v === '' || v.includes('/') || v.includes('.');
 }
 
 /** Detect a YAML scalar's type from its RAW (unstripped) form, so it can be written
@@ -70,47 +122,140 @@ function splitInlineComment(s: string): { value: string; comment: string } {
 	return { value: t, comment: '' };
 }
 
+/** Strip surrounding YAML quotes from a value for display. */
+function unquote(v: string): string {
+	return v.trim().replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
+}
+
+/** One parsed line of a config block: how deep it is indented and what it holds. */
+interface CfgLine {
+	indent: number;
+	key?: string;
+	value: string;
+	comment: string;
+	isItem: boolean; // "- ..." list entry
+}
+
+/** Scan every line of the YAML into an indent-aware structure. */
+function scanLines(yaml: string): CfgLine[] {
+	return yaml.split('\n').map(l => {
+		const indent = l.length - l.replace(/^\s+/, '').length;
+		const t = l.trim();
+		if (t === '' || t.startsWith('#')) {
+			return { indent, value: '', comment: t.replace(/^#+/, '').trim(), isItem: false };
+		}
+		if (t.startsWith('- ')) {
+			const { value, comment } = splitInlineComment(t.slice(2));
+			return { indent, value, comment, isItem: true };
+		}
+		const i = t.indexOf(':');
+		if (i !== -1 && !t.slice(0, i).includes(' ')) {
+			const { value, comment } = splitInlineComment(t.slice(i + 1).trim());
+			return { indent, key: t.slice(0, i).trim(), value, comment, isItem: false };
+		}
+		return { indent, value: t, comment: '', isItem: false };
+	});
+}
+
 /**
- * Parse top-level scalar config fields with type, required flag (comment contains
- * "required"), and description (preceding comment block + inline). `aiDesc` supplies
- * clean per-key descriptions written by the AI; the raw config comment is the
- * fallback. Nested/indented lines are ignored (only top-level scalars are editable).
+ * Parse config fields INCLUDING nested mapping leaves (as "parent.child") and list
+ * blocks (as one multi-line field). Type is inferred from the raw YAML scalar;
+ * "required" from a `required` keyword in the comment (or, for a file, unless the
+ * comment says `Optional`); "is file" from an explicit comment marker, else a
+ * key-name + path-ish-value guess. `aiDesc` supplies clean per-key descriptions
+ * written by the AI (keyed by the full dotted key); the raw config comment is the
+ * fallback. Input files are sorted to the top, keeping config order within groups.
  */
 export function parseConfigFields(yaml: string, aiDesc: Record<string, string> = {}): ConfigField[] {
+	const lines = scanLines(yaml);
+	const raw = yaml.split('\n');
 	const out: ConfigField[] = [];
+	const path: Array<{ indent: number; key: string }> = [];
 	let pending: string[] = [];
-	// A comment block above a GROUP of keys describes every key in that group, so it
-	// persists across consecutive key lines and clears only on a blank line or a NEW
-	// comment block after some keys.
 	let lastWasKey = false;
-	for (const line of yaml.split('\n')) {
-		const trimmed = line.replace(/^\s+/, '');
-		if (trimmed === '') { pending = []; lastWasKey = false; continue; }
-		if (/^\s/.test(line)) { continue; } // nested / indented - not a top-level scalar
-		if (trimmed.startsWith('#')) {
+
+	let i = 0;
+	while (i < lines.length) {
+		const l = lines[i];
+		// blank line
+		if (raw[i].trim() === '') { pending = []; lastWasKey = false; i++; continue; }
+		// comment line
+		if (raw[i].replace(/^\s+/, '').startsWith('#')) {
 			if (lastWasKey) { pending = []; lastWasKey = false; }
-			const c = trimmed.replace(/^#+/, '').trim();
+			const c = l.comment;
 			if (c !== '' && !/^[=-]+$/.test(c)) { pending.push(c); }
+			i++;
 			continue;
 		}
-		const idx = line.indexOf(':');
-		if (idx === -1) { pending = []; lastWasKey = false; continue; }
-		const key = line.slice(0, idx).trim();
-		if (key === '' || key.includes(' ')) { pending = []; lastWasKey = false; continue; }
-		const after = line.slice(idx + 1).trim();
-		const { value: rawVal, comment: inlineComment } = splitInlineComment(after);
-		const ty = detectType(rawVal);
-		const display = rawVal.trim().replace(/^["']|["']$/g, '');
-		const isFile = isFileField(key, display);
+		const key = l.key;
+		if (key === undefined) { i++; continue; }
+		while (path.length && path[path.length - 1].indent >= l.indent) { path.pop(); }
 
-		let configComment = pending.join(' ');
-		if (inlineComment !== '') { configComment = configComment === '' ? inlineComment : `${configComment} ${inlineComment}`; }
-		const required = configComment.toLowerCase().includes('required');
-		const desc = aiDesc[key] ?? configComment;
+		// Does an indented block follow?
+		let j = i + 1;
+		while (j < lines.length && (raw[j].trim() === '' || raw[j].replace(/^\s+/, '').startsWith('#'))) { j++; }
+		const child = j < lines.length && lines[j].indent > l.indent;
 
-		out.push({ key, value: display, type: ty, isFile, required, description: desc });
+		const full = path.length === 0 ? key : `${path.map(p => p.key).join('.')}.${key}`;
+		let desc = pending.join(' ');
+		if (l.comment !== '') { desc = desc === '' ? l.comment : `${desc} ${l.comment}`; }
+
+		if (child && lines[j].isItem) {
+			// a list block: collect every item line
+			const items: string[] = [];
+			let k = j;
+			let lastItem = j;
+			while (k < lines.length) {
+				if (raw[k].trim() === '' || raw[k].replace(/^\s+/, '').startsWith('#')) { k++; continue; }
+				if (lines[k].indent <= l.indent || !lines[k].isItem) { break; }
+				items.push(lines[k].value);
+				lastItem = k;
+				k++;
+			}
+			// Show items without their YAML quotes, on one comma-separated line when no
+			// item itself contains a comma; otherwise one per line.
+			const shown = items.map(unquote);
+			const quoted = items.some(s => s.trim().startsWith('"'));
+			const sep = shown.some(s => s.includes(',')) ? '\n' : ', ';
+			const cleaned = takeFileMarker(desc).cleaned;
+			out.push({
+				key: full, value: shown.join(sep), type: 'string', isFile: false,
+				required: cleaned.toLowerCase().includes('required'),
+				description: aiDesc[full] ?? cleaned,
+				kind: 'list', indent: lines[j].indent, sep, quoted,
+			});
+			i = lastItem + 1;
+			lastWasKey = true;
+			continue;
+		}
+		if (child) {
+			// a nested mapping: descend, do not emit the parent itself
+			path.push({ indent: l.indent, key });
+			pending = [];
+			lastWasKey = false;
+			i++;
+			continue;
+		}
+		// a plain scalar
+		const display = unquote(l.value);
+		const { marker, cleaned } = takeFileMarker(desc);
+		const isFile = marker !== undefined ? marker : looksLikeFile(key, display);
+		const low = cleaned.toLowerCase();
+		// An input file is required unless the comment says it is optional, so a
+		// pipeline whose comments never say "Required" still flags its inputs.
+		const required = (low.includes('required') || isFile) && !low.includes('optional');
+		out.push({
+			key: full, value: display, type: detectType(l.value), isFile, required,
+			description: aiDesc[full] ?? cleaned, kind: 'scalar', indent: l.indent,
+		});
+		// NOTE: pending is deliberately NOT cleared here - a comment block above a group
+		// of keys describes every key in that group.
 		lastWasKey = true;
+		i++;
 	}
+	// Input files first - they are what the user has to supply - keeping the config's
+	// own order within each group (Array.sort is stable).
+	out.sort((a, b) => Number(b.isFile) - Number(a.isFile));
 	return out;
 }
 
@@ -149,4 +294,82 @@ export function setYamlValue(yaml: string, key: string, formattedValue: string):
 		return line;
 	});
 	return lines.join('\n');
+}
+
+/**
+ * Replace the value of a key addressed by a dotted path ("parent.child"), keeping
+ * its indentation and any inline comment. Top-level paths fall back to
+ * setYamlValue so existing behaviour is untouched.
+ */
+export function setDeepValue(yaml: string, pathKey: string, formattedValue: string): string {
+	const parts = pathKey.split('.');
+	if (parts.length === 1) { return setYamlValue(yaml, parts[0], formattedValue); }
+	const lines = scanLines(yaml);
+	const raw = yaml.split('\n');
+	let depth = 0;
+	let parentIndent: number | undefined;
+	for (let i = 0; i < lines.length; i++) {
+		const l = lines[i];
+		const key = l.key;
+		if (key === undefined) { continue; }
+		if (parentIndent !== undefined && l.indent <= parentIndent && key !== parts[depth]) { continue; }
+		if (key !== parts[depth]) { continue; }
+		if (depth + 1 === parts.length) {
+			const indent = ' '.repeat(l.indent);
+			const tail = l.comment === '' ? '' : `  # ${l.comment}`;
+			raw[i] = `${indent}${key}: ${formattedValue}${tail}`;
+			break;
+		}
+		parentIndent = l.indent;
+		depth++;
+	}
+	return raw.join('\n');
+}
+
+/** Split the text shown for a list field back into YAML item texts, restoring the
+ *  quoting style the file used. */
+export function listItemsFromText(text: string, sep: string, quoted: boolean): string[] {
+	const parts = sep === '\n' ? text.split('\n') : text.split(',');
+	return parts
+		.map(s => s.trim())
+		.filter(s => s !== '')
+		.map(s => (quoted && !s.startsWith('"')) ? dquote(s) : s);
+}
+
+/**
+ * Replace a list block addressed by a dotted path with new items (one YAML item per
+ * entry). Indentation and the key's own line are preserved, so the value stays a
+ * real YAML list.
+ */
+export function setListBlock(yaml: string, pathKey: string, items: string[]): string {
+	const parts = pathKey.split('.');
+	const lines = scanLines(yaml);
+	const raw = yaml.split('\n');
+	let depth = 0;
+	let parentIndent: number | undefined;
+	let keyLine: number | undefined;
+	for (let i = 0; i < lines.length; i++) {
+		const l = lines[i];
+		const key = l.key;
+		if (key === undefined) { continue; }
+		if (parentIndent !== undefined && l.indent <= parentIndent && key !== parts[depth]) { continue; }
+		if (key !== parts[depth]) { continue; }
+		if (depth + 1 === parts.length) { keyLine = i; break; }
+		parentIndent = l.indent;
+		depth++;
+	}
+	if (keyLine === undefined) { return yaml; }
+	// span of the existing item lines
+	let start = keyLine + 1;
+	while (start < lines.length && (raw[start].trim() === '' || raw[start].replace(/^\s+/, '').startsWith('#'))) { start++; }
+	const itemIndent = (start < lines.length && lines[start].isItem) ? lines[start].indent : lines[keyLine].indent + 2;
+	let end = start;
+	while (end < lines.length) {
+		if (raw[end].trim() === '' || raw[end].replace(/^\s+/, '').startsWith('#')) { end++; continue; }
+		if (lines[end].indent <= lines[keyLine].indent || !lines[end].isItem) { break; }
+		end++;
+	}
+	const pad = ' '.repeat(itemIndent);
+	const newItems = items.map(s => `${pad}- ${s}`);
+	return [...raw.slice(0, start), ...newItems, ...raw.slice(end)].join('\n');
 }
