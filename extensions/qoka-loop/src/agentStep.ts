@@ -24,12 +24,29 @@ function historyDigest(run: LoopRun, max = 6): string {
  * LOCKED evaluator (shown read-only so the agent knows what "done" means but cannot game it).
  * VARIABLE: the iteration history digest + the last failure feedback.
  */
-export function buildPrompt(run: LoopRun, feedback: string | undefined): string {
+export function buildPrompt(run: LoopRun, feedback: string | undefined, where?: { projectRoot: string; loopFolder: string }): string {
 	const spec = run.spec;
 	const evaluator = spec.evaluator.code;
 	const planSteps = (spec.flow && spec.flow.steps) ? spec.flow.steps : [];
 	const n = planSteps.length || 1;
 	const planList = planSteps.length ? planSteps.map((s, i) => `   ${i + 1}. ${s}`).join('\n') : '   1. do the work';
+	// Everything a loop produces stays in loops/<folder>/: run_code already runs each script with its
+	// working directory set to loops/<folder>/results and versions the script into loops/<folder>/code,
+	// and the evaluator runs in the same results folder. Spell this out so the sub-agent does not write
+	// outputs or helper scripts into the project-root results/ or analysis/ (where the evaluator would
+	// not look, the per-iteration clear would not reach, and the code history would miss them).
+	const resultsAbs = where ? path.join(where.projectRoot, 'loops', where.loopFolder, 'results') : undefined;
+	const placement = where ? [
+		'WHERE FILES GO (required):',
+		` - Every run_code call runs with its working directory set to this loop's results folder: ${resultsAbs}`,
+		'   Write ALL outputs there using RELATIVE paths (e.g. "state_overlap.tsv", "plots/umap.png"). This folder',
+		'   is cleared before each iteration, and the evaluator reads its files from here.',
+		' - Put the full analysis code in the run_code calls themselves; run_code saves each script into this',
+		`   loop's code history (loops/${where.loopFolder}/code) automatically. Do NOT save scripts as separate files.`,
+		' - Do NOT create or modify files anywhere else in the project - in particular not in the project-root',
+		`   results/ or analysis/ folders. Read inputs from ${path.join(where.projectRoot, 'data')} by absolute path.`,
+		'',
+	] : [];
 	return [
 		'You are one iteration of an automated research loop. Do the work for THIS turn toward the goal,',
 		'then stop. A separate, LOCKED evaluator (shown below) decides pass/fail after you finish - you',
@@ -38,10 +55,11 @@ export function buildPrompt(run: LoopRun, feedback: string | undefined): string 
 		`GOAL: ${spec.goal}`,
 		'',
 		'DO:',
-		' - Use the run_code tool to write and run your code in this project (create/edit files as needed).',
+		' - Use the run_code tool to write and run your code.',
 		' - Make the actual output the evaluator checks (e.g. the file/metric it reads).',
 		' - Keep changes minimal and focused; do not fabricate results.',
 		'',
+		...placement,
 		`THIS LOOP HAS ${n} PLANNED STEPS:`,
 		planList,
 		'',
@@ -100,7 +118,7 @@ export function makeAgentStep(opts: AgentStepOptions): AgentStep {
 		? setupCodexHome(path.join(opts.loopDir, '_codex-home'), opts.workMcpServers, `loops/${opts.loopFolder}`)
 		: undefined;
 	return async (run: LoopRun, feedback: string | undefined): Promise<AgentResult> => {
-		const prompt = buildPrompt(run, feedback);
+		const prompt = buildPrompt(run, feedback, { projectRoot: opts.cwd, loopFolder: opts.loopFolder });
 		let mcpConfigPath: string | undefined;
 		if (hasServers && opts.provider === 'claude') {
 			mcpConfigPath = path.join(opts.loopDir, run.id, 'mcp-config.json');

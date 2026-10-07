@@ -195,6 +195,17 @@ Hard rules (adversarially tested - do not relax):
    AND the max minutes per iteration - explain briefly why (e.g. "generation + docking is slow, so
    ~15 min per try"), and ASK "shall I proceed with this budget?" in their own language. Because this
    step spends the user's tokens on background sub-agents, always say so when asking. Wait for a yes.
+11. FILE PLACEMENT - everything the loop produces stays inside the loop's own folder. The engine runs
+   every run_code script AND the evaluator with the working directory set to the loop's results
+   folder (loops/<loop-folder>/results, created when the loop starts), and it versions each run_code
+   script into loops/<loop-folder>/code automatically. So:
+   - In flow.steps, flow.output and the evaluator, name output files by RELATIVE paths only (e.g.
+     "state_overlap.tsv", "plots/umap.png"); they resolve inside the loop's results folder.
+   - NEVER point outputs, scripts or the evaluator at the project-root results/ or analysis/ folders,
+     and never walk up directories to find the project root. Do not add a step that saves a separate
+     script file - the code is already kept in the loop's code history.
+   - Read inputs from the project's data/ folder by ABSOLUTE path (projectRoot + "/data/...", from the
+     project context).
 
 If a rule (1, 3, or 9) says ask/offer instead of committing, output ONLY that question or those 2-4
 options - no loop.
@@ -232,7 +243,7 @@ so make it a concise, actionable reason. On PASS the detail can be a short confi
     "input": "what it starts from",
     "steps": ["step 1", "step 2", "..."],  // the REAL ordered execution steps of ONE iteration (e.g. "install tools", "prepare inputs", "run analysis", "write output"). These become the user's PROGRESS BAR: the count is the total, and the sub-agent marks each with [QOKA_STEP k/N] as it runs. Make them concrete and in execution order; do NOT include a trailing "on fail: retry" step (retry is automatic, not a step).
     "checks": [{ "c": "condition", "why": "why this makes the loop trustworthy (e.g. a negative control)" }],
-    "output": "what it produces",
+    "output": "what it produces, as RELATIVE file names inside the loop's results folder (rule 11)",
     "stops": "15 iterations or 20 min"
   },
   "evaluator": { "code": "...executable check...", "language": "python" },
@@ -284,6 +295,31 @@ function asSpec(v: unknown): LoopSpec | undefined {
 	if (!s.flow || typeof s.flow !== 'object' || !Array.isArray(s.flow.steps)) { return undefined; }
 	if (!s.evaluator || typeof s.evaluator !== 'object' || typeof s.evaluator.code !== 'string') { return undefined; }
 	return s as LoopSpec;
+}
+
+/** Places in a spec that point outside the loop's own folder (rule 11). Loop outputs and code must
+ *  stay in loops/<folder>/, where the evaluator looks and the per-iteration clear and code history
+ *  reach. `relative`: bare results/ or analysis/ paths - always wrong, since run_code and the evaluator
+ *  run inside loops/<folder>/results. `absolute`: the project-root results/ or analysis/ by absolute
+ *  path - wrong for outputs, but may be a legitimate INPUT (e.g. an earlier run_code result). */
+function outsideLoopPaths(spec: LoopSpec, projectRoot: string | undefined): { relative: string[]; absolute: string[] } {
+	const texts: Array<[string, string]> = [
+		['flow.output', String(spec.flow?.output ?? '')],
+		...(spec.flow?.steps ?? []).map((s, i): [string, string] => [`flow.steps[${i}]`, String(s)]),
+		['evaluator.code', spec.evaluator.code],
+	];
+	const bare = /(^|[\s'"`(=,[])(\.\/)?(results|analysis)\/[^\s'"`)]*/gm;
+	const relative: string[] = [];
+	const absolute: string[] = [];
+	for (const [where, text] of texts) {
+		for (const m of text.matchAll(bare)) { relative.push(`${where}: ${m[0].trim()}`); }
+		if (projectRoot) {
+			for (const dir of ['results', 'analysis']) {
+				if (text.includes(path.join(projectRoot, dir))) { absolute.push(`${where}: ${path.join(projectRoot, dir)}`); }
+			}
+		}
+	}
+	return { relative: [...new Set(relative)].slice(0, 10), absolute: [...new Set(absolute)].slice(0, 10) };
 }
 
 /** Loop ids the user asked to stop; the engine checks this via shouldStop each iteration. */
@@ -398,12 +434,24 @@ export function buildTools(): ToolDefinition[] {
 			handler: async (args) => {
 				const spec = asSpec(args.spec);
 				if (!spec) { return err('Invalid LoopSpec: need title, goal, flow.steps, and evaluator.code.'); }
+				const outside = outsideLoopPaths(spec, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+				if (outside.relative.length) {
+					return err('Not saved: the LoopSpec writes or checks files outside the loop\'s own folder (design rule 11). '
+						+ 'Rewrite these as RELATIVE file names (they resolve inside loops/<loop-folder>/results, where run_code and the evaluator run) '
+						+ 'and drop any step that saves a separate script, then call save_loop again. The user does not need to re-approve a path-only change.\n'
+						+ outside.relative.map(h => `  - ${h}`).join('\n'));
+				}
 				const run = saveLoop(spec);
 				if (!run) { return err('No open project to save the loop into. Open a project folder first.'); }
 				// Auto-open the (display-only) Loops tab on the fresh draft so the user can review it
 				// while the chat asks for confirmation. All loop control stays in the chat (decision B).
 				void vscode.commands.executeCommand('qoka.loop.open', run.id);
-				return ok(JSON.stringify({ loopId: run.id, status: run.status, savedAt: run.createdAt }));
+				const warning = outside.absolute.length
+					? 'The spec references the project-root results/ or analysis/ folder by absolute path. That is fine ONLY for reading inputs; '
+						+ 'if any of these are outputs or scripts, fix them to relative names inside the loop\'s results folder, call save_loop again and start the NEW loopId instead:\n'
+						+ outside.absolute.map(h => `  - ${h}`).join('\n')
+					: undefined;
+				return ok(JSON.stringify({ loopId: run.id, status: run.status, savedAt: run.createdAt, ...(warning ? { warning } : {}) }));
 			},
 		},
 		{
