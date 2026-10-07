@@ -263,12 +263,13 @@ export function setUpQokaProjectNow(): void {
 	void vscode.window.showInformationMessage(`"${path.basename(folder)}" is now a Qoka project.`);
 }
 
-/** Patterns kept out of git: ONLY what Qoka itself creates in the project - its working
- *  folder (.qoka/) and the generated data/ (large inputs) and results/ (regenerable
- *  outputs) trees. Nothing else: the project's own files (CLAUDE.md, AGENTS.md,
- *  README.md, .mcp.json, .claude/, ...) are the user's to version or ignore.
- *  Mirrors aria-vcs's list. */
-const GITIGNORE_ENTRIES = ['.qoka/', 'data/', 'results/'];
+/** Patterns kept out of git: what Qoka itself creates in the project - its working folder
+ *  (.qoka/) and the generated data/ (large inputs) and results/ (regenerable outputs)
+ *  trees - plus the project-root README (`/README.md`, root only: a pipeline's own
+ *  analysis/<name>/README.md is part of the pipeline and stays versioned). The project's
+ *  other files (CLAUDE.md, AGENTS.md, .mcp.json, .claude/, ...) are the user's to version
+ *  or ignore. Mirrors aria-vcs's list. */
+const GITIGNORE_ENTRIES = ['.qoka/', 'data/', 'results/', '/README.md'];
 
 /** Lines an older Qoka (<= 0.4.18) added to a project's .gitignore that it no longer
  *  creates, in the order it wrote them. */

@@ -110,18 +110,6 @@ export class VcsService {
 		return { isRepo, unsavedChanges, hasHead };
 	}
 
-	/** True when the user chose "Don't auto-commit" while adopting this folder as a Qoka
-	 *  project (recorded as `"autoCommit": false` in `.qoka/project.json`). A missing file
-	 *  or key means auto-commit is on. */
-	private autoCommitDisabled(workspacePath: string): boolean {
-		try {
-			const raw = fs.readFileSync(path.join(workspacePath, '.qoka', 'project.json'), 'utf8');
-			return JSON.parse(raw)?.autoCommit === false;
-		} catch {
-			return false;
-		}
-	}
-
 	async initRepo(workspacePath: string): Promise<void> {
 		await git(['init'], workspacePath);
 		// Keep assistant/app working files out of the user's snapshots - they're
@@ -139,10 +127,6 @@ export class VcsService {
 		// folder are captured as the initial version, instead of lingering as pending
 		// changes. Respects .gitignore (data/ + results/ excluded). No-op when there is
 		// nothing to commit. Best-effort - never blocks tracking.
-		// Skipped when the user chose "Don't auto-commit" for this project
-		// (`.qoka/project.json` has `"autoCommit": false`): nothing is committed for them,
-		// so the existing files simply show up as changes for their own first snapshot.
-		if (this.autoCommitDisabled(workspacePath)) { return; }
 		try {
 			await git(['add', '-A'], workspacePath);
 			const staged = await git(['diff', '--cached', '--name-only'], workspacePath);
@@ -161,10 +145,11 @@ export class VcsService {
 		//   results/ - regenerable outputs + logs (often large / binary)
 		// so snapshots AND auto-commit version only the real work (code, notes, drafts),
 		// never large or unmergeable binaries. Top up any missing lines idempotently.
-		// ONLY what Qoka itself creates in the project. The project's own files (CLAUDE.md,
-		// AGENTS.md, README.md, .mcp.json, .claude/, ...) are the user's to version or ignore.
+		// What Qoka itself creates in the project, plus the project-root README (root only:
+		// a pipeline's analysis/<name>/README.md stays versioned). The project's other files
+		// (CLAUDE.md, AGENTS.md, .mcp.json, .claude/, ...) are the user's to version or ignore.
 		// Keep in step with aria-autopipe's GITIGNORE_ENTRIES.
-		const entries = ['.qoka/', 'data/', 'results/'];
+		const entries = ['.qoka/', 'data/', 'results/', '/README.md'];
 		const gitignorePath = path.join(workspacePath, '.gitignore');
 		let existing = '';
 		try { existing = fs.readFileSync(gitignorePath, 'utf8'); } catch { /* no file yet */ }

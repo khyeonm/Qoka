@@ -1885,31 +1885,18 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			return true;
 		}
 		const name = folderUri.fsPath.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || folderUri.fsPath;
-		const choice = await this.chooseInOverlay(
+		const ok = await this.confirmInOverlay(
 			`Set up "${name}" as a Qoka project?`,
 			`This folder already has files in it. To use it with Qoka, the following will be added:\n\n`
 			+ `•  data/, analysis/, results/ folders (folders that already exist are kept as they are)\n`
 			+ `•  a .qoka/ folder for Qoka's project data\n`
 			+ `•  Qoka entries in .gitignore (.qoka/, data/, results/)\n\n`
-			+ `Auto-commit: the AI saves its finished work as git commits on its own.\n`
-			+ `Don't auto-commit: nothing is committed for you - changes collect in the Changes panel and you save them as snapshots when you want.`,
-			[
-				{ label: 'Cancel', value: 'cancel' },
-				{ label: 'Don\'t auto-commit', value: 'manual' },
-				{ label: 'Auto-commit', value: 'auto', primary: true },
-			],
+			+ `Auto-commit: in a Qoka project the AI saves its finished work as git commits on its own `
+			+ `(a git repository is created if there is none). Commits stay on this computer and are never pushed.`,
+			'Continue', 'Cancel',
 		);
-		if (choice !== 'auto' && choice !== 'manual') { return false; }
+		if (!ok) { return false; }
 		try { await this.fileService.createFolder(URI.joinPath(folderUri, '.qoka')); } catch { /* best-effort */ }
-		// Record the choice: the AI's auto-commit instructions (in Qoka's own CLAUDE.md /
-		// AGENTS.md) read `.qoka/project.json` and stay off when `autoCommit` is false.
-		try {
-			const marker = URI.joinPath(folderUri, '.qoka', 'project.json');
-			if (!(await this.fileService.exists(marker))) {
-				const body = JSON.stringify({ createdBy: 'adopted', autoCommit: choice === 'auto', version: 1 }, null, 2) + '\n';
-				await this.fileService.writeFile(marker, VSBuffer.fromString(body));
-			}
-		} catch { /* best-effort */ }
 		return true;
 	}
 
@@ -1919,18 +1906,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	 * be painted behind the overlay. Resolves true on the confirm button, false otherwise.
 	 */
 	private confirmInOverlay(title: string, detail: string, confirmLabel: string, cancelLabel: string): Promise<boolean> {
-		return this.chooseInOverlay(title, detail, [
-			{ label: cancelLabel, value: 'cancel' },
-			{ label: confirmLabel, value: 'ok', primary: true },
-		]).then(v => v === 'ok');
-	}
-
-	/** Like confirmInOverlay, but with any number of buttons (left to right). Resolves to
-	 *  the clicked button's `value`, or the first button's value when there is no overlay. */
-	private chooseInOverlay(title: string, detail: string, buttons: { label: string; value: string; primary?: boolean }[]): Promise<string> {
-		return new Promise<string>((resolve) => {
+		return new Promise<boolean>((resolve) => {
 			const host = this.overlay;
-			if (!host) { resolve(buttons[0]?.value ?? ''); return; }
+			if (!host) { resolve(false); return; }
 			const backdrop = document.createElement('div');
 			Object.assign(backdrop.style, {
 				position: 'fixed', inset: '0', zIndex: '2000000', background: 'rgba(0, 0, 0, 0.55)',
@@ -1973,20 +1951,19 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 				});
 				return b;
 			};
-			const finish = (v: string): void => { try { backdrop.remove(); } catch { /* already gone */ } resolve(v); };
-			let focusBtn: HTMLButtonElement | undefined;
-			for (const spec of buttons) {
-				const btn = makeBtn(spec.label, !!spec.primary);
-				btn.onclick = () => finish(spec.value);
-				row.appendChild(btn);
-				if (spec.primary) { focusBtn = btn; }
-			}
+			const cancelBtn = makeBtn(cancelLabel, false);
+			const okBtn = makeBtn(confirmLabel, true);
+			const finish = (v: boolean): void => { try { backdrop.remove(); } catch { /* already gone */ } resolve(v); };
+			cancelBtn.onclick = () => finish(false);
+			okBtn.onclick = () => finish(true);
 			card.appendChild(titleRow);
 			card.appendChild(d);
+			row.appendChild(cancelBtn);
+			row.appendChild(okBtn);
 			card.appendChild(row);
 			backdrop.appendChild(card);
 			host.appendChild(backdrop);
-			focusBtn?.focus();
+			okBtn.focus();
 		});
 	}
 
