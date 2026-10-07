@@ -4,21 +4,25 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { QOKA_CLAUDE_CONFIG_DIR } from './headlessCli';
 
 /**
- * Manage Claude Code's user-level settings file. Qoka writes the
- * per-skill auto-approve preferences into ~/.claude/settings.json so
- * the user doesn't get a permission prompt every time Claude wants to
- * invoke a skill they've already vetted from the Settings tab.
+ * Manage the user-level settings file of Qoka's OWN Claude config. Qoka writes
+ * the per-skill auto-approve preferences into ~/.qoka/claude/settings.json (the
+ * isolated CLAUDE_CONFIG_DIR every Qoka-launched Claude reads) so the user
+ * doesn't get a permission prompt every time Claude wants to invoke a skill
+ * they've already vetted from the Settings tab.
  *
- * The file format is JSON; we preserve unknown top-level keys verbatim
- * so editing the Qoka toggle doesn't clobber settings Claude Code (or
- * the user) put there for unrelated reasons.
+ * Never the system ~/.claude/settings.json: that file belongs to the user's own
+ * Claude Code, and Qoka must not change it.
+ *
+ * The file format is JSON; we preserve unknown top-level keys verbatim so
+ * editing the Qoka toggle doesn't clobber settings put there for unrelated
+ * reasons (e.g. the hook ariaHooks registers in the same file).
  */
 
-const SETTINGS_PATH = path.join(os.homedir(), '.claude/settings.json');
+const SETTINGS_PATH = path.join(QOKA_CLAUDE_CONFIG_DIR, 'settings.json');
 
 interface PermissionsBlock {
 	allow?: string[];
@@ -34,18 +38,20 @@ export function settingsPath(): string {
 	return SETTINGS_PATH;
 }
 
-function readSettings(): ClaudeSettings {
+/** Read the settings file. `{}` when it does not exist yet; `undefined` when it
+ *  exists but is not a JSON object - callers must then leave it untouched rather
+ *  than overwrite (and lose) its contents. */
+function readSettings(): ClaudeSettings | undefined {
 	if (!fs.existsSync(SETTINGS_PATH)) {
 		return {};
 	}
 	try {
 		const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+		if (!raw.trim()) { return {}; }
 		const parsed = JSON.parse(raw);
-		return (parsed && typeof parsed === 'object') ? parsed : {};
+		return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : undefined;
 	} catch {
-		// Corrupt JSON - return empty rather than throw, the writer will
-		// regenerate on save.
-		return {};
+		return undefined;
 	}
 }
 
@@ -73,24 +79,14 @@ export function skillPermissionToken(name: string): string {
  * no-op.
  */
 export function setSkillAutoApprove(skillName: string, desired: boolean): void {
-	const settings = readSettings();
-	const token = skillPermissionToken(skillName);
-	settings.permissions = settings.permissions ?? {};
-	const allow = new Set(settings.permissions.allow ?? []);
-	if (desired) {
-		allow.add(token);
-	} else {
-		allow.delete(token);
-	}
-	settings.permissions.allow = [...allow].sort();
-	writeSettings(settings);
+	syncAutoApproveFlags([{ name: skillName, autoApprove: desired }]);
 }
 
 /** Read the current state from Claude's settings file (not from the
  *  Qoka manifest, which can drift). */
 export function isSkillAutoApproved(skillName: string): boolean {
 	const settings = readSettings();
-	return (settings.permissions?.allow ?? []).includes(skillPermissionToken(skillName));
+	return (settings?.permissions?.allow ?? []).includes(skillPermissionToken(skillName));
 }
 
 /**
@@ -101,8 +97,12 @@ export function isSkillAutoApproved(skillName: string): boolean {
  */
 export function syncAutoApproveFlags(flags: { name: string; autoApprove: boolean }[]): void {
 	const settings = readSettings();
-	settings.permissions = settings.permissions ?? {};
-	const allow = new Set(settings.permissions.allow ?? []);
+	if (!settings) {
+		console.warn(`[aria-skills] ${SETTINGS_PATH} is not valid JSON; leaving it untouched`);
+		return;
+	}
+	const before = settings.permissions?.allow ?? [];
+	const allow = new Set(before);
 	for (const f of flags) {
 		const token = skillPermissionToken(f.name);
 		if (f.autoApprove) {
@@ -111,6 +111,12 @@ export function syncAutoApproveFlags(flags: { name: string; autoApprove: boolean
 			allow.delete(token);
 		}
 	}
-	settings.permissions.allow = [...allow].sort();
+	const after = [...allow].sort();
+	// Only write when the allow list actually changes, so a no-op (e.g. removing
+	// a token that was never there) never creates or rewrites the file.
+	if (after.length === before.length && after.every(t => before.includes(t))) {
+		return;
+	}
+	settings.permissions = { ...(settings.permissions ?? {}), allow: after };
 	writeSettings(settings);
 }

@@ -57,13 +57,10 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-memory] activate()');
 
-	// Turn off Claude's native auto-memory for this workspace so the aria-memory
-	// tools are the sole memory store. Re-run when the folder changes so a newly
-	// opened project also gets the setting before its first Claude session.
+	// Turn off Claude's native auto-memory in Qoka's own Claude config so the
+	// aria-memory tools are the sole memory store. Written to ~/.qoka/claude, never
+	// the project or ~/.claude, so the user's standalone Claude is unaffected.
 	ensureNativeMemoryDisabled();
-	context.subscriptions.push(
-		vscode.workspace.onDidChangeWorkspaceFolders(() => ensureNativeMemoryDisabled()),
-	);
 
 	// Commands backing the workbench Memory tab (project wiki + global mem0).
 	registerMemoryTabCommands(context);
