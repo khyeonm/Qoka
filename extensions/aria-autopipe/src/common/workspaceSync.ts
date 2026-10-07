@@ -10,6 +10,7 @@ import { SshProfile, workspacePathsFor } from './types';
 import { resolveOutputDir } from './dockerEnv';
 import { shellEscape } from './roCrate';
 import { services } from './services';
+import { ensureQokaAutoCommitInstructions, removeLegacyProjectAutoCommitBlocks } from './aiInstructions';
 
 /**
  * Durably save autopipe pipeline CODE and selected RESULTS from the run target
@@ -219,10 +220,12 @@ export function ensureWorkspaceScaffold(root?: string): void {
 			fs.mkdirSync(d, { recursive: true });
 		} catch { /* best-effort */ }
 	}
-	// Auto-commit: seed the AI-instruction files so Claude Code (CLAUDE.md) and Codex
-	// (AGENTS.md) commit meaningful work on their own, without the user running git.
-	// Idempotent (marker-guarded) and never clobbers the user's own content.
-	ensureAiCommitInstructions(folder);
+	// Auto-commit guidance lives in Qoka's OWN user-level CLAUDE.md / AGENTS.md
+	// (~/.qoka/claude, ~/.qoka/codex), never the project's, so the user's standalone
+	// claude / codex in this folder are unaffected. Also strip the block an older Qoka
+	// appended to the project's files (only the marked block; user content is kept).
+	ensureQokaAutoCommitInstructions();
+	removeLegacyProjectAutoCommitBlocks(folder);
 	// Make sure .gitignore keeps data/ + results/ (and Qoka's working files) out of git
 	// BEFORE any commit happens, so auto-commit versions only the real work.
 	ensureProjectGitignore(folder);
@@ -260,11 +263,66 @@ export function setUpQokaProjectNow(): void {
 	void vscode.window.showInformationMessage(`"${path.basename(folder)}" is now a Qoka project.`);
 }
 
-/** Patterns kept out of git: Qoka's own working files, the generated data/ (large
- *  inputs) and results/ (regenerable outputs) trees, and the Qoka-generated AI
- *  instruction files (CLAUDE.md / AGENTS.md are regenerated per project open, so they
- *  are local tool config, not versioned content). Mirrors aria-vcs's list. */
-const GITIGNORE_ENTRIES = ['.claude/', '.codex/', '.mcp.json', '.qoka/', 'node_modules/', '.DS_Store', 'data/', 'results/', 'CLAUDE.md', 'AGENTS.md', 'README.md'];
+/** Patterns kept out of git: ONLY what Qoka itself creates in the project - its working
+ *  folder (.qoka/) and the generated data/ (large inputs) and results/ (regenerable
+ *  outputs) trees. Nothing else: the project's own files (CLAUDE.md, AGENTS.md,
+ *  README.md, .mcp.json, .claude/, ...) are the user's to version or ignore.
+ *  Mirrors aria-vcs's list. */
+const GITIGNORE_ENTRIES = ['.qoka/', 'data/', 'results/'];
+
+/** Lines an older Qoka (<= 0.4.18) added to a project's .gitignore that it no longer
+ *  creates, in the order it wrote them. */
+const LEGACY_GITIGNORE_ORDER = ['.claude/', '.codex/', '.mcp.json', '.qoka/', 'node_modules/', '.DS_Store', 'data/', 'results/', 'CLAUDE.md', 'AGENTS.md', 'README.md'];
+const LEGACY_GITIGNORE_REMOVE = new Set(['.claude/', '.codex/', '.mcp.json', 'node_modules/', '.DS_Store', 'CLAUDE.md', 'AGENTS.md', 'README.md']);
+/** Header aria-vcs put above the block it appended. */
+const LEGACY_GITIGNORE_HEADER = '# --- Qoka: assistant/app working files (kept out of snapshots) ---';
+
+/**
+ * Remove the lines an older Qoka added to .gitignore for files it no longer creates, but
+ * ONLY where they are certainly Qoka's, so a line the user wrote is never touched:
+ *  - inside the block under aria-vcs's Qoka header (up to the next blank line), and
+ *  - in a header-less run Qoka appended: a contiguous run of lines in Qoka's own order
+ *    that contains `.qoka/` - only the lines AFTER `.qoka/` (Qoka wrote the run in one
+ *    go, and nobody else writes `.qoka/`; a line before it may be the user's last line).
+ * Returns the new text (unchanged when nothing applies).
+ */
+function pruneLegacyGitignore(text: string): string {
+	const lines = text.split(/\r?\n/);
+	const drop = new Set<number>();
+	// 1) aria-vcs header block
+	for (let i = 0; i < lines.length; i++) {
+		if (lines[i].trim() !== LEGACY_GITIGNORE_HEADER) { continue; }
+		const block: number[] = [];
+		for (let j = i + 1; j < lines.length && lines[j].trim() !== ''; j++) { block.push(j); }
+		const removable = block.filter(j => LEGACY_GITIGNORE_REMOVE.has(lines[j].trim()));
+		removable.forEach(j => drop.add(j));
+		if (block.length > 0 && removable.length === block.length) { drop.add(i); } // block emptied: drop the header too
+	}
+	// 2) header-less runs in Qoka's order that contain `.qoka/`
+	let i = 0;
+	while (i < lines.length) {
+		const idx = LEGACY_GITIGNORE_ORDER.indexOf(lines[i].trim());
+		if (idx === -1 || drop.has(i)) { i++; continue; }
+		const run = [i];
+		let last = idx;
+		let j = i + 1;
+		for (; j < lines.length; j++) {
+			const k = LEGACY_GITIGNORE_ORDER.indexOf(lines[j].trim());
+			if (k <= last) { break; }
+			run.push(j);
+			last = k;
+		}
+		const q = run.findIndex(r => lines[r].trim() === '.qoka/');
+		if (q !== -1) {
+			for (const r of run.slice(q + 1)) {
+				if (LEGACY_GITIGNORE_REMOVE.has(lines[r].trim())) { drop.add(r); }
+			}
+		}
+		i = j;
+	}
+	if (drop.size === 0) { return text; }
+	return lines.filter((_, n) => !drop.has(n)).join('\n');
+}
 
 /** Ensure the project's `.gitignore` carries GITIGNORE_ENTRIES. Written here at project
  *  open (not only on the first snapshot) so the file is present before any commit - the
@@ -272,82 +330,19 @@ const GITIGNORE_ENTRIES = ['.claude/', '.codex/', '.mcp.json', '.qoka/', 'node_m
 function ensureProjectGitignore(folder: string): void {
 	try {
 		const file = path.join(folder, '.gitignore');
-		let existing = '';
-		try { existing = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
+		let original = '';
+		try { original = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
+		// Drop lines an older Qoka added for files it no longer creates.
+		const existing = pruneLegacyGitignore(original);
 		const hasLine = (p: string) => existing.split(/\r?\n/).some(l => l.trim() === p);
 		const missing = GITIGNORE_ENTRIES.filter(p => !hasLine(p));
-		if (missing.length === 0) { return; }
+		if (missing.length === 0) {
+			if (existing !== original) { fs.writeFileSync(file, existing, 'utf8'); }
+			return;
+		}
 		const sep = existing && !existing.endsWith('\n') ? '\n' : '';
 		fs.writeFileSync(file, existing + sep + missing.join('\n') + '\n', 'utf8');
 	} catch { /* best-effort */ }
-}
-
-const AUTO_COMMIT_MARKER = '<!-- qoka:auto-commit:start -->';
-
-/** The raw-git auto-commit guidance injected into CLAUDE.md and AGENTS.md. Kept as a
- *  marker-delimited block so we can detect it and never duplicate it. */
-const AUTO_COMMIT_END_MARKER = '<!-- qoka:auto-commit:end -->';
-
-const AUTO_COMMIT_BLOCK = [
-	AUTO_COMMIT_MARKER,
-	'## Auto-commit (Qoka) - REQUIRED, do this without being asked',
-	'',
-	'You MUST commit your work to git automatically, as a normal part of every task.',
-	'This is PRE-AUTHORIZED by Qoka and by the user: the user does not run git and does',
-	'NOT want to be asked about it. So:',
-	'',
-	'- NEVER ask "should I commit?", "do you want me to commit?", or wait for confirmation.',
-	'  Committing is expected and approved in advance. Just commit, silently.',
-	'- WHEN: as soon as you finish a coherent piece of work - you created or edited a',
-	'  script, saved code the user asked for, produced or updated a result. Commit it right',
-	'  then, in the SAME turn, before you report back. Do not leave finished work uncommitted.',
-	'- HOW: run `git add -A` then `git commit -m "<short imperative summary>"` DIRECTLY in your',
-	'  shell, in the project directory. (`data/`, `results/` and `.qoka/` are gitignored, so',
-	'  `git add -A` stages only real work such as code in `analysis/`.)',
-	'- If `git status` says it is NOT a repo yet, run `git init` first, then commit.',
-	'- If git reports a missing identity, set it LOCALLY only: `git config user.name "Qoka"`',
-	'  and `git config user.email "user@localhost"` (never change the global git config).',
-	'- One commit per coherent change: do not commit after every keystroke, and do not lump',
-	'  unrelated changes together. But that is about GROUPING commits, never a reason to skip',
-	'  committing or to ask permission.',
-	'- git commands (add / status / commit / log / diff) are VERSION CONTROL, NOT analysis',
-	'  code: run them DIRECTLY in your shell. The "run code through Qoka tools, not the',
-	'  terminal" rule is ONLY about analysis / scripts, never about git.',
-	'- Do NOT `git push` or touch remotes - commits stay LOCAL. Never commit secrets,',
-	'  credentials, or large data files (rely on .gitignore; never force-add ignored paths).',
-	AUTO_COMMIT_END_MARKER,
-	'',
-].join('\n');
-
-/** Ensure CLAUDE.md (Claude Code) and AGENTS.md (Codex) both carry the auto-commit block.
- *  Creates the file if absent; appends the block if the file exists without it; REPLACES an
- *  existing marker-delimited block in place so instruction updates reach projects created by
- *  an older Qoka. Best-effort - never throws. */
-function ensureAiCommitInstructions(folder: string): void {
-	for (const name of ['CLAUDE.md', 'AGENTS.md']) {
-		try {
-			const file = path.join(folder, name);
-			if (fs.existsSync(file)) {
-				const current = fs.readFileSync(file, 'utf8');
-				const start = current.indexOf(AUTO_COMMIT_MARKER);
-				if (start !== -1) {
-					// Replace the old block (start marker .. end marker) with the current one,
-					// preserving whatever came before and after it.
-					const endIdx = current.indexOf(AUTO_COMMIT_END_MARKER, start);
-					if (endIdx === -1) { continue; } // malformed block: leave the file alone
-					const newBlockCore = AUTO_COMMIT_BLOCK.replace(/\n$/, ''); // up to the end marker
-					const rebuilt = current.slice(0, start) + newBlockCore + current.slice(endIdx + AUTO_COMMIT_END_MARKER.length);
-					if (rebuilt !== current) { fs.writeFileSync(file, rebuilt, 'utf8'); }
-					continue;
-				}
-				const sep = current.length === 0 || current.endsWith('\n') ? '\n' : '\n\n';
-				fs.writeFileSync(file, current + sep + AUTO_COMMIT_BLOCK, 'utf8');
-			} else {
-				const header = `# Project instructions for AI assistants\n\n`;
-				fs.writeFileSync(file, header + AUTO_COMMIT_BLOCK, 'utf8');
-			}
-		} catch { /* best-effort */ }
-	}
 }
 
 /** Human-readable byte size, e.g. `1.4 GB`. */

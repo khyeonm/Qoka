@@ -30,6 +30,28 @@ import * as path from 'path';
  */
 const QOKA_CLAUDE_SETTINGS = path.join(os.homedir(), '.qoka', 'claude', 'settings.json');
 
+/**
+ * Undo what an older Qoka wrote into a PROJECT: `<folder>/.claude/settings.local.json`
+ * containing only `{ "autoMemoryEnabled": false }`. That file also switched off native
+ * memory for the user's own `claude` in that folder. It is removed only when it holds
+ * exactly that one key with that value (what Qoka wrote); a file with anything else in it
+ * may be the user's, so it is left untouched. The `.claude/` folder is removed too if that
+ * leaves it empty. Best-effort - never throws.
+ */
+export function removeLegacyProjectMemorySetting(folder: string): void {
+	try {
+		const dir = path.join(folder, '.claude');
+		const file = path.join(dir, 'settings.local.json');
+		if (!fs.existsSync(file)) { return; }
+		const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+		const keys = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? Object.keys(parsed) : [];
+		if (keys.length !== 1 || keys[0] !== 'autoMemoryEnabled' || parsed.autoMemoryEnabled !== false) { return; }
+		fs.unlinkSync(file);
+		if (fs.readdirSync(dir).length === 0) { fs.rmdirSync(dir); }
+		console.log(`[aria-memory] removed legacy ${file} written by an older Qoka`);
+	} catch { /* best-effort */ }
+}
+
 export function ensureNativeMemoryDisabled(): void {
 	const file = QOKA_CLAUDE_SETTINGS;
 	const dir = path.dirname(file);

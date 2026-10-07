@@ -8,7 +8,7 @@ import { buildTools } from './mcp/tools';
 import { AriaMemoryMcpServer } from './mcp/server';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
-import { ensureNativeMemoryDisabled } from './nativeMemory';
+import { ensureNativeMemoryDisabled, removeLegacyProjectMemorySetting } from './nativeMemory';
 import { registerMemoryTabCommands } from './memoryTab';
 
 let mcpServer: AriaMemoryMcpServer | undefined;
@@ -61,6 +61,12 @@ export function activate(context: vscode.ExtensionContext): void {
 	// aria-memory tools are the sole memory store. Written to ~/.qoka/claude, never
 	// the project or ~/.claude, so the user's standalone Claude is unaffected.
 	ensureNativeMemoryDisabled();
+	// Clean up the project-level setting an older Qoka wrote (also on folder change).
+	const cleanLegacy = () => {
+		for (const f of vscode.workspace.workspaceFolders ?? []) { removeLegacyProjectMemorySetting(f.uri.fsPath); }
+	};
+	cleanLegacy();
+	context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(cleanLegacy));
 
 	// Commands backing the workbench Memory tab (project wiki + global mem0).
 	registerMemoryTabCommands(context);
