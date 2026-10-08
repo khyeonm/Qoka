@@ -373,7 +373,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'save_figure',
-			description: 'Save a generated figure image into the project so it appears in the Manuscript tab\'s Figures section. `source` = an http(s) image URL (e.g. a BioRender custom-figure imageUrl), a data: URL, or a local file path. Optional `name`. Stored in the hidden .qoka/figures store - do NOT write figures into analysis/ or a top-level figures/ folder. Call this right after generating a figure so the user can see and insert it.',
+			description: 'Save a generated figure image into the project so it appears in the Manuscript tab\'s Figures section. `source` = an http(s) image URL, a data: URL (e.g. the image a Penpot export_shape returns), or a local file path. Optional `name`. Stored in the hidden .qoka/figures store - do NOT write figures into analysis/ or a top-level figures/ folder. Call this right after generating a figure so the user can see and insert it.',
 			inputSchema: {
 				type: 'object',
 				properties: {

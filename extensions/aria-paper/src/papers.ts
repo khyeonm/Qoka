@@ -99,7 +99,7 @@ export function papersDir(): string | undefined {
 	return folder ? path.join(folder.uri.fsPath, '.qoka', 'manuscript', 'draft') : undefined;
 }
 
-/** Hidden store for generated figures (BioRender etc.): <workspace>/.qoka/figures/.
+/** Hidden store for generated figures (Penpot exports, plots, etc.): <workspace>/.qoka/figures/.
  *  Kept out of the analysis/ tree; surfaced only in the Manuscript tab's Figures
  *  section. */
 export function generatedFiguresDir(): string | undefined {

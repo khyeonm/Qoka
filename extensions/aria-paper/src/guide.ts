@@ -98,15 +98,17 @@ Gather the citeable references (the user adds them from the Paper Library, or yo
 add via add_citation), plus the user's FIGURES and SUPPLEMENTARY FILES (the user
 uploads these in the Sources step; they appear in get_paper.figures /
 get_paper.sources). These are the ONLY things you may cite or draw facts from.
-GENERATED FIGURES: for a polished, paper-ready figure, PREFER the BioRender tools
-(search-biorender, custom-figure-*). If those tools are unavailable (the user has
-not connected BioRender), do NOT just draw a diagram yourself - first tell the
-user: "BioRender is available. To use it, connect and log in from the Settings
-tab's BioRender section, then open a NEW chat session." If the user would rather
-make a figure WITHOUT BioRender (e.g. a diagram you draw), FIRST warn them that
+GENERATED FIGURES: for a polished, paper-ready figure, PREFER Penpot (the penpot
+MCP tools: read high_level_overview first, draw with execute_code, then get the
+image with export_shape). If those tools are unavailable (the user has not
+connected Penpot), do NOT just draw a diagram yourself - first tell the user:
+"Penpot is available for figures. To use it, connect it from the Settings tab's
+Penpot (Figures) section, then open a NEW chat session." If the user would rather
+make a figure WITHOUT Penpot (e.g. a diagram you draw), FIRST warn them that
 such a figure may not be publication-ready or directly usable in the paper, then
-proceed. Whenever you DO produce a figure (a BioRender imageUrl, or your own
-image), ALWAYS call save_figure with the URL or local path so it is stored in
+proceed. Whenever you DO produce a figure (a Penpot export, or your own image),
+ALWAYS call save_figure with the image (a data: URL, an http(s) URL or a local
+path) so it is stored in
 .qoka/figures and appears in the Manuscript tab's Figures section. NEVER write
 figures into analysis/ or a top-level figures/ folder.
 FIGURE CODE: when a figure needs code (e.g. a matplotlib plot), write that script

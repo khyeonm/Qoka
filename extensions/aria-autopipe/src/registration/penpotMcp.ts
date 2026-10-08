@@ -11,8 +11,8 @@ import { candidateClaudePaths, candidateCodexPaths } from '../detection/claudeCo
 const execAsync = promisify(exec);
 
 /**
- * Built-in Penpot MCP (an editable-vector design tool, an open-source Figma). Unlike
- * BioRender this is NOT an OAuth server: Penpot authenticates the MCP with a personal
+ * Built-in Penpot MCP (an editable-vector design tool, an open-source Figma). This is
+ * NOT an OAuth server: Penpot authenticates the MCP with a personal
  * MCP KEY (token) the user generates in their Penpot account. Qoka stores that key in
  * SecretStorage and puts it in the MCP URL (`.../mcp/stream?userToken=<key>`), so
  * there is no browser OAuth, no startup browser storm, and Codex works too (no OAuth
@@ -90,7 +90,7 @@ async function claudeAdd(claude: string, cwd: string, url: string): Promise<void
 	await execAsync(`${quoteArg(claude)} mcp add --scope local ${NAME} ${quoteArg(url)} --transport http`, { timeout: 15000, cwd });
 }
 
-// --- Codex (plain token URL, no OAuth - works unlike the BioRender case) ---
+// --- Codex (plain token URL, no OAuth) ---
 
 async function codexRemove(codex: string): Promise<void> {
 	try { await execAsync(`${quoteArg(codex)} mcp remove ${NAME}`, { timeout: 10000 }); } catch { /* not present */ }
@@ -155,23 +155,6 @@ export async function disconnectPenpot(store: PenpotStore): Promise<void> {
 	plog('disconnect: start');
 	await store.clearKey();
 	await ensurePenpotRegistered(store);
-}
-
-/** Remove any leftover `biorender` MCP registration from an older Qoka build. The
- *  BioRender integration was removed, but its registration can still sit in the user's
- *  Claude/Codex config and show up in /mcp. Best-effort and idempotent; run once at
- *  activation. */
-export async function cleanupBioRenderRegistration(): Promise<void> {
-	const cwd = claudeCwd();
-	const claude = await resolveBinary('claude', candidateClaudePaths());
-	if (claude && cwd) {
-		for (const scope of ['local', 'user', 'project']) {
-			try { await execAsync(`${quoteArg(claude)} mcp remove --scope ${scope} biorender`, { timeout: 15000, cwd }); } catch { /* not present in this scope */ }
-		}
-	}
-	const codex = await resolveBinary('codex', candidateCodexPaths());
-	if (codex) { try { await execAsync(`${quoteArg(codex)} mcp remove biorender`, { timeout: 10000 }); } catch { /* not present */ } }
-	plog('cleanupBioRender: removed any leftover biorender registration');
 }
 
 /** Connected when a key is stored. Returns a masked key for display + the server. */

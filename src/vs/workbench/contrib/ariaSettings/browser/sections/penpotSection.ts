@@ -13,8 +13,7 @@ interface PenpotStatus { connected?: boolean; serverUrl?: string; keyMask?: stri
 
 /**
  * Penpot section: connect Penpot (open-source editable-vector design tool) so the chat
- * can draw publication figures via its MCP. This replaces the removed BioRender
- * integration. Penpot authenticates the MCP with a personal MCP KEY (no OAuth), which
+ * can draw publication figures via its MCP. Penpot authenticates the MCP with a personal MCP KEY (no OAuth), which
  * Qoka stores and injects into the MCP URL. Connect opens a step-by-step wizard that
  * stays on screen while the user visits Penpot in the browser (so the instructions are
  * never lost), collects the key, and registers the MCP for Claude and Codex.

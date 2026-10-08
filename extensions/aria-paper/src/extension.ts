@@ -193,7 +193,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		return uris.map(u => addAsset(id, kind, u.fsPath));
 	};
 	// Add a figure from the generated store (.qoka/figures) - the same figures the
-	// Manuscript tab's Figures section shows (BioRender / AI figures land there).
+	// Manuscript tab's Figures section shows (Penpot / AI figures land there).
 	const addFiguresFromSaved = async (id: string): Promise<PaperAsset[]> => {
 		const genDir = generatedFiguresDir();
 		let gen: string[] = [];

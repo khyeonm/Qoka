@@ -28,7 +28,7 @@ import { registerSetupCommands } from './commands/setupCommands';
 import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames, NATIVE_VIEWER_NAMES, NATIVE_VIEWER_INFO } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
 import { openPluginsPanel } from './panels/pluginsPanel';
-import { PenpotStore, ensurePenpotRegistered, connectPenpot, disconnectPenpot, penpotStatus, cleanupBioRenderRegistration } from './registration/penpotMcp';
+import { PenpotStore, ensurePenpotRegistered, connectPenpot, disconnectPenpot, penpotStatus } from './registration/penpotMcp';
 import { registerWhirickWithClaude, registerWhirickWithCodex } from './registration/whirickMcp';
 import { ensureQokaProjectOnOpen, setUpQokaProjectNow } from './common/workspaceSync';
 import { NotebookKernel } from './notebook/controller';
@@ -62,8 +62,8 @@ let lastEnvRegistration: { claude: ClientRegistration; codex: ClientRegistration
 // reload prompt, and it runs outside activate()'s scope.
 let extensionContext: vscode.ExtensionContext | undefined;
 
-// Penpot MCP (open-source editable-vector design tool - the figure-drawing feature,
-// replacing the removed BioRender integration). The MCP key is stored in
+// Penpot MCP (open-source editable-vector design tool - the figure-drawing feature).
+// The MCP key is stored in
 // SecretStorage; registration happens from Settings. No OAuth, so it re-registers
 // silently on startup and works for Codex too. Set at activate() so
 // refreshAiRegistrations, which runs outside activate()'s scope, can reach it.
@@ -486,9 +486,6 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Reconcile the registration with the stored key now (fire-and-forget): registers
 	// both CLIs if a key is stored, otherwise removes any stale registration.
 	if (store) { void ensurePenpotRegistered(store); }
-	// One-time migration cleanup: remove any leftover BioRender registration from an
-	// older build so it stops appearing in /mcp (the feature is gone).
-	void cleanupBioRenderRegistration();
 
 	// whirick MCP (the Slides tab). Two providers, two very different flows:
 	//  - Claude connects lazily (the user authorises on demand via /mcp), so it is
