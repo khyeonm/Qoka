@@ -178,7 +178,13 @@ export async function installProviderCli(arg: unknown): Promise<void> {
 		log(`installProviderCli: ignoring non-provider arg ${JSON.stringify(arg)}`);
 		return;
 	}
-	if (isProviderInstalled(provider)) {
+	// Startup-timing diagnostics: the time spent INSIDE this command. Compare with the
+	// loader's "installCli command" round-trip - a large gap means the extension host
+	// was busy and the command waited in its queue, not that the check itself was slow.
+	const t0 = Date.now();
+	const installed = isProviderInstalled(provider);
+	console.log(`[qoka-timing] aria-skills installProviderCli(${provider}): isProviderInstalled=${installed} check ${Date.now() - t0}ms`);
+	if (installed) {
 		log(`installProviderCli: ${provider} CLI already installed - nothing to do.`);
 		return;
 	}
@@ -186,13 +192,16 @@ export async function installProviderCli(arg: unknown): Promise<void> {
 		log(`installProviderCli: ${provider} CLI install already attempted this session - skipping.`);
 		return;
 	}
+	console.log(`[qoka-timing] aria-skills installProviderCli(${provider}): NOT installed in ~/.qoka - running the installer`);
 	attemptedThisSession.add(provider);
 
 	const label = provider === 'claude' ? 'Claude' : 'Codex';
 	await vscode.window.withProgress(
 		{ location: vscode.ProgressLocation.Notification, title: `Installing the ${label} command-line tool…`, cancellable: false },
 		async () => {
+			const instT0 = Date.now();
 			const result = provider === 'claude' ? await installClaude() : await installCodex();
+			console.log(`[qoka-timing] aria-skills installProviderCli(${provider}): installer ran ${Date.now() - instT0}ms (exit ${result.code})`);
 			// Trust the resolver, not the exit code: some installers return non-zero
 			// yet still place the binary (and vice versa). If it's now on PATH, we're
 			// done regardless.

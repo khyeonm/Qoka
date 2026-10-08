@@ -10,7 +10,11 @@ import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as 
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { markAriaSetupReady } from '../../aria/browser/ariaSetupReady.js';
+import { markAriaSetupReady, setSetupPendingReporter } from '../../aria/browser/ariaSetupReady.js';
+
+/** Startup-timing diagnostics: ms since this renderer loaded the module (~window load). */
+const QOKA_T0 = Date.now();
+const qokaT = (): string => `t+${Date.now() - QOKA_T0}ms`;
 
 /**
  * Full-screen "Qoka is setting up" overlay. We mount a fixed div at the
@@ -189,6 +193,8 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 	 *  buggy-extension safety net). Built from KNOWN_TRACKERS at
 	 *  construction so test setups can mutate the constant if needed. */
 	private readonly knownPending = new Set<string>(KNOWN_TRACKERS);
+	/** Startup-timing diagnostics: when each tracker began. */
+	private readonly trackBeganAt = new Map<string, number>();
 
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
@@ -201,6 +207,11 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// just become the live target and replay whatever arrived in the meantime -
 		// typically an extension's beginTracking from its activate().
 		overlayInstance = this;
+		// Lets the loader log WHICH trackers were still open if its wait times out.
+		setSetupPendingReporter(() => {
+			const neverBegan = [...this.knownPending].filter(n => !this.tracking.has(n));
+			return `inFlight=[${[...this.tracking].join(', ')}] knownNeverCompleted=[${[...this.knownPending].join(', ')}] knownNeverBegan=[${neverBegan.join(', ')}] finished=${this.finished}`;
+		});
 		for (const call of pendingStartupCalls.splice(0)) {
 			call(this);
 		}
@@ -314,9 +325,13 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			}
 		}
 		this.tracking.add(name);
+		this.trackBeganAt.set(name, Date.now());
+		console.log(`[qoka-timing] ${qokaT()} tracker BEGIN: ${name}`);
 	}
 
 	markComplete(name: string, summary: string, changed: boolean): void {
+		const began = this.trackBeganAt.get(name);
+		console.log(`[qoka-timing] ${qokaT()} tracker DONE: ${name}${began !== undefined ? ` (took ${Date.now() - began}ms)` : ' (no BEGIN seen)'}`);
 		this.tracking.delete(name);
 		this.knownPending.delete(name);
 		if (summary) {
@@ -386,6 +401,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// knownPending guard above already holds until every known MCP tracker has
 		// reported, so we let the loader clear the instant setup is genuinely done.
 		this.finished = true;
+		console.log(`[qoka-timing] ${qokaT()} setup-ready FIRED (${expired ? `HARD CAP ${cap}ms reached; still open: inFlight=[${[...this.tracking].join(', ')}] known=[${[...this.knownPending].join(', ')}]` : 'all trackers done'})`);
 		// Setup is genuinely done (all known MCP trackers reported, or the hard
 		// cap elapsed) - let the Claude chat session start/connect to MCP now.
 		markAriaSetupReady();

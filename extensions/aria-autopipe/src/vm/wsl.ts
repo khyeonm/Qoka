@@ -24,7 +24,22 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { join } from 'path';
 
-const execFileAsync = promisify(execFile);
+const rawExecFileAsync = promisify(execFile);
+
+/** Startup-timing diagnostics: every wsl.exe / cmd.exe call logs its args, duration and outcome. */
+const execFileAsync = (async (file: string, args: readonly string[], opts: object) => {
+	const t = Date.now();
+	const what = `${file.split(/[\\/]/).pop()} ${args.join(' ').replace(/\s+/g, ' ').slice(0, 80)}`;
+	try {
+		const r = await rawExecFileAsync(file, args, opts);
+		console.log(`[qoka-timing] exec ${what}: ok in ${Date.now() - t}ms`);
+		return r;
+	} catch (e) {
+		const code = (e as { code?: unknown }).code;
+		console.log(`[qoka-timing] exec ${what}: FAILED in ${Date.now() - t}ms (code ${String(code)})`);
+		throw e;
+	}
+}) as typeof rawExecFileAsync;
 
 /** Longer than a normal exec: a first-run `apt-get install docker.io` pulls a
  *  lot and can take minutes on a slow connection. */

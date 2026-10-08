@@ -75,6 +75,13 @@ async function chooseAiProviders(): Promise<void> {
 
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-skills] activate()');
+	// Startup-timing diagnostics: each synchronous activation step below blocks the
+	// extension host (and so Qoka's "Preparing Qoka" loader), so time them one by one.
+	const activateT0 = Date.now();
+	const timed = (name: string, fn: () => void): void => {
+		const t = Date.now();
+		try { fn(); } finally { console.log(`[qoka-timing] aria-skills activate step ${name}: ${Date.now() - t}ms`); }
+	};
 
 	// Bring up the Output channel first so any setup-time errors land
 	// somewhere the user can find them.
@@ -84,33 +91,33 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Put Qoka's Node + ~/.local/bin on the shared extension-host PATH so every
 	// extension (autopipe, paper, …) can run the codex CLI - an npm script that
 	// needs `node` - even when the machine has no system Node.
-	ensureQokaBinsOnPath();
+	timed('ensureQokaBinsOnPath', () => ensureQokaBinsOnPath());
 
 	// Touch ~/.env on startup so "Open ~/.env" always opens something.
-	ensureEnvFile();
+	timed('ensureEnvFile', () => ensureEnvFile());
 
 	// Register the Qoka PreToolUse hook with Claude Code. The hook
 	// injects Qoka's environment rules whenever Claude is about to run
 	// a shell command that touches .env files, pip/conda installs, or
 	// credential env vars - so skill SKILL.md instructions to "create a
 	// .env file" get overridden in favour of Qoka's Settings tab.
-	ensureAriaHook();
+	timed('ensureAriaHook', () => ensureAriaHook());
 
 	// Codex reads ~/.codex/AGENTS.md as BASE instructions every session, so that -
 	// not the MCP instructions field (Codex ignores it) and not a skill body (only
 	// loads on a keyword match) - is where Qoka's "prefer our MCP tools" routing
 	// has to live to be guaranteed. Refreshed on launch; only our marked block.
-	ensureCodexAgentsMd();
+	timed('ensureCodexAgentsMd', () => ensureCodexAgentsMd());
 
 	// Refresh app-bundled default skills whose SKILL.md changed in this build
 	// (e.g. iterative-paper-defense gaining the Codex reviewer) so an existing
 	// profile picks up the update without a re-install.
-	resyncBundledSkills();
+	timed('resyncBundledSkills', () => resyncBundledSkills());
 
 	// Mirror installed skills into any non-Claude provider's skills dir so
 	// Codex discovers them too, and re-mirror when a provider is
 	// installed later (debounced - installs fire onDidChange rapidly).
-	syncSkillsToProviders();
+	timed('syncSkillsToProviders', () => syncSkillsToProviders());
 	let providerSyncTimer: NodeJS.Timeout | undefined;
 	context.subscriptions.push(vscode.extensions.onDidChange(() => {
 		if (providerSyncTimer) { clearTimeout(providerSyncTimer); }
@@ -122,10 +129,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Drop any leftover "Literature", "Protein"… entries that older
 	// builds seeded the manifest with. Categories are now fully
 	// user-driven and only ones a real skill claims should remain.
-	reconcileCategories();
+	timed('reconcileCategories', () => reconcileCategories());
 	// Repair garbled env-var descriptions cached by older builds (markdown-table
 	// fragments) now that the parser is table-aware.
-	cleanupEnvDescriptions();
+	timed('cleanupEnvDescriptions', () => cleanupEnvDescriptions());
+	console.log(`[qoka-timing] aria-skills activate sync steps TOTAL: ${Date.now() - activateT0}ms`);
 
 	context.subscriptions.push(
 		// Single read endpoint the sidebar calls on mount + after every

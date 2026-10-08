@@ -153,8 +153,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Whether the Codex CLI is available - the Manuscript tab uses this to gate
 	// its Codex reviewer checkbox (the reviewer runs `codex exec`).
-	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.codexAvailable', () => cliAvailable('codex')));
-	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.claudeAvailable', () => cliAvailable('claude')));
+	// Startup-timing diagnostics: the loader calls these to verify the CLIs; log the time
+	// spent inside so a slow round-trip can be told apart from a slow check.
+	const timedCliAvailable = (name: 'claude' | 'codex'): boolean => {
+		const t = Date.now();
+		const ok = cliAvailable(name);
+		console.log(`[qoka-timing] aria-paper cliAvailable(${name}): ${ok} in ${Date.now() - t}ms`);
+		return ok;
+	};
+	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.codexAvailable', () => timedCliAvailable('codex')));
+	context.subscriptions.push(vscode.commands.registerCommand('aria.peerReview.claudeAvailable', () => timedCliAvailable('claude')));
 
 	// Instant citation-style preview for the wizard's Format step.
 	context.subscriptions.push(vscode.commands.registerCommand('aria.paper.previewCitation', (style: string) =>

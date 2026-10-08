@@ -18,7 +18,7 @@ import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser
 import { timeout } from '../../../../base/common/async.js';
 import { isWindows } from '../../../../base/common/platform.js';
 import { revealAiProviderChat } from './aiProviderChat.js';
-import { whenAriaSetupReady, markAriaMcpRegistered } from './ariaSetupReady.js';
+import { whenAriaSetupReady, markAriaMcpRegistered, isAriaSetupReady, describeSetupPending } from './ariaSetupReady.js';
 import { ConcreteProvider, hasPickedAiProvider, takePendingInstall, PROVIDER_EXTENSION_ID, PROVIDER_LABEL } from './ariaAiProviderChoice.js';
 import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConfiguration.js';
 
@@ -104,6 +104,11 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		// Cover the window IMMEDIATELY (synchronously, at window load) so the bare
 		// workbench never flashes, then decide once we can read the live state.
 		const { hide: hideLoading, setText: setLoadingText, showEscape: showLoadingEscape } = this._showLoadingOverlay('Preparing Qoka…');
+		// Startup-timing diagnostics: every step below is logged as t+<ms since the loader
+		// appeared>, so the console alone shows where the "Preparing Qoka" time goes.
+		const loaderT0 = Date.now();
+		const tl = (step: string): void => console.log(`[qoka-timing] t+${Date.now() - loaderT0}ms ${step}`);
+		tl('loader shown');
 		// Drain the stale one-shot; the decision below is made from LIVE state.
 		takePendingInstall();
 		void (async () => {
@@ -132,7 +137,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			//    "install finished but the CLI is still absent (after one retry)" is a
 			//    real FAILURE signal - so a failed install (e.g. offline) ends the wait
 			//    instead of spinning forever, and is surfaced when the loader clears.
+			tl(`providers chosen: [${chosen.join(', ')}]`);
+			const actT0 = Date.now();
 			try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
+			tl(`extension activation (onStartupFinished) done: ${Date.now() - actT0}ms`);
 
 			// Run the CLI+MCP chain AND the built-in run-environment gate IN PARALLEL:
 			// they are independent (CLI/MCP are host-side; the run env is WSL/Ubuntu). We
@@ -150,10 +158,13 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					const results = await Promise.all(chosen.map(p => this._installAndVerifyCli(p)));
 					usable = chosen.filter((_, i) => results[i]);
 					failed = chosen.filter((_, i) => !results[i]);
+					tl(`CLI install/verify done: usable=[${usable.join(', ')}] failed=[${failed.join(', ')}]`);
 					if (usable.length === 0) { return; }
 					// Wait for the MCP servers, then register every Qoka MCP with the usable
 					// CLI(s) and hold until they ALL report registered (real completion signal).
+					const readyT0 = Date.now();
 					await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+					tl(`wait for setup-ready (MCP servers started): ${Date.now() - readyT0}ms -> ${isAriaSetupReady() ? 'signal' : `NOT READY (30s race expired); pending: ${describeSetupPending()}`}`);
 					// Retry until EVERY server is actually registered, not just whatever bound
 					// in the first few seconds. _registerMcpFast used to give up after ~4s and
 					// return a PARTIAL set; the chat then connected (its gate fires in finally)
@@ -172,8 +183,11 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 						await timeout(1000);
 					} while (Date.now() < regDeadline);
 					console.log(`[qoka-timing] MCP registration TOTAL: ${Date.now() - regT0}ms, outerAttempts=${regAttempts}, allRegistered=${allRegistered}`);
+					tl('MCP registration done');
 					// Prune pre-rename duplicate MCP entries so tools don't show twice.
+					const pruneT0 = Date.now();
 					try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
+					tl(`prune legacy MCP entries: ${Date.now() - pruneT0}ms`);
 				} finally {
 					// whirick (the Slides tab) is a URL-based OAuth MCP, so it can't ride the
 					// port-based fast path above. Register it with CLAUDE here - after applyConfig,
@@ -181,13 +195,16 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					// servers (a plain `claude mcp add` merges, it doesn't clobber them). Codex is
 					// NOT registered here: its eager OAuth would fire at startup before the user is
 					// ready; it is set up on demand via aria.slides.connectWhirickCodex.
+					const whirickT0 = Date.now();
 					try { await this.commandService.executeCommand('aria.slides.registerWhirickClaude'); } catch { /* best-effort */ }
+					tl(`whirick registration (claude CLI): ${Date.now() - whirickT0}ms`);
 					// Registration (config write) is DONE (or was skipped) - now let the chat
 					// session connect to MCP. Without this the chat connected at server-START
 					// (markAriaSetupReady) and raced ahead of its own config, so every server
 					// showed "failed" until a manual /mcp reconnect. On Windows the minutes-long
 					// WSL setup masked the race; Mac has no such wait, so it surfaced there.
 					markAriaMcpRegistered();
+					tl('MCP registered signal -> chat may connect');
 				}
 			})();
 			// On Windows the run env (installing Ubuntu, the account OOBE terminal,
@@ -197,7 +214,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			const prepT0 = Date.now();
 			const runEnvT0 = Date.now();
 			const runEnvDone = this._waitForBuiltinRunEnv(setLoadingText, showLoadingEscape)
-				.then(() => console.log(`[qoka-timing] run environment wait: ${Date.now() - runEnvT0}ms`));
+				.then(() => { console.log(`[qoka-timing] run environment wait: ${Date.now() - runEnvT0}ms`); tl('run environment ready'); });
 			await Promise.all([
 				cliMcp.then(() => console.log(`[qoka-timing] CLI+MCP chain: ${Date.now() - prepT0}ms`)),
 				runEnvDone,
@@ -205,6 +222,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			console.log(`[qoka-timing] "Preparing Qoka" TOTAL (loader visible): ${Date.now() - prepT0}ms`);
 			this._setupGateDone = true;
 			hideLoading();
+			tl('loader hidden (TOTAL incl. extension activation)');
 
 			if (usable.length === 0) {
 				this.notificationService.warn('Qoka could not set up the AI command-line tool. Check your internet connection, then reload the window to retry.');
@@ -302,6 +320,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					!!r && typeof r === 'object'
 					&& typeof (r as { name?: unknown }).name === 'string'
 					&& typeof (r as { port?: unknown }).port === 'number');
+				{
+					const missing = this._mcpInfoCommands.filter((_, i) => { const r = infos[i] as { port?: unknown } | undefined; return !(r && typeof r.port === 'number'); });
+					console.log(`[qoka-timing] MCP info pass ${pass + 1}: ${servers.length}/${this._mcpInfoCommands.length} reported (+${Date.now() - fastT0}ms)${missing.length ? `, missing: ${missing.join(', ')}` : ''}`);
+				}
 				if (servers.length === this._mcpInfoCommands.length) { break; }
 				if (pass < 3) { await timeout(1000); }
 			}
@@ -321,8 +343,10 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				// routes run_code to its own project's server (correct multi-window
 				// run_code + per-project bwrap). Codex has no per-project scope.
 				const workspacePath = this.workspaceContextService.getWorkspace().folders[0]?.uri.fsPath;
+				const applyT0 = Date.now();
 				const res = await this.commandService.executeCommand<{ allRegistered?: boolean }>(
 					'aria.mcp.applyConfig', { providers, servers, workspacePath });
+				console.log(`[qoka-timing] MCP applyConfig (write configs): ${Date.now() - applyT0}ms, allRegistered=${res?.allRegistered}`);
 				// Done only when the FULL set reported AND all registered; otherwise
 				// still run the fallback to catch servers that had not bound yet.
 				if (res && res.allRegistered === true && servers.length === this._mcpInfoCommands.length) {
@@ -616,8 +640,12 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	private async _installAndVerifyCli(provider: ConcreteProvider): Promise<boolean> {
 		const t0 = Date.now();
 		for (let attempt = 0; attempt < 2; attempt++) {
+			const i0 = Date.now();
 			try { await this.commandService.executeCommand('aria.provider.installCli', provider); } catch { /* reported below via availability */ }
-			if (await this._cliAvailable(provider)) {
+			const i1 = Date.now();
+			const available = await this._cliAvailable(provider);
+			console.log(`[qoka-timing] CLI ${provider} attempt ${attempt + 1}: installCli command ${i1 - i0}ms, availability check ${Date.now() - i1}ms, available=${available}`);
+			if (available) {
 				console.log(`[qoka-timing] CLI install/verify (${provider}): ${Date.now() - t0}ms (attempt ${attempt + 1})`);
 				return true;
 			}

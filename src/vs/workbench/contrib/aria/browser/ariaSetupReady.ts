@@ -25,6 +25,21 @@ let resolved = false;
 let resolveReady: () => void;
 const ready = new Promise<void>(r => { resolveReady = r; });
 
+/** True once the first-run tracker has fired markAriaSetupReady (not via a timeout). */
+export function isAriaSetupReady(): boolean {
+	return resolved;
+}
+
+/** Startup-timing diagnostics: the first-run tracker registers a reporter of what is
+ *  still pending, so the loader can log WHICH tracker held it up when it times out. */
+let pendingReporter: (() => string) | undefined;
+export function setSetupPendingReporter(fn: () => string): void {
+	pendingReporter = fn;
+}
+export function describeSetupPending(): string {
+	try { return pendingReporter ? pendingReporter() : '(no tracker reporter registered)'; } catch { return '(reporter failed)'; }
+}
+
 /** Called by the first-run overlay once setup (all MCP servers) is complete. */
 export function markAriaSetupReady(): void {
 	if (!resolved) {

@@ -485,7 +485,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	);
 	// Reconcile the registration with the stored key now (fire-and-forget): registers
 	// both CLIs if a key is stored, otherwise removes any stale registration.
-	if (store) { void ensurePenpotRegistered(store); }
+	if (store) {
+		// Startup-timing diagnostics: background, but it spawns claude/codex during the loader.
+		const penpotT0 = Date.now();
+		void ensurePenpotRegistered(store).finally(() => console.log(`[qoka-timing] penpot registration (background, CLI spawns): ${Date.now() - penpotT0}ms`));
+	}
 
 	// whirick MCP (the Slides tab). Two providers, two very different flows:
 	//  - Claude connects lazily (the user authorises on demand via /mcp), so it is

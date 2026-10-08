@@ -117,6 +117,7 @@ export class VMManager {
 	}
 
 	private set(status: VmStatus, error?: string): void {
+		console.log(`[qoka-timing] vm status ${this._status} -> ${status}${error ? ` (${error.slice(0, 120)})` : ''}`);
 		this._status = status; this._error = error;
 		this._onDidChange.fire(status);
 	}

@@ -84,9 +84,15 @@ function quoteArg(s: string): string {
 }
 
 async function resolveBinary(primary: string, candidates: string[]): Promise<string | null> {
-	try { await execAsync(`${primary} --version`, { timeout: 5000 }); return primary; } catch { /* fall through */ }
+	// Startup-timing diagnostics: each probe spawns the CLI (`--version`); log every try.
+	const probe = async (bin: string, cmd: string): Promise<boolean> => {
+		const t = Date.now();
+		try { await execAsync(cmd, { timeout: 5000 }); console.log(`[qoka-timing] whirick resolveBinary ${bin}: ok in ${Date.now() - t}ms`); return true; }
+		catch { console.log(`[qoka-timing] whirick resolveBinary ${bin}: failed in ${Date.now() - t}ms`); return false; }
+	};
+	if (await probe(primary, `${primary} --version`)) { return primary; }
 	for (const c of candidates) {
-		try { await execAsync(`"${c}" --version`, { timeout: 5000 }); return c; } catch { /* next */ }
+		if (await probe(c, `"${c}" --version`)) { return c; }
 	}
 	return null;
 }
@@ -96,20 +102,25 @@ function claudeCwd(): string | undefined {
 }
 
 async function claudeHasWhirick(claude: string, cwd: string): Promise<boolean> {
+	const t = Date.now();
 	try {
 		const out = await execAsync(`${quoteArg(claude)} mcp get ${NAME}`, { timeout: 15000, cwd });
-		return out.stdout.includes(SERVER_URL);
-	} catch { return false; }
+		const has = out.stdout.includes(SERVER_URL);
+		console.log(`[qoka-timing] whirick claude mcp get: ${Date.now() - t}ms, registered=${has}`);
+		return has;
+	} catch { console.log(`[qoka-timing] whirick claude mcp get: failed in ${Date.now() - t}ms`); return false; }
 }
 
 async function claudeAdd(claude: string, cwd: string): Promise<void> {
 	// Idempotent: skip if already pointing at the same URL (avoids dropping an
 	// already-authorized OAuth registration and re-triggering the browser prompt).
 	if (await claudeHasWhirick(claude, cwd)) { return; }
+	const t = Date.now();
 	for (const scope of ['local', 'user', 'project']) {
 		try { await execAsync(`${quoteArg(claude)} mcp remove --scope ${scope} ${NAME}`, { timeout: 15000, cwd }); } catch { /* not present */ }
 	}
 	await execAsync(`${quoteArg(claude)} mcp add --scope local ${NAME} ${quoteArg(SERVER_URL)} --transport http`, { timeout: 15000, cwd });
+	console.log(`[qoka-timing] whirick claude remove x3 + add: ${Date.now() - t}ms`);
 }
 
 async function codexHasWhirick(codex: string): Promise<boolean> {
