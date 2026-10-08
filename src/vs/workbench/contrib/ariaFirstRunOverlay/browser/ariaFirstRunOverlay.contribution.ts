@@ -10,7 +10,7 @@ import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as 
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { markAriaSetupReady, setSetupPendingReporter } from '../../aria/browser/ariaSetupReady.js';
+import { markAriaSetupReady, markAriaMcpServersReady, isAriaMcpServersReady, setSetupPendingReporter } from '../../aria/browser/ariaSetupReady.js';
 
 /** Startup-timing diagnostics: ms since this renderer loaded the module (~window load). */
 const QOKA_T0 = Date.now();
@@ -334,6 +334,7 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		console.log(`[qoka-timing] ${qokaT()} tracker DONE: ${name}${began !== undefined ? ` (took ${Date.now() - began}ms)` : ' (no BEGIN seen)'}`);
 		this.tracking.delete(name);
 		this.knownPending.delete(name);
+		this.maybeMarkMcpServersReady();
 		if (summary) {
 			this.summaries.push({ name, summary, changed });
 		}
@@ -354,6 +355,20 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 			} else {
 				this.settleTimer = setTimeout(() => this.finish(), POST_TRACKING_SETTLE_MS);
 			}
+		}
+	}
+
+	/** MCP registration only needs the MCP servers, not the Windows WSL/Ubuntu setup:
+	 *  once every known MCP tracker reported and nothing but WSL setup is in flight,
+	 *  signal it so ariaStartupChat registers now instead of waiting out WSL. */
+	private maybeMarkMcpServersReady(): void {
+		if (isAriaMcpServersReady() || this.knownPending.size > 0) {
+			return;
+		}
+		const others = [...this.tracking].filter(n => n !== 'aria-wsl-setup');
+		if (others.length === 0) {
+			console.log(`[qoka-timing] ${qokaT()} MCP servers ready (all MCP trackers done${this.tracking.size ? '; WSL setup still running' : ''})`);
+			markAriaMcpServersReady();
 		}
 	}
 
@@ -401,7 +416,10 @@ class AriaFirstRunOverlayContribution extends Disposable implements IWorkbenchCo
 		// knownPending guard above already holds until every known MCP tracker has
 		// reported, so we let the loader clear the instant setup is genuinely done.
 		this.finished = true;
-		console.log(`[qoka-timing] ${qokaT()} setup-ready FIRED (${expired ? `HARD CAP ${cap}ms reached; still open: inFlight=[${[...this.tracking].join(', ')}] known=[${[...this.knownPending].join(', ')}]` : 'all trackers done'})`);
+		// Only a real cap hit when something is still open: a tracker that finished right
+		// at the cap is a normal completion.
+		const capHit = expired && (this.knownPending.size > 0 || this.tracking.size > 0);
+		console.log(`[qoka-timing] ${qokaT()} setup-ready FIRED (${capHit ? `HARD CAP ${cap}ms reached; still open: inFlight=[${[...this.tracking].join(', ')}] known=[${[...this.knownPending].join(', ')}]` : 'all trackers done'})`);
 		// Setup is genuinely done (all known MCP trackers reported, or the hard
 		// cap elapsed) - let the Claude chat session start/connect to MCP now.
 		markAriaSetupReady();

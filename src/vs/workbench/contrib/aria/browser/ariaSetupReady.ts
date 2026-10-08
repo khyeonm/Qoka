@@ -45,7 +45,41 @@ export function markAriaSetupReady(): void {
 	if (!resolved) {
 		resolved = true;
 		resolveReady();
+		markAriaMcpServersReady();
 	}
+}
+
+// "MCP SERVERS started" signal: every MCP tracker has reported, IGNORING the Windows
+// WSL/Ubuntu setup tracker. markAriaSetupReady also waits for that tracker (it holds
+// the overlay through the Ubuntu install and account window), but MCP registration
+// does not need WSL at all, so ariaStartupChat waits on THIS instead and registers
+// in parallel with the WSL setup. Fired by the first-run tracker; markAriaSetupReady
+// implies it.
+let mcpServersReady = false;
+let resolveMcpServersReady: () => void;
+const mcpServersReadyPromise = new Promise<void>(r => { resolveMcpServersReady = r; });
+
+export function markAriaMcpServersReady(): void {
+	if (!mcpServersReady) {
+		mcpServersReady = true;
+		resolveMcpServersReady();
+	}
+}
+
+export function isAriaMcpServersReady(): boolean {
+	return mcpServersReady;
+}
+
+/** Resolves when every MCP server tracker has reported (WSL setup not included), or
+ *  after `timeoutMs` as a safety net. */
+export function whenAriaMcpServersReady(timeoutMs = 60000): Promise<void> {
+	if (mcpServersReady) {
+		return Promise.resolve();
+	}
+	return Promise.race([
+		mcpServersReadyPromise,
+		new Promise<void>(r => setTimeout(r, timeoutMs)),
+	]);
 }
 
 // Separate "MCP REGISTRATION written" signal. markAriaSetupReady fires when the MCP

@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { candidateClaudePaths, candidateCodexPaths } from '../detection/claudeCodeDetector';
+import { claudeRegisteredUrls } from './mcpConfigFiles';
 
 const execAsync = promisify(exec);
 
@@ -147,6 +148,15 @@ async function codexAdd(codex: string): Promise<boolean> {
 export async function registerWhirickWithClaude(): Promise<void> {
 	ensureQokaCliOnPath();
 	const cwd = claudeCwd();
+	// Already registered with this exact URL (read straight from the config file) ->
+	// nothing to do, and no CLI spawn. Anything else, or unsure -> the CLI path below.
+	if (cwd) {
+		const t = Date.now();
+		const urls = claudeRegisteredUrls(NAME, cwd);
+		const registered = !!urls && urls.length > 0 && urls.every(u => u === SERVER_URL);
+		console.log(`[qoka-timing] whirick config-file check: ${urls === undefined ? 'unknown' : registered ? 'registered' : 'not registered'} in ${Date.now() - t}ms`);
+		if (registered) { return; }
+	}
 	const claude = await resolveBinary('claude', candidateClaudePaths());
 	if (claude && cwd) {
 		try { await claudeAdd(claude, cwd); wlog('registered whirick with Claude (local scope)'); }

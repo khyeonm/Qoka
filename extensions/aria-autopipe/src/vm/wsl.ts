@@ -35,8 +35,10 @@ const execFileAsync = (async (file: string, args: readonly string[], opts: objec
 		console.log(`[qoka-timing] exec ${what}: ok in ${Date.now() - t}ms`);
 		return r;
 	} catch (e) {
-		const code = (e as { code?: unknown }).code;
-		console.log(`[qoka-timing] exec ${what}: FAILED in ${Date.now() - t}ms (code ${String(code)})`);
+		const err = e as { code?: unknown; killed?: unknown; stderr?: unknown; stdout?: unknown };
+		// wsl.exe writes its errors as UTF-16 (NULs between chars); strip them for the log.
+		const detail = stripNuls(String(err.stderr || err.stdout || '')).replace(/\s+/g, ' ').trim().slice(0, 200);
+		console.log(`[qoka-timing] exec ${what}: FAILED in ${Date.now() - t}ms (code ${String(err.code)}${err.killed ? ', killed by timeout' : ''})${detail ? `: ${detail}` : ''}`);
 		throw e;
 	}
 }) as typeof rawExecFileAsync;

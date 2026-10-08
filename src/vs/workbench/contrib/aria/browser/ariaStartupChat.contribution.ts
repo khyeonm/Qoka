@@ -18,7 +18,7 @@ import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser
 import { timeout } from '../../../../base/common/async.js';
 import { isWindows } from '../../../../base/common/platform.js';
 import { revealAiProviderChat } from './aiProviderChat.js';
-import { whenAriaSetupReady, markAriaMcpRegistered, isAriaSetupReady, describeSetupPending } from './ariaSetupReady.js';
+import { whenAriaMcpServersReady, markAriaMcpRegistered, isAriaMcpServersReady, describeSetupPending } from './ariaSetupReady.js';
 import { ConcreteProvider, hasPickedAiProvider, takePendingInstall, PROVIDER_EXTENSION_ID, PROVIDER_LABEL } from './ariaAiProviderChoice.js';
 import { ARIA_AI_PROVIDER_SETTING, ARIA_ALL_PROVIDERS } from '../common/ariaConfiguration.js';
 
@@ -162,9 +162,11 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 					if (usable.length === 0) { return; }
 					// Wait for the MCP servers, then register every Qoka MCP with the usable
 					// CLI(s) and hold until they ALL report registered (real completion signal).
+					// Waits for the MCP trackers only - not the Windows WSL setup, which needs
+					// nothing from MCP and runs in parallel (the loader still waits for both).
 					const readyT0 = Date.now();
-					await Promise.race([whenAriaSetupReady(), timeout(30000)]);
-					tl(`wait for setup-ready (MCP servers started): ${Date.now() - readyT0}ms -> ${isAriaSetupReady() ? 'signal' : `NOT READY (30s race expired); pending: ${describeSetupPending()}`}`);
+					await Promise.race([whenAriaMcpServersReady(), timeout(30000)]);
+					tl(`wait for MCP servers: ${Date.now() - readyT0}ms -> ${isAriaMcpServersReady() ? 'signal' : `NOT READY (30s race expired); pending: ${describeSetupPending()}`}`);
 					// Retry until EVERY server is actually registered, not just whatever bound
 					// in the first few seconds. _registerMcpFast used to give up after ~4s and
 					// return a PARTIAL set; the chat then connected (its gate fires in finally)
@@ -425,7 +427,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			usable = providers.filter((_, i) => results[i]);
 			failed = providers.filter((_, i) => !results[i]);
 			if (usable.length > 0) {
-				await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+				await Promise.race([whenAriaMcpServersReady(), timeout(30000)]);
 				ok = await this._registerMcpFast(usable);
 				try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: usable, currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
 			}
@@ -558,7 +560,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				return; // finally still clears the loader; the extension is NOT opened on failure.
 			}
 			// Register every Qoka MCP with the new CLI, holding the loader until done.
-			await Promise.race([whenAriaSetupReady(), timeout(30000)]);
+			await Promise.race([whenAriaMcpServersReady(), timeout(30000)]);
 			await this._registerMcpFast([p]);
 			try { await this.commandService.executeCommand('aria.mcp.pruneLegacy', { providers: [p], currentNames: QOKA_MCP_NAMES }); } catch { /* best-effort */ }
 		} finally {

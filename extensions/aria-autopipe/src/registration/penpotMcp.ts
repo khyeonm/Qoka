@@ -7,6 +7,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { candidateClaudePaths, candidateCodexPaths } from '../detection/claudeCodeDetector';
+import { claudeRegisteredUrls, codexRegisteredUrl } from './mcpConfigFiles';
 
 const execAsync = promisify(exec);
 
@@ -113,7 +114,16 @@ export async function ensurePenpotRegistered(store: PenpotStore): Promise<void> 
 	const url = key ? penpotUrl(store.getServer(), key) : null;
 	const cwd = claudeCwd();
 
-	const claude = await resolveBinary('claude', candidateClaudePaths());
+	// Config-file pre-check (no CLI spawn): skip a provider whose file already matches the
+	// wanted state - registered with this exact URL, or (no key) not registered anywhere.
+	// Each skipped provider saves several 4-6s CLI runs on Windows. Unsure -> CLI below.
+	const claudeUrls = cwd ? claudeRegisteredUrls(NAME, cwd) : undefined;
+	const claudeOk = claudeUrls !== undefined && (url ? claudeUrls.length > 0 && claudeUrls.every(u => u === url) : claudeUrls.length === 0);
+	const codexUrl = codexRegisteredUrl(NAME);
+	const codexOk = codexUrl !== undefined && codexUrl === url;
+	plog(`ensureRegistered: config-file check claude=${claudeOk ? 'in sync' : 'needs CLI'} codex=${codexOk ? 'in sync' : 'needs CLI'}`);
+
+	const claude = claudeOk ? null : await resolveBinary('claude', candidateClaudePaths());
 	if (claude && cwd) {
 		if (url) {
 			const cur = await claudeCurrentUrl(claude, cwd);
@@ -128,7 +138,7 @@ export async function ensurePenpotRegistered(store: PenpotStore): Promise<void> 
 		}
 	}
 
-	const codex = await resolveBinary('codex', candidateCodexPaths());
+	const codex = codexOk ? null : await resolveBinary('codex', candidateCodexPaths());
 	if (codex) {
 		if (url) {
 			try { await codexAdd(codex, url); plog('ensureRegistered(codex): registered penpot'); }

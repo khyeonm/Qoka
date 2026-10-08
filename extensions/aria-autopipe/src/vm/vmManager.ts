@@ -247,6 +247,26 @@ export class VMManager {
 		return e instanceof Error ? e : new Error(String(e));
 	}
 
+	/** Record of the Ubuntu account Qoka last confirmed (`id -un`), per distro. Lets a
+	 *  relaunch skip waiting for the cold `id -un` before releasing the loader. Only a
+	 *  POSITIVE record: no record means "unknown", never "no account". */
+	private get wslAccountFile(): string { return path.join(this.dir, 'wsl-account.json'); }
+
+	private knownWslAccount(distro: string): string | undefined {
+		try {
+			const rec = JSON.parse(fs.readFileSync(this.wslAccountFile, 'utf8')) as { distro?: unknown; user?: unknown };
+			return rec.distro === distro && typeof rec.user === 'string' && rec.user && rec.user !== 'root' ? rec.user : undefined;
+		} catch { return undefined; }
+	}
+
+	private rememberWslAccount(distro: string, user: string): void {
+		try { fs.writeFileSync(this.wslAccountFile, JSON.stringify({ distro, user })); } catch { /* best-effort */ }
+	}
+
+	private forgetWslAccount(): void {
+		try { fs.rmSync(this.wslAccountFile, { force: true }); } catch { /* best-effort */ }
+	}
+
 	/** After opening the Ubuntu OOBE window, wait for the user to create their
 	 *  account (the distro's default user flips from `root` to a real name). Polls
 	 *  until it appears, so the server start can continue automatically the moment
@@ -304,6 +324,19 @@ export class VMManager {
 			}
 		}
 
+		// Fast path: once Qoka has seen a real account in this distro, report 'booting'
+		// BEFORE asking the distro for its default user. `id -un` has to boot Ubuntu, which
+		// can take 20-70s on a cold start, and 'booting' is what releases the startup
+		// loader - so a machine that is already set up no longer holds the loader through
+		// that boot. The check below still runs (in the background) with the same retries,
+		// and still falls back to the account window if the account is somehow gone. A
+		// machine with no record (first setup) takes the unchanged path.
+		const knownUser = this.knownWslAccount(distro);
+		if (knownUser) {
+			this.set('booting');
+			progress('Setting up the WSL run environment…');
+		}
+
 		// Ubuntu's first-run account step sets a non-root default user. Until the
 		// user has completed it, the default user is root. Open the OOBE window and
 		// WAIT for them to create the account, then continue automatically - the
@@ -312,15 +345,19 @@ export class VMManager {
 		// exists this whole branch is skipped and we boot straight away.)
 		let user = await defaultUser(distro);
 		if (!user || user === 'root') {
+			this.forgetWslAccount();
 			await launchDistroTerminal(distro);
 			this.set('provisioning');
 			progress('Create your Ubuntu username and password in the window that just opened - setup will continue automatically…');
 			user = await this.waitForUbuntuAccount(distro);
 		}
+		this.rememberWslAccount(distro, user);
 
 		// WSL + Ubuntu + account are all confirmed now → start the server.
-		this.set('booting');
-		progress('Setting up the WSL run environment…');
+		if (this._status !== 'booting') {
+			this.set('booting');
+			progress('Setting up the WSL run environment…');
+		}
 
 		const key = await this.ensureKey();
 		const pub = fs.readFileSync(key + '.pub', 'utf8').trim();
