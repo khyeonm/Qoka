@@ -14,6 +14,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { timeout } from '../../../../base/common/async.js';
 import { isWindows } from '../../../../base/common/platform.js';
@@ -57,6 +58,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+		@IProductService private readonly productService: IProductService,
 	) {
 		super();
 
@@ -138,9 +140,11 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 			//    real FAILURE signal - so a failed install (e.g. offline) ends the wait
 			//    instead of spinning forever, and is surfaced when the loader clears.
 			tl(`providers chosen: [${chosen.join(', ')}]`);
+			this._logFirstLaunchOfBuild();
 			const actT0 = Date.now();
 			try { await this.extensionService.activateByEvent('onStartupFinished'); } catch { /* ignore */ }
 			tl(`extension activation (onStartupFinished) done: ${Date.now() - actT0}ms`);
+			this._logSlowestExtensions();
 
 			// Run the CLI+MCP chain AND the built-in run-environment gate IN PARALLEL:
 			// they are independent (CLI/MCP are host-side; the run env is WSL/Ubuntu). We
@@ -758,6 +762,36 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 	 * can never trap the user. A short initial grace lets vm.start() (fired at
 	 * activation) move off 'stopped' before we decide the built-in target is idle.
 	 */
+	/** Startup-timing diagnostics: is this the first launch of THIS build (right after
+	 *  an install/update)? A first launch pays one-off costs (antivirus scanning the new
+	 *  files, a cold disk cache), so its timings are read separately from later ones. */
+	private _logFirstLaunchOfBuild(): void {
+		const build = `${this.productService.version}/${this.productService.commit ?? 'dev'}`;
+		let first = 'unknown';
+		try {
+			const KEY = 'qoka.timing.lastLaunchedBuild';
+			first = localStorage.getItem(KEY) === build ? 'no' : 'yes';
+			localStorage.setItem(KEY, build);
+		} catch { /* storage unavailable */ }
+		console.log(`[qoka-timing] first launch of this build: ${first} (${build})`);
+	}
+
+	/** Startup-timing diagnostics: the extensions that took longest to come up, split into
+	 *  `load` (reading + evaluating the extension's code files - slow when files are cold
+	 *  or being scanned) and `activate` (its activate() running until it resolved). */
+	private _logSlowestExtensions(): void {
+		try {
+			const rows = Object.values(this.extensionService.getExtensionsStatus())
+				.filter(st => st.activationTimes)
+				.map(st => ({ id: st.id.value, load: st.activationTimes!.codeLoadingTime, activate: st.activationTimes!.activateResolvedTime }))
+				.sort((a, b) => (b.load + b.activate) - (a.load + a.activate));
+			const totalLoad = rows.reduce((n, r) => n + r.load, 0);
+			const totalActivate = rows.reduce((n, r) => n + r.activate, 0);
+			console.log(`[qoka-timing] extensions activated: ${rows.length}, sum load ${totalLoad}ms, sum activate ${totalActivate}ms (they overlap, so sums exceed wall time)`);
+			console.log(`[qoka-timing] slowest extensions: ${rows.slice(0, 10).map(r => `${r.id} load ${r.load}ms + activate ${r.activate}ms`).join(', ')}`);
+		} catch { /* diagnostics only */ }
+	}
+
 	private async _waitForBuiltinRunEnv(setText: (s: string) => void, showEscape: (label: string, onClick: () => void) => void): Promise<void> {
 		if (!isWindows) {
 			return;

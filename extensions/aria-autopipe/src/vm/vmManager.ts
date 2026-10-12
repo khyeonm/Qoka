@@ -15,7 +15,7 @@ import { LOCAL_VM_ID, SshProfile, hostVmLimits } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
-import { wslAvailable, listDistros, listDistrosStrict, isWslServiceError, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath, wslShutdown } from './wsl';
+import { wslAvailable, listDistros, listDistrosStrict, listDistrosFromRegistry, isWslServiceError, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath, wslShutdown } from './wsl';
 import { windowsToWsl } from '../common/dockerEnv';
 import { ensureWorkspaceScaffold } from '../common/workspaceSync';
 
@@ -303,7 +303,16 @@ export class VMManager {
 		// listDistrosStrict THROWS if `wsl --list` itself errors (a wedged service),
 		// so that case propagates to startReal's shutdown+retry instead of being
 		// misread as "no Ubuntu -> install it".
-		let distro = pickDistro(await listDistrosStrict());
+		// Registry first: WSL's own registration, read without waking the WSL service (which
+		// made `wsl --list` take 10s on a cold start). Only a positive, fully-installed match
+		// is taken from it; anything else goes to `wsl --list` exactly as before, which is
+		// still the only thing that can lead to "no Ubuntu -> install it".
+		const regT0 = Date.now();
+		let distro = pickDistro(await listDistrosFromRegistry() ?? []);
+		console.log(`[qoka-timing] Ubuntu check via registry: ${distro ? `found ${distro}` : 'not established -> wsl --list'} in ${Date.now() - regT0}ms`);
+		if (!distro) {
+			distro = pickDistro(await listDistrosStrict());
+		}
 		if (!distro) {
 			// The WSL engine is present (wslAvailable passed) but no Ubuntu distro is
 			// registered. This is the state a FRESH machine lands in after the

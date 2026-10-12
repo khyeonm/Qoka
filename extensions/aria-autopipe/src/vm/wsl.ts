@@ -23,6 +23,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { join } from 'path';
+import { existsSync } from 'fs';
 
 const rawExecFileAsync = promisify(execFile);
 
@@ -87,7 +88,17 @@ function isWslNotInstalledText(...parts: unknown[]): boolean {
 	return text.includes('wslinstall') || text.includes('--install');
 }
 
+/** When wslAvailable last answered TRUE. Launch asks twice within seconds (the launch
+ *  decision, then startWsl); a recent "present" is reused for the second ask. A
+ *  "not present" is never reused, so an absent engine is always re-checked. */
+let wslAvailableAt = 0;
+const WSL_AVAILABLE_REUSE_MS = 60_000;
+
 export async function wslAvailable(): Promise<boolean> {
+	if (Date.now() - wslAvailableAt < WSL_AVAILABLE_REUSE_MS) {
+		console.log(`[qoka-timing] wsl --status skipped: reused a "present" result from ${Date.now() - wslAvailableAt}ms ago`);
+		return true;
+	}
 	for (let attempt = 0; attempt < 6; attempt++) {
 		try {
 			const { stdout, stderr } = await execFileAsync(wslExePath(), ['--status'], { windowsHide: true, env: WSL_ENV, timeout: 15_000 });
@@ -98,6 +109,7 @@ export async function wslAvailable(): Promise<boolean> {
 			if (isWslNotInstalledText(stdout, stderr)) {
 				return false;
 			}
+			wslAvailableAt = Date.now();
 			return true;
 		} catch (e) {
 			// wsl.exe usually reports "not installed" by writing that message to stderr AND
@@ -159,6 +171,45 @@ export async function listDistrosStrict(): Promise<string[]> {
 		.map(l => l.trim())
 		.filter(Boolean)
 		.filter(name => !/^docker-desktop/i.test(name));
+}
+
+/**
+ * Installed distro names read straight from WSL's own registration in the registry
+ * (HKCU\...\Lxss\{id}: DistributionName, State, BasePath) - the same records
+ * `wsl --list` reports, but without waiting for the WSL service (10s+ when it is cold).
+ *
+ * Stricter than `wsl --list`: a distro counts only when it is fully installed
+ * (State = 1) AND its disk is actually there (BasePath\<VhdFileName|ext4.vhdx>, or a
+ * WSL1 rootfs folder), so a registration whose files are gone is not reported.
+ *
+ * For a POSITIVE answer only: `undefined` (registry unreadable / unexpected format) and
+ * an empty list both mean "not established" - the caller then asks `wsl --list`, which
+ * stays the only source for "Ubuntu is missing, install it".
+ */
+export async function listDistrosFromRegistry(): Promise<string[] | undefined> {
+	if (process.platform !== 'win32') { return undefined; }
+	try {
+		const { stdout } = await rawExecFileAsync('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss', '/s'], { windowsHide: true, timeout: 5_000 });
+		const names: string[] = [];
+		// One block per key: a "HKEY_..." header line, then "    Name    REG_TYPE    data".
+		for (const block of stripNuls(stdout).split(/\n\s*\n/)) {
+			const vals = new Map<string, string>();
+			for (const line of block.split('\n')) {
+				const m = line.match(/^\s+(\S+)\s+REG_\w+\s+(.*)$/);
+				if (m) { vals.set(m[1], m[2].trim()); }
+			}
+			const name = vals.get('DistributionName');
+			const base = vals.get('BasePath')?.replace(/^\\\\\?\\/, '');
+			if (!name || !base || Number(vals.get('State')) !== 1) { continue; }
+			const disk = join(base, vals.get('VhdFileName') || 'ext4.vhdx');
+			const present = existsSync(disk) || existsSync(join(base, 'rootfs'));
+			console.log(`[qoka-timing] registry distro ${name}: State=${vals.get('State')} disk ${present ? 'present' : `MISSING (${disk})`}`);
+			if (present) { names.push(name); }
+		}
+		return names.filter(n => !/^docker-desktop/i.test(n));
+	} catch {
+		return undefined;
+	}
 }
 
 /** Lenient variant for probes/UI: returns [] on ANY error. Do NOT use it to decide
