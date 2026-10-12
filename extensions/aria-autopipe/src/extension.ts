@@ -328,7 +328,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			// handleWindowsBuiltinLaunch) so the workbench becomes usable now that the user opted out.
 			void vscode.commands.executeCommand('aria.startup.markComplete', 'aria-wsl-setup', '', false);
 		}),
-		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress(), wslPhase: wslSetupPhase, wslLaunchDecided, wslSetupPending })),
+		vscode.commands.registerCommand('aria.autopipe.vm.status', () => ({ status: vm.status(), error: vm.lastError(), progress: vm.progress(), wslPhase: wslSetupPhase, wslLaunchDecided, wslSetupPending, docker: vm.docker() })),
 		// Distinguish "WSL/Ubuntu not installed" from "installed but not connected" for
 		// the Connections section. On non-Windows these probes harmlessly return false/[].
 		vscode.commands.registerCommand('aria.autopipe.vm.wslProbe', async () => {

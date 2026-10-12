@@ -12,7 +12,7 @@ interface SshProfile { id: string; name: string; host: string; username: string;
 interface ConnectionsStatus { sshProfiles?: SshProfile[]; sshActiveProfileId?: string | null }
 interface Probe { kind?: string; connected?: boolean }
 /** Lifecycle of the built-in server, from `aria.autopipe.vm.status`. */
-interface VmStatus { status?: string; progress?: { message?: string; pct?: number } }
+interface VmStatus { status?: string; progress?: { message?: string; pct?: number }; docker?: { state?: string; error?: string } }
 /** From `aria.autopipe.vm.wslProbe`: whether the WSL engine and an Ubuntu distro are
  *  actually installed, so a not-connected row can say "install" vs "not connected". */
 interface WslProbe { wsl?: boolean; ubuntu?: boolean; serviceError?: boolean }
@@ -70,10 +70,16 @@ function builtinStatusText(active: boolean, vm: VmStatus | undefined, reachable:
 			if (isWindows) { return 'Setting up WSL and Ubuntu…'; }
 			return vm?.progress?.pct != null ? `Setting up, ${vm.progress.pct}%…` : 'Setting up…';
 		case 'booting':
-			return 'Starting…';
+			// Windows shows the setup step (first-time installs take a minute or two).
+			return isWindows && vm?.progress?.message ? vm.progress.message : 'Starting…';
 		case 'ready':
 			if (reachable === undefined) { return 'Checking connection…'; }
-			return reachable ? 'Connected - running on this computer' : 'Not connected - click to restart';
+			if (!reachable) { return 'Not connected - click to restart'; }
+			// Docker is installed in the background after the environment is ready: code
+			// already runs, only pipelines wait for it.
+			if (vm?.docker?.state === 'installing') { return 'Connected - installing Docker for pipelines (first time only)…'; }
+			if (vm?.docker?.state === 'failed') { return 'Connected - Docker is unavailable, so pipelines cannot run. Restart Qoka to retry.'; }
+			return 'Connected - running on this computer';
 		case 'error':
 			// A start error may be "WSL/Ubuntu not installed" OR "installed but not
 			// connected" - the wslProbe tells them apart (see wslNeededText).
@@ -299,7 +305,7 @@ export class ConnectionsSection extends SettingsSection {
 
 		// If the built-in server is still setting up, live-update its dot until it's
 		// ready (then it turns green on its own - no click needed). Bounded poll.
-		if (activeDot && activeKind === 'vm' && (vm?.status === 'provisioning' || vm?.status === 'booting')) {
+		if (activeDot && activeKind === 'vm' && (vm?.status === 'provisioning' || vm?.status === 'booting' || vm?.docker?.state === 'installing')) {
 			this.startBuiltinPoll(activeDot, builtinSub);
 		}
 	}
@@ -313,12 +319,13 @@ export class ConnectionsSection extends SettingsSection {
 	 * repaint the dot/text in place, so it flips to green the moment it's ready -
 	 * without the user clicking. Deliberately NOT a permanent live view: it stops as
 	 * soon as the server leaves the transitional state, when the row leaves the DOM
-	 * (settings closed / re-rendered), or after a 5-minute cap. After the cap the row
+	 * (settings closed / re-rendered), or after a 20-minute cap (a first-time Docker install
+	 * can take that long on a slow connection). After the cap the row
 	 * simply stays as-is; clicking it re-runs setup, which arms a fresh poll.
 	 */
 	private startBuiltinPoll(dotEl: HTMLElement, subEl: HTMLElement | undefined): void {
 		this.stopBuiltinPoll();
-		const deadline = Date.now() + 5 * 60 * 1000; // 5-minute cap
+		const deadline = Date.now() + 20 * 60 * 1000; // 20-minute cap
 		const tick = async (): Promise<void> => {
 			this.pollTimer = undefined;
 			if (!dotEl.isConnected || Date.now() >= deadline) { return; }
@@ -329,6 +336,11 @@ export class ConnectionsSection extends SettingsSection {
 				// Still setting up: neutral dot, live text, check again shortly.
 				this.paintDot(dotEl, true, undefined);
 				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, undefined, this.wslProbe); }
+				this.pollTimer = setTimeout(() => void tick(), 3000);
+			} else if (vm?.status === 'ready' && vm?.docker?.state === 'installing') {
+				// Connected; Docker still installing in the background. Keep the text live
+				// until it settles (the dot is already green from the last refresh).
+				if (subEl?.isConnected) { subEl.textContent = builtinStatusText(true, vm, true, this.wslProbe); }
 				this.pollTimer = setTimeout(() => void tick(), 3000);
 			} else {
 				// Left the transitional state (ready/error/stopped): a full refresh paints

@@ -187,26 +187,37 @@ export async function listDistrosStrict(): Promise<string[]> {
  * stays the only source for "Ubuntu is missing, install it".
  */
 export async function listDistrosFromRegistry(): Promise<string[] | undefined> {
+	return (await registryDistros())?.map(d => d.name);
+}
+
+/** The installed distros from WSL's registration, each with its registration ID (the
+ *  `{GUID}` key name). WSL creates a NEW ID every time a distro is registered, so the ID
+ *  tells a reinstalled "Ubuntu" apart from the one that was there before. Same rules
+ *  and `undefined` semantics as listDistrosFromRegistry. */
+export async function registryDistros(): Promise<{ name: string; id: string }[] | undefined> {
 	if (process.platform !== 'win32') { return undefined; }
 	try {
 		const { stdout } = await rawExecFileAsync('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss', '/s'], { windowsHide: true, timeout: 5_000 });
-		const names: string[] = [];
+		const found: { name: string; id: string }[] = [];
 		// One block per key: a "HKEY_..." header line, then "    Name    REG_TYPE    data".
 		for (const block of stripNuls(stdout).split(/\n\s*\n/)) {
 			const vals = new Map<string, string>();
+			let id = '';
 			for (const line of block.split('\n')) {
+				const key = line.match(/^HKEY_\S*\\Lxss\\(\{[^}\\]+\})\s*$/i);
+				if (key) { id = key[1].toLowerCase(); continue; }
 				const m = line.match(/^\s+(\S+)\s+REG_\w+\s+(.*)$/);
 				if (m) { vals.set(m[1], m[2].trim()); }
 			}
 			const name = vals.get('DistributionName');
 			const base = vals.get('BasePath')?.replace(/^\\\\\?\\/, '');
-			if (!name || !base || Number(vals.get('State')) !== 1) { continue; }
+			if (!id || !name || !base || Number(vals.get('State')) !== 1) { continue; }
 			const disk = join(base, vals.get('VhdFileName') || 'ext4.vhdx');
 			const present = existsSync(disk) || existsSync(join(base, 'rootfs'));
-			console.log(`[qoka-timing] registry distro ${name}: State=${vals.get('State')} disk ${present ? 'present' : `MISSING (${disk})`}`);
-			if (present) { names.push(name); }
+			console.log(`[qoka-timing] registry distro ${name} ${id}: State=${vals.get('State')} disk ${present ? 'present' : `MISSING (${disk})`}`);
+			if (present) { found.push({ name, id }); }
 		}
-		return names.filter(n => !/^docker-desktop/i.test(n));
+		return found.filter(d => !/^docker-desktop/i.test(d.name));
 	} catch {
 		return undefined;
 	}
@@ -296,6 +307,21 @@ export async function defaultUser(distro: string): Promise<string> {
 	throw lastErr instanceof Error ? lastErr : new Error('Could not read the WSL default user.');
 }
 
+/** One quick read of the distro's default user, WITHOUT defaultUser's retries: for
+ *  polling while the user creates their account in the Ubuntu window, where a slow or
+ *  failed read just means "ask again in a moment". `undefined` when it could not read. */
+export async function defaultUserOnce(distro: string, timeoutMs = 20_000): Promise<string | undefined> {
+	try {
+		const { stdout } = await execFileAsync(
+			wslExePath(), ['-d', distro, '--', 'sh', '-c', 'id -un'],
+			{ windowsHide: true, env: WSL_ENV, timeout: timeoutMs },
+		);
+		return stripNuls(stdout).trim() || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Run a script inside the distro as root (no sudo password needed).
  *
  *  The script is passed BASE64-ENCODED, not inline. A complex `bash -lc <script>`
@@ -306,11 +332,11 @@ export async function defaultUser(distro: string): Promise<string> {
  *  corrupts provisioning so nothing installs. base64 is pure [A-Za-z0-9+/=] with no
  *  shell metacharacters, so it passes through untouched; we decode it on the Linux
  *  side and pipe the exact original bytes into bash, which then sees correct quoting. */
-export async function runAsRoot(distro: string, script: string): Promise<string> {
+export async function runAsRoot(distro: string, script: string, timeoutMs = PROVISION_TIMEOUT_MS): Promise<string> {
 	const b64 = Buffer.from(script, 'utf8').toString('base64');
 	const { stdout } = await execFileAsync(
 		wslExePath(), ['-d', distro, '-u', 'root', '--', 'bash', '-lc', `echo ${b64} | base64 -d | bash`],
-		{ windowsHide: true, env: WSL_ENV, timeout: PROVISION_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 },
+		{ windowsHide: true, env: WSL_ENV, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
 	);
 	return stripNuls(stdout);
 }
@@ -326,18 +352,8 @@ export async function launchDistroTerminal(distro: string): Promise<void> {
 	}
 }
 
-/**
- * One-shot, idempotent provisioning. Installs openssh-server + docker when
- * missing, injects Qoka's SSH public key for `user`, creates the repo dir, and
- * generates host keys so sshd can start. It deliberately does NOT start any
- * service or edit sshd_config's Port - the keeper (see keeperScript) runs sshd
- * in the foreground on a command-line `-p <port>`, so a distro the user might
- * also run their own sshd in is left untouched. Prints QOKA_PROVISION_OK.
- */
-export function provisionScript(user: string, pubKey: string, repoDir: string): string {
-	// user is trusted (whoami); pubKey is our own ssh-keygen output (single line,
-	// no quotes). Still keep the pubKey in single quotes.
-	const u = user;
+/** apt helpers shared by both provisioning scripts. */
+function aptPrelude(): string[] {
 	return [
 		'set -e',
 		'export DEBIAN_FRONTEND=noninteractive',
@@ -348,7 +364,10 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		// Broken pipe)"), which kills apt mid-install so nothing gets installed and
 		// sshd never appears. Writing to a file removes the pipe entirely (broken pipe
 		// is then impossible), and -o Dpkg::Use-Pty=0 also drops the pty progress bar.
-		'apt() { command apt-get "$@" -o Dpkg::Use-Pty=0 >>/tmp/qoka-provision.log 2>&1; }',
+		// DPkg::Lock::Timeout: wait (up to 10 min) for another apt/dpkg to finish instead of
+		// failing at once - the background Docker install can still be running when a
+		// restart runs the core script, and the user may run apt themselves.
+		'apt() { command apt-get "$@" -o Dpkg::Use-Pty=0 -o DPkg::Lock::Timeout=600 >>/tmp/qoka-provision.log 2>&1; }',
 		'apt_update_once() { if [ "$APT_UPDATED" = 0 ]; then apt update -y || true; APT_UPDATED=1; fi; }',
 		// `apt-get update` exits 0 even when it only PARTIALLY fetched - it just
 		// warns. On a cold WSL boot that leaves e.g. `main` present but `universe`
@@ -366,6 +385,32 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		'  done',
 		'  return 1',
 		'}',
+		// A previous install cut off mid-way (app closed, setup stopped) can leave dpkg
+		// "interrupted", which makes every later apt call fail. Finish it first; a no-op
+		// when nothing is pending.
+		'dpkg --configure -a >>/tmp/qoka-provision.log 2>&1 || true',
+	];
+}
+
+/**
+ * CORE provisioning, one-shot and idempotent: everything the run environment needs to
+ * ACCEPT CONNECTIONS and run code - openssh-server, Qoka's SSH public key for `user`, the
+ * repo dir, curl, bubblewrap, uv, and host keys so sshd can start. Kept small so a fresh
+ * Ubuntu is usable within a minute or two; Docker - by far the biggest download - is
+ * installed afterwards in the background by dockerProvisionScript. On a set-up machine
+ * every step is skipped and this takes a few seconds.
+ *
+ * It deliberately does NOT start any service or edit sshd_config's Port - the keeper
+ * (see keeperScript) runs sshd in the foreground on a command-line `-p <port>`, so a
+ * distro the user might also run their own sshd in is left untouched. Prints
+ * QOKA_PROVISION_OK.
+ */
+export function provisionScript(user: string, pubKey: string, repoDir: string): string {
+	// user is trusted (whoami); pubKey is our own ssh-keygen output (single line,
+	// no quotes). Still keep the pubKey in single quotes.
+	const u = user;
+	return [
+		...aptPrelude(),
 		// A freshly-installed WSL/Ubuntu often has a broken or empty /etc/resolv.conf,
 		// so apt cannot resolve the Ubuntu mirrors and EVERY install fails ("Temporary
 		// failure resolving archive.ubuntu.com") - the common cause of "local server
@@ -378,19 +423,11 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		// CLI but that never puts an sshd on PATH) and not `-f /etc/ssh/sshd_config`
 		// (a base image can ship the config without the openssh-server package).
 		'if [ ! -x /usr/sbin/sshd ]; then apt_install openssh-server; fi',
-		// Install the native docker engine only when NO docker CLI works, leaving a
-		// Docker Desktop WSL integration untouched. `docker.io` installs on a clean
-		// Ubuntu; if it FAILS (e.g. a distro that already carries docker-ce /
-		// containerd.io remnants, where apt refuses docker.io with "pkgProblemResolver
-		// generated breaks"), fall back to the docker-ce packages. Pure safety net: the
-		// `||` runs the fallback ONLY when docker.io failed, so the clean-Ubuntu path is
-		// byte-for-byte unchanged.
-		'if ! command -v docker >/dev/null 2>&1; then apt_install docker.io || apt_install docker-ce docker-ce-cli containerd.io; fi',
-		// docker-in-WSL2 needs the legacy iptables backend on some kernels.
-		'update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true',
-		`usermod -aG docker '${u}' 2>/dev/null || true`,
 		`install -d -m 700 -o '${u}' -g '${u}' '/home/${u}/.ssh'`,
-		`printf '%s\\n' '${pubKey}' > '/home/${u}/.ssh/authorized_keys'`,
+		// ADD Qoka's key, never overwrite: a user who already used this Ubuntu may have
+		// their own keys here (e.g. to SSH in from another machine).
+		`touch '/home/${u}/.ssh/authorized_keys'`,
+		`grep -qxF '${pubKey}' '/home/${u}/.ssh/authorized_keys' || printf '%s\\n' '${pubKey}' >> '/home/${u}/.ssh/authorized_keys'`,
 		`chown '${u}':'${u}' '/home/${u}/.ssh/authorized_keys'`,
 		`chmod 600 '/home/${u}/.ssh/authorized_keys'`,
 		// mkdir + best-effort chown, NOT `install -d -o -g`: when repoDir is a
@@ -413,7 +450,9 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
 		// bwrap install failure must NOT block the built-in server; run_code then falls
 		// back to a visible unsandboxed warning until the next launch reprovisions.
 		'if ! command -v bwrap >/dev/null 2>&1; then apt_install bubblewrap || true; fi',
-		'if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh || true; fi',
+		'if ! command -v uv >/dev/null 2>&1; then (curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh) >>/tmp/qoka-provision.log 2>&1 || true; fi',
+		// Not fatal (run_code installs uv itself if missing), but say so in the output.
+		'command -v uv >/dev/null 2>&1 || echo QOKA_PROVISION_WARN: uv not installed',
 		// Host keys + run dir so the keeper's foreground sshd can start.
 		'ssh-keygen -A',
 		'mkdir -p /run/sshd',
@@ -436,9 +475,10 @@ export function provisionScript(user: string, pubKey: string, repoDir: string): 
  * (VMManager.proc) and torn down on stop(). Uses `-p <port>` instead of editing
  * sshd_config so a user's own sshd config in the same distro is never touched.
  */
-export function keeperScript(port: number): string {
+/** The commands that bring the docker engine up (shared by the keeper and the Docker
+ *  keeper). Only acts when docker is installed but not answering. */
+function dockerStartLines(): string[] {
 	return [
-		'mkdir -p /run/sshd',
 		// Bring the native docker engine up, self-healing the most common WSL
 		// failure: after an unclean shutdown (WSL idle-stop / sleep / reboot) a
 		// stale `docker0` bridge is left behind and dockerd crash-loops on boot
@@ -446,14 +486,55 @@ export function keeperScript(port: number): string {
 		// which systemd then rate-limits ("Start request repeated too quickly").
 		// We only touch anything when docker is actually DOWN, and the keeper runs
 		// as root (`wsl -u root`), so no sudo is involved. Skipped entirely when
-		// docker is already healthy (e.g. Docker Desktop integration).
-		'if ! docker info >/dev/null 2>&1; then',
+		// docker is not installed yet, or already healthy (e.g. Docker Desktop).
+		'if command -v docker >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then',
 		'  systemctl reset-failed docker.service 2>/dev/null || true',
 		'  ip link delete docker0 2>/dev/null || true',
 		'  rm -f /var/lib/docker/network/files/local-kv.db 2>/dev/null || true',
 		'  service docker start >/dev/null 2>&1 || (command -v dockerd >/dev/null 2>&1 && nohup dockerd >/tmp/qoka-dockerd.log 2>&1 &)',
 		'  for _i in 1 2 3 4 5 6 7 8 9 10; do docker info >/dev/null 2>&1 && break; sleep 1; done',
 		'fi',
+	];
+}
+
+/**
+ * DOCKER provisioning, run in the background AFTER the run environment is ready (only
+ * pipelines need Docker; run_code does not). Installs the engine when no docker CLI
+ * works, and adds the user to the docker group (applies to new SSH sessions, and Qoka
+ * opens a fresh one per command). Does not start the engine - see dockerKeeperScript.
+ * Prints QOKA_DOCKER_OK when a docker CLI is present afterwards.
+ */
+export function dockerProvisionScript(user: string): string {
+	return [
+		...aptPrelude(),
+		// Install the native docker engine only when NO docker CLI works, leaving a
+		// Docker Desktop WSL integration untouched. `docker.io` installs on a clean
+		// Ubuntu; if it FAILS (e.g. a distro that already carries docker-ce /
+		// containerd.io remnants, where apt refuses docker.io with "pkgProblemResolver
+		// generated breaks"), fall back to the docker-ce packages. Pure safety net: the
+		// `||` runs the fallback ONLY when docker.io failed, so the clean-Ubuntu path is
+		// byte-for-byte unchanged.
+		'if ! command -v docker >/dev/null 2>&1; then apt_install docker.io || apt_install docker-ce docker-ce-cli containerd.io; fi',
+		// docker-in-WSL2 needs the legacy iptables backend on some kernels.
+		'update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true',
+		`usermod -aG docker '${user}' 2>/dev/null || true`,
+		'command -v docker >/dev/null 2>&1 && echo QOKA_DOCKER_OK',
+	].join('\n');
+}
+
+/**
+ * Starts the docker engine when Docker was installed AFTER the keeper came up (the
+ * keeper only starts it at launch), then stays in the foreground so the engine lives in
+ * a held-open session like everything the keeper starts. A managed child, killed on stop.
+ */
+export function dockerKeeperScript(): string {
+	return [...dockerStartLines(), 'exec tail -f /dev/null'].join('\n');
+}
+
+export function keeperScript(port: number): string {
+	return [
+		'mkdir -p /run/sshd',
+		...dockerStartLines(),
 		// Foreground sshd keeps the distro alive; -e logs to stderr (captured).
 		`exec /usr/sbin/sshd -D -e -p ${port}`,
 	].join('\n');

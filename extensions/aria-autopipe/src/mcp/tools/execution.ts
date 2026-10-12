@@ -33,6 +33,24 @@ function requireProfile() {
 	return profile;
 }
 
+/**
+ * Pipelines run in Docker. In the local WSL run environment Docker is installed in the
+ * BACKGROUND after the environment becomes usable (run_code does not need it), so on a
+ * fresh setup it may still be installing. Wait briefly; if it is still not there, throw
+ * a message telling the AI what is going on and to retry, instead of a docker error.
+ */
+export async function requireBuiltinDocker(): Promise<void> {
+	const { config, vm } = services();
+	if (!config.isLocalVmActive()) { return; }
+	const state = await vm.whenDockerSettled(45_000);
+	if (state === 'installing') {
+		throw new Error('Docker is still being installed in the local run environment (one-time setup, usually a few minutes). Tell the user Docker is being installed, wait about a minute, then call this tool again. Quick scripts can already run with run_code.');
+	}
+	if (state === 'failed') {
+		throw new Error(`Docker is not available in the local run environment: ${vm.docker().error ?? 'the installation failed'}. Ask the user to restart Qoka to retry the setup.`);
+	}
+}
+
 export interface LaunchPipelineOpts {
 	imageName: string;
 	runName: string;
@@ -55,6 +73,7 @@ export interface LaunchedPipeline {
  * button (which just launches and closes). Throws on a failed launch.
  */
 export async function launchPipeline(profile: SshProfile, opts: LaunchPipelineOpts): Promise<LaunchedPipeline> {
+	await requireBuiltinDocker();
 	const { ssh } = services();
 	const cores = Number.isInteger(opts.cores) && Number(opts.cores) > 0 ? String(Number(opts.cores)) : 'all';
 	const runName = String(opts.runName ?? '');
@@ -238,6 +257,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 			ensureAutopipeTabOpen();
 			try {
 				const profile = requireProfile();
+				await requireBuiltinDocker();
 				const { ssh } = services();
 				const paths = workspacePathsFor(profile);
 				const logDir = paths.output_dir;
@@ -347,6 +367,7 @@ export const EXECUTION_TOOLS: ToolDefinition[] = [
 			ensureAutopipeTabOpen();
 			try {
 				const profile = requireProfile();
+				await requireBuiltinDocker();
 				const { ssh } = services();
 				const paths = workspacePathsFor(profile);
 				const cores = Number.isInteger(args.cores) && Number(args.cores) > 0 ? String(Number(args.cores)) : 'all';

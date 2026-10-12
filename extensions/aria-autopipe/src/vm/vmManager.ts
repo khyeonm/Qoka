@@ -15,7 +15,7 @@ import { LOCAL_VM_ID, SshProfile, hostVmLimits } from '../common/types';
 import { Provisioner, ProgressFn } from './provisioner';
 import { buildFatSeedImage } from './fatSeed';
 import { SshService } from '../ssh/sshService';
-import { wslAvailable, listDistros, listDistrosStrict, listDistrosFromRegistry, isWslServiceError, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, keeperScript, wslExePath, wslShutdown } from './wsl';
+import { wslAvailable, listDistros, listDistrosStrict, registryDistros, defaultUserOnce, isWslServiceError, pickDistro, installUbuntuDistro, defaultUser, runAsRoot, launchDistroTerminal, provisionScript, dockerProvisionScript, dockerKeeperScript, keeperScript, wslExePath, wslShutdown } from './wsl';
 import { windowsToWsl } from '../common/dockerEnv';
 import { ensureWorkspaceScaffold } from '../common/workspaceSync';
 
@@ -65,6 +65,12 @@ const VFKIT_HOST_MOUNT = '/mnt/mac';
 // on a hardware-accelerated boot; the extra headroom only matters for slow ones.
 const READY_TIMEOUT_MS = 360_000;
 
+/** Waiting for the Ubuntu account ended because setup was stopped (the user chose to
+ *  continue without the run environment, or the app is closing) - not a WSL failure. */
+class AccountWaitStopped extends Error {
+	constructor() { super('Setup was stopped before the Ubuntu account was created. Click "Set up now" to continue.'); }
+}
+
 export class VMManager {
 	private _status: VmStatus = 'stopped';
 	private _error: string | undefined;
@@ -72,6 +78,11 @@ export class VMManager {
 	private proc: ChildProcess | undefined;
 	private gvproxyProc: ChildProcess | undefined;   // macOS vfkit networking helper
 	private starting: Promise<void> | undefined;
+	// Windows: Docker is installed in the BACKGROUND after the run environment is ready
+	// (only pipelines need it). 'unknown' = not applicable / not started (never blocks).
+	private _docker: { state: 'unknown' | 'installing' | 'ready' | 'failed'; error?: string } = { state: 'unknown' };
+	private dockerProc: ChildProcess | undefined;   // holds dockerd up when it was installed after the keeper started
+	private dockerGen = 0;                          // bumps on stop/start so a stale install's result is ignored
 	// vfkit multi-window: true when THIS window only CONNECTED to a shared VM that
 	// another window booted (so stop() must not kill it). false when this window is
 	// the owner that booted the VM (or on WSL/QEMU, which are single-owner anyway).
@@ -95,6 +106,17 @@ export class VMManager {
 	}
 
 	status(): VmStatus { return this._status; }
+	docker(): { state: 'unknown' | 'installing' | 'ready' | 'failed'; error?: string } { return this._docker; }
+
+	/** Resolves with the Docker state once it is no longer 'installing', or after
+	 *  `timeoutMs` (then still 'installing'). */
+	async whenDockerSettled(timeoutMs: number): Promise<'unknown' | 'installing' | 'ready' | 'failed'> {
+		const deadline = Date.now() + timeoutMs;
+		while (this._docker.state === 'installing' && Date.now() < deadline) {
+			await new Promise(r => setTimeout(r, 2000));
+		}
+		return this._docker.state;
+	}
 	lastError(): string | undefined { return this._error; }
 	progress(): { message: string; pct?: number } | undefined { return this._progress; }
 
@@ -174,7 +196,10 @@ export class VMManager {
 					await this.startReal();
 				}
 			} catch (err) {
-				this.set('error', err instanceof Error ? err.message : String(err));
+				// A stopped account wait keeps the 'stopped' state stop() set - it is not an error.
+				if (!(err instanceof AccountWaitStopped)) {
+					this.set('error', err instanceof Error ? err.message : String(err));
+				}
 				this.config.setLocalVmEndpoint(null);
 				throw err;
 			} finally {
@@ -208,7 +233,11 @@ export class VMManager {
 		if (process.platform === 'win32') {
 			try {
 				await this.startWsl(progress);
-			} catch {
+			} catch (first) {
+				// Waiting for the Ubuntu account ended because setup was stopped (Continue
+				// without / app closing) - not a WSL failure. Never `wsl --shutdown` here: it
+				// would close the account window the user may still be typing in.
+				if (first instanceof AccountWaitStopped) { throw first; }
 				// A WSL start failure is often a stuck lightweight VM (e.g.
 				// `Wsl/Service/E_UNEXPECTED` after an idle timeout). Reset it ONCE with a
 				// data-safe `wsl --shutdown` (never --unregister) and retry, so the user
@@ -252,15 +281,20 @@ export class VMManager {
 	 *  POSITIVE record: no record means "unknown", never "no account". */
 	private get wslAccountFile(): string { return path.join(this.dir, 'wsl-account.json'); }
 
-	private knownWslAccount(distro: string): string | undefined {
+	/** The record counts only for the SAME registration: WSL gives a distro a new ID each
+	 *  time it is (re)installed, so a reinstalled "Ubuntu" with no account yet never
+	 *  inherits the old one's record. No ID (registry unreadable) -> no fast path. */
+	private knownWslAccount(distro: string, distroId: string | undefined): string | undefined {
+		if (!distroId) { return undefined; }
 		try {
-			const rec = JSON.parse(fs.readFileSync(this.wslAccountFile, 'utf8')) as { distro?: unknown; user?: unknown };
-			return rec.distro === distro && typeof rec.user === 'string' && rec.user && rec.user !== 'root' ? rec.user : undefined;
+			const rec = JSON.parse(fs.readFileSync(this.wslAccountFile, 'utf8')) as { distro?: unknown; id?: unknown; user?: unknown };
+			return rec.distro === distro && rec.id === distroId && typeof rec.user === 'string' && rec.user && rec.user !== 'root' ? rec.user : undefined;
 		} catch { return undefined; }
 	}
 
-	private rememberWslAccount(distro: string, user: string): void {
-		try { fs.writeFileSync(this.wslAccountFile, JSON.stringify({ distro, user })); } catch { /* best-effort */ }
+	private rememberWslAccount(distro: string, user: string, distroId: string | undefined): void {
+		if (!distroId) { this.forgetWslAccount(); return; }
+		try { fs.writeFileSync(this.wslAccountFile, JSON.stringify({ distro, id: distroId, user })); } catch { /* best-effort */ }
 	}
 
 	private forgetWslAccount(): void {
@@ -273,14 +307,17 @@ export class VMManager {
 	 *  the account exists - no manual "Set up now" retry. Rejects after a generous
 	 *  timeout so a user who never finishes isn't left waiting forever. */
 	private async waitForUbuntuAccount(distro: string): Promise<string> {
-		const deadline = Date.now() + 15 * 60_000; // 15 minutes
-		while (Date.now() < deadline) {
+		// No time limit: creating the account is the user's step, and the loader stays up
+		// until it is done (they can still press "Continue without the run environment",
+		// which stops setup and ends this wait). Each poll is ONE quick read - a slow or
+		// failed read just means "ask again" - so a new account is noticed within seconds.
+		for (;;) {
 			await new Promise(r => setTimeout(r, 3000));
-			let u: string | undefined;
-			try { u = await defaultUser(distro); } catch { continue; }
+			if (this._status !== 'provisioning') { throw new AccountWaitStopped(); }
+			const u = await defaultUserOnce(distro);
+			if (this._status !== 'provisioning') { throw new AccountWaitStopped(); }
 			if (u && u !== 'root') { return u; }
 		}
-		throw new Error('Still waiting for the Ubuntu account. Create your username and password in the Ubuntu window, then click "Set up now".');
 	}
 
 	/** Windows boot path: provision a WSL2 Ubuntu distro (openssh-server + docker)
@@ -308,7 +345,8 @@ export class VMManager {
 		// is taken from it; anything else goes to `wsl --list` exactly as before, which is
 		// still the only thing that can lead to "no Ubuntu -> install it".
 		const regT0 = Date.now();
-		let distro = pickDistro(await listDistrosFromRegistry() ?? []);
+		const registered = await registryDistros();
+		let distro = pickDistro(registered?.map(d => d.name) ?? []);
 		console.log(`[qoka-timing] Ubuntu check via registry: ${distro ? `found ${distro}` : 'not established -> wsl --list'} in ${Date.now() - regT0}ms`);
 		if (!distro) {
 			distro = pickDistro(await listDistrosStrict());
@@ -340,7 +378,10 @@ export class VMManager {
 		// that boot. The check below still runs (in the background) with the same retries,
 		// and still falls back to the account window if the account is somehow gone. A
 		// machine with no record (first setup) takes the unchanged path.
-		const knownUser = this.knownWslAccount(distro);
+		// The record is tied to this distro's registration ID (see knownWslAccount). Look it up
+		// again when the registry did not give it above (e.g. Ubuntu was just installed).
+		const distroId = (registered?.find(d => d.name === distro) ?? (await registryDistros())?.find(d => d.name === distro))?.id;
+		const knownUser = this.knownWslAccount(distro, distroId);
 		if (knownUser) {
 			this.set('booting');
 			progress('Setting up the WSL run environment…');
@@ -360,7 +401,7 @@ export class VMManager {
 			progress('Create your Ubuntu username and password in the window that just opened - setup will continue automatically…');
 			user = await this.waitForUbuntuAccount(distro);
 		}
-		this.rememberWslAccount(distro, user);
+		this.rememberWslAccount(distro, user, distroId);
 
 		// WSL + Ubuntu + account are all confirmed now → start the server.
 		if (this._status !== 'booting') {
@@ -388,12 +429,15 @@ export class VMManager {
 			repo = `/home/${user}/aria`;
 		}
 
-		// 1) One-shot provisioning (idempotent): install docker + openssh-server,
-		//    inject the key, generate host keys. No services started here - WSL
-		//    would tear them down when this session exits.
+		// 1) Core provisioning (idempotent): openssh-server, the key, uv, bubblewrap, host
+		//    keys. No services started here - WSL would tear them down when this session
+		//    exits. Docker comes later, in the background (step 4).
+		progress('Installing the SSH server and Python tools (first time only, a minute or two)…');
+		const provT0 = Date.now();
 		const out = await runAsRoot(distro, provisionScript(user, pub, repo));
+		console.log(`[qoka-timing] WSL core provisioning: ${Date.now() - provT0}ms${out.includes('QOKA_PROVISION_WARN') ? ` (${out.split('\n').filter(l => l.startsWith('QOKA_PROVISION_WARN')).join('; ')})` : ''}`);
 		if (!out.includes('QOKA_PROVISION_OK')) {
-			throw new Error('Failed to set up docker/sshd inside WSL. See the Qoka output for details.');
+			throw new Error('Failed to set up the SSH server inside WSL. See the Qoka output for details.');
 		}
 
 		// 2) Keeper: a foreground sshd (-D) held open as a managed child. WSL has no
@@ -428,6 +472,49 @@ export class VMManager {
 			this.proc = undefined;
 			throw err instanceof Error ? err : new Error(String(err));
 		}
+
+		// 4) Docker in the background: the environment is already usable for run_code;
+		//    pipelines wait for this (see whenDockerSettled).
+		void this.ensureWslDocker(distro, user);
+	}
+
+	/** Install (when missing) and start Docker in the WSL distro, after the run
+	 *  environment is ready. Never throws; the outcome is in docker(). */
+	private async ensureWslDocker(distro: string, user: string): Promise<void> {
+		const gen = ++this.dockerGen;
+		this._docker = { state: 'installing' };
+		this._onDidChange.fire(this._status);
+		const t0 = Date.now();
+		let result: { state: 'ready' | 'failed'; error?: string };
+		try {
+			// A first install downloads ~75 MB and can be slow; allow 20 minutes.
+			const out = await runAsRoot(distro, dockerProvisionScript(user), 20 * 60_000);
+			if (gen !== this.dockerGen) { return; }
+			if (!out.includes('QOKA_DOCKER_OK')) {
+				throw new Error('Docker could not be installed in the WSL run environment. See /tmp/qoka-provision.log in Ubuntu.');
+			}
+			// The keeper only starts the engine at launch; start it now if it is not up.
+			const up = (await runAsRoot(distro, 'docker info >/dev/null 2>&1 && echo QOKA_DOCKER_UP || true', 30_000)).includes('QOKA_DOCKER_UP');
+			if (gen !== this.dockerGen) { return; }
+			if (!up) {
+				const proc = spawn(wslExePath(), ['-d', distro, '-u', 'root', '--', 'bash', '-c', dockerKeeperScript()], { stdio: 'ignore', windowsHide: true });
+				this.dockerProc = proc;
+				let ok = false;
+				for (let i = 0; i < 20 && !ok; i++) {
+					await new Promise(r => setTimeout(r, 2000));
+					if (gen !== this.dockerGen) { return; }
+					ok = (await runAsRoot(distro, 'docker info >/dev/null 2>&1 && echo QOKA_DOCKER_UP || true', 30_000)).includes('QOKA_DOCKER_UP');
+				}
+				if (!ok) { throw new Error('Docker was installed but the engine did not start. Restart Qoka to retry.'); }
+			}
+			result = { state: 'ready' };
+		} catch (e) {
+			if (gen !== this.dockerGen) { return; }
+			result = { state: 'failed', error: e instanceof Error ? e.message : String(e) };
+		}
+		console.log(`[qoka-timing] WSL docker setup: ${result.state} in ${Date.now() - t0}ms${result.error ? ` (${result.error.slice(0, 160)})` : ''}`);
+		this._docker = result;
+		this._onDidChange.fire(this._status);
 	}
 
 	/** Intel Mac / Linux boot path: portable QEMU with HVF/KVM and a TCG fallback.
@@ -750,6 +837,11 @@ export class VMManager {
 	}
 
 	async stop(): Promise<void> {
+		this.dockerGen++;
+		this._docker = { state: 'unknown' };
+		const dockerProc = this.dockerProc;
+		this.dockerProc = undefined;
+		if (dockerProc) { void this.killAndWait(dockerProc); }
 		this.set('stopped');
 		this.config.setLocalVmEndpoint(null);
 		if (this.vfkitJoined) {

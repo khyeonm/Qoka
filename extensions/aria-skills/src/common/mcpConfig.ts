@@ -76,7 +76,25 @@ function atomicWrite(file: string, content: string): void {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	const tmp = `${file}.qoka-tmp-${process.pid}`;
 	fs.writeFileSync(tmp, content, 'utf8');
-	fs.renameSync(tmp, file);
+	// Windows refuses to replace a file another process holds open at that instant (the
+	// Claude CLI reading its config, an antivirus scan) with EPERM / EBUSY / EACCES. It is
+	// momentary, so retry briefly (~2s total) instead of failing the whole fast path - one
+	// such failure used to push MCP registration onto the CLI fallback for 5 minutes.
+	const delays = [25, 50, 100, 200, 300, 400, 500, 500];
+	for (let i = 0; ; i++) {
+		try {
+			fs.renameSync(tmp, file);
+			return;
+		} catch (e) {
+			const code = (e as NodeJS.ErrnoException).code;
+			if (i >= delays.length || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) {
+				try { fs.rmSync(tmp, { force: true }); } catch { /* best-effort */ }
+				throw e;
+			}
+			console.log(`[qoka-timing] config write ${path.basename(file)}: ${code} on replace, retry ${i + 1} in ${delays[i]}ms`);
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delays[i]);
+		}
+	}
 }
 
 function quoteArg(s: string): string { return `"${s.replace(/"/g, '\\"')}"`; }

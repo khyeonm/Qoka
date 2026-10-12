@@ -804,13 +804,18 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				return;
 			}
 		} catch { /* storage unavailable - fall through and gate as normal */ }
-		const deadline = Date.now() + 20 * 60 * 1000; // 20 min - matches the overlay cap
+		// 20 min cap for everything EXCEPT the Ubuntu account step: while the user is creating
+		// their account ('provisioning' after the account window opened) the loader holds with
+		// no time limit, so it never clears before the account exists. "Continue without the
+		// run environment" stays available as the way out.
+		const deadline = Date.now() + 20 * 60 * 1000;
 		const graceUntil = Date.now() + 8000;         // let vm.start() begin
 		const escapeAt = Date.now() + 12000;          // offer an escape after a short wait
 		let seenActive = false;
 		let escaped = false;
 		let escapeShown = false;
-		while (Date.now() < deadline) {
+		let holdForAccount = false;
+		while (Date.now() < deadline || holdForAccount) {
 			if (escaped) {
 				// User chose to continue without the run environment. Leave setup running
 				// in the background (the connections panel reflects its progress) and let
@@ -844,6 +849,7 @@ class AriaStartupChatContribution extends Disposable implements IWorkbenchContri
 				continue;
 			}
 			const s = st?.status;
+			holdForAccount = s === 'provisioning';
 			if (s === 'provisioning') {
 				// Installing Ubuntu / waiting for the account. HOLD the loader here (this is
 				// the part the user must see and act on - the account OOBE window).
