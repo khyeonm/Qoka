@@ -29,7 +29,7 @@ export interface HubPlugin {
  */
 export class HubApiClient {
 
-	constructor(private readonly baseUrl: string) {}
+	constructor(private readonly baseUrl: string) { }
 
 	async listPipelines(): Promise<Pipeline[]> {
 		return this.getJson<Pipeline[]>('/api/pipelines');
@@ -60,8 +60,9 @@ export class HubApiClient {
 		return this.deleteJson<{ removed: number }>(path);
 	}
 
-	async listPlugins(): Promise<HubPlugin[]> {
-		return this.getJson<HubPlugin[]>('/api/plugins');
+	/** `timeoutMs` aborts a stalled request so callers can fall back instead of waiting forever. */
+	async listPlugins(timeoutMs?: number): Promise<HubPlugin[]> {
+		return this.getJson<HubPlugin[]>('/api/plugins', timeoutMs);
 	}
 
 	async getPluginByName(name: string): Promise<HubPlugin | null> {
@@ -72,8 +73,8 @@ export class HubApiClient {
 		return all.find(p => p.name === name) ?? null;
 	}
 
-	private async getJson<T>(path: string): Promise<T> {
-		const res = await fetch(this.baseUrl + path);
+	private async getJson<T>(path: string, timeoutMs?: number): Promise<T> {
+		const res = await fetch(this.baseUrl + path, timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : undefined);
 		await this.assertOk(res, `GET ${path}`);
 		return await res.json() as T;
 	}

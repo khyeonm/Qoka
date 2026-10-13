@@ -24,6 +24,7 @@ import { IHostService } from '../../../services/host/browser/host.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IAuthenticationService, AuthenticationSession } from '../../../services/authentication/common/authentication.js';
 import { ARIA_MARK } from './ariaLogo.js';
+import { GUIDE_CREATE_PROJECT, GUIDE_NEW_FOLDER, GUIDE_OPEN_PROJECT } from './ariaFolderDialogGuide.js';
 import { ROADMAP_SCHEME } from '../../ariaRoadmapWizard/browser/ariaRoadmapWizardCommon.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -136,27 +137,6 @@ const LOGIN_GATE_SKIP_FLAG = 'aria.loginGate.skipOnce';
 /** Legacy key from a previous attempt; cleared on startup so old
  *  installations don't keep a stale timestamp around. */
 const RECENT_PICK_KEY = 'aria.started.recentPickAt';
-
-/** README dropped into a new project folder to explain the default layout.
- *  Plain, non-developer-friendly wording; no emojis. */
-const PROJECT_TEMPLATE_README = `# Qoka project
-
-This folder was created by Qoka. Here is what each folder is for:
-
-- data/        Input data. Put your datasets here. Per-run input summaries
-               (for data kept on a server) go under data/<run-name>/.
-- analysis/    The CODE: code you asked to keep and notebooks (.ipynb), plus
-               autopipe pipeline code (one folder per pipeline). Quick throwaway
-               checks are not kept; low-value scratch code goes to .qoka/analysis/.
-- results/     The OUTPUTS: each run's result files and logs, in results/<run-name>/.
-- .qoka/       Qoka's own files - edit these through the app, not by hand:
-    manuscript/draft/   Papers you write in the Manuscript tab.
-    manuscript/review/  Results from the Manuscript tab's reviews.
-    references/         Papers you save to your Paper Library.
-    notebook/           Overview, roadmaps and research notes.
-
-You can rename or delete any folder you do not need.
-`;
 
 /** Persistent (localStorage) breadcrumb trail for the New Project / picker
  *  flow. openWindow reloads (or recreates) the window, wiping the DevTools
@@ -1478,11 +1458,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		banner.appendChild(out);
 	}
 
-	/** Whether the user clicked a mode card in THIS overlay session. Drives the card
-	 *  highlight: nothing is selected on appear, but a clicked card stays highlighted
-	 *  (survives the overlay's re-render on mode change). Resets with the window. */
-	private _modePickedInPicker = false;
-
 	private renderModeSection(parent: HTMLElement, currentMode: AriaMode): void {
 		const heading = document.createElement('h2');
 		heading.textContent = 'Mode';
@@ -1500,9 +1475,8 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		parent.appendChild(grid);
 
 		const cards: { mode: 'easy' | 'advanced'; card: HTMLButtonElement }[] = [];
-		// Paint one card as picked (blue) and the other neutral. NOTHING is painted
-		// until the user picks in THIS overlay session (no pre-selection), but once
-		// they click a card it highlights immediately for clear feedback.
+		// Paint one card as picked (blue) and the other neutral. The current mode is painted
+		// by default (Easy is the default), and clicking a card repaints it immediately.
 		const paintSelection = (picked: 'easy' | 'advanced' | null): void => {
 			for (const entry of cards) {
 				const on = entry.mode === picked;
@@ -1546,7 +1520,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 				e.stopPropagation();
 				// Highlight the clicked card at once (the reload into the project is
 				// what actually applies the mode; this is immediate visual feedback).
-				this._modePickedInPicker = true;
 				paintSelection(mode);
 				try { localStorage.setItem(MODE_CHOSEN_FLAG, '1'); } catch { /* ignore */ }
 				void this.commandService.executeCommand(ARIA_SET_MODE_COMMAND, mode);
@@ -1558,9 +1531,10 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 
 		makeCard('easy', 'Easy', 'Simplified UI focused on chat and the research side panels.');
 		makeCard('advanced', 'Advanced', 'Full IDE layout with drag-and-resize panels and every VS Code feature.');
-		// Keep the picked highlight across the overlay's re-render (it re-renders when
-		// the mode config changes); before any pick this session, both stay neutral.
-		if (this._modePickedInPicker && (currentMode === 'easy' || currentMode === 'advanced')) {
+		// Show the current mode as selected by DEFAULT (Easy is the default), so the picker
+		// reflects the active mode instead of an empty selection. Clicking a card switches the
+		// highlight and applies that mode; the highlight also survives the overlay re-render.
+		if (currentMode === 'easy' || currentMode === 'advanced') {
 			paintSelection(currentMode);
 		}
 	}
@@ -1581,7 +1555,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 		row.style.marginBottom = '24px';
 		parent.appendChild(row);
 
-		const makeCard = (label: string, detail: string, onclick: () => void): void => {
+		const makeCard = (label: string, detail: string, onclick: () => void): HTMLButtonElement => {
 			const card = document.createElement('button');
 			card.style.display = 'flex';
 			card.style.flexDirection = 'column';
@@ -1612,6 +1586,7 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 				onclick();
 			};
 			row.appendChild(card);
+			return card;
 		};
 
 		makeCard(
@@ -1620,19 +1595,33 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 			() => {
 				// New Project first creates+opens the project folder, then the
 				// roadmap canvas auto-opens inside that window (see createNewProject).
-				void this.createNewProject();
+				// Making a new folder inside the OS folder window is where first-time
+				// users get stuck, so a short picture guide comes first; OK opens the window.
+				void (async () => {
+					const go = await this.folderDialogGuideInOverlay('Create a new project', [
+						{ image: GUIDE_NEW_FOLDER, text: [['A folder window opens next. Click '], ['New folder', true], [' and type a name for your project.']] },
+						{ image: GUIDE_CREATE_PROJECT, text: [['Click the new folder once to select it, then click '], ['Create project', true], ['.']] },
+					]);
+					if (go) { await this.createNewProject(); }
+				})();
 			},
 		);
 
 		makeCard(
-			'Open Project...',
+			'Open Project',
 			'Browse for a folder on your machine.',
 			() => {
 				// Use the file dialog service directly so the user always
 				// sees the OS folder picker, not the recent-folder quick
 				// pick that the `workbench.action.files.openFolder`
-				// command opens in some VS Code variants.
-				void this.openFolderPicker();
+				// command opens in some VS Code variants. A one-step picture guide
+				// comes first; OK opens the window.
+				void (async () => {
+					const go = await this.folderDialogGuideInOverlay('Open an existing project', [
+						{ image: GUIDE_OPEN_PROJECT, text: [['A folder window opens next. Click your existing project folder, then click '], ['Open', true], ['.']] },
+					]);
+					if (go) { await this.openFolderPicker(); }
+				})();
 			},
 		);
 	}
@@ -1968,6 +1957,101 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	}
 
 	/**
+	 * A picture guide shown INSIDE the Started overlay before New Project / Open Project open the
+	 * OS folder window: numbered steps, each a screenshot of that window plus one sentence (bold
+	 * runs name the buttons to click). Resolves true on OK (then the caller opens the window),
+	 * false on Cancel / Escape / a click outside the card.
+	 */
+	private folderDialogGuideInOverlay(title: string, steps: { image: string; text: [string, boolean?][] }[]): Promise<boolean> {
+		return new Promise<boolean>((resolve) => {
+			const host = this.overlay;
+			if (!host) { resolve(true); return; }
+			const backdrop = document.createElement('div');
+			Object.assign(backdrop.style, {
+				position: 'fixed', inset: '0', zIndex: '2000000', background: 'rgba(0, 0, 0, 0.55)',
+				display: 'flex', alignItems: 'center', justifyContent: 'center',
+				fontFamily: 'var(--vscode-font-family, system-ui, sans-serif)', padding: '16px', boxSizing: 'border-box',
+			});
+			backdrop.style.setProperty('-webkit-app-region', 'no-drag');
+			const card = document.createElement('div');
+			Object.assign(card.style, {
+				width: steps.length > 1 ? 'min(880px, 100%)' : 'min(480px, 100%)', maxHeight: '100%', overflowY: 'auto', boxSizing: 'border-box',
+				background: 'var(--vscode-editorWidget-background, #252526)', color: 'var(--vscode-foreground, #cccccc)',
+				border: '1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.35))', borderRadius: '8px',
+				padding: '20px', boxShadow: '0 8px 30px rgba(0, 0, 0, 0.45)',
+			});
+			const t = document.createElement('div');
+			t.textContent = title;
+			Object.assign(t.style, { fontSize: '15px', fontWeight: '600', marginBottom: '14px' });
+			card.appendChild(t);
+			const grid = document.createElement('div');
+			Object.assign(grid.style, {
+				display: 'grid', gap: '16px', marginBottom: '18px',
+				gridTemplateColumns: steps.length > 1 ? 'repeat(auto-fit, minmax(260px, 1fr))' : '1fr',
+			});
+			steps.forEach((step, i) => {
+				const cell = document.createElement('div');
+				const img = document.createElement('img');
+				img.src = step.image;
+				img.alt = '';
+				Object.assign(img.style, {
+					display: 'block', width: '100%', height: 'auto', borderRadius: '6px',
+					border: '1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.35))',
+				});
+				const p = document.createElement('div');
+				Object.assign(p.style, { display: 'flex', gap: '8px', marginTop: '10px', fontSize: '13px', lineHeight: '1.5' });
+				if (steps.length > 1) {
+					const n = document.createElement('span');
+					n.textContent = String(i + 1);
+					Object.assign(n.style, {
+						flex: '0 0 20px', height: '20px', borderRadius: '50%', fontSize: '12px', fontWeight: '700',
+						display: 'flex', alignItems: 'center', justifyContent: 'center',
+						background: 'var(--vscode-button-background, #0e639c)', color: 'var(--vscode-button-foreground, #ffffff)',
+					});
+					p.appendChild(n);
+				}
+				const sentence = document.createElement('span');
+				for (const [run, bold] of step.text) {
+					const s = document.createElement(bold ? 'b' : 'span');
+					s.textContent = run;
+					sentence.appendChild(s);
+				}
+				p.appendChild(sentence);
+				cell.appendChild(img);
+				cell.appendChild(p);
+				grid.appendChild(cell);
+			});
+			card.appendChild(grid);
+			const row = document.createElement('div');
+			Object.assign(row.style, { display: 'flex', justifyContent: 'flex-end', gap: '8px' });
+			const makeBtn = (label: string, primary: boolean): HTMLButtonElement => {
+				const b = document.createElement('button');
+				b.textContent = label;
+				Object.assign(b.style, {
+					padding: '6px 16px', fontSize: '13px', borderRadius: '4px', cursor: 'pointer', fontFamily: 'inherit',
+					border: primary ? 'none' : '1px solid var(--vscode-button-border, rgba(127, 127, 127, 0.45))',
+					background: primary ? 'var(--vscode-button-background, #0e639c)' : 'var(--vscode-button-secondaryBackground, transparent)',
+					color: primary ? 'var(--vscode-button-foreground, #ffffff)' : 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
+				});
+				return b;
+			};
+			const cancelBtn = makeBtn('Cancel', false);
+			const okBtn = makeBtn('OK', true);
+			const finish = (v: boolean): void => { try { backdrop.remove(); } catch { /* already gone */ } resolve(v); };
+			cancelBtn.onclick = () => finish(false);
+			okBtn.onclick = () => finish(true);
+			backdrop.onclick = (e) => { if (e.target === backdrop) { finish(false); } };
+			backdrop.onkeydown = (e) => { if (e.key === 'Escape') { finish(false); } };
+			row.appendChild(cancelBtn);
+			row.appendChild(okBtn);
+			card.appendChild(row);
+			backdrop.appendChild(card);
+			host.appendChild(backdrop);
+			okBtn.focus();
+		});
+	}
+
+	/**
 	 * Create the default project folder layout inside a freshly created New
 	 * Project folder. The top level holds only the user-facing files
 	 * (data/, analysis/, results/); everything Qoka manages for you
@@ -1981,8 +2065,9 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 	private async scaffoldProjectTemplate(folderUri: URI): Promise<void> {
 		// The unified layout: data/ (inputs), analysis/ (code + pipeline code),
 		// results/ (outputs). Scaffolded up front so the folders are there before the
-		// first run. Keep this list and PROJECT_TEMPLATE_README in step with
-		// aria-autopipe's ensureWorkspaceScaffold (both create the same three dirs).
+		// first run. Keep this list in step with aria-autopipe's ensureWorkspaceScaffold
+		// (both create the same three dirs). No README is written: it added noise to
+		// every project and is gitignored anyway.
 		// 'notes' is intentionally NOT scaffolded: research notes now live inside the
 		// Notebook tab at .qoka/notebook/notes, so a top-level notes/ folder would be
 		// a confusing empty duplicate.
@@ -1992,12 +2077,6 @@ class AriaStartedOverlayContribution extends Disposable implements IWorkbenchCon
 				await this.fileService.createFolder(URI.joinPath(folderUri, dir));
 			} catch { /* best-effort */ }
 		}
-		try {
-			const readme = URI.joinPath(folderUri, 'README.md');
-			if (!(await this.fileService.exists(readme))) {
-				await this.fileService.writeFile(readme, VSBuffer.fromString(PROJECT_TEMPLATE_README));
-			}
-		} catch { /* best-effort */ }
 		try {
 			const marker = URI.joinPath(folderUri, '.qoka', 'project.json');
 			if (!(await this.fileService.exists(marker))) {

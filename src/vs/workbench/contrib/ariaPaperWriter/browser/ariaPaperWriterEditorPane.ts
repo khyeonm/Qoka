@@ -213,6 +213,13 @@ export class AriaPaperWriterEditorPane extends EditorPane {
 		if (this.proposalPending && !wasPending) { this.draftMode = 'source'; }
 	}
 
+	/** Re-read the paper from disk and show it (a staged proposal switches to the inline review). */
+	async refreshFromDisk(): Promise<void> {
+		await this.reload();
+		this.render();
+		this.maybeOpenReview();
+	}
+
 	/** When a revision is staged, surface it inline: make sure the Write step (with
 	 *  the inline diff review) is the visible step. No separate review tab. */
 	private maybeOpenReview(): void {

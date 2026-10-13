@@ -924,9 +924,13 @@ async function syncViewerAssociations(plugins: PluginService): Promise<void> {
 }
 
 /** Merge the Hub catalog with locally installed viewers into a display list. */
+/** Last Hub plugin list, so a slow or failed Hub request still lists the Hub viewers. */
+let lastHubPlugins: HubPlugin[] = [];
+
 async function listResultViewers(plugins: PluginService, hub: HubApiClient): Promise<ResultViewerRow[]> {
-	let hubPlugins: HubPlugin[] = [];
-	try { hubPlugins = await hub.listPlugins(); } catch { /* offline: show installed only */ }
+	let hubPlugins: HubPlugin[] = lastHubPlugins;
+	// A Hub request with no timeout could stall and leave the Result Viewers list empty.
+	try { hubPlugins = lastHubPlugins = await hub.listPlugins(5000); } catch { /* offline or slow: last list, else installed only */ }
 	const removed = plugins.getRemovedDefaults();
 	const defaultSet = resolveDefaultNames(hubPlugins);
 	const byName = new Map<string, ResultViewerRow>();

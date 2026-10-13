@@ -130,7 +130,7 @@ function renderHtml(webview: vscode.Webview): string {
 		<input id="q" placeholder="Search by name, description, or extension…" />
 		<button class="btn secondary" id="refresh">Refresh</button>
 	</div>
-	<div id="results"></div>
+	<div id="results"><div class="empty">Loading viewers…</div></div>
 	<div id="toast"></div>
 	<script>
 		const vscode = acquireVsCodeApi();
@@ -153,7 +153,10 @@ function renderHtml(webview: vscode.Webview): string {
 			render(filtered);
 		}
 		$('q').addEventListener('input', applyFilter);
-		$('refresh').addEventListener('click', () => { vscode.postMessage({ type: 'aria.viewers.list' }); });
+		$('refresh').addEventListener('click', () => {
+			$('results').innerHTML = '<div class="empty">Loading viewers…</div>';
+			vscode.postMessage({ type: 'aria.viewers.list' });
+		});
 
 		function render(rows) {
 			if (!rows || rows.length === 0) {

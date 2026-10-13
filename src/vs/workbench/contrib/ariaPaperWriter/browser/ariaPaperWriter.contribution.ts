@@ -61,7 +61,10 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 CommandsRegistry.registerCommand('aria.paperWriter.openReview', async (accessor, resource?: unknown) => {
 	const uri = reviveUri(resource);
 	if (!uri) { return; }
-	await accessor.get(IEditorService).openEditor(new AriaPaperWriterInput(uri), { pinned: true });
+	const pane = await accessor.get(IEditorService).openEditor(new AriaPaperWriterInput(uri), { pinned: true });
+	// Opening an already-open paper only focuses it, and its file watcher can miss the
+	// staged proposal (e.g. a project on NFS), so re-read it from disk to show the review.
+	if (pane instanceof AriaPaperWriterEditorPane) { await pane.refreshFromDisk(); }
 });
 
 // --- Commands ---------------------------------------------------------------

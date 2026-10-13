@@ -107,15 +107,17 @@ function run(cmd: string, args: string[], cwd: string): Promise<void> {
 	});
 }
 
-/** Extract a downloaded Node archive (.zip on Windows, .tar.xz elsewhere) so the
- *  binaries end up directly under QOKA_NODE_DIR. */
+/** Extract a downloaded Node archive (.zip on Windows, .tar.gz elsewhere) so the
+ *  binaries end up directly under QOKA_NODE_DIR. We use .tar.gz (gzip) rather than
+ *  .tar.xz because gzip ships everywhere, while `xz` is often missing on minimal
+ *  servers/containers (there tar exits with 2 on a .tar.xz). */
 async function extract(archive: string, folder: string, into: string): Promise<void> {
 	fs.mkdirSync(into, { recursive: true });
 	if (isWin) {
 		// bsdtar (tar.exe) ships on Windows 10+ and extracts .zip.
 		await run('tar', ['-xf', archive, '-C', into], into);
 	} else {
-		await run('tar', ['-xJf', archive, '-C', into], into);
+		await run('tar', ['-xzf', archive, '-C', into], into);
 	}
 	// Archives contain a single top-level `<folder>/` dir; hoist its contents to
 	// QOKA_NODE_DIR so bin/ (or the exe root on Windows) sits where we expect.
@@ -139,7 +141,7 @@ export async function ensureNode(): Promise<string> {
 	const plat = nodePlatform();
 	const arch = nodeArch();
 	const folder = `node-v${NODE_VERSION}-${plat}-${arch}`;
-	const ext = isWin ? 'zip' : 'tar.xz';
+	const ext = isWin ? 'zip' : 'tar.gz';
 	const url = `${DIST_BASE}/v${NODE_VERSION}/${folder}.${ext}`;
 
 	log(`nodeBootstrap: no system Node - downloading portable Node from ${url}`);
