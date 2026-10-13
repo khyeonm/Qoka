@@ -36,10 +36,10 @@ import { builtinExec } from '../runtime/builtinServer';
  */
 
 /** Bundled PDF.js library files (media/pdfjs/pdf.mjs + pdf.worker.mjs),
- *  resolved off `__dirname` (out/viewer at runtime) so the lookup works from
- *  the source tree or a built VSIX. */
+ *  resolved off `__dirname` (out/ at runtime - the extension is one bundled
+ *  out/extension.js) so the lookup works from the source tree or a built VSIX. */
 function pdfjsDir(): string {
-	return path.join(__dirname, '..', '..', 'media', 'pdfjs');
+	return path.join(__dirname, '..', 'media', 'pdfjs');
 }
 
 interface ViewerScope {

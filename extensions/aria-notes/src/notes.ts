@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { ServerBlockNoteEditor } from '@blocknote/server-util';
+import { blocksToMarkdownViaConverter, markdownToBlocksViaConverter } from './converter';
 
 /**
  * Note storage + Markdown<->BlockNote conversion for the aria-notes MCP.
@@ -16,16 +16,9 @@ import { ServerBlockNoteEditor } from '@blocknote/server-util';
  * (`{ version, title, blocks, updatedAt }`). Claude works in Markdown; this
  * module converts at the boundary using @blocknote/server-util (DOM-free,
  * version-matched to the editor) so the conversion matches what the editor
- * itself would produce.
+ * itself would produce. The library runs in a worker thread (converter.ts) so
+ * loading it never holds up Qoka's startup.
  */
-
-let serverEditor: ServerBlockNoteEditor | undefined;
-function getServerEditor(): ServerBlockNoteEditor {
-	if (!serverEditor) {
-		serverEditor = ServerBlockNoteEditor.create();
-	}
-	return serverEditor;
-}
 
 export interface NoteInfo {
 	id: string;
@@ -111,11 +104,11 @@ export function newNoteInfo(title: string): NoteInfo {
 }
 
 export async function blocksToMarkdown(blocks: unknown[]): Promise<string> {
-	return getServerEditor().blocksToMarkdownLossy(blocks as never);
+	return blocksToMarkdownViaConverter(blocks);
 }
 
 export async function markdownToBlocks(markdown: string): Promise<unknown[]> {
-	return (await getServerEditor().tryParseMarkdownToBlocks(markdown)) as unknown[];
+	return markdownToBlocksViaConverter(markdown);
 }
 
 /** First non-empty line of markdown, stripped of leading #/-/*, as a title. */

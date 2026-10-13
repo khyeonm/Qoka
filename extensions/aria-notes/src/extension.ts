@@ -9,6 +9,7 @@ import { AriaNotesMcpServer } from './mcp/server';
 import { clearStaging, resolveLocation, setFireProposal, skipPending } from './citationStaging';
 import { registerWithClaudeCode } from './registration/claudeCodeMcp';
 import { registerWithCodex } from './registration/codexMcp';
+import { startConverter, stopConverter } from './converter';
 
 let mcpServer: AriaNotesMcpServer | undefined;
 
@@ -52,6 +53,11 @@ async function registerAllProviders(port: number): Promise<{ changed: boolean; r
  */
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('[aria-notes] activate()');
+
+	// Load the Markdown<->BlockNote converter in a worker thread a few seconds after
+	// startup, off the startup path. A note tool used before then starts it at once.
+	const converterTimer = setTimeout(() => { void startConverter(); }, 5000);
+	context.subscriptions.push({ dispose: () => clearTimeout(converterTimer) });
 
 	const propose = (
 		filePath: string,
@@ -155,6 +161,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export async function deactivate(): Promise<void> {
 	console.log('[aria-notes] deactivate()');
+	stopConverter();
 	if (mcpServer) {
 		await mcpServer.stop();
 		mcpServer = undefined;

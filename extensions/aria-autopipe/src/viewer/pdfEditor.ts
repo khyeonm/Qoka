@@ -6,9 +6,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-/** Bundled PDF.js (ESM build), shared with the autopipe viewer. */
+/** Bundled PDF.js (ESM build), shared with the autopipe viewer. `__dirname` is out/ (the
+ *  extension is one bundled out/extension.js), so media/ is one level up. */
 function pdfjsDir(): string {
-	return path.join(__dirname, '..', '..', 'media', 'pdfjs');
+	return path.join(__dirname, '..', 'media', 'pdfjs');
 }
 
 /**

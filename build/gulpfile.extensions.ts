@@ -55,7 +55,10 @@ const compilations = [
 	// so the standard watch-extensions / compile-extensions tasks keep them in
 	// sync. Without these entries gulp never compiles them and their out/ goes
 	// stale, silently shipping old code.
-	'extensions/aria-autopipe/tsconfig.json',
+	// NOTE: aria-autopipe is NOT here: it self-bundles via esbuild
+	// (extensions/aria-autopipe/build.mjs, `npm run compile` in that dir) so it loads as
+	// one file at startup. Adding it back would let gulp overwrite the bundle with
+	// per-module tsc output.
 	'extensions/aria-skills/tsconfig.json',
 	'extensions/aria-paper-search/tsconfig.json',
 	'extensions/aria-methods-search/tsconfig.json',

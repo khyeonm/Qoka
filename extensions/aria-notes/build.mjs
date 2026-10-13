@@ -17,9 +17,12 @@ const watch = process.argv.includes('--watch');
 
 /** @type {import('esbuild').BuildOptions} */
 const options = {
-	entryPoints: ['src/extension.ts'],
+	// Two bundles: the extension itself (small - loads at startup) and the converter
+	// (@blocknote/server-util + friends, large - loaded later in a worker thread; see
+	// src/converter.ts). Nothing in extension.ts may import @blocknote directly.
+	entryPoints: ['src/extension.ts', 'src/convertWorker.ts'],
 	bundle: true,
-	outfile: 'out/extension.js',
+	outdir: 'out',
 	platform: 'node',
 	format: 'cjs',
 	target: 'node20',
@@ -46,5 +49,5 @@ if (watch) {
 	console.log('aria-notes: esbuild watching…');
 } else {
 	await esbuild.build(options);
-	console.log('aria-notes: bundled out/extension.js');
+	console.log('aria-notes: bundled out/extension.js + out/convertWorker.js');
 }
