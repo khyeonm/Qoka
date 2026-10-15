@@ -7,7 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { LoopRun, LoopSpec } from './schema';
-import { runLoop, runLockedEvaluator, materializeAndLockEvaluator, AgentStep, ScriptRunner } from './engine';
+import { runLoop, runLockedEvaluator, materializeAndLockEvaluator, failureSignature, AgentStep, ScriptRunner } from './engine';
 
 let failures = 0;
 function assert(cond: boolean, msg: string): void {
@@ -117,6 +117,124 @@ async function main(): Promise<void> {
 		console.log('Test 4 (evaluator lock):');
 		assert(verdict.pass === false, 'tampered on-disk copy did NOT force a pass (locked string used)');
 		assert(verdict.detail !== 'cheat', `real verdict used, not the cheat (got: ${verdict.detail})`);
+	}
+
+	// 5) VERDICT PARSING: the evaluator's JSON must win over the exit code, even when the detail is a
+	//    nested object or a log line with braces precedes it (a lazy match used to fall back to exit 0).
+	{
+		const verdictOf = async (stdout: string, exitCode: number | null) => {
+			const run = makeRun('placeholder');
+			return runLockedEvaluator(run, async () => ({ stdout, stderr: '', exitCode }));
+		};
+		console.log('Test 5 (verdict parsing):');
+		let v = await verdictOf('{"pass": false, "detail": {"auc": 0.71, "need": 0.9}}', 0);
+		assert(v.pass === false, 'nested detail object + exit 0 -> fail');
+		assert(v.detail.includes('0.71'), `nested detail kept as text (got ${v.detail})`);
+		v = await verdictOf('config {"lr": 0.01}\n{"pass": false, "detail": "auc 0.71"}', 0);
+		assert(v.pass === false, 'log line with braces before the verdict + exit 0 -> fail');
+		v = await verdictOf("params {'lr': 0.01}\n{\"pass\": true, \"detail\": \"ok\"}", 1);
+		assert(v.pass === true, 'python dict repr before the verdict, JSON pass wins over exit 1');
+		v = await verdictOf('{"pass": false, "detail": "first"}\n{"pass": true, "detail": "final"}', 1);
+		assert(v.pass === true && v.detail === 'final', 'the LAST verdict object is used');
+		v = await verdictOf('{"pass": "true", "detail": "string"}', 0);
+		assert(v.pass === false, 'pass must be boolean true (string "true" -> fail)');
+		v = await verdictOf('{"pass": false, "detail": "brace } inside { a string"}', 0);
+		assert(v.pass === false, 'braces inside a JSON string do not break the parse');
+		v = await verdictOf('no json here', 0);
+		assert(v.pass === true, 'no JSON -> exit code 0 = pass');
+		v = await verdictOf('no json here', 2);
+		assert(v.pass === false, 'no JSON -> non-zero exit = fail');
+		v = await verdictOf('', null);
+		assert(v.pass === false, 'killed evaluator (exit null, no output) -> fail');
+		const crash = await runLockedEvaluator(makeRun('x'), async () => { throw new Error('runner down'); });
+		assert(crash.pass === false, 'runner exception -> fail, never pass');
+	}
+
+	// 6) FAILURE SIGNATURE: an improving metric is progress; a repeated error with only volatile
+	//    numbers (traceback line, temp path, duration) changed is still the same failure.
+	{
+		console.log('Test 6 (failure signature):');
+		const improving = ['AUC 0.71 < target 0.90', 'AUC 0.78 < target 0.90', 'AUC 0.86 < target 0.90'].map(failureSignature);
+		assert(new Set(improving).size === 3, 'improving metric -> three distinct signatures');
+		const same = ['AUC 0.71 < target 0.90', 'AUC 0.71 < target 0.90'].map(failureSignature);
+		assert(same[0] === same[1], 'identical metric -> identical signature');
+		const tb = [
+			'File "/tmp/run_1/x.py", line 12, in <module> KeyError: \'gene\' (took 3.2s)',
+			'File "/tmp/run_7/x.py", line 40, in <module> KeyError: \'gene\' (took 9.8s)',
+		].map(failureSignature);
+		assert(tb[0] === tb[1], `same error, different line/path/duration -> same signature (got ${tb.join(' || ')})`);
+	}
+
+	// 7) NO-PROGRESS vs CONVERGING: a loop whose metric keeps improving must NOT be stopped as
+	//    "no progress"; it runs until it passes.
+	{
+		const { loopDir, cwd } = tmp();
+		const METRIC_EVALUATOR = `import os, json
+v = float(open('auc.txt').read()) if os.path.exists('auc.txt') else 0.0
+print(json.dumps({"pass": v >= 0.9, "detail": "AUC %.2f < target 0.90" % v}))`;
+		const run = makeRun(METRIC_EVALUATOR);
+		const aucs = ['0.71', '0.78', '0.84', '0.88', '0.93'];
+		const agent: AgentStep = async (r) => {
+			fs.writeFileSync(path.join(cwd, 'auc.txt'), aucs[Math.min(r.iteration, aucs.length - 1)]);
+			return { output: 'trained', exitCode: 0 };
+		};
+		const outcome = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		console.log('Test 7 (converging metric):');
+		assert(outcome === 'success', `converging loop succeeds (got ${outcome}, reason ${run.reason ?? '-'})`);
+		assert(run.iteration === 5, `succeeded on iteration 5 (got ${run.iteration})`);
+	}
+
+	// 8) STUCK METRIC: the same metric three times in a row is still no progress.
+	{
+		const { loopDir, cwd } = tmp();
+		const run = makeRun(`import json; print(json.dumps({"pass": False, "detail": "AUC 0.71 < target 0.90"}))`);
+		const agent: AgentStep = async () => ({ output: 'trained', exitCode: 0 });
+		const outcome = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		console.log('Test 8 (stuck metric):');
+		assert(outcome === 'failed-structural' && run.iteration === 3, `stuck metric stops at 3 (got ${outcome} @ ${run.iteration})`);
+	}
+
+	// 9) STOP, PAUSE, RESUME: stop mid-run; an environment error pauses without counting an
+	//    iteration; a resumed run continues the iteration count and history.
+	{
+		const { loopDir, cwd } = tmp();
+		const run = makeRun(ANSWER_EVALUATOR);
+		let calls = 0;
+		const agent: AgentStep = async () => { calls++; fs.writeFileSync(path.join(cwd, 'answer.txt'), 'nope' + calls); return { output: 'x', exitCode: 0 }; };
+		const stopped = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { }, shouldStop: () => calls >= 2 });
+		console.log('Test 9 (stop / pause / resume):');
+		assert(stopped === 'stopped' && run.status === 'stopped', `stop honored (got ${stopped})`);
+
+		const run2 = makeRun(ANSWER_EVALUATOR);
+		let n = 0;
+		const flaky: AgentStep = async () => {
+			n++;
+			if (n === 2) { return { output: '', exitCode: 1, envError: true, error: 'quota exceeded' }; }
+			fs.writeFileSync(path.join(cwd, 'answer.txt'), n >= 3 ? '42' : 'wrong');
+			return { output: 'x', exitCode: 0 };
+		};
+		const paused = await runLoop(run2, flaky, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		assert(paused === 'paused' && run2.iteration === 1, `env error pauses without counting an iteration (got ${paused} @ ${run2.iteration})`);
+		assert(run2.reason === 'quota exceeded', `pause reason surfaced (got ${run2.reason})`);
+		const resumed = await runLoop(run2, flaky, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		assert(resumed === 'success' && run2.iteration === 2 && run2.history.length === 2, `resume continues count + history (got ${resumed} @ ${run2.iteration}, history ${run2.history.length})`);
+
+		const run3 = makeRun(ANSWER_EVALUATOR);
+		const slow: AgentStep = async () => ({ output: '', exitCode: null, timedOut: true });
+		const to = await runLoop(run3, slow, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		assert(to === 'paused' && /time budget/.test(run3.reason ?? ''), `timed-out turn pauses with a time-budget reason (got ${to})`);
+	}
+
+	// 10) TIME BUDGET: wall-clock limit ends a loop that never passes.
+	{
+		const { loopDir, cwd } = tmp();
+		const run = makeRun(ANSWER_EVALUATOR, 1000);
+		run.budget.maxMin = 0.01; // 0.6 s
+		let k = 0;
+		const agent: AgentStep = async () => { k++; await new Promise(r => setTimeout(r, 250)); fs.writeFileSync(path.join(cwd, 'answer.txt'), 'v' + k); return { output: 'x', exitCode: 0 }; };
+		const outcome = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		console.log('Test 10 (time budget):');
+		assert(outcome === 'failed-budget' && run.iteration < 1000, `time budget stops the loop (got ${outcome} @ ${run.iteration})`);
 	}
 
 	console.log(failures === 0 ? '\nALL ENGINE TESTS PASSED' : `\n${failures} TEST(S) FAILED`);

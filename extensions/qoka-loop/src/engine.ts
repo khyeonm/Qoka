@@ -242,14 +242,55 @@ export async function runLockedEvaluator(run: LoopRun, runner: ScriptRunner): Pr
 	// (a traceback, "file not found", a metric dump) to the NEXT iteration - the one-line `detail` is
 	// only for the history/UI.
 	const raw = [r.stdout, r.stderr].filter(s => s && s.trim()).join('\n').trim();
-	const m = r.stdout.match(/\{[\s\S]*?"pass"[\s\S]*?\}/);
-	if (m) {
-		try {
-			const j = JSON.parse(m[0]) as { pass?: unknown; detail?: unknown };
-			return { pass: j.pass === true, detail: String(j.detail ?? ''), raw };
-		} catch { /* fall through to exit code */ }
+	const j = findVerdictJson(r.stdout);
+	if (j) {
+		const d = j.detail;
+		const detail = typeof d === 'string' ? d : d === undefined || d === null ? '' : JSON.stringify(d);
+		return { pass: j.pass === true, detail, raw };
 	}
 	return { pass: r.exitCode === 0, detail: (r.stderr || r.stdout).trim().slice(0, 500), raw };
+}
+
+/** Find the evaluator's verdict object in stdout: the LAST top-level balanced `{...}` that parses as
+ *  JSON and has a `pass` key. Scanning balanced braces (string-aware) instead of a lazy regex keeps a
+ *  nested `detail` object or an earlier log line with braces from breaking the parse and silently
+ *  falling back to the exit code (which could turn a reported failure into a pass). */
+export function findVerdictJson(stdout: string): { pass?: unknown; detail?: unknown } | undefined {
+	let found: { pass?: unknown; detail?: unknown } | undefined;
+	let i = stdout.indexOf('{');
+	while (i >= 0) {
+		const end = matchingBrace(stdout, i);
+		if (end < 0) { i = stdout.indexOf('{', i + 1); continue; }
+		let parsed: unknown;
+		try { parsed = JSON.parse(stdout.slice(i, end + 1)); } catch { parsed = undefined; }
+		if (parsed === undefined) {
+			// Not JSON (e.g. a log line or a Python dict repr): look inside it for a verdict.
+			i = stdout.indexOf('{', i + 1);
+			continue;
+		}
+		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'pass' in (parsed as object)) {
+			found = parsed as { pass?: unknown; detail?: unknown };
+		}
+		i = stdout.indexOf('{', end + 1);
+	}
+	return found;
+}
+
+/** Index of the `}` closing the `{` at `start`, ignoring braces inside JSON strings; -1 if unbalanced. */
+function matchingBrace(s: string, start: number): number {
+	let depth = 0;
+	let inStr = false;
+	for (let i = start; i < s.length; i++) {
+		const ch = s[i];
+		if (inStr) {
+			if (ch === '\\') { i++; } else if (ch === '"') { inStr = false; }
+			continue;
+		}
+		if (ch === '"') { inStr = true; }
+		else if (ch === '{') { depth++; }
+		else if (ch === '}') { depth--; if (depth === 0) { return i; } }
+	}
+	return -1;
 }
 
 /** Strip the volatile parts of an error (numbers, hex, paths, whitespace) so two runs of
@@ -264,7 +305,24 @@ export function normalizeSignature(s: string): string {
 		.slice(0, 200);
 }
 
-/** No progress = the last NO_PROGRESS_N failures share one normalized signature. */
+/** The signature stored per failed iteration: the normalized error text PLUS the numbers it reports
+ *  (metrics such as "AUC 0.71 < 0.90"). normalizeSignature alone maps every number to `#`, so an
+ *  improving metric (0.71 -> 0.78 -> 0.86) looked like the same failure and the loop was stopped as
+ *  "no progress" while it was converging. Volatile numbers (hex ids, paths, traceback line numbers,
+ *  timestamps, durations) are dropped first so a genuinely repeated error still compares equal. */
+export function failureSignature(detail: string): string {
+	const metrics = (detail || '')
+		.replace(/0x[0-9a-fA-F]+/g, ' ')
+		.replace(/\/[^\s:'"]+/g, ' ')
+		.replace(/\bline \d+/gi, ' ')
+		.replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?/g, ' ')
+		.replace(/\d+(\.\d+)?\s*(ms|s|sec|secs|seconds|min|mins|minutes)\b/gi, ' ')
+		.match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/gi);
+	const sig = normalizeSignature(detail);
+	return metrics && metrics.length ? `${sig} | ${metrics.join(',')}` : sig;
+}
+
+/** No progress = the last NO_PROGRESS_N failures share one signature. */
 export function noProgress(run: LoopRun): boolean {
 	const sigs = run.history.map(h => h.errorSignature).filter((s): s is string => !!s);
 	if (sigs.length < NO_PROGRESS_N) { return false; }
@@ -433,7 +491,7 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			iteration: run.iteration,
 			verdict: verdict.pass ? 'pass' : 'fail',
 			detail: verdict.detail,
-			errorSignature: verdict.pass ? undefined : normalizeSignature(verdict.detail),
+			errorSignature: verdict.pass ? undefined : failureSignature(verdict.detail),
 			at: new Date().toISOString(),
 			durationMs: Date.now() - iterStart,
 		};
