@@ -149,7 +149,8 @@ export class VcsService {
 		// a pipeline's analysis/<name>/README.md stays versioned). The project's other files
 		// (CLAUDE.md, AGENTS.md, .mcp.json, .claude/, ...) are the user's to version or ignore.
 		// Keep in step with aria-autopipe's GITIGNORE_ENTRIES.
-		const entries = ['.qoka/', 'data/', 'results/', '/README.md'];
+		// loops/: each loop's results + its code/ (the Loops tab's own per-iteration git repo).
+		const entries = ['.qoka/', 'data/', 'results/', 'loops/', '/README.md'];
 		const gitignorePath = path.join(workspacePath, '.gitignore');
 		let existing = '';
 		try { existing = fs.readFileSync(gitignorePath, 'utf8'); } catch { /* no file yet */ }

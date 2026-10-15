@@ -82,6 +82,7 @@ interface LoopView {
 	createdAt: string;
 	updatedAt: string;
 	reason?: string;
+	stallReport?: string;
 	flow: LoopRun['spec']['flow'];
 	evaluator: LoopRun['spec']['evaluator'];
 	lockedHash?: string;
@@ -159,6 +160,7 @@ function toView(run: LoopRun): LoopView {
 		createdAt: run.createdAt,
 		updatedAt: run.updatedAt,
 		reason: run.reason,
+		stallReport: run.stall?.report,
 		flow: run.spec.flow,
 		evaluator: run.spec.evaluator,
 		lockedHash: run.lockedEvaluatorRef?.hash ?? run.spec.evaluator.hash,
@@ -368,6 +370,7 @@ function renderHtml(webview: vscode.Webview): string {
 		.meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; margin-bottom: 20px; }
 		.meta div strong { opacity: 0.6; margin-right: 5px; font-weight: 500; }
 		.reason { font-size: 12px; padding: 8px 12px; border-radius: 4px; margin-bottom: 18px; background: var(--vscode-inputValidation-warningBackground, #4a3c00); border: 1px solid var(--vscode-inputValidation-warningBorder, #b8860055); }
+		.stall-report { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; white-space: pre-wrap; padding: 10px 12px; margin: -10px 0 18px; border-radius: 4px; border: 1px solid var(--vscode-inputValidation-warningBorder, #b8860055); }
 		.section { margin-bottom: 22px; }
 		.section > h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
 		.steps { margin: 0; padding-left: 18px; font-size: 13px; }
@@ -674,6 +677,7 @@ function renderHtml(webview: vscode.Webview): string {
 				+ '<div><strong>Updated</strong>' + fmtTime(l.updatedAt) + '</div>'
 				+ '</div>';
 			if (l.reason) { h += '<div class="reason">' + esc(l.reason) + '</div>'; }
+			if (l.status === 'paused' && l.stallReport) { h += '<div class="stall-report">' + esc(l.stallReport) + '</div>'; }
 
 			// Input / Output are shown as nodes in the diagram (with full text on hover), so we do not
 			// repeat them as text lines here - that was the cluttered part. Keep the readable step list.

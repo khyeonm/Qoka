@@ -657,8 +657,17 @@ export async function runScriptInEnv(
 	// A loop passes cwdRel = loops/<folder>/results so the evaluator runs in the SAME directory run_code
 	// wrote to - relative paths then resolve identically and cannot escape to the project root. Sanitized.
 	const safeCwdRel = (cwdRel && /^[A-Za-z0-9._/-]+$/.test(cwdRel) && !cwdRel.includes('..')) ? cwdRel.replace(/\/+$/, '') : undefined;
-	const runner = language === 'node' ? 'node' : language === 'bash' ? 'bash' : 'python3';
-	const ext = language === 'node' ? 'js' : language === 'bash' ? 'sh' : 'py';
+	// Map the spec's language to an interpreter. "sh"/"shell" are shell scripts too (previously they fell
+	// through to python3 and failed with a syntax error); an unknown language is reported, not guessed.
+	const lang = (language ?? 'python').toLowerCase();
+	const isNode = lang === 'node' || lang === 'js' || lang === 'javascript';
+	const isShell = lang === 'bash' || lang === 'sh' || lang === 'shell';
+	const isPython = lang === 'python' || lang === 'python3' || lang === 'py';
+	if (!isNode && !isShell && !isPython) {
+		return { stdout: '', stderr: `runScriptInEnv: unsupported evaluator language "${language}" (use python, bash or node)`, exitCode: 2 };
+	}
+	const runner = isNode ? 'node' : isShell ? 'bash' : 'python3';
+	const ext = isNode ? 'js' : isShell ? 'sh' : 'py';
 	const { profile: ep, isBuiltIn } = await resolveRunTarget();
 	const { ssh } = services();
 	const encoded = Buffer.from(code, 'utf8').toString('base64');

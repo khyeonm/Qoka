@@ -58,6 +58,8 @@ export function buildPrompt(run: LoopRun, feedback: string | undefined, where?: 
 		' - Use the run_code tool to write and run your code.',
 		' - Make the actual output the evaluator checks (e.g. the file/metric it reads).',
 		' - Keep changes minimal and focused; do not fabricate results.',
+		' - Do NOT run git in this loop (no git status / add / commit / init). This overrides any',
+		'   auto-commit instruction you were given: the loop engine versions each iteration\'s code itself.',
 		'',
 		...placement,
 		`THIS LOOP HAS ${n} PLANNED STEPS:`,

@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LoopSpec } from '../schema';
 import { saveLoop, readLoop, listLoops, writeLoop, loopsDir } from '../state';
-import { runLoop, ScriptRunner } from '../engine';
+import { runLoop, preflightEvaluator, ScriptRunner } from '../engine';
 import { warmGitBinary } from '../gitBin';
 import { loopLog } from '../log';
 import { makeAgentStep } from '../agentStep';
@@ -229,13 +229,25 @@ Only after the user agrees do you call save_loop(spec), then start_loop(loopId) 
 background. The user (not the agent) approves the evaluator; it is then sha256-locked so the work
 agent cannot alter it.
 
-Produce a LoopSpec with this shape and pass it verbatim to save_loop (evaluator.code is EXECUTABLE
-code returning a deterministic verdict: exit 0 = pass / non-zero = fail, or print {"pass": bool,
-"detail": "..."} on stdout). IMPORTANT - the "detail" on FAILURE must be a SHORT ONE-LINE summary of
-the CAUSE (the metric vs the threshold, or the single failing condition - e.g. "ARI=0.72 < 0.9" or
-"row count 180 != 200"), NOT a full traceback, stack dump, or multi-line log: this line is shown
-verbatim in the loop's iteration history, and the next iteration reads it as the fix-this feedback,
-so make it a concise, actionable reason. On PASS the detail can be a short confirmation or empty.
+EVALUATOR PROTOCOL (enforced by the engine - an evaluator that breaks it will not start):
+- evaluator.code is EXECUTABLE code (language "python", "bash" or "node") that ALWAYS ends by printing
+  exactly ONE JSON line on stdout: {"pass": true|false, "detail": "..."}. The exit code alone is NOT a
+  verdict: no JSON = fail. A pass also needs a clean exit (exit 0).
+- It must print a FAIL verdict - never crash - when the expected output files do not exist yet or
+  cannot be read: wrap the checks (e.g. try/except in Python) and print {"pass": false, "detail":
+  "<file> missing"}. Before the loop starts, Qoka runs the evaluator ONCE on the empty results folder:
+  if it prints no JSON there, or already PASSES there, the loop is refused and you must fix it.
+- "detail" is a SHORT ONE-LINE cause that includes the MEASURED VALUE next to the target (e.g.
+  "ARI=0.72 < 0.9", "row count 180 != 200", "3/5 checks passed: legend missing"), NOT a traceback or
+  multi-line log. It is shown in the iteration history, fed to the next iteration as the fix-this
+  feedback, and used to detect a stall: when the SAME detail repeats 3 times in a row the loop pauses and
+  asks the user, so a detail without the measured value would hide real progress. On PASS the detail
+  can be a short confirmation.
+- A goal that is not naturally numeric (e.g. "a clean UMAP figure") is turned into a CHECKLIST of
+  objective conditions (file exists, axis labels present, no unlabeled cells, dpi >= 300); pass = all
+  checks pass, detail = how many passed and which failed. A goal that cannot be reduced to objective
+  checks at all (purely aesthetic or persuasive quality) is NOT a loop: say so and offer a one-shot
+  run_code or a step the user reviews instead.
 {
   "title": "short title in PLAIN WORDS (2-5 words, e.g. \"normal sampling convergence\"). It becomes the loop's folder name, so avoid bare math/symbol notation like \"N(0,1)\" which slugs to noise",
   "goal": "one sentence goal",
@@ -395,6 +407,22 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	// run env so live [QOKA_STEP] markers reach the progress bar even on a remote SSH server.
 	const readIterLog = runEnvLogReader(`loops/${folder}/results/stdout.log`);
 	const resuming = run.iteration > 0;
+	// A fresh loop: run the locked evaluator once on the empty results folder first. A broken evaluator
+	// (no JSON verdict, or passing with no work done) is locked for the whole run and the sub-agent cannot
+	// fix it, so refuse to start and send it back to the chat for a fix + re-approval.
+	if (!resuming && run.history.length === 0) {
+		try { fs.mkdirSync(resultsDir, { recursive: true }); } catch { /* remote run env creates its own */ }
+		const pf = await preflightEvaluator(run, evaluatorRunner);
+		loopLog(`preflight ${id}: ${pf.ok ? 'ok' : 'REFUSED'} - ${pf.verdict.detail}`);
+		if (!pf.ok) {
+			abortControllers.delete(id);
+			return err(JSON.stringify({
+				started: false, loopId: id, problem: pf.problem,
+				evaluatorOutput: (pf.verdict.raw ?? '').slice(-1500),
+				next: 'Do NOT start this loop. Tell the user (in their language) briefly what is wrong with the success check, fix evaluator.code so it follows the EVALUATOR PROTOCOL from design_loop, show the user the corrected one-sentence success rule and get their approval (the success criterion changed), then call save_loop with the corrected spec and start_loop with the NEW loopId.',
+			}));
+		}
+	}
 	void vscode.commands.executeCommand('qoka.loop.open', id);
 	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, readIterLog, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })
 		.then(outcome => { stopRequested.delete(id); abortControllers.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
@@ -456,7 +484,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'start_loop',
-			description: 'Start running an APPROVED loop in the background. The engine sha256-locks the evaluator, then repeats: a sub-agent does the work with the full Qoka work toolset (run_code, pipelines, paper, notes, ...), the locked evaluator runs IN the run environment and judges, until it passes, stalls (same failure 3x), or the budget (iterations/minutes) runs out. Returns immediately. Do NOT poll; right after it returns, tell the user (in their language) that the loop started and to watch the live "Progress" section that appears UNDER the Flow in the loop detail tab (it only shows while running). Only call after the user has confirmed the loop.',
+			description: 'Start running an APPROVED loop in the background. The engine sha256-locks the evaluator, then repeats: a sub-agent does the work with the full Qoka work toolset (run_code, pipelines, paper, notes, ...), the locked evaluator runs IN the run environment and judges, until it passes or the budget (iterations / total minutes) runs out. If the same failure repeats 3 times it PAUSES (not fails) with a history report for the user to decide. Before a NEW loop starts, the evaluator is run once on the empty results folder; if it prints no JSON verdict or already passes, start_loop refuses with the reason - fix the evaluator, get the user\'s re-approval, save_loop and start the new loopId. Returns immediately. Do NOT poll; right after it returns, tell the user (in their language) that the loop started and to watch the live "Progress" section that appears UNDER the Flow in the loop detail tab (it only shows while running). Only call after the user has confirmed the loop.',
 			inputSchema: {
 				type: 'object',
 				properties: { loopId: { type: 'string', description: 'The loop id from save_loop / loop_list.' } },
@@ -492,7 +520,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'resume_loop',
-			description: 'Resume a PAUSED or STOPPED loop from where it left off (continues its iteration count and history). Use when the user asks to resume/continue a loop that was paused (environment error, or an iteration TIMED OUT) or stopped. To fix a timeout, pass a larger maxMin (and/or maxIter) to raise the budget before resuming - the loop paused precisely so the user could do this.',
+			description: 'Resume a PAUSED, STOPPED or budget-exhausted loop from where it left off (continues its iteration count, history and the last fix-this feedback). Use when the user asks to continue a loop that paused (environment error, a TIMED-OUT iteration, or NO CHANGE - the same failure repeated 3 times, after the user saw its report and chose to continue) or stopped. maxMin is the TOTAL time budget across all sessions; pass a larger maxMin and/or maxIter to give the loop more room (required when the budget is already used up).',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -516,12 +544,16 @@ export function buildTools(): ToolDefinition[] {
 					if (newIter) { run.budget.maxIter = newIter; }
 					writeLoop(run);
 				}
+				const usedMin = (run.budget.usedMs ?? 0) / 60_000;
+				if (run.iteration >= run.budget.maxIter || usedMin >= run.budget.maxMin) {
+					return err(`Loop ${id} has no budget left (${run.iteration}/${run.budget.maxIter} iterations, ${usedMin.toFixed(1)}/${run.budget.maxMin} min used). Ask the user how much more to allow, then call resume_loop with a larger maxIter and/or maxMin (maxMin is the total across all sessions).`);
+				}
 				return launchLoop(id);
 			},
 		},
 		{
 			name: 'propose_alternatives',
-			description: 'When a loop FAILED (no progress / budget exhausted), get its failure context so you can propose 2 concrete ALTERNATIVE loop designs (a different approach and/or a different evaluator) and ask the user which to pursue. Returns the loop\'s reason + recent failures; you then present the 2 options in chat (do not auto-run).',
+			description: 'When a loop PAUSED on no change (the same failure repeated) or FAILED (budget exhausted) and the user wants another way, get its failure context so you can propose 2 concrete ALTERNATIVE loop designs (a different approach and/or a different evaluator) and ask the user which to pursue. Returns the loop\'s reason, the no-change report if any, and recent failures; you then present the 2 options in chat (do not auto-run).',
 			inputSchema: {
 				type: 'object',
 				properties: { loopId: { type: 'string', description: 'The failed loop id from loop_list.' } },
@@ -539,6 +571,7 @@ export function buildTools(): ToolDefinition[] {
 					goal: run.spec.goal,
 					status: run.status,
 					reason: run.reason ?? null,
+					stallReport: run.stall?.report ?? null,
 					recentFailures: recent,
 					instruction: 'Propose exactly 2 alternative loop designs that avoid this failure mode: e.g. (1) a different APPROACH toward the same goal, (2) a different/relaxed-but-still-objective EVALUATOR or a concretized goal. Present both as one-line options in chat and ask the user which to pursue; design the full LoopSpec only after they choose. Do not auto-run.',
 				}));
@@ -565,6 +598,12 @@ export function buildTools(): ToolDefinition[] {
 				const id = typeof args.loopId === 'string' ? args.loopId : '';
 				const run = readLoop(id);
 				if (!run) { return err(`No loop with id ${id}.`); }
+				if (run.status === 'paused' && run.stall) {
+					return ok(JSON.stringify({
+						...run,
+						next: 'This loop PAUSED because nothing changed (the same failure repeated). Show the user stall.report (the recent iterations, budget used, where the code versions are) in their language, briefly say whether the history suggests it is stuck on something the loop cannot fix itself (a missing tool, data or permission) or might still improve, and ask them to choose: continue (resume_loop, optionally with more budget), stop, or alternative designs (propose_alternatives). Do not decide for them.',
+					}));
+				}
 				return ok(JSON.stringify(run));
 			},
 		},

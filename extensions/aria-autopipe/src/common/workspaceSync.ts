@@ -269,7 +269,9 @@ export function setUpQokaProjectNow(): void {
  *  analysis/<name>/README.md is part of the pipeline and stays versioned). The project's
  *  other files (CLAUDE.md, AGENTS.md, .mcp.json, .claude/, ...) are the user's to version
  *  or ignore. Mirrors aria-vcs's list. */
-const GITIGNORE_ENTRIES = ['.qoka/', 'data/', 'results/', '/README.md'];
+// loops/ holds each loop's results (regenerable) and code/, which is the Loops tab's OWN git repo
+// (one commit per iteration); tracking it from the project repo would only record an empty gitlink.
+const GITIGNORE_ENTRIES = ['.qoka/', 'data/', 'results/', 'loops/', '/README.md'];
 
 /** Lines an older Qoka (<= 0.4.18) added to a project's .gitignore that it no longer
  *  creates, in the order it wrote them. */

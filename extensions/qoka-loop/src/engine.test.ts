@@ -7,7 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { LoopRun, LoopSpec } from './schema';
-import { runLoop, runLockedEvaluator, materializeAndLockEvaluator, failureSignature, AgentStep, ScriptRunner } from './engine';
+import { runLoop, runLockedEvaluator, materializeAndLockEvaluator, failureSignature, preflightEvaluator, AgentStep, ScriptRunner } from './engine';
 
 let failures = 0;
 function assert(cond: boolean, msg: string): void {
@@ -86,9 +86,12 @@ async function main(): Promise<void> {
 			return { output: 'wrote', exitCode: 0 };
 		};
 		const outcome = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
-		console.log('Test 2 (no-progress):');
-		assert(outcome === 'failed-structural', `outcome is failed-structural (got ${outcome})`);
-		assert(run.iteration === 3, `stopped at 3 identical failures (got ${run.iteration})`);
+		console.log('Test 2 (no change -> pause with report):');
+		assert(outcome === 'paused' && run.status === 'paused', `same failure 3x pauses, not fails (got ${outcome})`);
+		assert(run.iteration === 3, `paused at 3 identical failures (got ${run.iteration})`);
+		assert(!!run.stall && run.stall.fromIteration === 0 && run.stall.toIteration === 2, 'stall records iterations 1-3');
+		assert(!!run.stall && /Recent iterations:/.test(run.stall.report) && /Budget used: 3\/15 iterations/.test(run.stall.report), 'stall report lists the history and budget');
+		assert(/No change/.test(run.reason ?? ''), `reason explains the pause (got ${run.reason})`);
 	}
 
 	// 3) BUDGET: agent keeps changing (distinct non-numeric values) but never hits 42.
@@ -132,16 +135,20 @@ async function main(): Promise<void> {
 		assert(v.detail.includes('0.71'), `nested detail kept as text (got ${v.detail})`);
 		v = await verdictOf('config {"lr": 0.01}\n{"pass": false, "detail": "auc 0.71"}', 0);
 		assert(v.pass === false, 'log line with braces before the verdict + exit 0 -> fail');
-		v = await verdictOf("params {'lr': 0.01}\n{\"pass\": true, \"detail\": \"ok\"}", 1);
-		assert(v.pass === true, 'python dict repr before the verdict, JSON pass wins over exit 1');
-		v = await verdictOf('{"pass": false, "detail": "first"}\n{"pass": true, "detail": "final"}', 1);
+		v = await verdictOf("params {'lr': 0.01}\n{\"pass\": true, \"detail\": \"ok\"}", 0);
+		assert(v.pass === true, 'python dict repr before the verdict does not hide the JSON pass');
+		v = await verdictOf('{"pass": false, "detail": "first"}\n{"pass": true, "detail": "final"}', 0);
 		assert(v.pass === true && v.detail === 'final', 'the LAST verdict object is used');
+		v = await verdictOf('{"pass": true, "detail": "ok"}\nTraceback: boom', 1);
+		assert(v.pass === false && /exited abnormally/.test(v.detail), 'JSON pass + crash (exit 1) -> fail');
+		v = await verdictOf('{"pass": true, "detail": "ok"}', null);
+		assert(v.pass === false, 'JSON pass + killed (exit null) -> fail');
 		v = await verdictOf('{"pass": "true", "detail": "string"}', 0);
 		assert(v.pass === false, 'pass must be boolean true (string "true" -> fail)');
 		v = await verdictOf('{"pass": false, "detail": "brace } inside { a string"}', 0);
 		assert(v.pass === false, 'braces inside a JSON string do not break the parse');
-		v = await verdictOf('no json here', 0);
-		assert(v.pass === true, 'no JSON -> exit code 0 = pass');
+		v = await verdictOf('all checks ok', 0);
+		assert(v.pass === false && v.json === false && /no JSON verdict/.test(v.detail), 'no JSON + exit 0 -> FAIL (strict protocol)');
 		v = await verdictOf('no json here', 2);
 		assert(v.pass === false, 'no JSON -> non-zero exit = fail');
 		v = await verdictOf('', null);
@@ -191,7 +198,7 @@ print(json.dumps({"pass": v >= 0.9, "detail": "AUC %.2f < target 0.90" % v}))`;
 		const agent: AgentStep = async () => ({ output: 'trained', exitCode: 0 });
 		const outcome = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
 		console.log('Test 8 (stuck metric):');
-		assert(outcome === 'failed-structural' && run.iteration === 3, `stuck metric stops at 3 (got ${outcome} @ ${run.iteration})`);
+		assert(outcome === 'paused' && run.iteration === 3, `stuck metric pauses at 3 (got ${outcome} @ ${run.iteration})`);
 	}
 
 	// 9) STOP, PAUSE, RESUME: stop mid-run; an environment error pauses without counting an
@@ -235,6 +242,86 @@ print(json.dumps({"pass": v >= 0.9, "detail": "AUC %.2f < target 0.90" % v}))`;
 		const outcome = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
 		console.log('Test 10 (time budget):');
 		assert(outcome === 'failed-budget' && run.iteration < 1000, `time budget stops the loop (got ${outcome} @ ${run.iteration})`);
+	}
+
+
+	// 11) PREFLIGHT: before a new loop starts the evaluator must print a JSON verdict on an empty
+	//     results folder and must NOT pass there.
+	{
+		console.log('Test 11 (preflight):');
+		const { cwd } = tmp();
+		let pf = await preflightEvaluator(makeRun(ANSWER_EVALUATOR), localRunner(cwd));
+		assert(pf.ok, `well-formed evaluator passes preflight (got ${pf.problem ?? 'ok'})`);
+		pf = await preflightEvaluator(makeRun(`print(open('answer.txt').read())`), localRunner(cwd));
+		assert(!pf.ok && /did not print a JSON verdict/.test(pf.problem ?? ''), 'evaluator that crashes on a missing file is refused');
+		pf = await preflightEvaluator(makeRun(`import json; print(json.dumps({"pass": True, "detail": "always"}))`), localRunner(cwd));
+		assert(!pf.ok && /already PASSES/.test(pf.problem ?? ''), 'evaluator that passes with no work is refused');
+		const exitOnly = makeRun(`import sys, os; sys.exit(0 if os.path.exists('answer.txt') else 1)`);
+		pf = await preflightEvaluator(exitOnly, localRunner(cwd));
+		assert(!pf.ok, 'exit-code-only evaluator (no JSON) is refused');
+	}
+
+	// 12) RESUME AFTER A STALL: the user chose to continue; the loop runs on, does not re-pause on the
+	//     same three failures at once, keeps the last feedback, and can still succeed.
+	{
+		const { loopDir, cwd } = tmp();
+		const run = makeRun(ANSWER_EVALUATOR);
+		let n = 0;
+		const seen: Array<string | undefined> = [];
+		const agent: AgentStep = async (_r, fb) => {
+			n++; seen.push(fb);
+			fs.writeFileSync(path.join(cwd, 'answer.txt'), n >= 5 ? '42' : 'wrong');
+			return { output: 'x', exitCode: 0 };
+		};
+		const first = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		console.log('Test 12 (resume after stall):');
+		assert(first === 'paused' && !!run.stall && !!run.lastFeedback, `stalled with feedback kept (got ${first})`);
+		const second = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		assert(second === 'success' && run.iteration === 5, `continued and succeeded on iteration 5 (got ${second} @ ${run.iteration})`);
+		assert(run.stall === undefined && run.noProgressFrom === 3, 'stall cleared and repeat window restarted at the resume point');
+		assert(!!seen[3] && /answer|got/.test(seen[3] ?? ''), 'first iteration after resume received the previous fix-this feedback');
+		assert(run.lastFeedback === undefined, 'feedback cleared on success');
+	}
+
+	// 13) TOTAL TIME BUDGET: time spent before a pause counts after resume.
+	{
+		const { loopDir, cwd } = tmp();
+		const run = makeRun(ANSWER_EVALUATOR, 1000);
+		run.budget.maxMin = 0.02; // 1.2 s total
+		let k = 0;
+		const agent: AgentStep = async () => {
+			k++;
+			await new Promise(r => setTimeout(r, 300));
+			if (k === 3) { return { output: '', exitCode: 1, envError: true, error: 'quota' }; }
+			fs.writeFileSync(path.join(cwd, 'answer.txt'), 'v' + k);
+			return { output: 'x', exitCode: 0 };
+		};
+		const a = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		const usedAfterPause = run.budget.usedMs ?? 0;
+		const b = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		console.log('Test 13 (total time budget across resume):');
+		assert(a === 'paused' && usedAfterPause >= 800, `time before the pause was recorded (${usedAfterPause} ms)`);
+		assert(b === 'failed-budget' && (run.budget.usedMs ?? 0) >= 1200 && (run.budget.usedMs ?? 0) < 2500, `resumed run stopped on the TOTAL budget (used ${run.budget.usedMs} ms)`);
+		const again = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		assert(again === 'failed-budget' && k <= 6, `resuming with no budget left runs no new turn (turns ${k})`);
+	}
+
+	// 14) ERRORS NEVER LEAVE A LOOP "RUNNING": a sub-agent turn that throws pauses with the reason; a
+	//     failed save right after a pass keeps the success (a resume must not run past a passing iteration).
+	{
+		const { loopDir, cwd } = tmp();
+		const run = makeRun(ANSWER_EVALUATOR);
+		const thrower: AgentStep = async () => { throw new Error('spawn ENOENT'); };
+		const o = await runLoop(run, thrower, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { } });
+		console.log('Test 14 (errors):');
+		assert(o === 'paused' && run.status === 'paused' && /failed to run: spawn ENOENT/.test(run.reason ?? ''), `throwing turn pauses with the reason (got ${o}, ${run.reason})`);
+
+		const run2 = makeRun(ANSWER_EVALUATOR);
+		const writer: AgentStep = async () => { fs.writeFileSync(path.join(cwd, 'answer.txt'), '42'); return { output: 'x', exitCode: 0 }; };
+		let saves = 0;
+		const flakySave = (r: LoopRun) => { saves++; if (r.history.length === 1 && r.iteration === 1) { throw new Error('disk full'); } };
+		const o2 = await runLoop(run2, writer, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: flakySave });
+		assert(o2 === 'success' && run2.status === 'success', `save failure after a pass keeps success (got ${o2}/${run2.status}, saves ${saves})`);
 	}
 
 	console.log(failures === 0 ? '\nALL ENGINE TESTS PASSED' : `\n${failures} TEST(S) FAILED`);

@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
-import { LoopRun, LoopHistoryEntry } from './schema';
+import { LoopRun, LoopHistoryEntry, LoopStall } from './schema';
 
 /** How many identical failures in a row count as "no progress". */
 export const NO_PROGRESS_N = 3;
@@ -45,9 +45,17 @@ export type AgentStep = (run: LoopRun, feedback: string | undefined) => Promise<
 
 /** The evaluator's deterministic verdict. `detail` is the SHORT one-line cause (history/UI); `raw` is the
  *  FULL evaluator stdout+stderr, fed to the next iteration so the sub-agent can fix the real error. */
-export interface Verdict { pass: boolean; detail: string; raw?: string; }
+export interface Verdict {
+	pass: boolean;
+	detail: string;
+	raw?: string;
+	/** True when the evaluator printed a JSON verdict object; false means the protocol was not followed. */
+	json?: boolean;
+}
 
-export type LoopOutcome = 'success' | 'failed-structural' | 'failed-budget' | 'paused' | 'stopped';
+/** 'paused' covers an environment error, a timed-out turn, and a no-change stall (same failure
+ *  repeated) - in every case the loop is resumable and the reason is on the run. */
+export type LoopOutcome = 'success' | 'failed-budget' | 'paused' | 'stopped';
 
 /** Runs a script and returns its result. Injected so the evaluator executes WHERE the work
  *  happened: the extension provides a runner that executes in the RUN environment (SSH/WSL/
@@ -246,9 +254,43 @@ export async function runLockedEvaluator(run: LoopRun, runner: ScriptRunner): Pr
 	if (j) {
 		const d = j.detail;
 		const detail = typeof d === 'string' ? d : d === undefined || d === null ? '' : JSON.stringify(d);
-		return { pass: j.pass === true, detail, raw };
+		// A pass needs BOTH the JSON verdict and a clean exit: an evaluator that printed pass and then
+		// crashed (or was killed) did not finish its checks.
+		if (j.pass === true && r.exitCode !== 0) {
+			return { pass: false, detail: `evaluator reported pass but exited abnormally (exit ${r.exitCode ?? 'killed'})`, raw, json: true };
+		}
+		return { pass: j.pass === true, detail, raw, json: true };
 	}
-	return { pass: r.exitCode === 0, detail: (r.stderr || r.stdout).trim().slice(0, 500), raw };
+	// Strict protocol: no JSON verdict is never a pass, whatever the exit code (a shell evaluator without
+	// `set -e` exits 0 when only its last command succeeds). The raw output still reaches the next
+	// iteration, so a crash caused by a missing output file is fixable by the sub-agent.
+	const why = firstLine(r.stderr) || firstLine(r.stdout) || 'no output';
+	return { pass: false, detail: `evaluator printed no JSON verdict (exit ${r.exitCode ?? 'killed'}): ${why}`.slice(0, 300), raw, json: false };
+}
+
+function firstLine(s: string | undefined): string {
+	const lines = (s ?? '').split('\n').map(l => l.trim()).filter(Boolean);
+	return lines.length ? lines[lines.length - 1].slice(0, 200) : '';
+}
+
+/** Result of running the locked evaluator once on the empty results folder, before iteration 0. */
+export interface PreflightResult { ok: boolean; problem?: string; verdict: Verdict }
+
+/**
+ * Run the evaluator once BEFORE the loop starts (results folder empty, no work done). A usable
+ * evaluator must (1) print a JSON verdict even when the outputs do not exist yet, and (2) NOT pass on
+ * an empty folder. The evaluator is locked during the run and the sub-agent cannot fix it, so a broken
+ * evaluator caught here saves the whole budget; the chat rewrites it and the user re-approves.
+ */
+export async function preflightEvaluator(run: LoopRun, runner: ScriptRunner): Promise<PreflightResult> {
+	const verdict = await runLockedEvaluator(run, runner);
+	if (!verdict.json) {
+		return { ok: false, verdict, problem: `The evaluator did not print a JSON verdict on an empty results folder (${verdict.detail}). It must always print one line {"pass": bool, "detail": "..."} - including when the expected output files do not exist yet (then pass=false with a detail naming the missing file).` };
+	}
+	if (verdict.pass) {
+		return { ok: false, verdict, problem: `The evaluator already PASSES before any work was done (detail: ${verdict.detail || '-'}), so the loop would end at once without testing anything. Make it fail when the required outputs are missing or below the target.` };
+	}
+	return { ok: true, verdict };
 }
 
 /** Find the evaluator's verdict object in stdout: the LAST top-level balanced `{...}` that parses as
@@ -324,10 +366,45 @@ export function failureSignature(detail: string): string {
 
 /** No progress = the last NO_PROGRESS_N failures share one signature. */
 export function noProgress(run: LoopRun): boolean {
-	const sigs = run.history.map(h => h.errorSignature).filter((s): s is string => !!s);
+	const sigs = run.history.slice(run.noProgressFrom ?? 0).map(h => h.errorSignature).filter((s): s is string => !!s);
 	if (sigs.length < NO_PROGRESS_N) { return false; }
 	const last = sigs.slice(-NO_PROGRESS_N);
 	return last.every(s => s === last[0]);
+}
+
+function fmtDuration(ms: number | undefined): string {
+	if (ms === undefined) { return '-'; }
+	const sec = Math.round(ms / 1000);
+	return sec >= 60 ? `${Math.floor(sec / 60)}m ${sec % 60}s` : `${sec}s`;
+}
+
+/**
+ * The record handed to the user when the loop pauses on no change. The engine does not judge whether
+ * the loop is improving (goals are too varied for one rule); it lays out what happened so the user
+ * can: the recent verdicts in order (a metric trend is visible when the detail carries the measured
+ * value), the budget spent, and where each iteration's code is kept.
+ */
+export function buildStall(run: LoopRun, usedMs: number): LoopStall {
+	const window = run.history.slice(run.noProgressFrom ?? 0);
+	const repeated = window.slice(-NO_PROGRESS_N);
+	const from = repeated[0]?.iteration ?? 0;
+	const to = repeated[repeated.length - 1]?.iteration ?? 0;
+	const detail = repeated[repeated.length - 1]?.detail ?? '';
+	const recent = run.history.slice(-8).map(h =>
+		`  iter ${h.iteration + 1}  ${h.verdict ?? '-'}  ${(h.detail ?? '').replace(/\s+/g, ' ').slice(0, 160)}  (${fmtDuration(h.durationMs)})`);
+	const usedMin = (usedMs / 60_000).toFixed(1);
+	const lines = [
+		`The same failure repeated ${NO_PROGRESS_N} times in a row (iterations ${from + 1}-${to + 1}): "${detail}"`,
+		'',
+		'Recent iterations:',
+		...recent,
+		'',
+		`Budget used: ${run.iteration}/${run.budget.maxIter} iterations, ${usedMin}/${run.budget.maxMin} min${run.budget.usedTokens ? `, ${run.budget.usedTokens.toLocaleString()} tokens` : ''}.`,
+		run.rootDir ? `Each iteration's code is kept as a version in ${run.rootDir}/code.` : '',
+		'',
+		'Options: continue (resume the loop as is, or with a larger budget), stop here, or ask for alternative loop designs.',
+	].filter((l, i, a) => !(l === '' && a[i - 1] === ''));
+	return { at: new Date().toISOString(), fromIteration: from, toIteration: to, detail, report: lines.join('\n').trim() };
 }
 
 /** Keep the last `n` chars (a tail) of a possibly-huge blob, marked when truncated. */
@@ -402,20 +479,54 @@ function readLiveStep(resultsDir: string, sinceMs: number): { k: number; n: numb
  * a restart can resume.
  */
 export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptions): Promise<LoopOutcome> {
+	try {
+		return await runLoopInner(run, agentStep, opts);
+	} catch (e) {
+		// Any other unexpected error (a failed persist, git, or file operation): never leave the run marked
+		// "running" - pause it with the reason so the user can resume or delete it. If the engine had
+		// already reached a decision (e.g. success) and only the final save failed, keep that decision:
+		// downgrading a success to "paused" would let a resume run past a passing iteration.
+		opts.log?.(`runLoop error: ${(e as Error)?.stack ?? String(e)}`);
+		run.liveStep = undefined;
+		if (run.status === 'running' && run.history[run.history.length - 1]?.verdict === 'pass') {
+			// The pass was recorded but the save after it failed: the loop did succeed.
+			run.status = 'success';
+			run.lastFeedback = undefined;
+		} else if (run.status === 'running') {
+			run.status = 'paused';
+			run.reason = `Paused by an unexpected error: ${(e as Error)?.message ?? String(e)}. Resume to retry.`;
+		}
+		try { opts.persist(run); } catch { /* nothing more we can do */ }
+		return run.status === 'success' ? 'success'
+			: run.status === 'failed' ? 'failed-budget'
+			: run.status === 'stopped' ? 'stopped'
+			: 'paused';
+	}
+}
+
+async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions): Promise<LoopOutcome> {
 	materializeAndLockEvaluator(run, opts.loopDir);
+	// Resuming after a no-change pause means the user chose to continue: count repeats afresh from here.
+	if (run.stall) { run.noProgressFrom = run.history.length; run.stall = undefined; }
 	run.status = 'running';
 	run.reason = undefined;
-	run.budget.startedAt = new Date().toISOString();
+	if (!run.budget.startedAt) { run.budget.startedAt = new Date().toISOString(); }
 	opts.persist(run);
 
-	const startMs = Date.now();
-	let feedback: string | undefined;
+	// maxMin is a TOTAL budget across start + every resume: time already spent in earlier sessions counts.
+	const sessionStart = Date.now();
+	const baseMs = run.budget.usedMs ?? 0;
+	const elapsed = (): number => baseMs + (Date.now() - sessionStart);
+	const finish = (): void => { run.budget.usedMs = elapsed(); };
+	// A resumed loop picks up the fix-this feedback the previous session left for its next iteration.
+	let feedback: string | undefined = run.lastFeedback;
 	opts.log?.(`runLoop start: id=${run.id} gitPath=${opts.gitPath || 'git'} codeDir=${opts.codeDir || '(none)'} resultsDir=${opts.resultsDir || '(none)'}`);
 
-	while (run.iteration < run.budget.maxIter && (Date.now() - startMs) < run.budget.maxMin * 60_000) {
+	while (run.iteration < run.budget.maxIter && elapsed() < run.budget.maxMin * 60_000) {
 		if (opts.shouldStop?.()) {
 			run.status = 'stopped';
 			run.reason = 'stopped by user';
+			finish();
 			opts.persist(run);
 			return 'stopped';
 		}
@@ -453,9 +564,18 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			finally { liveBusy = false; }
 		};
 		const liveTimer = (opts.readIterLog || opts.resultsDir) ? setInterval(() => { void pollLive(); }, 2000) : undefined;
-		const r = await agentStep(run, feedback);
-		liveStopped = true;
-		if (liveTimer) { clearInterval(liveTimer); }
+		let r: AgentResult;
+		try {
+			r = await agentStep(run, feedback);
+		} catch (e) {
+			// A turn that could not even run (spawn failure, unwritable config, ...) is an environment
+			// problem, not a wrong attempt: pause with the reason instead of escaping runLoop and leaving
+			// the loop stuck in "running" (it could then be neither resumed nor deleted until a restart).
+			r = { output: '', exitCode: null, envError: true, error: `sub-agent turn failed to run: ${(e as Error)?.message ?? String(e)}` };
+		} finally {
+			liveStopped = true;
+			if (liveTimer) { clearInterval(liveTimer); }
+		}
 		run.liveStep = undefined;
 		if (typeof r.tokens === 'number') { run.budget.usedTokens += r.tokens; }
 		// Make what the sub-agent actually did visible in the "Qoka Loop" output: the tail of its output,
@@ -467,6 +587,7 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 		if (opts.shouldStop?.()) {
 			run.status = 'stopped';
 			run.reason = 'stopped by user';
+			finish();
 			opts.persist(run);
 			return 'stopped';
 		}
@@ -476,12 +597,14 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			const perTurnMin = Math.max(run.budget.maxMin || 20, 10);
 			run.status = 'paused';
 			run.reason = `Iteration ${run.iteration} needs more time than the ${perTurnMin} min budget allows. Action needed: ask in the chat to increase this loop's time budget, then resume (or simplify the task).`;
+			finish();
 			opts.persist(run);
 			return 'paused';
 		}
 		if (r.envError) {
 			run.status = 'paused';
 			run.reason = r.error ?? 'environment error';
+			finish();
 			opts.persist(run);
 			return 'paused';
 		}
@@ -505,26 +628,36 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 		}
 		run.history.push(entry);
 		run.iteration++;
+		run.budget.usedMs = elapsed();
 		opts.persist(run);
 
 		if (verdict.pass) {
+			run.lastFeedback = undefined;
 			run.status = 'success';
+			finish();
 			opts.persist(run);
 			return 'success';
 		}
 		if (noProgress(run)) {
-			run.status = 'failed';
-			run.reason = 'no progress (same failure repeated)';
+			// No change: the same failure repeated. The engine does not decide whether the loop is still
+			// improving - it pauses and hands the user the history to judge (continue / stop / redesign).
+			run.lastFeedback = buildIterationFeedback(verdict, r);
+			run.stall = buildStall(run, elapsed());
+			run.status = 'paused';
+			run.reason = `No change: the same failure repeated ${NO_PROGRESS_N} times ("${verdict.detail.slice(0, 120)}"). Continue, stop, or ask for alternative designs.`;
+			finish();
 			opts.persist(run);
-			return 'failed-structural';
+			return 'paused';
 		}
 		feedback = buildIterationFeedback(verdict, r);
+		run.lastFeedback = feedback;
 		// Show exactly what will be handed to the next iteration to fix (the full-error feedback).
 		opts.log?.(`iter ${run.iteration - 1}: feedback handed to next iteration ->\n${feedback}`);
 	}
 
 	run.status = 'failed';
 	run.reason = 'budget exhausted';
+	finish();
 	opts.persist(run);
 	return 'failed-budget';
 }

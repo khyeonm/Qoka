@@ -77,13 +77,26 @@ export interface LoopHistoryEntry {
 	durationMs?: number;
 }
 
+/** A no-change pause: which iterations repeated which failure, plus a readable history report. */
+export interface LoopStall {
+	at: string;
+	fromIteration: number;
+	toIteration: number;
+	/** The failure that repeated (the evaluator's one-line detail). */
+	detail: string;
+	/** Multi-line report: recent iterations, budget used, where the code versions are, and the options. */
+	report: string;
+}
+
 /** Runtime record persisted at <project>/.qoka/loops/<id>.json. */
 export interface LoopRun {
 	id: string;
 	spec: LoopSpec;
 	status: LoopStatus;
 	iteration: number;
-	budget: LoopBudget & { usedTokens: number; startedAt?: string };
+	/** `usedMs` is the wall-clock time spent across ALL sessions (start + every resume), so maxMin is a
+	 *  total budget rather than restarting at each resume. */
+	budget: LoopBudget & { usedTokens: number; startedAt?: string; usedMs?: number };
 	history: LoopHistoryEntry[];
 	provider?: Provider;
 	createdAt: string;
@@ -94,6 +107,15 @@ export interface LoopRun {
 	lockedEvaluatorRef?: { path: string; hash: string };
 	/** Why the run is paused/failed, surfaced in the UI. */
 	reason?: string;
+	/** Set when the engine paused because the same failure repeated (no change). The report is the
+	 *  iteration history laid out for the user to judge whether the loop is still improving; the chat
+	 *  reads it via loop_status and asks the user to continue, stop, or redesign. */
+	stall?: LoopStall;
+	/** History index from which no-change detection counts again (set when a stalled loop is resumed,
+	 *  so the same three failures do not re-trigger the pause immediately). */
+	noProgressFrom?: number;
+	/** The fix-this feedback for the next iteration, persisted so a paused/stopped loop resumes with it. */
+	lastFeedback?: string;
 	/** Live within-iteration progress, from the sub-agent's mandatory [QOKA_STEP k/N] markers: which
 	 *  planned step (1-based k of n) is currently running, its label, and a stdout tail. Set while a turn
 	 *  runs, cleared when the loop is not running. Drives the Progress bar in the detail tab. */
