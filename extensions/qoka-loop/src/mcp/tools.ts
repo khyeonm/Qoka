@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LoopSpec } from '../schema';
 import { saveLoop, readLoop, listLoops, writeLoop, loopsDir } from '../state';
-import { runLoop, preflightEvaluator, ScriptRunner } from '../engine';
+import { runLoop, preflightEvaluator, findLocalRootLiteral, findDoubleEscapedRawString, ScriptRunner } from '../engine';
 import { warmGitBinary } from '../gitBin';
 import { loopLog } from '../log';
 import { makeAgentStep } from '../agentStep';
@@ -89,9 +89,9 @@ async function notifyLoopFinished(id: string, outcome: string): Promise<void> {
  * a local copy. Falls back to a non-pass verdict if no run environment is reachable.
  */
 function runEnvEvaluatorRunner(cwdRel?: string): ScriptRunner {
-	return async (script, language) => {
+	return async (script, language, dependencies, limits) => {
 		try {
-			const r = await vscode.commands.executeCommand('aria.qokarun.runInEnv', { code: script, language, cwdRel }) as
+			const r = await vscode.commands.executeCommand('aria.qokarun.runInEnv', { code: script, language, cwdRel, dependencies, timeoutMs: limits?.timeoutMs }) as
 				{ stdout?: string; stderr?: string; exitCode?: number | null } | undefined;
 			if (!r) { return { stdout: '', stderr: 'runInEnv returned nothing', exitCode: 1 }; }
 			return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', exitCode: r.exitCode ?? null };
@@ -106,6 +106,14 @@ function runEnvEvaluatorRunner(cwdRel?: string): ScriptRunner {
  * progress markers are visible mid-run - the local results/ dir is empty until the run finishes).
  * relPath is workspace-relative; the command reads it locally when mounted, or via ssh otherwise.
  */
+/** Stop every process of this loop (tagged with its scope) in the active run environment. */
+function runEnvWorkKiller(scope: string): () => Promise<void> {
+	return async () => {
+		const n = await vscode.commands.executeCommand('aria.qokarun.killScope', { scope }) as number | undefined;
+		if (n) { loopLog(`killed ${n} leftover process(es) of ${scope} in the run environment`); }
+	};
+}
+
 function runEnvLogReader(relPath: string): () => Promise<string | undefined> {
 	return async () => {
 		try {
@@ -190,11 +198,21 @@ Hard rules (adversarially tested - do not relax):
    (b) the REQUIRED OUTPUT FILES - what file(s) must exist when the loop finishes (name + what they
        contain, e.g. "candidates.csv with a score column"). If unclear, ask what output they need.
    The evaluator and the loop cannot be trusted without both, so treat this as a hard gate.
-10. BUDGET must be confirmed, never silently assumed. If the user did NOT state a budget, do NOT just
-   pick one and run: PROPOSE an inferred budget as two explicit numbers - the max number of iterations
-   AND the max minutes per iteration - explain briefly why (e.g. "generation + docking is slow, so
-   ~15 min per try"), and ASK "shall I proceed with this budget?" in their own language. Because this
-   step spends the user's tokens on background sub-agents, always say so when asking. Wait for a yes.
+10. BUDGET is set FOR THIS TASK and confirmed, never a default and never silently assumed. If the user
+   stated a budget, use it. If not, ESTIMATE one from this task and the real data:
+   - TIME PER ITERATION = the sub-agent's work for one realistic attempt (installing packages, loading
+     the data, running the analysis; when it is cheap, time a quick probe with run_code) + the
+     EVALUATOR's own run time (the loop's clock keeps running while it judges, so the budget must cover
+     it) + a margin of about half again.
+   - ITERATIONS = how many attempts the goal plausibly needs: a deterministic transform or count that is
+     right or wrong: 2-3; a threshold reached by trying models or settings: 5-10; open-ended tuning:
+     more, but say why.
+   - maxMin (TOTAL minutes for the whole loop) = ITERATIONS x TIME PER ITERATION, rounded up.
+   Show the breakdown in plain words, in the form "about <T> min per try: <W> min of work + <C> min of
+   checking, so <N> tries = <N x T> min in total", with YOUR numbers for THIS task (do not reuse numbers
+   from these rules), say that it spends sub-agent tokens in the background, and ASK "shall I proceed
+   with this budget?" in their own language. Wait for a yes. save_loop refuses a spec without a
+   budget.
 11. FILE PLACEMENT - everything the loop produces stays inside the loop's own folder. The engine runs
    every run_code script AND the evaluator with the working directory set to the loop's results
    folder (loops/<loop-folder>/results, created when the loop starts), and it versions each run_code
@@ -204,8 +222,19 @@ Hard rules (adversarially tested - do not relax):
    - NEVER point outputs, scripts or the evaluator at the project-root results/ or analysis/ folders,
      and never walk up directories to find the project root. Do not add a step that saves a separate
      script file - the code is already kept in the loop's code history.
-   - Read inputs from the project's data/ folder by ABSOLUTE path (projectRoot + "/data/...", from the
-     project context).
+   - INPUTS: list every input file the evaluator reads in "inputs", as the RUN ENVIRONMENT sees it: a
+     project-relative path ("data/reads.fasta") or an absolute path on the run host the user gave you.
+     The run environment (WSL, the Mac VM, an SSH server) sees the project at a DIFFERENT path than
+     projectRoot, and an SSH server may not have the project's data/ at all - so if it is unclear where
+     the data lives on the run host, ASK the user. In the evaluator, resolve project-relative inputs with
+         ROOT = os.environ.get("QOKA_PROJECT_ROOT") or os.path.abspath("../../..")
+     and os.path.join(ROOT, "data", ...). NEVER write projectRoot (the local path) into the evaluator:
+     save_loop refuses it, and before the loop starts Qoka checks that every "inputs" path exists where
+     the evaluator runs.
+12. FEASIBILITY: when success is a numeric target on given data, look at the data before committing and,
+   when it is cheap, measure a quick baseline (run_code). If the target looks far beyond what the data
+   allows (no signal, noisy reference labels, a target near a perfect score), say so plainly in the
+   summary so the user can change it before any budget is spent.
 
 If a rule (1, 3, or 9) says ask/offer instead of committing, output ONLY that question or those 2-4
 options - no loop.
@@ -214,16 +243,18 @@ Otherwise present the loop FOR APPROVAL AS A SHORT SUMMARIZED PLAN in PLAIN, NAT
 code - and explicitly ask whether this is the loop flow they want. The user is often not a programmer,
 so:
 - Give a compact summary in the user's own language covering, as a few bullets: the GOAL; WHAT HAPPENS
-  each iteration (the steps in order); HOW SUCCESS IS DECIDED as ONE plain-language sentence (e.g.
+  each iteration (the steps in order); the INPUT DATA it uses (which files, and where they are on the
+  machine that runs the loop); HOW SUCCESS IS DECIDED as ONE plain-language sentence (e.g.
   "passes when the mean is within 0.02 of 0 and the standard deviation is between 0.98 and 1.02"); the
-  REQUIRED OUTPUT FILES that will exist when it finishes; and the BUDGET (max iterations + max minutes
-  per iteration).
+  REQUIRED OUTPUT FILES that will exist when it finishes (saying which ones you ADDED beyond what the
+  user asked for, and why); and the BUDGET (max iterations + max TOTAL
+  minutes for the whole loop).
 - Do NOT paste the evaluator source code, the LoopSpec JSON, or long code blocks into the approval
   message. At most, if the user is technical and asks, offer to show the evaluator code - otherwise
   keep it hidden. The evaluator is still built and locked internally; the user just does not need to
   read code to approve.
 - Then ask, in the user's own language, a clear confirmation such as "is this the loop flow you want?"
-  - confirming the budget (iterations + minutes per iteration) and noting it runs sub-agents in the
+  - confirming the budget (iterations + total minutes) and noting it runs sub-agents in the
   background and consumes their tokens. Wait for an explicit yes.
 Only after the user agrees do you call save_loop(spec), then start_loop(loopId) to run it in the
 background. The user (not the agent) approves the evaluator; it is then sha256-locked so the work
@@ -237,6 +268,20 @@ EVALUATOR PROTOCOL (enforced by the engine - an evaluator that breaks it will no
   cannot be read: wrap the checks (e.g. try/except in Python) and print {"pass": false, "detail":
   "<file> missing"}. Before the loop starts, Qoka runs the evaluator ONCE on the empty results folder:
   if it prints no JSON there, or already PASSES there, the loop is refused and you must fix it.
+- ONLY WHAT THE USER WILL SEE: every result file the evaluator opens must be listed in flow.output with
+  its format (columns / JSON keys the evaluator requires), because flow.output is what the plan summary
+  shows the user. Do not require extra files the user did not ask for (a re-run copy, a separate
+  control output, a report) just to make the check stronger: compute controls INSIDE the evaluator from
+  the requested outputs and the inputs. If an extra file is truly needed, list it in flow.output and
+  name it in the summary so the user approves it.
+- WHERE IT RUNS: write the evaluator in Python. A python evaluator runs via uv in its OWN environment that
+  holds ONLY the standard library plus the pip packages listed in evaluator.dependencies - NOT the
+  packages the work installs, and not the server's system Python. Prefer the standard library (csv, json,
+  math, statistics, gzip, re: AUC, RMSE, ARI and counts are a few lines by hand). When a check truly
+  needs a package (e.g. reading .h5ad needs ["anndata"], a PNG's pixels need ["pillow"]), list it in
+  evaluator.dependencies (pip names: "scikit-learn" for sklearn, "pillow" for PIL); the list is locked
+  with the code. Before the loop starts Qoka refuses an evaluator that imports anything not available
+  there, including imports placed after an early "file missing" exit.
 - "detail" is a SHORT ONE-LINE cause that includes the MEASURED VALUE next to the target (e.g.
   "ARI=0.72 < 0.9", "row count 180 != 200", "3/5 checks passed: legend missing"), NOT a traceback or
   multi-line log. It is shown in the iteration history, fed to the next iteration as the fix-this
@@ -256,10 +301,11 @@ EVALUATOR PROTOCOL (enforced by the engine - an evaluator that breaks it will no
     "steps": ["step 1", "step 2", "..."],  // the REAL ordered execution steps of ONE iteration (e.g. "install tools", "prepare inputs", "run analysis", "write output"). These become the user's PROGRESS BAR: the count is the total, and the sub-agent marks each with [QOKA_STEP k/N] as it runs. Make them concrete and in execution order; do NOT include a trailing "on fail: retry" step (retry is automatic, not a step).
     "checks": [{ "c": "condition", "why": "why this makes the loop trustworthy (e.g. a negative control)" }],
     "output": "what it produces, as RELATIVE file names inside the loop's results folder (rule 11)",
-    "stops": "15 iterations or 20 min"
+    "stops": "<maxIter> iterations or <maxMin> min in total (rule 10)"
   },
-  "evaluator": { "code": "...executable check...", "language": "python" },
-  "budget": { "maxIter": 15, "maxMin": 20 },
+  "inputs": ["data/..."],  // every input file the evaluator reads, as the run environment sees it (rule 11)
+  "evaluator": { "code": "...executable check...", "language": "python", "dependencies": [] },  // dependencies: pip packages the evaluator imports beyond the standard library (usually none)
+  "budget": { "maxIter": <N>, "maxMin": <N x T> },  // numbers estimated FOR THIS TASK per rule 10
   "subLoops": []
 }
 Then add 2 short notes: (a) why the evaluator is objectively checkable, (b) any assumption you made.`;
@@ -306,6 +352,9 @@ function asSpec(v: unknown): LoopSpec | undefined {
 	if (typeof s.title !== 'string' || typeof s.goal !== 'string') { return undefined; }
 	if (!s.flow || typeof s.flow !== 'object' || !Array.isArray(s.flow.steps)) { return undefined; }
 	if (!s.evaluator || typeof s.evaluator !== 'object' || typeof s.evaluator.code !== 'string') { return undefined; }
+	if (s.inputs !== undefined && (!Array.isArray(s.inputs) || s.inputs.some(x => typeof x !== 'string'))) { return undefined; }
+	const deps = s.evaluator.dependencies;
+	if (deps !== undefined && (!Array.isArray(deps) || deps.some(d => typeof d !== 'string' || !/^[A-Za-z0-9._\-\[\],<>=!~ ]+$/.test(d)))) { return undefined; }
 	return s as LoopSpec;
 }
 
@@ -424,7 +473,7 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 		}
 	}
 	void vscode.commands.executeCommand('qoka.loop.open', id);
-	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, readIterLog, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })
+	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, readIterLog, killWork: runEnvWorkKiller(`loops/${folder}`), persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })
 		.then(outcome => { stopRequested.delete(id); abortControllers.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
 		.catch(e => { stopRequested.delete(id); abortControllers.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
 	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers),
@@ -461,13 +510,28 @@ export function buildTools(): ToolDefinition[] {
 			},
 			handler: async (args) => {
 				const spec = asSpec(args.spec);
-				if (!spec) { return err('Invalid LoopSpec: need title, goal, flow.steps, and evaluator.code.'); }
+				if (!spec) { return err('Invalid LoopSpec: need title, goal, flow.steps, and evaluator.code (inputs and evaluator.dependencies, if given, must be lists of strings: file paths / pip package names).'); }
+				const b = spec.budget;
+				if (!b || !(Number(b.maxIter) >= 1) || !(Number(b.maxMin) > 0)) {
+					return err('Not saved: the LoopSpec has no budget. Estimate one FOR THIS TASK (design rule 10: time per iteration = the work + the evaluator\'s run time + a margin; iterations = how many attempts the goal needs; maxMin = their product, the TOTAL minutes), show the user the breakdown, get their yes, and put it in "budget": {"maxIter": N, "maxMin": M}.');
+				}
 				const outside = outsideLoopPaths(spec, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 				if (outside.relative.length) {
 					return err('Not saved: the LoopSpec writes or checks files outside the loop\'s own folder (design rule 11). '
 						+ 'Rewrite these as RELATIVE file names (they resolve inside loops/<loop-folder>/results, where run_code and the evaluator run) '
 						+ 'and drop any step that saves a separate script, then call save_loop again. The user does not need to re-approve a path-only change.\n'
 						+ outside.relative.map(h => `  - ${h}`).join('\n'));
+				}
+				const localRoot = findLocalRootLiteral(spec.evaluator.code, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+				if (localRoot) {
+					return err(`Not saved: the evaluator contains the LOCAL project path ${localRoot}. The evaluator runs in the run environment (WSL, the Mac VM or an SSH server), which sees the project at a different path, so it could never read its inputs there. `
+						+ 'Resolve project files with ROOT = os.environ.get("QOKA_PROJECT_ROOT") or os.path.abspath("../../..") and os.path.join(ROOT, "data", ...), list them in "inputs" (design rule 11), then call save_loop again. The user does not need to re-approve a path-only change.');
+				}
+				const lang = (spec.evaluator.language ?? 'python').toLowerCase();
+				const doubled = lang.startsWith('py') ? findDoubleEscapedRawString(spec.evaluator.code) : undefined;
+				if (doubled) {
+					return err(`Not saved: the evaluator has a raw string with a doubled backslash: ${doubled}. Inside a raw string, r"\\\\d" matches a literal backslash followed by "d", so this check can never match real data (the escapes were doubled once too often when the code was written into JSON). `
+						+ 'Use a single backslash inside raw strings (r"\\d+", r"\\s"), then call save_loop again. The user does not need to re-approve this fix.');
 				}
 				const run = saveLoop(spec);
 				if (!run) { return err('No open project to save the loop into. Open a project folder first.'); }
@@ -484,7 +548,7 @@ export function buildTools(): ToolDefinition[] {
 		},
 		{
 			name: 'start_loop',
-			description: 'Start running an APPROVED loop in the background. The engine sha256-locks the evaluator, then repeats: a sub-agent does the work with the full Qoka work toolset (run_code, pipelines, paper, notes, ...), the locked evaluator runs IN the run environment and judges, until it passes or the budget (iterations / total minutes) runs out. If the same failure repeats 3 times it PAUSES (not fails) with a history report for the user to decide. Before a NEW loop starts, the evaluator is run once on the empty results folder; if it prints no JSON verdict or already passes, start_loop refuses with the reason - fix the evaluator, get the user\'s re-approval, save_loop and start the new loopId. Returns immediately. Do NOT poll; right after it returns, tell the user (in their language) that the loop started and to watch the live "Progress" section that appears UNDER the Flow in the loop detail tab (it only shows while running). Only call after the user has confirmed the loop.',
+			description: 'Start running an APPROVED loop in the background. The engine sha256-locks the evaluator, then repeats: a sub-agent does the work with the full Qoka work toolset (run_code, pipelines, paper, notes, ...), the locked evaluator runs IN the run environment and judges, until it passes or the budget (iterations / total minutes) runs out. If the same failure repeats 3 times it PAUSES (not fails) with a history report for the user to decide. Before a NEW loop starts (and before the evaluator is locked), the evaluator is run once on the empty results folder and every "inputs" path is checked to exist in the run environment; if it prints no JSON verdict, already passes, cannot import a package or an input is missing, start_loop refuses with the reason - fix the evaluator, get the user\'s re-approval, save_loop and start the new loopId. Returns immediately. Do NOT poll; right after it returns, tell the user (in their language) that the loop started and to watch the live "Progress" section that appears UNDER the Flow in the loop detail tab (it only shows while running). Only call after the user has confirmed the loop.',
 			inputSchema: {
 				type: 'object',
 				properties: { loopId: { type: 'string', description: 'The loop id from save_loop / loop_list.' } },
@@ -525,7 +589,7 @@ export function buildTools(): ToolDefinition[] {
 				type: 'object',
 				properties: {
 					loopId: { type: 'string', description: 'The loop id from loop_list.' },
-					maxMin: { type: 'number', description: 'Optional NEW total time budget in minutes (also the per-iteration cap). Pass a larger value to fix a timeout pause.' },
+					maxMin: { type: 'number', description: 'Optional NEW total time budget in minutes, across all sessions; an iteration may use only what is left of it. Pass a larger value to fix a pause where the time ran out mid-iteration.' },
 					maxIter: { type: 'number', description: 'Optional NEW maximum iteration count. Pass a larger value if the loop needs more attempts.' },
 				},
 				required: ['loopId'],
@@ -537,6 +601,9 @@ export function buildTools(): ToolDefinition[] {
 				if (!run) { return err(`No loop with id ${id}.`); }
 				if (run.status === 'running') { return err(`Loop ${id} is already running.`); }
 				if (run.status === 'success') { return err(`Loop ${id} already succeeded - nothing to resume.`); }
+				if (run.evaluatorMissingModule) {
+					return err(`Loop ${id} cannot continue: its locked evaluator cannot import "${run.evaluatorMissingModule}" in its own environment, so no attempt can pass. Tell the user (in their language), then redesign: keep the same goal and success rule, add the package to evaluator.dependencies (or use the standard library), get their approval, save_loop and start_loop the new loopId.`);
+				}
 				const newMin = typeof args.maxMin === 'number' && args.maxMin > 0 ? Math.floor(args.maxMin) : undefined;
 				const newIter = typeof args.maxIter === 'number' && args.maxIter > 0 ? Math.floor(args.maxIter) : undefined;
 				if (newMin || newIter) {
@@ -598,6 +665,24 @@ export function buildTools(): ToolDefinition[] {
 				const id = typeof args.loopId === 'string' ? args.loopId : '';
 				const run = readLoop(id);
 				if (!run) { return err(`No loop with id ${id}.`); }
+				if (run.status === 'paused' && run.goalUnreachable) {
+					return ok(JSON.stringify({
+						...run,
+						next: 'This loop PAUSED because the sub-agent reported that the GOAL cannot be reached with this data (goalUnreachable; its full note is in the last history entry agentNote). Tell the user (in their language) what evidence it gave and whether it looks right to you, then let them choose: change the goal (e.g. a reachable target, other data) via a new loop, ask for alternatives (propose_alternatives), stop, or continue as is (resume_loop) if they think the sub-agent is wrong. Do not decide for them.',
+					}));
+				}
+				if (run.status === 'paused' && run.evaluatorIssue) {
+					return ok(JSON.stringify({
+						...run,
+						next: 'This loop PAUSED because the sub-agent reported that the locked evaluator itself cannot pass correct work (evaluatorIssue; its full note is in the last history entry agentNote). Tell the user (in their language) what it found and whether the evidence looks right to you, then let them choose: fix the evaluator (redesign: same goal and success rule, corrected check, their approval, save_loop + start_loop the new loopId), or continue as is (resume_loop) if they think the sub-agent is wrong. Do not decide for them.',
+					}));
+				}
+				if (run.status === 'paused' && run.evaluatorMissingModule) {
+					return ok(JSON.stringify({
+						...run,
+						next: `This loop PAUSED because its locked evaluator cannot import "${run.evaluatorMissingModule}" - a design problem the loop cannot fix itself (resume_loop will refuse). Tell the user (in their language) and offer to redesign it with the package in evaluator.dependencies (same goal and success rule), then save_loop + start_loop after their approval.`,
+					}));
+				}
 				if (run.status === 'paused' && run.stall) {
 					return ok(JSON.stringify({
 						...run,

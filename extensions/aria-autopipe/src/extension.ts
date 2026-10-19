@@ -23,7 +23,7 @@ import { openResultsViewer, viewFileInViewer, QokaFileViewerProvider } from './v
 import { HubApiClient, HubPlugin } from './hub/apiClient';
 import { GitHubAuthService } from './github/oauthService';
 import { setServices } from './common/services';
-import { runScriptInEnv, readRunEnvFile } from './mcp/tools/run';
+import { runScriptInEnv, readRunEnvFile, killLoopScope } from './mcp/tools/run';
 import { registerSetupCommands } from './commands/setupCommands';
 import { PluginService, DEFAULT_PLUGIN_NAMES, resolveDefaultNames, NATIVE_VIEWER_NAMES, NATIVE_VIEWER_INFO } from './plugins/pluginService';
 import { openHubPanel } from './panels/hubPanel';
@@ -282,10 +282,18 @@ export function activate(context: vscode.ExtensionContext): void {
 		// Run a raw script in the ACTIVE run environment (SSH/WSL/vfkit) and return
 		// { stdout, stderr, exitCode }. Lean: no result folders or workspace sync. Used by the
 		// qoka-loop engine to run a locked evaluator in the SAME place run_code executes - including
-		// the per-project bubblewrap sandbox on WSL - so the evaluator sees the sub-agent's files
-		// and installed packages. The wrapping lives in runScriptInEnv (next to run_code's own).
-		vscode.commands.registerCommand('aria.qokarun.runInEnv', (arg: { code?: string; language?: string; cwdRel?: string }) =>
-			runScriptInEnv(typeof arg?.code === 'string' ? arg.code : '', arg?.language, typeof arg?.cwdRel === 'string' ? arg.cwdRel : undefined)),
+		// the per-project bubblewrap sandbox on WSL - so the evaluator sees the sub-agent's files; a
+		// python evaluator gets its own uv env with its locked `dependencies`. The wrapping lives in
+		// runScriptInEnv (next to run_code's own).
+		// Stop every run_code / evaluator process of one loop (tagged QOKA_LOOP_SCOPE) in the ACTIVE run
+		// environment. The loop engine calls it when it cuts off or stops an iteration and when the loop ends,
+		// so a cut-off turn's work does not keep running there. Returns how many processes were killed.
+		vscode.commands.registerCommand('aria.qokarun.killScope', (arg: { scope?: string }) =>
+			killLoopScope(typeof arg?.scope === 'string' ? arg.scope : '')),
+		vscode.commands.registerCommand('aria.qokarun.runInEnv', (arg: { code?: string; language?: string; cwdRel?: string; dependencies?: unknown; timeoutMs?: unknown }) =>
+			runScriptInEnv(typeof arg?.code === 'string' ? arg.code : '', arg?.language, typeof arg?.cwdRel === 'string' ? arg.cwdRel : undefined,
+				Array.isArray(arg?.dependencies) ? arg.dependencies.filter((d): d is string => typeof d === 'string') : undefined,
+				typeof arg?.timeoutMs === 'number' ? arg.timeoutMs : undefined)),
 		// Lightweight read of a run's live stdout.log from inside the active run env (used by the loop
 		// engine to tail [QOKA_STEP] progress markers on a REMOTE SSH host, where the local results/ dir
 		// is still empty until the run finishes). Mounted local envs read the local file directly.

@@ -41,7 +41,24 @@ export interface AgentResult {
 /** A sub-agent turn: does the work for one iteration, given the previous verdict as
  *  feedback. Injected so the engine can be tested with a mock and run with a real
  *  headless CLI (agent_step, M1b). */
-export type AgentStep = (run: LoopRun, feedback: string | undefined) => Promise<AgentResult>;
+export type AgentStep = (run: LoopRun, feedback: string | undefined, limits?: TurnLimits) => Promise<AgentResult>;
+
+/** Per-turn limits from the engine. `timeoutMs` is what is LEFT of the loop's total time budget, so one
+ *  long turn cannot carry the loop past maxMin. */
+export interface TurnLimits { timeoutMs: number }
+
+/** Time kept free for the evaluator before a turn starts: its last measured run time x1.5 + 10 s (a minute
+ *  and a half before it has run), at least 30 s, at most a quarter of what is left - the evaluator's run
+ *  counts against the loop's time budget like the sub-agent's work. */
+export function evalReserveMs(run: LoopRun, remainingMs: number): number {
+	const est = Math.max(30_000, (run.evalMs ?? 60_000) * 1.5 + 10_000);
+	return Math.min(est, remainingMs * 0.25);
+}
+
+/** A turn shorter than this is not worth starting: the loop ends as out of budget instead. Capped at a
+ *  tenth of the budget so a tiny budget still gets turns. */
+export const MIN_TURN_MS = 60_000;
+export function minTurnMs(maxMin: number): number { return Math.min(MIN_TURN_MS, maxMin * 60_000 * 0.1); }
 
 /** The evaluator's deterministic verdict. `detail` is the SHORT one-line cause (history/UI); `raw` is the
  *  FULL evaluator stdout+stderr, fed to the next iteration so the sub-agent can fix the real error. */
@@ -51,6 +68,9 @@ export interface Verdict {
 	raw?: string;
 	/** True when the evaluator printed a JSON verdict object; false means the protocol was not followed. */
 	json?: boolean;
+	/** Set when the evaluator's output shows it could not import a module (the name, or '?' when the
+	 *  name is not in the message): the evaluator cannot judge, whatever the work produced. */
+	missingModule?: string;
 }
 
 /** 'paused' covers an environment error, a timed-out turn, and a no-change stall (same failure
@@ -61,7 +81,7 @@ export type LoopOutcome = 'success' | 'failed-budget' | 'paused' | 'stopped';
  *  happened: the extension provides a runner that executes in the RUN environment (SSH/WSL/
  *  vfkit), the same place the sub-agent's run_code wrote its files; the test provides a local
  *  one. Without this the engine would run the evaluator locally and miss a remote file. */
-export type ScriptRunner = (script: string, language: string | undefined) => Promise<{ stdout: string; stderr: string; exitCode: number | null }>;
+export type ScriptRunner = (script: string, language: string | undefined, dependencies?: string[], limits?: { timeoutMs?: number }) => Promise<{ stdout: string; stderr: string; exitCode: number | null }>;
 
 export interface RunOptions {
 	/** <project>/.qoka/loops - where the locked evaluator artifact is written. */
@@ -93,6 +113,11 @@ export interface RunOptions {
 	 *  The engine copies the scripts written THIS iteration into codeDir so the version shows real code,
 	 *  not just the transcript-parsed capture. Unset -> falls back to the transcript code. */
 	captureDir?: string;
+	/** Stop every process this loop still has running in the run environment (run_code scripts and the
+	 *  evaluator, tagged with the loop's scope). A sub-agent turn that is cut off or stopped only ends the
+	 *  agent; the code it started would otherwise keep running there. Called before each iteration and when
+	 *  the loop ends. Unset (tests) -> nothing to stop. */
+	killWork?: () => Promise<void>;
 	/** Diagnostics sink (the "Qoka Loop" output channel). Injected so the engine stays vscode-free. */
 	log?: (msg: string) => void;
 }
@@ -227,7 +252,9 @@ export function materializeAndLockEvaluator(run: LoopRun, loopDir: string): void
 	fs.mkdirSync(path.dirname(p), { recursive: true });
 	const code = run.spec.evaluator.code;
 	fs.writeFileSync(p, code);
-	const hash = sha256(code);
+	// The package list is part of what judges, so it is locked with the code (unchanged hash without one).
+	const deps = evaluatorDeps(run);
+	const hash = sha256(deps.length ? `${code}\n#qoka-evaluator-dependencies:${JSON.stringify(deps)}` : code);
 	run.lockedEvaluatorRef = { path: p, hash };
 	run.spec.evaluator.hash = hash;
 }
@@ -237,12 +264,14 @@ export function materializeAndLockEvaluator(run: LoopRun, loopDir: string): void
  *  sub-agent has no access to it), so there is nothing on disk for the sub-agent to tamper
  *  with. Executes WHERE the work happened (the ScriptRunner runs in the run environment).
  *  Verdict protocol: a JSON {"pass": bool, "detail": string} on stdout wins; else exit 0 = pass. */
-export async function runLockedEvaluator(run: LoopRun, runner: ScriptRunner): Promise<Verdict> {
+export async function runLockedEvaluator(run: LoopRun, runner: ScriptRunner, limits?: { timeoutMs?: number }): Promise<Verdict> {
 	const code = run.spec.evaluator.code;
 	if (!code) { return { pass: false, detail: 'no locked evaluator' }; }
 	let r: { stdout: string; stderr: string; exitCode: number | null };
+	const t0 = Date.now();
 	try {
-		r = await runner(code, run.spec.evaluator.language);
+		r = await runner(code, run.spec.evaluator.language, evaluatorDeps(run), limits);
+		run.evalMs = Date.now() - t0;
 	} catch (e) {
 		return { pass: false, detail: `evaluator failed to run: ${(e as Error).message}`, raw: (e as Error).message };
 	}
@@ -259,13 +288,55 @@ export async function runLockedEvaluator(run: LoopRun, runner: ScriptRunner): Pr
 		if (j.pass === true && r.exitCode !== 0) {
 			return { pass: false, detail: `evaluator reported pass but exited abnormally (exit ${r.exitCode ?? 'killed'})`, raw, json: true };
 		}
-		return { pass: j.pass === true, detail, raw, json: true };
+		const missing = j.pass === true ? undefined : findMissingModule(raw);
+		return { pass: j.pass === true, detail, raw, json: true, ...(missing ? { missingModule: missing } : {}) };
 	}
 	// Strict protocol: no JSON verdict is never a pass, whatever the exit code (a shell evaluator without
 	// `set -e` exits 0 when only its last command succeeds). The raw output still reaches the next
 	// iteration, so a crash caused by a missing output file is fixable by the sub-agent.
 	const why = firstLine(r.stderr) || firstLine(r.stdout) || 'no output';
-	return { pass: false, detail: `evaluator printed no JSON verdict (exit ${r.exitCode ?? 'killed'}): ${why}`.slice(0, 300), raw, json: false };
+	const missing = findMissingModule(raw);
+	return { pass: false, detail: `evaluator printed no JSON verdict (exit ${r.exitCode ?? 'killed'}): ${why}`.slice(0, 300), raw, json: false, ...(missing ? { missingModule: missing } : {}) };
+}
+
+/** The evaluator's declared packages, cleaned (strings only, trimmed, de-duplicated, sorted). */
+export function evaluatorDeps(run: LoopRun): string[] {
+	const d = run.spec.evaluator.dependencies;
+	if (!Array.isArray(d)) { return []; }
+	return [...new Set(d.filter((x): x is string => typeof x === 'string').map(x => x.trim()).filter(Boolean))].sort();
+}
+
+/** Name of the module an import failure in the evaluator's output names, '?' for an import failure
+ *  without a name, or undefined. Python's "No module named 'x'" (ModuleNotFoundError, also when an
+ *  evaluator catches it and puts it in its detail) and "cannot import name" are both import failures. */
+export function findMissingModule(raw: string | undefined): string | undefined {
+	if (!raw) { return undefined; }
+	const m = /No module named ['"]?([A-Za-z0-9_.]+)['"]?/.exec(raw);
+	if (m) { return m[1].split('.')[0]; }
+	if (/ModuleNotFoundError|ImportError/.test(raw)) { return '?'; }
+	return undefined;
+}
+
+/** A Python script that lists the evaluator's top-level absolute imports (any nesting, so imports placed
+ *  after an early "file missing" exit count too) that cannot be found in the environment it runs in. */
+function importCheckScript(code: string): string {
+	const b64 = Buffer.from(code, 'utf8').toString('base64');
+	return [
+		'import ast, base64, importlib.util, json',
+		`src = base64.b64decode('${b64}').decode('utf-8')`,
+		'mods = set()',
+		'try:',
+		'    tree = ast.parse(src)',
+		'except SyntaxError:',
+		'    tree = None',
+		'for n in (ast.walk(tree) if tree else []):',
+		'    if isinstance(n, ast.Import):',
+		'        mods.update(a.name.split(".")[0] for a in n.names)',
+		'    elif isinstance(n, ast.ImportFrom) and n.level == 0 and n.module:',
+		'        mods.add(n.module.split(".")[0])',
+		'missing = sorted(m for m in mods if importlib.util.find_spec(m) is None)',
+		'print(json.dumps({"qoka_import_check": True, "missing": missing}))',
+	].join('\n');
 }
 
 function firstLine(s: string | undefined): string {
@@ -290,7 +361,87 @@ export async function preflightEvaluator(run: LoopRun, runner: ScriptRunner): Pr
 	if (verdict.pass) {
 		return { ok: false, verdict, problem: `The evaluator already PASSES before any work was done (detail: ${verdict.detail || '-'}), so the loop would end at once without testing anything. Make it fail when the required outputs are missing or below the target.` };
 	}
+	// The inputs the user approved must exist WHERE the evaluator runs (a WSL / vfkit mount or an SSH host
+	// sees other paths than the user's PC, and an SSH host may not have the data at all). Checked here, before
+	// the lock, because the evaluator usually reads inputs only after its "output missing" exit above.
+	const inputs = (run.spec.inputs ?? []).filter(x => typeof x === 'string' && x.trim());
+	if (inputs.length) {
+		try {
+			const r = await runner(inputCheckScript(inputs), 'python', []);
+			const line = (r.stdout || '').split('\n').reverse().find(l => l.includes('"qoka_input_check"'));
+			const j = line ? JSON.parse(line) as { missing?: unknown; root?: unknown } : undefined;
+			if (j && Array.isArray(j.missing) && j.missing.length) {
+				return { ok: false, verdict, problem: `These input files do not exist in the run environment, where the evaluator runs (project folder there: ${String(j.root)}): ${(j.missing as string[]).join(', ')}. Ask the user where these files are on the run host (or offer to upload them), fix inputs and the evaluator's input paths, get their approval, then save_loop and start_loop the new loopId.` };
+			}
+		} catch { /* best-effort: a runner failure here is not an input problem */ }
+	}
+	// A fail caused by an import error is not "outputs missing": the evaluator cannot run at all and would
+	// fail every iteration, however good the work. Catch the import that ran (even if the evaluator caught
+	// it and printed it as its detail), then every import it WOULD reach later (after an early "file
+	// missing" exit), checked in the same environment the evaluator runs in.
+	const missingProblem = (mods: string) => `The evaluator cannot import ${mods} in its environment. A python evaluator runs in its own environment with ONLY the standard library plus evaluator.dependencies, so it would fail every iteration whatever the work produced. List the pip package(s) in evaluator.dependencies (e.g. ["scikit-learn"] for sklearn, ["pillow"] for PIL), or use the standard library instead.`;
+	if (verdict.missingModule) {
+		return { ok: false, verdict, problem: missingProblem(verdict.missingModule === '?' ? 'a module' : `"${verdict.missingModule}"`) };
+	}
+	if (isPythonEvaluator(run)) {
+		try {
+			const r = await runner(importCheckScript(run.spec.evaluator.code), 'python', evaluatorDeps(run));
+			const line = (r.stdout || '').split('\n').reverse().find(l => l.includes('"qoka_import_check"'));
+			const missing = line ? (JSON.parse(line).missing as unknown) : undefined;
+			if (Array.isArray(missing) && missing.length) {
+				return { ok: false, verdict, problem: missingProblem(missing.map(m => `"${m}"`).join(', ')) };
+			}
+		} catch { /* the check is best-effort; the verdict above already passed the protocol */ }
+	}
 	return { ok: true, verdict };
+}
+
+/** A Python script (standard library only) that reports which inputs are missing in the run environment.
+ *  Relative inputs resolve against QOKA_PROJECT_ROOT, falling back to the project root three levels above
+ *  the evaluator's working directory (loops/<folder>/results) - the same rule the evaluator uses. */
+function inputCheckScript(inputs: string[]): string {
+	const b64 = Buffer.from(JSON.stringify(inputs), 'utf8').toString('base64');
+	return [
+		'import base64, json, os',
+		`inputs = json.loads(base64.b64decode('${b64}').decode('utf-8'))`,
+		'root = os.environ.get("QOKA_PROJECT_ROOT") or os.path.abspath("../../..")',
+		'missing = [p for p in inputs if not os.path.exists(os.path.expanduser(p) if os.path.isabs(os.path.expanduser(p)) else os.path.join(root, p))]',
+		'print(json.dumps({"qoka_input_check": True, "root": root, "missing": missing}))',
+	].join('\n');
+}
+
+/** The user's LOCAL project path (as the chat sees it) written into evaluator code. It is never the path
+ *  the run environment sees on WSL / vfkit / an SSH host, so such an evaluator cannot read its inputs. */
+export function findLocalRootLiteral(code: string, localRoot: string | undefined): string | undefined {
+	if (!localRoot || localRoot.length < 4) { return undefined; }
+	const root = localRoot.replace(/[\\/]+$/, '');
+	const variants = new Set([root, root.replace(/\\/g, '/'), root.replace(/\\/g, '\\\\'), root.replace(/\//g, '\\')]);
+	for (const v of variants) { if (v && code.includes(v)) { return root; } }
+	return undefined;
+}
+
+/** A Python raw string in the evaluator that holds a DOUBLED backslash before a regex escape (r"\\d+").
+ *  In a raw string that matches a literal backslash, so the check can never match real data - the usual
+ *  slip when evaluator code is written inside a JSON string and its escapes are doubled once too often.
+ *  Returns the offending literal (shortened), or undefined. */
+export function findDoubleEscapedRawString(code: string): string | undefined {
+	const raw = /(?<![A-Za-z0-9_])[rR][bB]?("""|'''|"|')([\s\S]*?)\1/g;
+	for (const m of code.matchAll(raw)) {
+		if (/\\\\[dDsSwWbB.()[\]{}+*?|^$-]/.test(m[2])) { return m[0].length > 60 ? m[0].slice(0, 57) + '...' : m[0]; }
+	}
+	return undefined;
+}
+
+function isPythonEvaluator(run: LoopRun): boolean {
+	// The run-env runner treats a missing language as python.
+	const l = (run.spec.evaluator.language ?? '').toLowerCase();
+	return l === '' || l === 'python' || l === 'python3' || l === 'py';
+}
+
+/** True when `mod` is imported by the evaluator's own code (so an import failure is the evaluator's). */
+function evaluatorImports(run: LoopRun, mod: string): boolean {
+	const esc = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return new RegExp(`(^|\\n)\\s*(import\\s+[^\\n]*\\b${esc}\\b|from\\s+${esc}(\\.|\\s))`).test(run.spec.evaluator.code);
 }
 
 /** Find the evaluator's verdict object in stdout: the LAST top-level balanced `{...}` that parses as
@@ -393,6 +544,7 @@ export function buildStall(run: LoopRun, usedMs: number): LoopStall {
 	const recent = run.history.slice(-8).map(h =>
 		`  iter ${h.iteration + 1}  ${h.verdict ?? '-'}  ${(h.detail ?? '').replace(/\s+/g, ' ').slice(0, 160)}  (${fmtDuration(h.durationMs)})`);
 	const usedMin = (usedMs / 60_000).toFixed(1);
+	const note = run.history[run.history.length - 1]?.agentNote;
 	const lines = [
 		`The same failure repeated ${NO_PROGRESS_N} times in a row (iterations ${from + 1}-${to + 1}): "${detail}"`,
 		'',
@@ -402,9 +554,35 @@ export function buildStall(run: LoopRun, usedMs: number): LoopStall {
 		`Budget used: ${run.iteration}/${run.budget.maxIter} iterations, ${usedMin}/${run.budget.maxMin} min${run.budget.usedTokens ? `, ${run.budget.usedTokens.toLocaleString()} tokens` : ''}.`,
 		run.rootDir ? `Each iteration's code is kept as a version in ${run.rootDir}/code.` : '',
 		'',
+		...(note ? ['What the sub-agent said at the end of the last iteration:', note, ''] : []),
 		'Options: continue (resume the loop as is, or with a larger budget), stop here, or ask for alternative loop designs.',
 	].filter((l, i, a) => !(l === '' && a[i - 1] === ''));
 	return { at: new Date().toISOString(), fromIteration: from, toIteration: to, detail, report: lines.join('\n').trim() };
+}
+
+/** The sub-agent's [QOKA_EVALUATOR_ISSUE] reason (the last one in its reply), or undefined. */
+export function findEvaluatorIssue(output: string | undefined): string | undefined {
+	return findMarker(output, 'QOKA_EVALUATOR_ISSUE');
+}
+
+/** The sub-agent's [QOKA_GOAL_UNREACHABLE] reason: the goal cannot be reached with this data at all. */
+export function findGoalUnreachable(output: string | undefined): string | undefined {
+	return findMarker(output, 'QOKA_GOAL_UNREACHABLE');
+}
+
+/** The reason after the LAST `[name]` marker in the sub-agent's reply. Only a line that STARTS with the
+ *  marker counts, so quoting the rule mid-sentence does not trigger it. */
+function findMarker(output: string | undefined, name: string): string | undefined {
+	const all = [...(output ?? '').matchAll(new RegExp(`^[ \\t>*\`-]*\\[${name}\\][ \\t\`]*([^\\n]*)`, 'gm'))];
+	const why = all.length ? all[all.length - 1][1].trim() : undefined;
+	return all.length ? (why || 'no reason given') : undefined;
+}
+
+/** The end of the sub-agent's reply, for history and pause reports (bounded). */
+function agentNote(output: string | undefined): string | undefined {
+	const t = (output ?? '').trim();
+	if (!t) { return undefined; }
+	return t.length > 800 ? '...' + t.slice(-800) : t;
 }
 
 /** Keep the last `n` chars (a tail) of a possibly-huge blob, marked when truncated. */
@@ -501,7 +679,18 @@ export async function runLoop(run: LoopRun, agentStep: AgentStep, opts: RunOptio
 			: run.status === 'failed' ? 'failed-budget'
 			: run.status === 'stopped' ? 'stopped'
 			: 'paused';
+	} finally {
+		// However the loop ended (success, budget, a cut-off turn, stop, error), nothing it started may keep
+		// running in the run environment.
+		await stopWork(opts, 'loop ended');
 	}
+}
+
+/** Best-effort opts.killWork, never throwing: a failure to reach the run environment must not change the
+ *  loop's outcome. */
+async function stopWork(opts: RunOptions, why: string): Promise<void> {
+	if (!opts.killWork) { return; }
+	try { await opts.killWork(); } catch (e) { opts.log?.(`killWork (${why}) failed: ${(e as Error)?.message ?? String(e)}`); }
 }
 
 async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions): Promise<LoopOutcome> {
@@ -510,6 +699,9 @@ async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions
 	if (run.stall) { run.noProgressFrom = run.history.length; run.stall = undefined; }
 	run.status = 'running';
 	run.reason = undefined;
+	run.evaluatorMissingModule = undefined;
+	run.evaluatorIssue = undefined;
+	run.goalUnreachable = undefined;
 	if (!run.budget.startedAt) { run.budget.startedAt = new Date().toISOString(); }
 	opts.persist(run);
 
@@ -533,6 +725,15 @@ async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions
 		// Clear the shared loop results dir at the START of each attempt, so it holds ONLY this iteration's
 		// outputs (the final attempt's remain when the loop ends). Safe now that loop outputs are never
 		// auto-opened in the editor. No end-of-loop prune needed - overwriting per iteration keeps it clean.
+		// The turn may use only what is LEFT of the total time budget; with too little left for a useful
+		// turn, end as out of budget rather than start one that would be cut off at once.
+		const remainingMs = run.budget.maxMin * 60_000 - elapsed();
+		// The turn gets what is left MINUS the time the evaluator needs afterwards.
+		const turnMs = remainingMs - evalReserveMs(run, remainingMs);
+		if (turnMs < minTurnMs(run.budget.maxMin)) { break; }
+		// Leftovers of an earlier turn (cut off, stopped, or a resumed loop) must not keep writing into the
+		// results folder this iteration is about to use.
+		await stopWork(opts, 'before iteration');
 		if (opts.resultsDir) { clearDir(opts.resultsDir); }
 		const iterStart = Date.now();
 		opts.log?.(`iter ${run.iteration}: sub-agent turn starting${feedback ? ' (with previous-error feedback)' : ' (first attempt)'}`);
@@ -566,7 +767,7 @@ async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions
 		const liveTimer = (opts.readIterLog || opts.resultsDir) ? setInterval(() => { void pollLive(); }, 2000) : undefined;
 		let r: AgentResult;
 		try {
-			r = await agentStep(run, feedback);
+			r = await agentStep(run, feedback, { timeoutMs: turnMs });
 		} catch (e) {
 			// A turn that could not even run (spawn failure, unwritable config, ...) is an environment
 			// problem, not a wrong attempt: pause with the reason instead of escaping runLoop and leaving
@@ -591,12 +792,11 @@ async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions
 			opts.persist(run);
 			return 'stopped';
 		}
-		// A turn that ran out of time did NOT do wrong work - retrying would just time out again. PAUSE and
-		// tell the user to raise the loop's time budget (maxMin) in chat, then resume.
+		// A turn cut off because the total time budget ran out did NOT do wrong work. PAUSE (not fail) so the
+		// user can raise the loop's time budget (maxMin, the total) in chat and resume that iteration.
 		if (r.timedOut) {
-			const perTurnMin = Math.max(run.budget.maxMin || 20, 10);
 			run.status = 'paused';
-			run.reason = `Iteration ${run.iteration} needs more time than the ${perTurnMin} min budget allows. Action needed: ask in the chat to increase this loop's time budget, then resume (or simplify the task).`;
+			run.reason = `The ${run.budget.maxMin} min time budget ran out during iteration ${run.iteration + 1}, so that iteration was cut off. Action needed: ask in the chat to increase this loop's total time budget, then resume (or simplify the task).`;
 			finish();
 			opts.persist(run);
 			return 'paused';
@@ -609,7 +809,22 @@ async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions
 			return 'paused';
 		}
 
-		const verdict = await runLockedEvaluator(run, opts.evaluatorRunner);
+		// The evaluator, too, runs only in what is left of the time budget.
+		const evalLeftMs = run.budget.maxMin * 60_000 - elapsed();
+		const evalStart = Date.now();
+		const verdict = evalLeftMs > 0
+			? await runLockedEvaluator(run, opts.evaluatorRunner, { timeoutMs: evalLeftMs })
+			: { pass: false, detail: 'no time left to run the evaluator', json: false } as Verdict;
+		// Out of time while judging = no time left at all, or the evaluator printed no verdict and used up
+		// (nearly) all the time it was given, i.e. it was cut off by the limit.
+		if (!verdict.pass && !verdict.json && (evalLeftMs <= 0 || Date.now() - evalStart >= evalLeftMs * 0.95)) {
+			run.lastFeedback = feedback;
+			run.status = 'paused';
+			run.reason = `The ${run.budget.maxMin} min time budget ran out while the evaluator was judging iteration ${run.iteration + 1}. Action needed: ask in the chat to increase this loop's total time budget, then resume.`;
+			finish();
+			opts.persist(run);
+			return 'paused';
+		}
 		const entry: LoopHistoryEntry = {
 			iteration: run.iteration,
 			verdict: verdict.pass ? 'pass' : 'fail',
@@ -617,6 +832,7 @@ async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions
 			errorSignature: verdict.pass ? undefined : failureSignature(verdict.detail),
 			at: new Date().toISOString(),
 			durationMs: Date.now() - iterStart,
+			...(agentNote(r.output) ? { agentNote: agentNote(r.output) } : {}),
 		};
 		// Commit THIS iteration's code as a git version (message carries the verdict + reason), so the
 		// Files tab can show a version tree and the failed attempts are recoverable.
@@ -637,6 +853,44 @@ async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions
 			finish();
 			opts.persist(run);
 			return 'success';
+		}
+		// The evaluator itself cannot import one of ITS packages: no attempt can pass, and the sub-agent must
+		// not "fix" it by changing the run environment. Only a redesign helps, so hand it to the user now.
+		const mm = verdict.missingModule;
+		// The sub-agent reported that the evaluator itself cannot pass any correct work (a bug in it, an
+		// input it reads that is not there). Retrying cannot help and the sub-agent must not work around
+		// it, so hand its reason to the user now instead of waiting for the no-change pause.
+		const issue = findEvaluatorIssue(r.output);
+		if (issue) {
+			run.lastFeedback = buildIterationFeedback(verdict, r);
+			run.evaluatorIssue = issue;
+			run.status = 'paused';
+			run.reason = `The sub-agent reports the evaluator itself cannot pass correct work: ${issue.slice(0, 300)}`;
+			finish();
+			opts.persist(run);
+			return 'paused';
+		}
+		// The sub-agent reported that the GOAL cannot be reached with this data (e.g. labels carry no signal,
+		// the target exceeds what the data allows). More attempts only burn budget, and a failure detail that
+		// changes every time (a fluctuating metric) never trips the no-change pause - so hand it over now.
+		const unreachable = findGoalUnreachable(r.output);
+		if (unreachable) {
+			run.lastFeedback = buildIterationFeedback(verdict, r);
+			run.goalUnreachable = unreachable;
+			run.status = 'paused';
+			run.reason = `The sub-agent reports the goal cannot be reached with this data: ${unreachable.slice(0, 300)}`;
+			finish();
+			opts.persist(run);
+			return 'paused';
+		}
+		if (mm && mm !== '?' && evaluatorImports(run, mm)) {
+			run.lastFeedback = buildIterationFeedback(verdict, r);
+			run.evaluatorMissingModule = mm;
+			run.status = 'paused';
+			run.reason = `The evaluator cannot import "${mm}" in its own environment, so it cannot judge any attempt. The loop needs a redesign (add the package to evaluator.dependencies), not another iteration.`;
+			finish();
+			opts.persist(run);
+			return 'paused';
 		}
 		if (noProgress(run)) {
 			// No change: the same failure repeated. The engine does not decide whether the loop is still

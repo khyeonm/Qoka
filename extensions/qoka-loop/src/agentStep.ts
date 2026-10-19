@@ -9,7 +9,7 @@
 
 import * as path from 'path';
 import { LoopRun } from './schema';
-import { AgentResult, AgentStep } from './engine';
+import { AgentResult, AgentStep, TurnLimits } from './engine';
 import { Provider, runAgent, writeMcpConfig, setupCodexHome } from './headlessRun';
 
 /** One-line summary of the recent iteration history (kept short; full state is on disk). */
@@ -60,6 +60,23 @@ export function buildPrompt(run: LoopRun, feedback: string | undefined, where?: 
 		' - Keep changes minimal and focused; do not fabricate results.',
 		' - Do NOT run git in this loop (no git status / add / commit / init). This overrides any',
 		'   auto-commit instruction you were given: the loop engine versions each iteration\'s code itself.',
+		' - Do NOT install, upgrade or remove packages in the run environment itself (no pip install / pip',
+		'   install --user / conda install into the system or base Python). For your own code, list packages',
+		'   in run_code `dependencies`. The evaluator runs in its own locked environment, so changing the run',
+		'   environment cannot change its verdict. If the evaluator output shows it cannot import a module,',
+		'   that is a loop design problem: report it and stop instead of working around it.',
+		' - If you are CERTAIN the locked evaluator itself is broken so that NO correct work can pass (a bug in',
+		'   its code, or it reads an input that does not exist where it runs), do not work around it: end your',
+		'   reply with ONE line  [QOKA_EVALUATOR_ISSUE] <the concrete defect and your evidence>  and stop. The',
+		'   loop then pauses and the user decides. Use it only for a defect in the evaluator, never because the',
+		'   task is hard or your result is not good enough yet.',
+		' - If you are CERTAIN, from evidence in the data, that the GOAL itself cannot be reached by any honest',
+		'   method (e.g. the labels carry no signal, or the target exceeds what the data allows), end your reply',
+		'   with ONE line  [QOKA_GOAL_UNREACHABLE] <your evidence, with numbers>  and stop. The loop pauses and',
+		'   the user decides. Do not use it because your current attempt falls short.',
+		' - Never read, copy or reconstruct the answer the evaluator compares against (reference labels such as',
+		'   a cell_type column, test-set labels used for scoring) to build your output. That would pass the check',
+		'   without doing the task.',
 		'',
 		...placement,
 		`THIS LOOP HAS ${n} PLANNED STEPS:`,
@@ -80,6 +97,7 @@ export function buildPrompt(run: LoopRun, feedback: string | undefined, where?: 
 		'```',
 		evaluator,
 		'```',
+		`Evaluator environment: standard library${(spec.evaluator.dependencies ?? []).length ? ' + ' + (spec.evaluator.dependencies ?? []).join(', ') : ' only'} (its own, separate from run_code).`,
 		'',
 		feedback ? `LAST EVALUATOR FEEDBACK (fix this): ${feedback}` : 'This is the first attempt.',
 		'',
@@ -119,7 +137,7 @@ export function makeAgentStep(opts: AgentStepOptions): AgentStep {
 	const codexHome = (hasServers && opts.provider === 'codex')
 		? setupCodexHome(path.join(opts.loopDir, '_codex-home'), opts.workMcpServers, `loops/${opts.loopFolder}`)
 		: undefined;
-	return async (run: LoopRun, feedback: string | undefined): Promise<AgentResult> => {
+	return async (run: LoopRun, feedback: string | undefined, limits?: TurnLimits): Promise<AgentResult> => {
 		const prompt = buildPrompt(run, feedback, { projectRoot: opts.cwd, loopFolder: opts.loopFolder });
 		let mcpConfigPath: string | undefined;
 		if (hasServers && opts.provider === 'claude') {
@@ -127,10 +145,9 @@ export function makeAgentStep(opts: AgentStepOptions): AgentStep {
 			writeMcpConfig(mcpConfigPath, opts.workMcpServers, `loops/${opts.loopFolder}`);
 		}
 		// One iteration of a real loop (install tools + generate + dock, etc.) can take far longer than the
-		// default 10 min turn timeout - which would kill the turn before it writes the output the evaluator
-		// checks, failing every iteration identically. Allow a turn up to the loop's whole time budget (the
-		// engine's outer loop still enforces the total maxMin); floor at 10 min for tiny loops.
-		const timeoutMs = Math.max(run.budget.maxMin || 20, 10) * 60_000;
+		// default 10 min turn timeout, so a turn may use everything that is LEFT of the loop's total time
+		// budget - the engine passes that in, so one long turn cannot carry the loop past maxMin.
+		const timeoutMs = limits?.timeoutMs ?? (run.budget.maxMin || 20) * 60_000;
 		const r = await runAgent(opts.provider, prompt, { cwd: opts.cwd, mcpConfigPath, codexHome, signal: opts.signal, timeoutMs });
 		return { output: r.output, exitCode: r.exitCode, envError: r.envError, error: r.error, code: r.code, codeLanguage: r.codeLanguage, tokens: r.tokens, timedOut: r.timedOut };
 	};

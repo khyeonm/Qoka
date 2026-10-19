@@ -34,6 +34,10 @@ export interface LoopEvaluator {
 	code: string;
 	/** Interpreter hint: 'python' | 'sh' | 'node' | ... (defaults to shell). */
 	language?: string;
+	/** Python packages the evaluator imports (pip names, e.g. "scikit-learn"). A python evaluator runs via
+	 *  uv in its OWN environment holding only the standard library plus these, so the sub-agent cannot
+	 *  change what it imports. Part of the lock. */
+	dependencies?: string[];
 	/** sha256 of the locked artifact, set when start_loop materializes it (M1). */
 	hash?: string;
 }
@@ -50,6 +54,10 @@ export interface LoopSpec {
 	title: string;
 	goal: string;
 	flow: LoopFlow;
+	/** Input files the evaluator reads, as the RUN ENVIRONMENT sees them: project-relative ("data/x.csv",
+	 *  resolved against QOKA_PROJECT_ROOT) or an absolute path on the run host. Checked to exist there
+	 *  before the evaluator is locked. */
+	inputs?: string[];
 	evaluator: LoopEvaluator;
 	budget?: LoopBudget;
 	/** Present only for a chain (a big goal split into shorter loops). */
@@ -75,6 +83,9 @@ export interface LoopHistoryEntry {
 	at: string;
 	/** Wall-clock time this iteration took (sub-agent turn + evaluator), in milliseconds. */
 	durationMs?: number;
+	/** The end of the sub-agent's own reply this iteration (what it said it did or found), so a pause
+	 *  report can show the user the sub-agent's diagnosis, not only the evaluator's verdict. */
+	agentNote?: string;
 }
 
 /** A no-change pause: which iterations repeated which failure, plus a readable history report. */
@@ -111,6 +122,18 @@ export interface LoopRun {
 	 *  iteration history laid out for the user to judge whether the loop is still improving; the chat
 	 *  reads it via loop_status and asks the user to continue, stop, or redesign. */
 	stall?: LoopStall;
+	/** Set when the engine paused because the locked evaluator cannot import a package in its own
+	 *  environment. Only a redesign (evaluator.dependencies) fixes it, so resume_loop refuses. */
+	evaluatorMissingModule?: string;
+	/** Set when the sub-agent reported ([QOKA_EVALUATOR_ISSUE]) that the locked evaluator itself is broken
+	 *  so no correct work can pass: its reason. The loop pauses for the user instead of retrying. */
+	evaluatorIssue?: string;
+	/** Set when the sub-agent reported ([QOKA_GOAL_UNREACHABLE]) that the goal cannot be reached with this
+	 *  data at all: its reason. The loop pauses for the user instead of spending the rest of the budget. */
+	goalUnreachable?: string;
+	/** How long the evaluator took the last time it ran (pre-start check or an iteration), in ms. The engine
+	 *  keeps that much of the time budget free for judging before it lets a sub-agent turn start. */
+	evalMs?: number;
 	/** History index from which no-change detection counts again (set when a stalled loop is resumed,
 	 *  so the same three failures do not re-trigger the pause immediately). */
 	noProgressFrom?: number;

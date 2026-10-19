@@ -145,6 +145,9 @@ export function parseClaudeStream(stdout: string): { text: string; code: string;
 	const otherTools: string[] = [];
 	let language = '';
 	let tokens = 0;
+	// Per-API-call usage, keyed by message id (stream-json repeats it on every content block of one
+	// message). Summed, it still counts a turn that was cut off before its final "result" total.
+	const callUsage = new Map<string, number>();
 	for (const raw of stdout.split('\n')) {
 		const line = raw.trim();
 		if (!line) { continue; }
@@ -173,6 +176,8 @@ export function parseClaudeStream(stdout: string): { text: string; code: string;
 			const it = Number(usage.input_tokens ?? 0) || 0;
 			const ot = Number(usage.output_tokens ?? 0) || 0;
 			tokens = Math.max(tokens, it + ot);
+			const id = typeof msg?.id === 'string' ? msg.id : undefined;
+			if (id && obj?.type === 'assistant') { callUsage.set(id, Math.max(callUsage.get(id) ?? 0, it + ot)); }
 		}
 		if (obj?.type === 'result' && typeof obj.result === 'string' && obj.result.trim()) {
 			texts.push(obj.result);
@@ -180,7 +185,9 @@ export function parseClaudeStream(stdout: string): { text: string; code: string;
 	}
 	if (otherTools.length) { texts.push(`\n[tools used: ${[...new Set(otherTools)].join(', ')}]`); }
 	const sep = language === 'python' ? '\n\n# --- next run_code call ---\n\n' : '\n\n// --- next run_code call ---\n\n';
-	return { text: texts.join('\n').trim(), code: codeParts.join(sep), language, tokens };
+	let perCall = 0;
+	for (const v of callUsage.values()) { perCall += v; }
+	return { text: texts.join('\n').trim(), code: codeParts.join(sep), language, tokens: Math.max(tokens, perCall) };
 }
 
 /**
@@ -215,9 +222,15 @@ export function runAgent(
 		const finish = (r: AgentRunResult) => { if (!done) { done = true; clearTimeout(timer); if (opts.signal) { opts.signal.removeEventListener('abort', onAbort); } resolve(r); } };
 		// A stop request kills the running turn so a mid-iteration stop takes effect within seconds
 		// instead of waiting out a long docking/analysis run.
-		const onAbort = () => { try { child.kill('SIGTERM'); } catch { /* already gone */ } finish({ output: stdout, exitCode: null, stderr, error: 'stopped by user', stopped: true }); };
+		// A turn ended early (stop or time limit) still reports what it did and the tokens it spent so far.
+		const partial = () => {
+			if (provider !== 'claude') { return { output: stdout }; }
+			const p = parseClaudeStream(stdout);
+			return { output: p.text || stdout, code: p.code || undefined, codeLanguage: p.language || undefined, tokens: p.tokens || undefined };
+		};
+		const onAbort = () => { try { child.kill('SIGTERM'); } catch { /* already gone */ } finish({ ...partial(), exitCode: null, stderr, error: 'stopped by user', stopped: true }); };
 		if (opts.signal) { opts.signal.addEventListener('abort', onAbort, { once: true }); }
-		const timer = setTimeout(() => { child.kill('SIGTERM'); finish({ output: stdout, exitCode: null, stderr, error: `timed out after ${timeoutMs}ms`, timedOut: true }); }, timeoutMs);
+		const timer = setTimeout(() => { child.kill('SIGTERM'); finish({ ...partial(), exitCode: null, stderr, error: `timed out after ${timeoutMs}ms`, timedOut: true }); }, timeoutMs);
 		child.stdout.on('data', d => { stdout += d.toString(); });
 		child.stderr.on('data', d => { stderr += d.toString(); });
 		child.on('error', err => finish({ output: '', exitCode: null, stderr, envError: true, error: err.message }));

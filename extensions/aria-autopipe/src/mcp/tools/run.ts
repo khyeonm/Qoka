@@ -51,6 +51,51 @@ const LANGS: Record<Lang, { file: string; run: (f: string) => string }> = {
 const ENSURE_UV = 'command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh';
 
 /**
+ * Shell lines that (1) set $QOKA_TO to a `timeout` prefix that kills the run's whole process group after
+ * `seconds` (empty when `timeout` is missing), and (2) for a loop run, export QOKA_LOOP_SCOPE so every
+ * process of the run carries the loop's scope and killLoopScope can find it.
+ */
+export function runGuard(seconds: number, loopScope?: string): string {
+	const lines = [`QOKA_TO=""; command -v timeout >/dev/null 2>&1 && QOKA_TO="timeout -k 10 ${Math.max(1, Math.round(seconds))}"`];
+	if (loopScope && /^loops\/[A-Za-z0-9._/-]+$/.test(loopScope) && !loopScope.includes('..')) {
+		lines.push(`export QOKA_LOOP_SCOPE='${loopScope}'`);
+	}
+	return lines.join('\n');
+}
+
+/**
+ * Shell that kills every process in the run environment whose environment carries QOKA_LOOP_SCOPE equal to
+ * `scope` or below it (scope/...), and prints how many it killed. Read from /proc, so it also finds runs
+ * inside the WSL bubblewrap sandbox (own PID namespace, same host /proc), on an SSH server and in the VM.
+ */
+export function killScopeScript(scope: string): string {
+	return [
+		`s='${scope}'`,
+		'pids=""',
+		'for d in /proc/[0-9]*; do',
+		'  [ -O "$d/environ" ] || continue',
+		'  v=$({ tr "\\0" "\\n" < "$d/environ"; } 2>/dev/null | sed -n "s/^QOKA_LOOP_SCOPE=//p" | head -n1)',
+		'  case "$v" in "$s"|"$s"/*) pids="$pids ${d#/proc/}";; esac',
+		'done',
+		'if [ -n "$pids" ]; then kill -TERM $pids 2>/dev/null; sleep 2; kill -KILL $pids 2>/dev/null; fi',
+		'echo "killed:$(echo $pids | wc -w)"',
+	].join('\n');
+}
+
+/**
+ * Stop every run_code / evaluator process of one loop in the ACTIVE run environment (the loop engine calls
+ * this when it cuts off or stops an iteration, and when the loop ends). Returns how many were killed.
+ */
+export async function killLoopScope(scope: string): Promise<number> {
+	if (!/^loops\/[A-Za-z0-9._/-]+$/.test(scope) || scope.includes('..')) { return 0; }
+	const { profile: ep } = await resolveRunTarget();
+	const { ssh } = services();
+	const r = await ssh.run(ep, killScopeScript(scope.replace(/\/+$/, '')), { timeoutMs: 30000 });
+	const m = /killed:(\d+)/.exec(r.stdout ?? '');
+	return m ? Number(m[1]) : 0;
+}
+
+/**
  * Prepend PEP 723 inline script metadata declaring `deps` so `uv run` installs
  * them. No-op when the code already carries its own `# /// script` block (the AI
  * may write one directly) or when there are no deps.
@@ -338,6 +383,12 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// keeps the log up to the last line, not just to the last 4KB flush.
 				const pyBuf = language === 'python' ? 'export PYTHONUNBUFFERED=1\n' : '';
 				const runCmd = spec.run(file);
+				// A run must never outlive its time limit, even when the connection that started it drops:
+				// `timeout` runs the code in its own process group and kills the WHOLE group (uv and the python
+				// under it, not just the top shell). A loop run is also tagged with QOKA_LOOP_SCOPE, which every
+				// child inherits, so the loop engine can stop that loop's runs (killLoopScope) when it cuts off
+				// or stops an iteration - otherwise they keep running in the run environment.
+				const guard = runGuard(Math.ceil(timeoutMs / 1000), loopScope);
 				// The block that runs the user's code and writes stdout.log / stderr.log into
 				// the run dir. On the WSL local run environment it runs inside a PER-PROJECT
 				// bubblewrap sandbox so the code - and anything it installs - can only touch
@@ -392,7 +443,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 						// only that single resolv.conf file, never the rest of /mnt (/mnt/c stays
 						// invisible). When resolv.conf is a regular file this binds it over itself.
 						'  QOKA_RESOLV="$(readlink -f /etc/resolv.conf 2>/dev/null || echo /etc/resolv.conf)"',
-						'  bwrap \\',
+						'  $QOKA_TO bwrap \\',
 						'    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind-try /sbin /sbin \\',
 						'    --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\',
 						'    --ro-bind /etc /etc --ro-bind-try "$QOKA_RESOLV" "$QOKA_RESOLV" \\',
@@ -407,12 +458,12 @@ export const RUN_TOOLS: ToolDefinition[] = [
 						'else',
 						'  echo "[qoka] bubblewrap not installed in the run environment - running WITHOUT sandbox isolation. Restart Qoka to finish setup." >&2',
 						'  export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
-						`  ${pyBuf}${ensure}${runCmd} > stdout.log 2> stderr.log`,
+						`  ${pyBuf}${ensure}$QOKA_TO ${runCmd} > stdout.log 2> stderr.log`,
 						'fi',
 					].join('\n');
 				} else {
 					execBlock = 'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"\n'
-						+ `${pyBuf}${ensure}${runCmd} > stdout.log 2> stderr.log`;
+						+ `${pyBuf}${ensure}$QOKA_TO ${runCmd} > stdout.log 2> stderr.log`;
 				}
 				// ONE login for the whole run: mkdir + write the script + execute + report
 				// the resolved dir and the files produced. Kept to a single connection
@@ -421,6 +472,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 				// which the SFTP copy-back needs.
 				const script = [
 					'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
+					guard,
 					`mkdir -p ${runDirExpr} && cd ${runDirExpr} || exit 97`,
 					`echo '${encoded}' | base64 -d > '${file}'`,
 					execBlock,
@@ -641,17 +693,22 @@ export const RUN_MCP_INSTRUCTIONS = [
 ].join('\n');
 
 /**
- * Run a raw script in the ACTIVE run environment and return its result. Lean: no result folders,
- * copy-back, or PEP-723 injection. Used by the qoka-loop engine to run a locked evaluator in the
- * SAME place - and, on the WSL built-in, the SAME per-project bubblewrap sandbox (HOME=/home/qoka,
- * project bound read-only) - that run_code executes in, so the evaluator sees the sub-agent's files
- * and installed packages. Every OTHER target (a user SSH host, the Mac vfkit / Linux VM) runs
- * run_code directly (no bwrap), so a plain exec already matches those.
+ * Run a raw script in the ACTIVE run environment and return its result. Lean: no result folders or
+ * copy-back. Used by the qoka-loop engine to run a locked evaluator in the SAME place - and, on the WSL
+ * built-in, the SAME per-project bubblewrap sandbox (HOME=/home/qoka, project bound read-only) - that
+ * run_code executes in, so the evaluator sees the sub-agent's files. A python evaluator gets its own uv
+ * environment (standard library + its locked `dependencies`), not the packages the sub-agent installed.
+ * QOKA_PROJECT_ROOT is the project folder AS THE RUN ENVIRONMENT SEES IT (WSL /mnt/c/..., the vfkit
+ * mount, the SSH host's repo_path), so an evaluator reads inputs by a path that exists where it runs.
+ * Every OTHER target (a user SSH host, the Mac vfkit / Linux VM) runs run_code directly (no bwrap), so
+ * a plain exec already matches those.
  */
 export async function runScriptInEnv(
 	code: string,
 	language?: string,
 	cwdRel?: string,
+	dependencies?: string[],
+	timeoutMs?: number,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
 	if (!code) { return { stdout: '', stderr: 'runScriptInEnv: no code', exitCode: 1 }; }
 	// A loop passes cwdRel = loops/<folder>/results so the evaluator runs in the SAME directory run_code
@@ -666,11 +723,23 @@ export async function runScriptInEnv(
 	if (!isNode && !isShell && !isPython) {
 		return { stdout: '', stderr: `runScriptInEnv: unsupported evaluator language "${language}" (use python, bash or node)`, exitCode: 2 };
 	}
-	const runner = isNode ? 'node' : isShell ? 'bash' : 'python3';
+	// A python evaluator runs via uv in its OWN environment: the standard library plus the packages the
+	// locked spec declares, never the system Python or what the sub-agent installed - so the work cannot
+	// change what judges it. The script always carries a PEP 723 block (an empty one included) because
+	// that is what makes uv build an isolated environment instead of running the found interpreter.
+	const deps = (dependencies ?? []).map(d => String(d).trim()).filter(Boolean);
+	const runner = isNode ? 'node' : isShell ? 'bash' : 'uv run --no-project --quiet';
+	// Like run_code: a time limit that kills the evaluator's whole process group even if the connection
+	// drops, and the loop's scope tag so killLoopScope also stops a running evaluator.
+	// The loop engine passes what is left of the loop's time budget: the evaluator never runs past it.
+	const evalTimeoutMs = Math.min(isPython ? (deps.length ? 600000 : 240000) : 120000, timeoutMs && timeoutMs > 0 ? timeoutMs : Infinity);
+	const evalScope = /^loops\/[A-Za-z0-9._-]+/.exec(safeCwdRel ?? '')?.[0];
+	const guard = runGuard(Math.ceil(evalTimeoutMs / 1000), evalScope) + (isPython ? '\nexport PYTHONNOUSERSITE=1' : '');
 	const ext = isNode ? 'js' : isShell ? 'sh' : 'py';
+	const prelude = isPython ? `${ENSURE_UV} >&2\n` : '';
 	const { profile: ep, isBuiltIn } = await resolveRunTarget();
 	const { ssh } = services();
-	const encoded = Buffer.from(code, 'utf8').toString('base64');
+	const encoded = Buffer.from(isPython ? evaluatorPep723(code, deps) : code, 'utf8').toString('base64');
 	const isWslBuiltin = isBuiltIn && process.platform === 'win32';
 	const wsRoot = workspaceFolderPath();
 	const mounted = isBuiltIn && !!wsRoot && isMountedRepo(ep);
@@ -688,30 +757,33 @@ export async function runScriptInEnv(
 		// Run in the loop's results dir when given (so the evaluator matches run_code's cwd); else the repo.
 		const chdir = mounted ? `'${wslRepo}${safeCwdRel ? '/' + safeCwdRel : ''}'` : '/home/qoka';
 		const runnerB64 = Buffer.from(
-			`export PATH="/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"\n${runner} /home/qoka/.qoka-eval.${ext}\n`,
+			`export PATH="/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"\n${prelude}${runner} /home/qoka/.qoka-eval.${ext}\n`,
 			'utf8').toString('base64');
 		script = [
+			guard,
 			'if command -v bwrap >/dev/null 2>&1; then',
 			`  mkdir -p ${sbx}`,
 			`  printf '%s' '${encoded}' | base64 -d > ${sbx}/.qoka-eval.${ext}`,
 			`  printf '%s' '${runnerB64}' | base64 -d > ${sbx}/.qoka-eval-run.sh`,
 			'  QOKA_RESOLV="$(readlink -f /etc/resolv.conf 2>/dev/null || echo /etc/resolv.conf)"',
-			'  bwrap \\',
+			'  $QOKA_TO bwrap \\',
 			'    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind-try /sbin /sbin \\',
 			'    --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\',
 			'    --ro-bind /etc /etc --ro-bind-try "$QOKA_RESOLV" "$QOKA_RESOLV" \\',
 			'    --proc /proc --dev /dev --tmpfs /tmp \\',
 			`    --bind ${sbx} /home/qoka \\`,
-			`    ${projectBind}--chdir ${chdir} --setenv HOME /home/qoka \\`,
+			`    ${projectBind}--chdir ${chdir} --setenv HOME /home/qoka ${mounted ? `--setenv QOKA_PROJECT_ROOT '${wslRepo}' ` : ''}\\`,
 			'    --unshare-all --share-net --die-with-parent \\',
 			'    bash /home/qoka/.qoka-eval-run.sh',
 			'else',
 			'  echo "[qoka] bubblewrap not installed - running evaluator WITHOUT sandbox isolation." >&2',
 			'  export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
+			mounted ? `  export QOKA_PROJECT_ROOT='${wslRepo}'` : '',
 			`  printf '%s' '${encoded}' | base64 -d > "$HOME/.qoka-eval.${ext}"`,
-			`  ${runner} "$HOME/.qoka-eval.${ext}"`,
+			isPython ? `  ${ENSURE_UV} >&2` : '',
+			`  $QOKA_TO ${runner} "$HOME/.qoka-eval.${ext}"`,
 			'fi',
-		].join('\n');
+		].filter(Boolean).join('\n');
 	} else {
 		// SSH host / Mac vfkit / Linux VM: run_code runs directly here too, so match it - cd into the
 		// run target's repo so absolute + repo-relative paths resolve the same as the sub-agent's.
@@ -720,17 +792,29 @@ export async function runScriptInEnv(
 		const cwdAbs = repo ? `${repo}${safeCwdRel ? '/' + safeCwdRel : ''}` : '';
 		script = [
 			'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
+			guard,
 			cwdAbs ? `mkdir -p "${cwdAbs}" 2>/dev/null; cd "${cwdAbs}" 2>/dev/null || true` : '',
+			repo ? `export QOKA_PROJECT_ROOT="${repo}"` : '',
 			`printf '%s' '${encoded}' | base64 -d > '${file}'`,
-			`${runner} '${file}'`,
+			isPython ? `${ENSURE_UV} >&2` : '',
+			`$QOKA_TO ${runner} '${file}'`,
 			'__rc=$?',
 			`rm -f '${file}'`,
 			'exit $__rc',
 		].filter(Boolean).join('\n');
 	}
 
-	const r = await ssh.run(ep, script, { timeoutMs: 120000 });
+	// The first run of a python evaluator builds its environment (uv + declared packages): allow longer.
+	const r = await ssh.run(ep, script, { timeoutMs: evalTimeoutMs + 15000 });
 	return { stdout: r.stdout, stderr: r.stderr, exitCode: r.exitCode };
+}
+
+/** PEP 723 block for a locked evaluator: ALWAYS present (also with no packages), so `uv run` gives it an
+ *  isolated environment. An evaluator that carries its own block keeps it (that block is locked too). */
+function evaluatorPep723(code: string, deps: string[]): string {
+	if (/^\s*#\s*\/\/\/\s*script/m.test(code)) { return code; }
+	const arr = deps.map(d => `"${d.replace(/["\\]/g, '')}"`).join(', ');
+	return ['# /// script', `# dependencies = [${arr}]`, '# ///', '', code].join('\n');
 }
 
 /**
