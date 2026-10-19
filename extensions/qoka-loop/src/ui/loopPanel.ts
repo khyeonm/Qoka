@@ -83,6 +83,7 @@ interface LoopView {
 	updatedAt: string;
 	reason?: string;
 	stallReport?: string;
+	runTarget?: string;
 	flow: LoopRun['spec']['flow'];
 	evaluator: LoopRun['spec']['evaluator'];
 	lockedHash?: string;
@@ -161,6 +162,7 @@ function toView(run: LoopRun): LoopView {
 		updatedAt: run.updatedAt,
 		reason: run.reason,
 		stallReport: run.stall?.report,
+		runTarget: run.runTarget?.label,
 		flow: run.spec.flow,
 		evaluator: run.spec.evaluator,
 		lockedHash: run.lockedEvaluatorRef?.hash ?? run.spec.evaluator.hash,
@@ -673,6 +675,7 @@ function renderHtml(webview: vscode.Webview): string {
 				// changing, so show "-"; the finalized Tokens / Total time appear once the loop ends.
 				+ '<div><strong>Tokens</strong>' + (running ? '-' : ((l.budget.usedTokens && l.budget.usedTokens > 0) ? l.budget.usedTokens.toLocaleString() : '0')) + '</div>'
 				+ '<div><strong>Total time</strong>' + (running ? '-' : (totalMs > 0 ? fmtDurTop(totalMs) : '0s')) + '</div>'
+				+ (l.runTarget ? '<div><strong>Runs on</strong>' + esc(l.runTarget) + '</div>' : '')
 				+ (l.provider ? '<div><strong>Provider</strong>' + esc(l.provider) + '</div>' : '')
 				+ '<div><strong>Updated</strong>' + fmtTime(l.updatedAt) + '</div>'
 				+ '</div>';

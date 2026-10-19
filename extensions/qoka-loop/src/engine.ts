@@ -118,6 +118,9 @@ export interface RunOptions {
 	 *  agent; the code it started would otherwise keep running there. Called before each iteration and when
 	 *  the loop ends. Unset (tests) -> nothing to stop. */
 	killWork?: () => Promise<void>;
+	/** Called before each iteration: a reason when the active run target is no longer the one the loop
+	 *  started on (the loop then pauses instead of running its work or evaluator somewhere else). */
+	runTargetChanged?: () => Promise<string | undefined>;
 	/** Diagnostics sink (the "Qoka Loop" output channel). Injected so the engine stays vscode-free. */
 	log?: (msg: string) => void;
 }
@@ -371,7 +374,7 @@ export async function preflightEvaluator(run: LoopRun, runner: ScriptRunner): Pr
 			const line = (r.stdout || '').split('\n').reverse().find(l => l.includes('"qoka_input_check"'));
 			const j = line ? JSON.parse(line) as { missing?: unknown; root?: unknown } : undefined;
 			if (j && Array.isArray(j.missing) && j.missing.length) {
-				return { ok: false, verdict, problem: `These input files do not exist in the run environment, where the evaluator runs (project folder there: ${String(j.root)}): ${(j.missing as string[]).join(', ')}. Ask the user where these files are on the run host (or offer to upload them), fix inputs and the evaluator's input paths, get their approval, then save_loop and start_loop the new loopId.` };
+				return { ok: false, verdict, problem: `These input files do not exist in the run environment, where the evaluator runs (project folder there: ${String(j.root)}): ${(j.missing as string[]).join(', ')}. If the files are on the user's computer, ask whether to upload them and, on a yes, call upload_local_input with dest "project_data" for each (it puts them at the same project-relative path on the run host), then call start_loop again for this loopId. If they live elsewhere on the run host, ask the user for the path, fix inputs and the evaluator's input paths, get their approval, then save_loop and start_loop the new loopId. Never tell the user to copy files by hand (scp).` };
 			}
 		} catch { /* best-effort: a runner failure here is not an input problem */ }
 	}
@@ -731,6 +734,14 @@ async function runLoopInner(run: LoopRun, agentStep: AgentStep, opts: RunOptions
 		// The turn gets what is left MINUS the time the evaluator needs afterwards.
 		const turnMs = remainingMs - evalReserveMs(run, remainingMs);
 		if (turnMs < minTurnMs(run.budget.maxMin)) { break; }
+		const moved = opts.runTargetChanged ? await opts.runTargetChanged().catch(() => undefined) : undefined;
+		if (moved) {
+			run.status = 'paused';
+			run.reason = moved;
+			finish();
+			opts.persist(run);
+			return 'paused';
+		}
 		// Leftovers of an earlier turn (cut off, stopped, or a resumed loop) must not keep writing into the
 		// results folder this iteration is about to use.
 		await stopWork(opts, 'before iteration');

@@ -446,7 +446,8 @@ export const FILE_TOOLS: ToolDefinition[] = [
 			type: 'object',
 			properties: {
 				local_path: { type: 'string', description: "Absolute path to a file or directory on the user's local machine, or a path relative to the open project folder." },
-				subdir: { type: 'string', description: 'Optional subdirectory under pipelines_input to place the upload in (e.g. a run name).' },
+				subdir: { type: 'string', description: 'Optional subdirectory under pipelines_input to place the upload in (e.g. a run name). Ignored with dest "project_data".' },
+				dest: { type: 'string', enum: ['pipelines_input', 'project_data'], description: 'Where on the run target: "pipelines_input" (default) for pipeline inputs, or "project_data" to put the files at the SAME project-relative path inside the project folder on the server (<repo_path>/data/x.csv for local data/x.csv) - use this for a LOOP whose start was refused because an input is missing in the run environment, since loops read inputs from the project folder there.' },
 			},
 			required: ['local_path'],
 		},
@@ -475,17 +476,25 @@ export const FILE_TOOLS: ToolDefinition[] = [
 					return errorResult(`Local path not found: ${localPath}`);
 				}
 
-				const paths = workspacePathsFor(profile);
-				const subdir = args.subdir && String(args.subdir).length > 0
-					? String(args.subdir).replace(/^\/+|\/+$/g, '')
-					: '';
-				const destDir = subdir ? `${paths.input_dir.replace(/\/+$/, '')}/${subdir}` : paths.input_dir;
-
-				// Create the remote input dir as the SSH user FIRST so it is user-owned
-				// (never let a later docker mount create it as root - see execute_pipeline).
-				const mk = await ssh.run(profile, `mkdir -p '${shellEscape(destDir)}'`, { timeoutMs: 60000 });
-				if (mk.exitCode !== 0) {
-					return errorResult(`Failed to create remote input dir '${destDir}': ${mk.stdout.trim() || mk.stderr.trim()}`);
+				const toProjectData = args.dest === 'project_data';
+				const folder = workspaceFolderPath();
+				let destDir: string;
+				if (toProjectData) {
+					// The local run environment mounts the open project, so its data/ is already there.
+					if (services().config.isLocalVmActive()) {
+						return textResult('The local run environment sees the open project folder directly (it is mounted), so the files are already where a loop reads them. No upload is needed - start the loop again.');
+					}
+					const repo = (profile.repo_path ?? '').trim().replace(/\/+$/, '');
+					if (!repo) {
+						return errorResult('The active SSH server has no project folder (repo path) set. Ask the user to set it for this server in the Settings tab, then upload again.');
+					}
+					destDir = repo;
+				} else {
+					const paths = workspacePathsFor(profile);
+					const subdir = args.subdir && String(args.subdir).length > 0
+						? String(args.subdir).replace(/^\/+|\/+$/g, '')
+						: '';
+					destDir = subdir ? `${paths.input_dir.replace(/\/+$/, '')}/${subdir}` : paths.input_dir;
 				}
 
 				// Gather local files (single file, or a whole directory tree).
@@ -495,38 +504,32 @@ export const FILE_TOOLS: ToolDefinition[] = [
 				} else {
 					files.push({ local: localPath, rel: basenameOf(localPath.replace(/\\/g, '/')) });
 				}
+				// project_data keeps the path relative to the open project (data/x.csv -> <repo>/data/x.csv);
+				// a file from outside the project lands under <repo>/data/.
+				if (toProjectData) {
+					const inProject = folder ? path.relative(folder, localPath) : '';
+					const base = inProject && !inProject.startsWith('..') && !path.isAbsolute(inProject)
+						? inProject.replace(/\\/g, '/')
+						: `data/${basenameOf(localPath.replace(/\\/g, '/'))}`;
+					for (const f of files) { f.rel = stat.isDirectory() ? `${base}/${f.rel}` : base; }
+				}
 				if (files.length === 0) {
 					return textResult(`Nothing to upload: '${localPath}' contains no files.`);
 				}
 
-				let uploaded = 0;
-				const errors: string[] = [];
-				const madeDirs = new Set<string>();
-				for (const f of files) {
-					const remoteFile = `${destDir.replace(/\/+$/, '')}/${f.rel}`;
-					const remoteParent = parentOf(remoteFile);
-					if (remoteParent && !madeDirs.has(remoteParent)) {
-						await ssh.run(profile, `mkdir -p '${shellEscape(remoteParent)}'`);
-						madeDirs.add(remoteParent);
-					}
-					try {
-						// uploadFile, not uploadFileSftp: falls back to the exec channel on a
-						// server where SFTP is disabled.
-						await ssh.uploadFile(profile, f.local, remoteFile);
-						uploaded++;
-					} catch (e) {
-						errors.push(`${f.rel}: ${(e as Error).message}`);
-					}
-				}
+				// ONE login for the whole upload (folders are created on the same connection): servers that
+				// refuse rapid repeated logins otherwise reject the 2nd or 3rd connection of a single upload.
+				const { uploaded, errors } = await ssh.uploadFiles(profile,
+					files.map(f => ({ local: f.local, remote: `${destDir.replace(/\/+$/, '')}/${f.rel}` })));
 
 				// No manifest at staging time (no run name yet, and it created a stray
 				// data/inputs/ folder). The per-run input manifest is written to
 				// data/<run-name>/ when results are saved.
 
-				const lines = [
-					`Uploaded ${uploaded}/${files.length} file(s) into ${destDir}.`,
-					`Use as input_dir: ${destDir}`,
-				];
+				const lines = toProjectData
+					? [`Uploaded ${uploaded}/${files.length} file(s) into the project folder on the server: ${files.map(f => `${destDir}/${f.rel}`).slice(0, 5).join(', ')}${files.length > 5 ? ', ...' : ''}.`,
+						'A loop reads them there by their project-relative path; start the loop again.']
+					: [`Uploaded ${uploaded}/${files.length} file(s) into ${destDir}.`, `Use as input_dir: ${destDir}`];
 				if (errors.length > 0) {
 					lines.push('', 'Failed:');
 					for (const e of errors) { lines.push(`  ${e}`); }

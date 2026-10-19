@@ -568,6 +568,20 @@ print(json.dumps({"pass": importlib.util.find_spec("numpy") is not None, "detail
 		assert(done.tokens === 3400, `finished turn: the result total wins when larger (got ${done.tokens})`);
 	}
 
+	// 24) RUN TARGET CHANGED: when the active run environment is no longer the one the loop started on, the
+	//     loop pauses before the next iteration with that reason instead of running somewhere else.
+	{
+		const { loopDir, cwd } = tmp();
+		console.log('Test 24 (run target changed):');
+		const run = makeRun(ANSWER_EVALUATOR, 5);
+		let turns = 0;
+		let target = 'ssh:lab';
+		const agent: AgentStep = async () => { turns++; target = 'local-vm'; fs.writeFileSync(path.join(cwd, 'answer.txt'), 'x'); return { output: 'x', exitCode: 0 }; };
+		const runTargetChanged = async () => target !== 'ssh:lab' ? 'The active run environment changed from lab to the built-in one' : undefined;
+		const o = await runLoop(run, agent, { loopDir, cwd, evaluatorRunner: localRunner(cwd), persist: () => { }, runTargetChanged });
+		assert(o === 'paused' && turns === 1 && /run environment changed/.test(run.reason ?? ''), `paused before the 2nd iteration (got ${o}, ${turns} turn(s), ${run.reason})`);
+	}
+
 	console.log(failures === 0 ? '\nALL ENGINE TESTS PASSED' : `\n${failures} TEST(S) FAILED`);
 	process.exit(failures === 0 ? 0 : 1);
 }

@@ -243,7 +243,8 @@ Otherwise present the loop FOR APPROVAL AS A SHORT SUMMARIZED PLAN in PLAIN, NAT
 code - and explicitly ask whether this is the loop flow they want. The user is often not a programmer,
 so:
 - Give a compact summary in the user's own language covering, as a few bullets: the GOAL; WHAT HAPPENS
-  each iteration (the steps in order); the INPUT DATA it uses (which files, and where they are on the
+  each iteration (the steps in order); WHERE IT RUNS (runTarget from the project context, e.g. "the SSH
+  server lab (kim@10.0.0.5)" - the user changes it in Settings, so name it plainly); the INPUT DATA it uses (which files, and where they are on the
   machine that runs the loop); HOW SUCCESS IS DECIDED as ONE plain-language sentence (e.g.
   "passes when the mean is within 0.02 of 0 and the standard deviation is between 0.98 and 1.02"); the
   REQUIRED OUTPUT FILES that will exist when it finishes (saying which ones you ADDED beyond what the
@@ -333,13 +334,23 @@ function listDataFiles(root: string): string[] {
 /** Project context so the design is grounded, not guessed: real data/ inputs + the work tools the
  *  sub-agent will actually have (so the chat never invents a tool). Full logic-graph / corpus
  *  grounding (M5) needs the remote Neo4j + hypothesis-corpus endpoints and is not wired yet. */
+/** The active run target (id + readable label), read fresh each time; undefined if aria-autopipe is not up. */
+async function activeRunTarget(): Promise<{ id: string | null; label: string } | undefined> {
+	try {
+		const t = await vscode.commands.executeCommand('aria.qokarun.runTarget') as { id?: string | null; label?: string } | undefined;
+		return t && typeof t.label === 'string' ? { id: t.id ?? null, label: t.label } : undefined;
+	} catch { return undefined; }
+}
+
 async function projectContext(): Promise<Record<string, unknown>> {
 	const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 	let availableTools: string[] = [];
 	try { availableTools = Object.keys(await collectWorkMcpServers()); } catch { /* servers may be down */ }
+	const runTarget = await activeRunTarget();
 	return {
 		projectRoot: root ?? null,
 		hasProject: !!root,
+		runTarget: runTarget?.label ?? null,
 		dataFiles: root ? listDataFiles(root) : [],
 		availableTools,
 		note: 'Ground the loop in these real data/ inputs and availableTools (never invent a tool). Full logic-graph/corpus grounding (M5) is not wired yet.',
@@ -436,6 +447,18 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 	// per-iteration commits use a real git even when none is on PATH. Best-effort: falls back internally.
 	const gitPath = await warmGitBinary(vscode.commands);
 	loopLog(`launch loop ${id}: folder=${folder} gitPath=${gitPath} codeDir=${codeDir}`);
+	// Where it runs. A fresh loop records the active run target; a resume must use the same one (its
+	// files, packages and evaluator inputs live there), so a different target is refused, not mixed in.
+	const target = await activeRunTarget();
+	loopLog(`  run target: ${target ? `${target.label} [${target.id}]` : 'unknown'}`);
+	if (target) {
+		if (run.runTarget && run.runTarget.id !== target.id) {
+			return err(JSON.stringify({ started: false, loopId: id,
+				problem: `This loop ran on ${run.runTarget.label}, but the active run environment is now ${target.label}.`,
+				next: 'Tell the user (in their language) where the loop ran and what is active now, and let them choose: switch back to the original run environment in Settings and resume, or start a NEW loop (same spec, save_loop + start_loop) on the current one. Do not change the setting yourself.' }));
+		}
+		if (!run.runTarget) { run.runTarget = target; writeLoop(run); }
+	}
 	// Quick probe so the Output channel shows immediately whether this git binary actually runs.
 	try {
 		const cp = await import('child_process');
@@ -473,11 +496,17 @@ async function launchLoop(id: string): Promise<CallToolResult> {
 		}
 	}
 	void vscode.commands.executeCommand('qoka.loop.open', id);
-	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, readIterLog, killWork: runEnvWorkKiller(`loops/${folder}`), persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })
+	const runTargetChanged = async (): Promise<string | undefined> => {
+		const now = await activeRunTarget();
+		return now && run.runTarget && now.id !== run.runTarget.id
+			? `The active run environment changed from ${run.runTarget.label} to ${now.label} while the loop was running, so it paused instead of continuing there. Switch back in Settings and resume, or start a new loop on the current one.`
+			: undefined;
+	};
+	void runLoop(run, agentStep, { loopDir: dir, cwd, evaluatorRunner, readIterLog, killWork: runEnvWorkKiller(`loops/${folder}`), runTargetChanged, persist: writeLoop, shouldStop: () => stopRequested.has(id), codeDir, resultsDir, captureDir, gitPath, log: loopLog })
 		.then(outcome => { stopRequested.delete(id); abortControllers.delete(id); console.log(`[qoka-loop] loop ${id} finished: ${outcome}`); void notifyLoopFinished(id, outcome); })
 		.catch(e => { stopRequested.delete(id); abortControllers.delete(id); console.error(`[qoka-loop] loop ${id} crashed:`, e); });
-	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, tools: Object.keys(workMcpServers),
-		tell_user: 'The loop is running. Tell the user (in their language) to watch it live in the loop detail tab: a "Progress" section appears UNDER the Flow with the current iteration and step. It only shows while the loop runs.' }));
+	return ok(JSON.stringify({ started: true, resumed: resuming, loopId: id, fromIteration: run.iteration, runsOn: run.runTarget?.label ?? null, tools: Object.keys(workMcpServers),
+		tell_user: 'The loop is running. Tell the user (in their language) WHERE it runs (runsOn) and to watch it live in the loop detail tab: a "Progress" section appears UNDER the Flow with the current iteration and step. It only shows while the loop runs.' }));
 }
 
 export function buildTools(): ToolDefinition[] {

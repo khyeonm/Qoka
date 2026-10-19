@@ -134,6 +134,9 @@ export interface LoopRun {
 	/** How long the evaluator took the last time it ran (pre-start check or an iteration), in ms. The engine
 	 *  keeps that much of the time budget free for judging before it lets a sub-agent turn start. */
 	evalMs?: number;
+	/** Where the loop runs (the active run target when it started): id + readable label. The engine pauses
+	 *  if the active target changes during the loop, and resume refuses a different target. */
+	runTarget?: { id: string | null; label: string };
 	/** History index from which no-change detection counts again (set when a stalled loop is resumed,
 	 *  so the same three failures do not re-trigger the pause immediately). */
 	noProgressFrom?: number;

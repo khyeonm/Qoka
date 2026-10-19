@@ -616,6 +616,9 @@ export class SshService {
 						armStall();
 					});
 					readStream.on('error', (e: Error) => finish(e));
+					// Drain stdout even though `cat > file` prints nothing: an unread channel never reaches
+					// 'end', so 'close' never fires and a finished upload looked "stalled" after 120 s.
+					stream.on('data', () => { /* drained */ });
 					stream.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
 					stream.on('error', (e: Error) => finish(e));
 					stream.on('close', (code: number | null) => {
@@ -649,6 +652,62 @@ export class SshService {
 				finish(e instanceof Error ? e : new Error(String(e)));
 			}
 		});
+	}
+
+	/**
+	 * Upload several local files over ONE login. Each file goes through `mkdir -p` + `cat` into a
+	 * `.qoka-part` temp name + rename, all on the same connection (one exec per file), so a server that
+	 * refuses rapid repeated logins (sshd MaxStartups, fail2ban - it answers "All configured
+	 * authentication methods failed") sees a single login instead of three per file. A login that is
+	 * refused is retried after 3 s, 10 s and 30 s. A file that fails or stalls after the login is retried
+	 * once on a fresh connection, then reported. A remote path starting with "~/" is resolved against the
+	 * remote $HOME. Returns how many files arrived and an error line per file that did not.
+	 */
+	async uploadFiles(profile: SshProfile, items: { local: string; remote: string }[]): Promise<{ uploaded: number; errors: string[] }> {
+		const errors: string[] = [];
+		let uploaded = 0;
+		let i = 0;
+		let retried = -1;
+		while (i < items.length) {
+			let conn: Client;
+			try {
+				conn = await this.connectWithBackoff(profile);
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				for (; i < items.length; i++) { errors.push(`${items[i].remote}: the server refused the login (${msg})`); }
+				break;
+			}
+			try {
+				for (; i < items.length; i++) {
+					try {
+						await streamFileOverExec(conn, items[i].local, items[i].remote);
+						uploaded++;
+					} catch (e) {
+						if (retried !== i) { retried = i; throw e; } // reconnect, then retry this file once
+						errors.push(`${items[i].remote}: ${e instanceof Error ? e.message : String(e)}`);
+					}
+				}
+			} catch { /* fall through: open a fresh connection for the file that failed */ }
+			finally {
+				try { conn.end(); } catch { /* already closed */ }
+			}
+		}
+		return { uploaded, errors };
+	}
+
+	/** Open one ready connection, retrying a refused login after 3 s, 10 s and 30 s. */
+	private async connectWithBackoff(profile: SshProfile): Promise<Client> {
+		const waits = [0, 3000, 10000, 30000];
+		let last: Error | undefined;
+		for (const wait of waits) {
+			if (wait) { await new Promise(r => setTimeout(r, wait)); }
+			try {
+				return await connectReady(profile);
+			} catch (e) {
+				last = e instanceof Error ? e : new Error(String(e));
+			}
+		}
+		throw last ?? new Error('ssh connect failed');
 	}
 
 	async listFiles(profile: SshProfile, remotePath: string): Promise<string[]> {
@@ -769,6 +828,81 @@ const STALL_TIMEOUT_MS = 120_000;
 
 /** Translate an Qoka SshProfile into ssh2's connection config. Throws with a
  *  clear message when required auth material is missing. */
+/** Connect and resolve once the session is ready (same auth, incl. the keyboard-interactive fallback). */
+function connectReady(profile: SshProfile): Promise<Client> {
+	return new Promise((resolve, reject) => {
+		let cfg: ConnectConfig;
+		try { cfg = connectConfig(profile); } catch (e) { reject(e); return; }
+		const conn = new Client();
+		conn.on('ready', () => resolve(conn));
+		// Before ready this rejects; after ready it keeps a late socket error from crashing the host.
+		conn.on('error', (err) => reject(err instanceof Error ? err : new Error(String(err))));
+		if (profile.auth.type === 'password' && profile.auth.password) {
+			const kbPw = profile.auth.password;
+			conn.on('keyboard-interactive', (_name, _instructions, _lang, prompts, respond) => respond(prompts.map(() => kbPw)));
+		}
+		try { conn.connect(cfg); } catch (e) { reject(e instanceof Error ? e : new Error(String(e))); }
+	});
+}
+
+/** A remote path for the shell: "~/x" -> "$HOME"/'x' (expanded remotely), anything else single-quoted. */
+function remoteArg(p: string): string {
+	if (p === '~') { return '"$HOME"'; }
+	if (p.startsWith('~/')) { return `"$HOME"/${shellQuote(p.slice(2))}`; }
+	return shellQuote(p);
+}
+
+/**
+ * Stream one local file to `remotePath` on an already-open connection: `mkdir -p` the parent, `cat` into a
+ * `.qoka-part` temp name, rename on success (a failed or interrupted upload never leaves a truncated file
+ * at the real path). Fails when the transfer makes no progress for STALL_TIMEOUT_MS or arrives short.
+ */
+function streamFileOverExec(conn: Client, localPath: string, remotePath: string): Promise<number> {
+	return new Promise((resolve, reject) => {
+		let size = 0;
+		try { size = fs.statSync(localPath).size; } catch (e) { reject(e); return; }
+		const slash = remotePath.lastIndexOf('/');
+		const parent = slash > 0 ? remotePath.slice(0, slash) : '';
+		const dest = remoteArg(remotePath);
+		const part = remoteArg(`${remotePath}.qoka-part`);
+		const cmd = `${parent ? `mkdir -p ${remoteArg(parent)} && ` : ''}cat > ${part} && mv -f ${part} ${dest} || { rm -f ${part}; exit 1; }`;
+		let settled = false;
+		let stall: NodeJS.Timeout | undefined;
+		const finish = (err?: Error, val?: number): void => {
+			if (settled) { return; }
+			settled = true;
+			if (stall) { clearTimeout(stall); }
+			if (err) { reject(err); } else { resolve(val ?? 0); }
+		};
+		conn.exec(cmd, (err, stream) => {
+			if (err) { finish(err); return; }
+			let stderr = '';
+			let bytes = 0;
+			const armStall = () => {
+				if (stall) { clearTimeout(stall); }
+				stall = setTimeout(() => {
+					try { stream.close(); } catch { /* already gone */ }
+					finish(new Error(`the upload stalled - no progress for ${STALL_TIMEOUT_MS / 1000}s`));
+				}, STALL_TIMEOUT_MS);
+			};
+			armStall();
+			const readStream = fs.createReadStream(localPath);
+			readStream.on('data', (d: string | Buffer) => { bytes += typeof d === 'string' ? Buffer.byteLength(d) : d.length; armStall(); });
+			readStream.on('error', (e: Error) => finish(e));
+			stream.on('data', () => { /* drain stdout: an unread channel never closes */ });
+			stream.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+			stream.on('error', (e: Error) => finish(e));
+			stream.on('close', (code: number | null) => {
+				const exitCode = code ?? 0;
+				if (exitCode !== 0) { finish(new Error(stderr.trim() || `remote write failed (exit ${exitCode})`)); return; }
+				if (bytes !== size) { finish(new Error(`upload was truncated: sent ${bytes} of ${size} bytes`)); return; }
+				finish(undefined, bytes);
+			});
+			readStream.pipe(stream);
+		});
+	});
+}
+
 function connectConfig(profile: SshProfile, timeoutMs?: number): ConnectConfig {
 	const cfg: ConnectConfig = {
 		host: profile.host,

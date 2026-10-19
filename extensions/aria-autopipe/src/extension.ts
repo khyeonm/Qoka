@@ -290,6 +290,16 @@ export function activate(context: vscode.ExtensionContext): void {
 		// so a cut-off turn's work does not keep running there. Returns how many processes were killed.
 		vscode.commands.registerCommand('aria.qokarun.killScope', (arg: { scope?: string }) =>
 			killLoopScope(typeof arg?.scope === 'string' ? arg.scope : '')),
+		// The ACTIVE run target as an id + a readable label, read fresh from the config. The loop engine
+		// records it when a loop starts, shows it to the user, and pauses if it changes mid-loop, so the
+		// work and the evaluator never run somewhere other than where the user expects.
+		vscode.commands.registerCommand('aria.qokarun.runTarget', () => {
+			const id = config.get().active_ssh_profile_id ?? null;
+			if (vscode.env.remoteName) { return { id: `remote:${vscode.env.remoteName}`, label: 'this server (the open Remote-SSH window)' }; }
+			if (config.isLocalVmActive()) { return { id, label: 'the built-in run environment on this computer' }; }
+			const p = config.activeProfile();
+			return p ? { id, label: `the SSH server ${p.name} (${p.username}@${p.host}:${p.port})` } : { id: null, label: 'no run environment selected' };
+		}),
 		vscode.commands.registerCommand('aria.qokarun.runInEnv', (arg: { code?: string; language?: string; cwdRel?: string; dependencies?: unknown; timeoutMs?: unknown }) =>
 			runScriptInEnv(typeof arg?.code === 'string' ? arg.code : '', arg?.language, typeof arg?.cwdRel === 'string' ? arg.cwdRel : undefined,
 				Array.isArray(arg?.dependencies) ? arg.dependencies.filter((d): d is string => typeof d === 'string') : undefined,

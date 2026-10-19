@@ -51,12 +51,54 @@ const LANGS: Record<Lang, { file: string; run: (f: string) => string }> = {
 const ENSURE_UV = 'command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh';
 
 /**
- * Shell lines that (1) set $QOKA_TO to a `timeout` prefix that kills the run's whole process group after
- * `seconds` (empty when `timeout` is missing), and (2) for a loop run, export QOKA_LOOP_SCOPE so every
- * process of the run carries the loop's scope and killLoopScope can find it.
+ * Shell lines that define `qoka_run CMD...`: it runs CMD with a time limit of `seconds`. CMD runs with
+ * QOKA_RUN_ID set to an id unique to this run, which uv, python and every other child inherit.
+ * - When the host's `timeout` accepts -k (GNU coreutils), it is used: it signals CMD's whole process group
+ *   (TERM, then KILL 10 s later).
+ * - Otherwise (no `timeout`, or a BusyBox / old coreutils one that rejects -k) a watchdog shell sleeps in
+ *   1 s steps and, when the limit is reached, finds every process that carries the run's id in /proc and
+ *   stops it (TERM, then KILL 10 s later) - the whole tree, also inside the WSL bubblewrap sandbox, whose
+ *   processes the host /proc still lists. Without /proc (a macOS SSH host) it stops CMD and its direct
+ *   children with pkill -P. The watchdog ends within a second once CMD finishes.
+ * Either way a run that hit the limit prints a "[qoka] stopped" line and exits 124. For a loop run it
+ * also exports QOKA_LOOP_SCOPE so killLoopScope can find the loop's processes.
  */
 export function runGuard(seconds: number, loopScope?: string): string {
-	const lines = [`QOKA_TO=""; command -v timeout >/dev/null 2>&1 && QOKA_TO="timeout -k 10 ${Math.max(1, Math.round(seconds))}"`];
+	const s = Math.max(1, Math.round(seconds));
+	const lines = [
+		'QOKA_RID="qr$$-$(date +%s 2>/dev/null)-${RANDOM:-0}"',
+		'if timeout -k 1 5 true >/dev/null 2>&1; then QOKA_GNU_TIMEOUT=1; else QOKA_GNU_TIMEOUT=0; fi',
+		'qoka_kill_rid() {',
+		'  if [ -d /proc/self ]; then',
+		'    for d in /proc/[0-9]*; do',
+		'      [ -O "$d/environ" ] || continue',
+		'      if { tr "\\000" "\\n" < "$d/environ"; } 2>/dev/null | { while IFS= read -r l; do [ "$l" = "QOKA_RUN_ID=$QOKA_RID" ] && exit 0; done; exit 1; }; then kill -"$1" "${d#/proc/}" 2>/dev/null; fi',
+		'    done',
+		'  else',
+		'    pkill -"$1" -P "$2" 2>/dev/null; kill -"$1" "$2" 2>/dev/null',
+		'  fi',
+		'}',
+		'qoka_run() {',
+		'  if [ "$QOKA_GNU_TIMEOUT" = 1 ]; then',
+		`    timeout -k 10 ${s} env QOKA_RUN_ID="$QOKA_RID" "$@"; qoka_rc=$?`,
+		`    if [ "$qoka_rc" -eq 124 ]; then echo "[qoka] stopped: the run reached its ${s} s time limit" >&2; fi`,
+		'    return $qoka_rc',
+		'  fi',
+		'  env QOKA_RUN_ID="$QOKA_RID" "$@" &',
+		'  qoka_pid=$!',
+		'  (',
+		'    i=0',
+		`    while [ "$i" -lt ${s} ]; do sleep 1; i=$((i + 1)); kill -0 "$qoka_pid" 2>/dev/null || exit 0; done`,
+		'    : > "${TMPDIR:-/tmp}/.qoka-timeout-$QOKA_RID"',
+		'    qoka_kill_rid TERM "$qoka_pid"; sleep 10; qoka_kill_rid KILL "$qoka_pid"',
+		'  ) >/dev/null 2>&1 &',
+		'  wait "$qoka_pid"; qoka_rc=$?',
+		'  if [ -e "${TMPDIR:-/tmp}/.qoka-timeout-$QOKA_RID" ]; then',
+		`    rm -f "\${TMPDIR:-/tmp}/.qoka-timeout-$QOKA_RID"; echo "[qoka] stopped: the run reached its ${s} s time limit" >&2; qoka_rc=124`,
+		'  fi',
+		'  return $qoka_rc',
+		'}',
+	];
 	if (loopScope && /^loops\/[A-Za-z0-9._/-]+$/.test(loopScope) && !loopScope.includes('..')) {
 		lines.push(`export QOKA_LOOP_SCOPE='${loopScope}'`);
 	}
@@ -443,7 +485,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
 						// only that single resolv.conf file, never the rest of /mnt (/mnt/c stays
 						// invisible). When resolv.conf is a regular file this binds it over itself.
 						'  QOKA_RESOLV="$(readlink -f /etc/resolv.conf 2>/dev/null || echo /etc/resolv.conf)"',
-						'  $QOKA_TO bwrap \\',
+						'  qoka_run bwrap \\',
 						'    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind-try /sbin /sbin \\',
 						'    --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\',
 						'    --ro-bind /etc /etc --ro-bind-try "$QOKA_RESOLV" "$QOKA_RESOLV" \\',
@@ -458,12 +500,12 @@ export const RUN_TOOLS: ToolDefinition[] = [
 						'else',
 						'  echo "[qoka] bubblewrap not installed in the run environment - running WITHOUT sandbox isolation. Restart Qoka to finish setup." >&2',
 						'  export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"',
-						`  ${pyBuf}${ensure}$QOKA_TO ${runCmd} > stdout.log 2> stderr.log`,
+						`  ${pyBuf}${ensure}qoka_run ${runCmd} > stdout.log 2> stderr.log`,
 						'fi',
 					].join('\n');
 				} else {
 					execBlock = 'export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"\n'
-						+ `${pyBuf}${ensure}$QOKA_TO ${runCmd} > stdout.log 2> stderr.log`;
+						+ `${pyBuf}${ensure}qoka_run ${runCmd} > stdout.log 2> stderr.log`;
 				}
 				// ONE login for the whole run: mkdir + write the script + execute + report
 				// the resolved dir and the files produced. Kept to a single connection
@@ -766,7 +808,7 @@ export async function runScriptInEnv(
 			`  printf '%s' '${encoded}' | base64 -d > ${sbx}/.qoka-eval.${ext}`,
 			`  printf '%s' '${runnerB64}' | base64 -d > ${sbx}/.qoka-eval-run.sh`,
 			'  QOKA_RESOLV="$(readlink -f /etc/resolv.conf 2>/dev/null || echo /etc/resolv.conf)"',
-			'  $QOKA_TO bwrap \\',
+			'  qoka_run bwrap \\',
 			'    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind-try /sbin /sbin \\',
 			'    --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\',
 			'    --ro-bind /etc /etc --ro-bind-try "$QOKA_RESOLV" "$QOKA_RESOLV" \\',
@@ -781,7 +823,7 @@ export async function runScriptInEnv(
 			mounted ? `  export QOKA_PROJECT_ROOT='${wslRepo}'` : '',
 			`  printf '%s' '${encoded}' | base64 -d > "$HOME/.qoka-eval.${ext}"`,
 			isPython ? `  ${ENSURE_UV} >&2` : '',
-			`  $QOKA_TO ${runner} "$HOME/.qoka-eval.${ext}"`,
+			`  qoka_run ${runner} "$HOME/.qoka-eval.${ext}"`,
 			'fi',
 		].filter(Boolean).join('\n');
 	} else {
@@ -797,7 +839,7 @@ export async function runScriptInEnv(
 			repo ? `export QOKA_PROJECT_ROOT="${repo}"` : '',
 			`printf '%s' '${encoded}' | base64 -d > '${file}'`,
 			isPython ? `${ENSURE_UV} >&2` : '',
-			`$QOKA_TO ${runner} '${file}'`,
+			`qoka_run ${runner} '${file}'`,
 			'__rc=$?',
 			`rm -f '${file}'`,
 			'exit $__rc',
